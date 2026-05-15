@@ -94,8 +94,8 @@ class RendererView(QWebEngineView):
         }})()"""
         self.page().runJavaScript(js)
 
-    def find_text(self, text: str):
-        self.page().findText(text)
+    def find_text(self, text: str, result_callback=None):
+        self.page().findText(text, resultCallback=result_callback)
 
     def find_next(self, text: str):
         self.page().findText(text)

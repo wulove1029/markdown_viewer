@@ -62,7 +62,11 @@ class RecentFilesView(QListWidget):
 
     def _show_context_menu(self, pos: QPoint):
         item = self.itemAt(pos)
-        if not item or not item.flags() & Qt.ItemFlag.ItemIsEnabled:
+        if (
+            not item
+            or not (item.flags() & Qt.ItemFlag.ItemIsEnabled)
+            or not item.data(Qt.ItemDataRole.UserRole)
+        ):
             return
 
         menu = QMenu(self)

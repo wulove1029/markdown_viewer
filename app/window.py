@@ -419,12 +419,30 @@ QWidget#searchBar QLabel {{
     def _close_search(self):
         self._search_bar.hide()
         self._search_input.clear()
-        self._renderer.page().findText("")
+        self._renderer.find_text("")
         self._renderer.setFocus()
 
     def _on_search_text_changed(self, text: str):
-        self._renderer.find_text(text)
-        self._search_count.setText("")
+        if not text:
+            self._search_count.setText("")
+            self._renderer.find_text("")
+            return
+
+        self._search_count.setText("正在搜尋...")
+        self._renderer.find_text(
+            text,
+            lambda found, needle=text: self._on_search_result(needle, found),
+        )
+
+    def _on_search_result(self, needle: str, result):
+        if needle != self._search_input.text():
+            return
+        found = (
+            result.numberOfMatches() > 0
+            if hasattr(result, "numberOfMatches")
+            else bool(result)
+        )
+        self._search_count.setText("" if found else "找不到結果")
 
     def _search_next(self):
         self._renderer.find_next(self._search_input.text())
@@ -511,7 +529,7 @@ QWidget#searchBar QLabel {{
 
         if error:
             if manual:
-                QMessageBox.warning(self, "檢查更新失敗", str(error))
+                QMessageBox.warning(self, "更新檢查失敗", str(error))
             return
 
         if not update.has_update:
@@ -527,7 +545,7 @@ QWidget#searchBar QLabel {{
             self,
             "有可用更新",
             f"版本 {update.latest_version} 已可下載。\n\n"
-            "要立即下載並安裝嗎？",
+            "是否要立即下載並安裝？",
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._download_update(update)
@@ -554,7 +572,7 @@ QWidget#searchBar QLabel {{
             self._update_progress = None
 
         if error:
-            QMessageBox.warning(self, "下載更新失敗", str(error))
+            QMessageBox.warning(self, "更新下載失敗", str(error))
             return
 
         if not QProcess.startDetached(str(installer_path)):
