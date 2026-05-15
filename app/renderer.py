@@ -77,10 +77,17 @@ class RendererView(QWebEngineView):
 
     def set_theme(self, theme: str):
         self._theme = "dark" if theme == "dark" else "light"
-        if self._current_path:
-            self.reload_current()
-        else:
+        if not self._current_path:
             self.show_empty()
+            return
+
+        theme_class = f"theme-{self._theme}"
+        js = f"""(function() {{
+            if (!document.body) {{ return; }}
+            document.body.classList.remove('theme-light', 'theme-dark');
+            document.body.classList.add({json.dumps(theme_class)});
+        }})()"""
+        self.page().runJavaScript(js)
 
     def scroll_to(self, anchor: str):
         """Scroll the rendered page to the given anchor id."""

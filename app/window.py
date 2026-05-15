@@ -575,7 +575,9 @@ QWidget#searchBar QLabel {{
             QMessageBox.warning(self, "更新下載失敗", str(error))
             return
 
-        if not QProcess.startDetached(str(installer_path)):
+        result = QProcess.startDetached(str(installer_path))
+        started = result[0] if isinstance(result, tuple) else bool(result)
+        if not started:
             QMessageBox.warning(self, "更新失敗", "無法啟動安裝程式。")
             return
 
