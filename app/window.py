@@ -316,8 +316,8 @@ QWidget#searchBar QLineEdit {{
     border: 1px solid {self._theme.border};
     border-radius: 6px;
     color: {self._theme.text};
-    min-height: 32px;
-    padding: 4px 10px;
+    min-height: 30px;
+    padding: 2px 10px;
     selection-background-color: {self._theme.accent_soft};
     selection-color: {self._theme.text};
 }}
@@ -360,10 +360,10 @@ QWidget#searchBar QLabel {{
     def _build_search_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("searchBar")
-        bar.setFixedHeight(44)
+        bar.setFixedHeight(48)
 
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(10, 4, 8, 4)
+        layout.setContentsMargins(10, 5, 8, 5)
         layout.setSpacing(4)
 
         self._search_input = QLineEdit()
