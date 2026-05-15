@@ -1,0 +1,5 @@
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6
+markdown-it-py>=3.0
+mdit_py_plugins>=0.4
+Pygments>=2.17
