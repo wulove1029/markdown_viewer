@@ -112,7 +112,7 @@ def _wrap(body: str, title: str, theme: str = "light") -> str:
     safe_title = escape(title)
     theme_class = _theme_class(theme)
     return f"""<!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-Hant" class="{theme_class}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -24,6 +24,7 @@
   --shadow: rgba(20, 24, 31, 0.10);
 }
 
+html.theme-dark,
 body.theme-dark {
   --page-bg: #171b22;
   --surface: #20252d;

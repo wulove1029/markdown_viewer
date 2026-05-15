@@ -83,9 +83,13 @@ class RendererView(QWebEngineView):
 
         theme_class = f"theme-{self._theme}"
         js = f"""(function() {{
-            if (!document.body) {{ return; }}
-            document.body.classList.remove('theme-light', 'theme-dark');
-            document.body.classList.add({json.dumps(theme_class)});
+            var targets = [document.documentElement, document.body];
+            for (var i = 0; i < targets.length; i++) {{
+                var el = targets[i];
+                if (!el) {{ continue; }}
+                el.classList.remove('theme-light', 'theme-dark');
+                el.classList.add({json.dumps(theme_class)});
+            }}
         }})()"""
         self.page().runJavaScript(js)
 
