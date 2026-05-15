@@ -2,9 +2,12 @@
 
 import subprocess
 from pathlib import Path
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu
-from PyQt6.QtCore import Qt, QSettings, QPoint
+
+from PyQt6.QtCore import QPoint, QSettings, Qt
 from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu
+
+from .theme import LIGHT, Theme, collection_stylesheet
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
@@ -15,17 +18,16 @@ class RecentFilesView(QListWidget):
     def __init__(self, on_file_selected, parent=None):
         super().__init__(parent)
         self._on_file_selected = on_file_selected
-        self.setStyleSheet("""
-            QListWidget { background: #f5f5f2; border: none; font-size: 13px; }
-            QListWidget::item { padding: 6px 10px; color: #333;
-                                border-bottom: 1px solid #ebebea; }
-            QListWidget::item:hover { background: #e8e6fa; color: #5a4faf; }
-            QListWidget::item:selected { background: #dddaf7; color: #3d349e; }
-        """)
+        self._theme = LIGHT
+        self.apply_theme(LIGHT)
         self.itemClicked.connect(self._on_clicked)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self._refresh()
+
+    def apply_theme(self, theme: Theme):
+        self._theme = theme
+        self.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
 
     def add(self, filepath: str):
         paths = self._load()
@@ -42,6 +44,7 @@ class RecentFilesView(QListWidget):
 
     def _refresh(self):
         self.clear()
+        has_items = False
         for p in self._load():
             path = Path(p)
             if not path.exists():
@@ -50,30 +53,55 @@ class RecentFilesView(QListWidget):
             item.setToolTip(p)
             item.setData(Qt.ItemDataRole.UserRole, p)
             self.addItem(item)
+            has_items = True
+
+        if not has_items:
+            item = QListWidgetItem("尚無最近開啟的檔案")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self.addItem(item)
 
     def _show_context_menu(self, pos: QPoint):
         item = self.itemAt(pos)
-        if not item:
+        if not item or not item.flags() & Qt.ItemFlag.ItemIsEnabled:
             return
+
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background: #f5f5f2; border: 1px solid #d5d5d0; border-radius: 4px; }
-            QMenu::item { padding: 6px 20px; color: #333; font-size: 13px; }
-            QMenu::item:selected { background: #e8e6fa; color: #5a4faf; }
-        """)
-        open_act = QAction("開啟檔案位置", self)
+        menu.setStyleSheet(self._menu_stylesheet())
+
+        open_act = QAction("在檔案總管中顯示", self)
         open_act.triggered.connect(lambda: self._open_location(item))
         menu.addAction(open_act)
+
         menu.addSeparator()
-        remove_act = QAction("移除此紀錄", self)
+
+        remove_act = QAction("從最近清單移除", self)
         remove_act.triggered.connect(lambda: self._remove_item(item))
         menu.addAction(remove_act)
+
         menu.exec(self.mapToGlobal(pos))
+
+    def _menu_stylesheet(self) -> str:
+        theme = self._theme
+        return f"""
+QMenu {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 4px;
+    color: {theme.text};
+}}
+QMenu::item {{
+    padding: 6px 20px;
+    color: {theme.text};
+}}
+QMenu::item:selected {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+"""
 
     def _open_location(self, item: QListWidgetItem):
         path = item.data(Qt.ItemDataRole.UserRole)
         if path:
-            # 開啟 Windows 檔案總管並選取該檔案
             subprocess.run(["explorer", "/select,", path])
 
     def _remove_item(self, item: QListWidgetItem):

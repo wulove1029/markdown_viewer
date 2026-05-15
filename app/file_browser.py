@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import QTreeView, QAbstractItemView
 from PyQt6.QtGui import QFileSystemModel
 from PyQt6.QtCore import QDir, QSortFilterProxyModel, QModelIndex
 
+from .theme import LIGHT, Theme, collection_stylesheet
+
 
 class MdFilterProxy(QSortFilterProxyModel):
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
@@ -42,13 +44,11 @@ class FileBrowserView(QTreeView):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setAnimated(True)
         self.setExpandsOnDoubleClick(True)
-        self.setStyleSheet("""
-            QTreeView { background: #f5f5f2; border: none; font-size: 13px; }
-            QTreeView::item { padding: 3px 4px; color: #333; }
-            QTreeView::item:hover { background: #e8e6fa; color: #5a4faf; }
-            QTreeView::item:selected { background: #dddaf7; color: #3d349e; }
-        """)
+        self.apply_theme(LIGHT)
         self.clicked.connect(self._on_clicked)
+
+    def apply_theme(self, theme: Theme):
+        self.setStyleSheet(collection_stylesheet(theme, "QTreeView"))
 
     def _on_clicked(self, proxy_index: QModelIndex):
         source_index = self._proxy.mapToSource(proxy_index)
