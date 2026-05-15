@@ -305,8 +305,11 @@ QPushButton:pressed {{
     def _search_style(self) -> str:
         return f"""
 QWidget#searchBar {{
-    background: {self._theme.surface_alt};
+    background: {self._theme.window};
     border-bottom: 1px solid {self._theme.border};
+}}
+QWidget#searchBar QWidget {{
+    background: transparent;
 }}
 QWidget#searchBar QLineEdit {{
     background: {self._theme.surface};

@@ -172,6 +172,15 @@ code {
   padding: 0;
 }
 
+.highlight ::-webkit-scrollbar-track {
+  background: var(--code-bg);
+}
+
+.highlight ::-webkit-scrollbar-thumb {
+  background: #4b5565;
+  border: 2px solid var(--code-bg);
+}
+
 blockquote {
   background: var(--quote-bg);
   border-left: 4px solid var(--quote-border);

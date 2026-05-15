@@ -178,8 +178,13 @@ def svg_icon(name: str, color: str, size: int = 20) -> QIcon:
 
 def app_stylesheet(theme: Theme) -> str:
     return f"""
-QMainWindow, QWidget {{
+QMainWindow {{
     background: {theme.window};
+    color: {theme.text};
+    font-family: "Segoe UI", "Microsoft JhengHei UI", sans-serif;
+    font-size: 13px;
+}}
+QWidget {{
     color: {theme.text};
     font-family: "Segoe UI", "Microsoft JhengHei UI", sans-serif;
     font-size: 13px;
@@ -290,6 +295,9 @@ QWidget#toolbar, QFrame#toolbar, QWidget#topToolbar, QFrame#topToolbar {{
     min-height: {TOOLBAR_HEIGHT}px;
     max-height: {TOOLBAR_HEIGHT}px;
 }}
+QWidget#topToolbar QWidget, QFrame#topToolbar QWidget {{
+    background: transparent;
+}}
 QToolButton,
 QWidget#toolbar QPushButton, QFrame#toolbar QPushButton,
 QWidget#topToolbar QPushButton, QFrame#topToolbar QPushButton {{
@@ -344,6 +352,9 @@ QWidget#panelHeader, QFrame#panelHeader {{
     background: {theme.surface};
     border-bottom: 1px solid {theme.border};
     min-height: {TOOLBAR_HEIGHT}px;
+}}
+QWidget#panelHeader QWidget, QFrame#panelHeader QWidget {{
+    background: transparent;
 }}
 QLabel {{
     background: transparent;
