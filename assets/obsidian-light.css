@@ -66,7 +66,7 @@ body {
   font-family: "Segoe UI", "Microsoft JhengHei UI", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 1.75;
   margin: 0 auto;
-  max-width: 900px;
+  max-width: clamp(900px, 90vw, 1600px);
   min-height: 100vh;
   padding: 42px 56px 64px;
 }
@@ -198,9 +198,12 @@ table {
   border-collapse: collapse;
   display: block;
   font-size: 0.95rem;
-  margin: 1.25em 0;
+  margin: 1.25em 0 1.25em 50%;
+  max-width: calc(100vw - 96px);
+  min-width: 100%;
   overflow-x: auto;
-  width: 100%;
+  transform: translateX(-50%);
+  width: max-content;
 }
 
 thead tr {
@@ -210,6 +213,7 @@ thead tr {
 th,
 td {
   border: 1px solid var(--border);
+  overflow-wrap: break-word;
   padding: 8px 14px;
   text-align: left;
   vertical-align: top;
