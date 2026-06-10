@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PyQt6.QtCore import QProcess, QSettings, QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -15,11 +15,14 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from .editor import EditorView
 from .left_panel import LeftPanel
+from .md_converter import read_text
 from .renderer import RendererView
 from .theme import (
     HIT_TARGET,
@@ -79,7 +82,6 @@ class MainWindow(QMainWindow):
         self._update_check_thread = None
         self._update_download_thread = None
         self._update_progress = None
-        self._setup_menu()
 
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
@@ -94,8 +96,18 @@ class MainWindow(QMainWindow):
         )
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
 
+        self._edit_mode = False
+        self._editing_encoding = "utf-8"
+        self._editing_newline = "\n"
+        self._editor = EditorView()
+        self._editor.modified_changed.connect(self._on_editor_modified)
+
         self._search_bar = self._build_search_bar()
         self._search_bar.hide()
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._renderer)
+        self._stack.addWidget(self._editor)
 
         renderer_wrap = QWidget()
         renderer_wrap.setObjectName("rendererWorkspace")
@@ -103,7 +115,7 @@ class MainWindow(QMainWindow):
         renderer_layout.setContentsMargins(0, 0, 0, 0)
         renderer_layout.setSpacing(0)
         renderer_layout.addWidget(self._search_bar)
-        renderer_layout.addWidget(self._renderer)
+        renderer_layout.addWidget(self._stack)
 
         self._restore_btn = QPushButton(self._renderer)
         self._restore_btn.setFixedSize(HIT_TARGET, HIT_TARGET)
@@ -125,6 +137,7 @@ class MainWindow(QMainWindow):
 
         self._toolbar = self._build_toolbar()
         self._reload_btn.setEnabled(False)
+        self._edit_btn.setEnabled(False)
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -144,15 +157,15 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             self._close_search
         )
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(
+            self._toggle_edit_mode
+        )
+        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
+            self._save_edits
+        )
 
         self._apply_theme()
         QTimer.singleShot(2000, self._check_updates_silent)
-
-    def _setup_menu(self):
-        help_menu = self.menuBar().addMenu("&Help")
-        check_update_action = QAction(f"檢查更新... (v{VERSION})", self)
-        check_update_action.triggered.connect(lambda: self._check_for_updates(manual=True))
-        help_menu.addAction(check_update_action)
 
     def _build_toolbar(self) -> QWidget:
         toolbar = QWidget()
@@ -175,11 +188,16 @@ class MainWindow(QMainWindow):
         self._reload_btn = self._toolbar_button(
             "refresh", "重新載入文件", self._reload_current
         )
+        self._edit_btn = self._toolbar_button(
+            "pencil", "編輯文件 (Ctrl+E)", self._toggle_edit_mode
+        )
         self._theme_btn = self._toolbar_button(
             "moon", "切換深色模式", self._toggle_theme
         )
         self._update_btn = self._toolbar_button(
-            "download", "檢查更新", lambda: self._check_for_updates(manual=True)
+            "circle-arrow-up",
+            f"檢查更新（目前 v{VERSION}）",
+            lambda: self._check_for_updates(manual=True),
         )
 
         title_wrap = QWidget()
@@ -201,6 +219,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._open_btn)
         layout.addWidget(self._search_btn)
         layout.addWidget(self._reload_btn)
+        layout.addWidget(self._edit_btn)
         layout.addWidget(title_wrap, stretch=1)
         layout.addWidget(self._theme_btn)
         layout.addWidget(self._update_btn)
@@ -266,6 +285,7 @@ QPushButton:pressed {{
 }}
 """
         )
+        self._editor.apply_theme(self._theme)
         self._refresh_icons()
         self._renderer.set_theme(self._theme_name)
 
@@ -282,6 +302,14 @@ QPushButton:pressed {{
             icon_name = button.property("iconName")
             color = icon_color if button.isEnabled() else disabled_color
             button.setIcon(svg_icon(icon_name, color, 20))
+
+        edit_icon = "eye" if self._edit_mode else "pencil"
+        edit_tip = "回到預覽 (Ctrl+E)" if self._edit_mode else "編輯文件 (Ctrl+E)"
+        edit_color = icon_color if self._edit_btn.isEnabled() else disabled_color
+        self._edit_btn.setProperty("iconName", edit_icon)
+        self._edit_btn.setToolTip(edit_tip)
+        self._edit_btn.setAccessibleName(edit_tip)
+        self._edit_btn.setIcon(svg_icon(edit_icon, edit_color, 20))
 
         theme_icon = "sun" if self._theme_name == "dark" else "moon"
         theme_tip = "切換淺色模式" if self._theme_name == "dark" else "切換深色模式"
@@ -412,6 +440,8 @@ QWidget#searchBar QLabel {{
         return button
 
     def _toggle_search(self):
+        if self._edit_mode:
+            return
         if self._search_bar.isHidden():
             self._search_bar.show()
             self._search_input.setFocus()
@@ -482,8 +512,128 @@ QWidget#searchBar QLabel {{
             ),
         )
 
+    def _toggle_edit_mode(self):
+        if not self._current_file:
+            return
+        if self._edit_mode:
+            self._exit_edit_mode()
+        else:
+            self._enter_edit_mode()
+
+    def _enter_edit_mode(self):
+        try:
+            raw = self._current_file.read_bytes()
+            result = read_text(self._current_file)
+        except OSError as exc:
+            QMessageBox.warning(self, "無法編輯", f"無法讀取檔案：\n{exc}")
+            return
+        if result is None:
+            QMessageBox.warning(
+                self,
+                "無法編輯",
+                "無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK。",
+            )
+            return
+
+        text, encoding = result
+        self._editing_encoding = encoding
+        self._editing_newline = "\r\n" if b"\r\n" in raw else "\n"
+        self._editor.set_content(text)
+
+        self._edit_mode = True
+        self._close_search()
+        self._search_btn.setEnabled(False)
+        self._reload_btn.setEnabled(False)
+        self._stack.setCurrentWidget(self._editor)
+        self._editor.setFocus()
+        self._refresh_icons()
+        self._update_dirty_ui()
+
+    def _exit_edit_mode(self):
+        if not self._confirm_discard_edits():
+            return
+        self._leave_edit_ui()
+
+    def _leave_edit_ui(self):
+        self._edit_mode = False
+        self._search_btn.setEnabled(True)
+        self._reload_btn.setEnabled(bool(self._current_file))
+        self._stack.setCurrentWidget(self._renderer)
+        self._renderer.setFocus()
+        self._refresh_icons()
+        self._update_dirty_ui()
+
+    def _confirm_discard_edits(self) -> bool:
+        """Return True when it is safe to leave the editor."""
+        if not (self._edit_mode and self._editor.is_modified()):
+            return True
+        answer = QMessageBox.question(
+            self,
+            "未儲存的變更",
+            f"{self._current_file.name} 有未儲存的變更，要儲存嗎？",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Save:
+            return self._save_edits()
+        return answer == QMessageBox.StandardButton.Discard
+
+    def _save_edits(self) -> bool:
+        if not (self._edit_mode and self._current_file):
+            return False
+
+        text = self._editor.toPlainText()
+        if self._editing_newline != "\n":
+            text = text.replace("\n", self._editing_newline)
+
+        encoding = self._editing_encoding
+        try:
+            data = text.encode(encoding)
+        except UnicodeEncodeError:
+            encoding = "utf-8"
+            data = text.encode(encoding)
+
+        try:
+            self._current_file.write_bytes(data)
+        except OSError as exc:
+            QMessageBox.warning(self, "儲存失敗", f"無法寫入檔案：\n{exc}")
+            return False
+
+        if encoding != self._editing_encoding:
+            self._editing_encoding = encoding
+            self.statusBar().showMessage(
+                "內容含原編碼無法表示的字元，已改用 UTF-8 儲存", 6000
+            )
+        else:
+            self.statusBar().showMessage("已儲存", 3000)
+
+        self._editor.mark_saved()
+        self._renderer.load_file(self._current_file)
+        self._update_dirty_ui()
+        return True
+
+    def _on_editor_modified(self, _modified: bool):
+        self._update_dirty_ui()
+
+    def _update_dirty_ui(self):
+        if not self._current_file:
+            return
+        name = self._current_file.name
+        dirty = self._edit_mode and self._editor.is_modified()
+        marker = "● " if dirty else ""
+        self.setWindowTitle(f"{marker}{name} - Markdown Viewer")
+        self._toolbar_title.setText(f"{marker}{name}")
+        self._toolbar_subtitle.setText(
+            "未儲存變更" if dirty else str(self._current_file.parent)
+        )
+
     def _open_file(self, filepath: str):
         path = Path(filepath)
+        if self._edit_mode:
+            if not self._confirm_discard_edits():
+                return
+            self._leave_edit_ui()
         self._current_file = path
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
@@ -492,6 +642,7 @@ QWidget#searchBar QLabel {{
         self._panel.file_browser.navigate_to(path.parent)
         self._panel.recent.add(str(path))
         self._reload_btn.setEnabled(True)
+        self._edit_btn.setEnabled(True)
         self._refresh_icons()
 
     def open_path(self, filepath: str):
@@ -612,5 +763,8 @@ QWidget#searchBar QLabel {{
             self.resize(1200, 750)
 
     def closeEvent(self, event):
+        if not self._confirm_discard_edits():
+            event.ignore()
+            return
         QSettings(_ORG, _APP).setValue("geometry", self.saveGeometry())
         super().closeEvent(event)

@@ -73,10 +73,11 @@ def _inject_anchors(html: str) -> tuple[str, list[tuple[int, str, str]]]:
     return result, headings
 
 
-def _read_text(path: Path) -> str | None:
+def read_text(path: Path) -> tuple[str, str] | None:
+    """Return (text, encoding), trying UTF-8, Big5, GBK in order."""
     for encoding in ("utf-8", "cp950", "gbk"):
         try:
-            return path.read_text(encoding=encoding)
+            return path.read_text(encoding=encoding), encoding
         except UnicodeDecodeError:
             continue
     return None
@@ -92,12 +93,13 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
     if path.stat().st_size > 10 * 1024 * 1024:
         return _error_page(f"檔案超過 10MB，無法預覽：{path.name}", theme), []
 
-    text = _read_text(path)
-    if text is None:
+    result = read_text(path)
+    if result is None:
         return _error_page(
             f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}",
             theme,
         ), []
+    text, _ = result
 
     body = _PARSER.render(text)
     body_with_anchors, headings = _inject_anchors(body)

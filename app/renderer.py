@@ -106,7 +106,11 @@ class RendererView(QWebEngineView):
         self.page().runJavaScript(js)
 
     def find_text(self, text: str, result_callback=None):
-        self.page().findText(text, resultCallback=result_callback)
+        # Passing resultCallback=None into PyQt6 findText crashes the process.
+        if result_callback is None:
+            self.page().findText(text)
+        else:
+            self.page().findText(text, resultCallback=result_callback)
 
     def find_next(self, text: str):
         self.page().findText(text)
