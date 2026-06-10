@@ -6,11 +6,11 @@
 
 ## 必要軟體
 
-| 軟體 | 版本需求 | 下載 |
-|------|----------|------|
-| Python | 3.11 以上（建議 3.14） | https://www.python.org/downloads/ |
-| Git | 任意版本 | https://git-scm.com/ |
-| Inno Setup 6 | 打包安裝檔才需要 | https://jrsoftware.org/isdl.php |
+| 軟體         | 版本需求               | 下載                              |
+| ------------ | ---------------------- | --------------------------------- |
+| Python       | 3.11 以上（建議 3.14） | https://www.python.org/downloads/ |
+| Git          | 任意版本               | https://git-scm.com/              |
+| Inno Setup 6 | 打包安裝檔才需要       | https://jrsoftware.org/isdl.php   |
 
 > **Windows 注意**：安裝 Python 時勾選 **「Add Python to PATH」**。
 > 安裝後用 `py -3 --version` 確認版本，不要用 `python3`（Windows Store stub）。
@@ -87,12 +87,58 @@ py -3 -m PyInstaller markdown_viewer.spec
 
 輸出在 `dist/MarkdownViewer/`。
 
-### 5-3. 製作 Windows 安裝檔
+### 5-3. 製作 Windows 安裝檔（本機手動打包）
 
 1. 安裝 **Inno Setup 6**
 2. 用 Inno Setup 開啟 `installer.iss`
 3. 按 **Build → Compile**
-4. 安裝檔輸出至 `installer_output/MarkdownViewer_Setup_v1.0.0.exe`
+4. 安裝檔輸出至 `installer_output/MarkdownViewer_Setup_v<版號>.exe`
+
+> 正式發布不需要手動打包，請走下方第 6 節的自動發布流程。
+
+---
+
+## 6. 發布新版本（自動化流程）
+
+發布由 GitHub Actions（`.github/workflows/release.yml`）自動完成。
+**單純提升版號不會觸發發布，真正的觸發點是推送 `v*.*.*` 格式的 git tag。**
+
+### 6-1. 提升版號
+
+```bash
+py -3 tools/bump_version.py 1.2.3
+```
+
+此腳本會同步更新兩個檔案的版號：
+
+- `app/version.py` 的 `VERSION`
+- `installer.iss` 的 `MyAppVersion`
+
+### 6-2. 提交並推送
+
+```bash
+git add -A
+git commit -m "Bump version to 1.2.3"
+git push
+```
+
+此時 CI 不會有任何動作。
+
+### 6-3. 打 tag 觸發發布
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+tag 推上去後，GitHub Actions 會在 `windows-latest` 上自動執行：
+
+1. 安裝 Python 3.13、相依套件、PyInstaller、Inno Setup
+2. 從 tag 名稱反推版號，再跑一次 `bump_version.py` 同步（以 tag 為準，即使本機忘了改版號也沒關係）
+3. 重建圖示 → PyInstaller 打包 → Inno Setup 編譯安裝檔
+4. 將 `installer_output/*.exe` 上傳為 GitHub Release
+
+完成後可在 GitHub Releases 頁面下載 `MarkdownViewer_Setup_v1.2.3.exe`。
 
 ---
 
@@ -104,10 +150,14 @@ markdown_viewer/
 ├── requirements.txt         # Python 套件清單
 ├── markdown_viewer.spec     # PyInstaller 設定
 ├── installer.iss            # Inno Setup 安裝檔腳本
+├── .github/
+│   └── workflows/
+│       └── release.yml      # tag 觸發的自動發布流程
 ├── ICON/
 │   ├── icon.png             # 原始圖示（RGBA PNG）
 │   └── icon.ico             # 多尺寸 ICO（自動產生）
 ├── app/
+│   ├── version.py           # 版號（由 bump_version.py 更新）
 │   ├── window.py            # 主視窗
 │   ├── ribbon.py            # 左側圖示列
 │   ├── left_panel.py        # 左側面板（檔案/最近/目錄）
@@ -119,7 +169,8 @@ markdown_viewer/
 ├── assets/
 │   └── obsidian-light.css   # 渲染樣式
 └── tools/
-    └── build_icon.py        # PNG → ICO 轉換工具
+    ├── build_icon.py        # PNG → ICO 轉換工具
+    └── bump_version.py      # 版號同步工具
 ```
 
 ---
