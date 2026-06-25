@@ -1,5 +1,6 @@
 """Main application window with toolbar, side panel, and renderer workspace."""
 
+import json
 from pathlib import Path
 
 from PyQt6.QtCore import (
@@ -44,6 +45,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .editor import EditorView
 from .left_panel import LeftPanel
 from .md_converter import read_text
@@ -58,6 +60,7 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
+from .tag_index import TagIndex
 from .updater import UpdateInfo, check_for_update, download_installer
 from .version import VERSION
 
@@ -127,9 +130,22 @@ class MainWindow(QMainWindow):
         self._pdf_progress = None
         self._pending_pdf_path = None
 
+        self._tag_index = TagIndex()
+        self._doc_annotations = DocumentAnnotations()
+        annotation_callbacks = {
+            "note_changed": self._annot_note_changed,
+            "color_changed": self._annot_color_changed,
+            "tags_changed": self._annot_tags_changed,
+            "deleted": self._annot_deleted,
+            "doc_tags_changed": self._annot_doc_tags_changed,
+            "activated": self._annot_activated,
+            "tag_index": self._tag_index,
+        }
+
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
             on_anchor_clicked=self._scroll_to_anchor,
+            annotation_callbacks=annotation_callbacks,
             theme=self._theme,
         )
         self._renderer = RendererView(
@@ -138,6 +154,11 @@ class MainWindow(QMainWindow):
         self._renderer.active_anchor_changed.connect(
             self._panel.toc.set_active_anchor
         )
+        self._renderer.bridge.added.connect(self._on_bridge_added)
+        self._renderer.bridge.changed.connect(self._on_bridge_changed)
+        self._renderer.bridge.removed.connect(self._on_bridge_removed)
+        self._renderer.bridge.clicked.connect(self._on_bridge_clicked)
+        self._renderer.bridge.orphansReported.connect(self._on_bridge_orphans)
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
 
         self._edit_mode = False
@@ -693,6 +714,11 @@ QWidget#searchBar QLabel {{
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
+        self._doc_annotations = AnnotationStore.load(path)
+        self._renderer.set_annotations(
+            [a.to_dict() for a in self._doc_annotations.annotations]
+        )
+        self._panel.annotations.set_document(self._doc_annotations)
         self._renderer.load_file(path)
         self._panel.file_browser.navigate_to(path.parent)
         self._panel.recent.add(str(path))
@@ -712,6 +738,81 @@ QWidget#searchBar QLabel {{
             return
         self._renderer.reload_current()
         self.statusBar().showMessage("已重新載入文件", 3000)
+
+    def _persist_annotations(self):
+        if not self._current_file:
+            return
+        AnnotationStore.save(self._current_file, self._doc_annotations)
+        self._tag_index.update(self._current_file, self._doc_annotations)
+        self._panel.annotations.set_document(self._doc_annotations)
+
+    def _find_annotation(self, ann_id):
+        for a in self._doc_annotations.annotations:
+            if a.id == ann_id:
+                return a
+        return None
+
+    # --- signals from the page (bridge) ---
+    def _on_bridge_added(self, payload_json):
+        if not self._current_file:
+            return
+        ann = Annotation.from_dict(json.loads(payload_json))
+        self._doc_annotations.annotations.append(ann)
+        self._persist_annotations()
+
+    def _on_bridge_changed(self, ann_id, fields_json):
+        a = self._find_annotation(ann_id)
+        if not a:
+            return
+        fields = json.loads(fields_json)
+        for key, value in fields.items():
+            setattr(a, key, value)
+        self._persist_annotations()
+
+    def _on_bridge_removed(self, ann_id):
+        self._doc_annotations.annotations = [
+            a for a in self._doc_annotations.annotations if a.id != ann_id
+        ]
+        self._renderer.remove_annotation(ann_id)
+        self._persist_annotations()
+
+    def _on_bridge_clicked(self, ann_id):
+        self._panel.switch_to(3)
+        self._panel.annotations.select(ann_id)
+
+    def _on_bridge_orphans(self, ids):
+        # Orphans remain listed in the panel; no document marks to show.
+        pass
+
+    # --- callbacks from the annotations panel ---
+    def _annot_note_changed(self, ann_id, text):
+        a = self._find_annotation(ann_id)
+        if a and a.note != text:
+            a.note = text
+            self._persist_annotations()
+
+    def _annot_color_changed(self, ann_id, color):
+        a = self._find_annotation(ann_id)
+        if a:
+            a.color = color
+            self._renderer.update_annotation_color(ann_id, color)
+            self._persist_annotations()
+
+    def _annot_tags_changed(self, ann_id, tags):
+        a = self._find_annotation(ann_id)
+        if a and a.tags != tags:
+            a.tags = tags
+            self._persist_annotations()
+
+    def _annot_deleted(self, ann_id):
+        self._on_bridge_removed(ann_id)
+
+    def _annot_doc_tags_changed(self, tags):
+        self._doc_annotations.doc_tags = tags
+        self._persist_annotations()
+
+    def _annot_activated(self, ann_id):
+        self._renderer.scroll_to_annotation(ann_id)
 
     def _export_pdf(self):
         if not self._current_file or self._edit_mode:
