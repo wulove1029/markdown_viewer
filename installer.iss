@@ -1,5 +1,5 @@
 #define MyAppName "Markdown Viewer"
-#define MyAppVersion "1.2.4"
+#define MyAppVersion "1.2.5"
 #define MyAppPublisher "Jerry"
 #define MyAppExeName "MarkdownViewer.exe"
 #ifndef MySourceDir
