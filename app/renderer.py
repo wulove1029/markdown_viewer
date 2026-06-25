@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QMarginsF, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QPageLayout, QPageSize
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from .md_converter import convert, state_page_html
@@ -18,7 +19,9 @@ class RendererView(QWebEngineView):
         self._current_anchor = ""
         self._current_path: Path | None = None
         self._theme = "light"
+        self._pdf_callback = None
         self.setAcceptDrops(True)
+        self.page().pdfPrintingFinished.connect(self._on_pdf_finished)
 
         self._spy_timer = QTimer(self)
         self._spy_timer.setInterval(200)
@@ -74,6 +77,40 @@ class RendererView(QWebEngineView):
     def reload_current(self):
         if self._current_path:
             self.load_file(self._current_path)
+
+    def export_pdf(self, filepath: str | Path, on_done=None, layout=None):
+        """Render the current page to a PDF. on_done(path, ok) fires when finished.
+
+        layout is a QPageLayout; when omitted an A4 portrait layout is used.
+        """
+        self._pdf_callback = on_done
+        if layout is None:
+            layout = QPageLayout(
+                QPageSize(QPageSize.PageSizeId.A4),
+                QPageLayout.Orientation.Portrait,
+                QMarginsF(12, 12, 12, 12),
+                QPageLayout.Unit.Millimeter,
+            )
+        self.page().printToPdf(str(filepath), layout)
+
+    def content_size(self, callback):
+        """Measure rendered content as [width_px, height_px] and pass it to callback."""
+        js = (
+            "(function() {"
+            "  var d = document.documentElement, b = document.body;"
+            "  return ["
+            "    Math.max(d.scrollWidth, b.scrollWidth, d.clientWidth),"
+            "    Math.max(d.scrollHeight, b.scrollHeight)"
+            "  ];"
+            "})()"
+        )
+        self.page().runJavaScript(js, callback)
+
+    def _on_pdf_finished(self, path: str, ok: bool):
+        callback = self._pdf_callback
+        self._pdf_callback = None
+        if callback:
+            callback(path, ok)
 
     def set_theme(self, theme: str):
         self._theme = "dark" if theme == "dark" else "light"

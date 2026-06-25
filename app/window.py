@@ -2,10 +2,34 @@
 
 from pathlib import Path
 
-from PyQt6.QtCore import QProcess, QSettings, QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
+from PyQt6.QtCore import (
+    QMarginsF,
+    QProcess,
+    QSettings,
+    QSize,
+    QSizeF,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+    pyqtSignal,
+)
+from PyQt6.QtGui import (
+    QDesktopServices,
+    QDragEnterEvent,
+    QDropEvent,
+    QKeySequence,
+    QPageLayout,
+    QPageSize,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -39,6 +63,24 @@ from .version import VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+
+# PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
+_PDF_PAGE_SIZES = {
+    "A4": QPageSize.PageSizeId.A4,
+    "A3": QPageSize.PageSizeId.A3,
+    "Letter": QPageSize.PageSizeId.Letter,
+    "Legal": QPageSize.PageSizeId.Legal,
+}
+_PDF_SIZE_CHOICES = [
+    ("A4", "A4"),
+    ("A3", "A3"),
+    ("Letter", "Letter（美規信紙）"),
+    ("Legal", "Legal（美規法律）"),
+    ("single", "單一長頁（不分頁）"),
+]
+# PDF pages cannot exceed ~200 inches; stay safely under that limit (points).
+_PDF_MAX_PT = 14000.0
+_PT_PER_PX = 72.0 / 96.0
 
 
 class UpdateCheckThread(QThread):
@@ -82,6 +124,8 @@ class MainWindow(QMainWindow):
         self._update_check_thread = None
         self._update_download_thread = None
         self._update_progress = None
+        self._pdf_progress = None
+        self._pending_pdf_path = None
 
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
@@ -138,6 +182,7 @@ class MainWindow(QMainWindow):
         self._toolbar = self._build_toolbar()
         self._reload_btn.setEnabled(False)
         self._edit_btn.setEnabled(False)
+        self._export_btn.setEnabled(False)
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -162,6 +207,9 @@ class MainWindow(QMainWindow):
         )
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
             self._save_edits
+        )
+        QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(
+            self._export_pdf
         )
 
         self._apply_theme()
@@ -190,6 +238,9 @@ class MainWindow(QMainWindow):
         )
         self._edit_btn = self._toolbar_button(
             "pencil", "編輯文件 (Ctrl+E)", self._toggle_edit_mode
+        )
+        self._export_btn = self._toolbar_button(
+            "file-down", "匯出 PDF", self._export_pdf
         )
         self._theme_btn = self._toolbar_button(
             "moon", "切換深色模式", self._toggle_theme
@@ -220,6 +271,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._search_btn)
         layout.addWidget(self._reload_btn)
         layout.addWidget(self._edit_btn)
+        layout.addWidget(self._export_btn)
         layout.addWidget(title_wrap, stretch=1)
         layout.addWidget(self._theme_btn)
         layout.addWidget(self._update_btn)
@@ -297,6 +349,7 @@ QPushButton:pressed {{
             self._open_btn,
             self._search_btn,
             self._reload_btn,
+            self._export_btn,
             self._update_btn,
         ):
             icon_name = button.property("iconName")
@@ -544,6 +597,7 @@ QWidget#searchBar QLabel {{
         self._close_search()
         self._search_btn.setEnabled(False)
         self._reload_btn.setEnabled(False)
+        self._export_btn.setEnabled(False)
         self._stack.setCurrentWidget(self._editor)
         self._editor.setFocus()
         self._refresh_icons()
@@ -558,6 +612,7 @@ QWidget#searchBar QLabel {{
         self._edit_mode = False
         self._search_btn.setEnabled(True)
         self._reload_btn.setEnabled(bool(self._current_file))
+        self._export_btn.setEnabled(bool(self._current_file))
         self._stack.setCurrentWidget(self._renderer)
         self._renderer.setFocus()
         self._refresh_icons()
@@ -643,6 +698,7 @@ QWidget#searchBar QLabel {{
         self._panel.recent.add(str(path))
         self._reload_btn.setEnabled(True)
         self._edit_btn.setEnabled(True)
+        self._export_btn.setEnabled(True)
         self._refresh_icons()
 
     def open_path(self, filepath: str):
@@ -656,6 +712,175 @@ QWidget#searchBar QLabel {{
             return
         self._renderer.reload_current()
         self.statusBar().showMessage("已重新載入文件", 3000)
+
+    def _export_pdf(self):
+        if not self._current_file or self._edit_mode:
+            return
+        setup = self._ask_page_setup()
+        if setup is None:
+            return
+        default = str(self._current_file.with_suffix(".pdf"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "匯出 PDF", default, "PDF 檔案 (*.pdf)"
+        )
+        if not path:
+            return
+
+        self._export_btn.setEnabled(False)
+        if setup["size"] == "single":
+            self._pending_pdf_path = path
+            self._renderer.content_size(self._export_single_page)
+        else:
+            layout = self._pdf_layout(setup["size"], setup["orientation"])
+            self._show_pdf_progress()
+            self._renderer.export_pdf(path, self._on_pdf_exported, layout)
+
+    def _ask_page_setup(self):
+        settings = QSettings(_ORG, _APP)
+        last_size = settings.value("pdf_page_size", "A4") or "A4"
+        last_orient = settings.value("pdf_orientation", "portrait") or "portrait"
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("匯出 PDF 設定")
+        form = QFormLayout(dialog)
+
+        size_combo = QComboBox(dialog)
+        for key, label in _PDF_SIZE_CHOICES:
+            size_combo.addItem(label, key)
+        size_index = next(
+            (i for i, (k, _) in enumerate(_PDF_SIZE_CHOICES) if k == last_size), 0
+        )
+        size_combo.setCurrentIndex(size_index)
+
+        orient_combo = QComboBox(dialog)
+        orient_combo.addItem("直向", "portrait")
+        orient_combo.addItem("橫向", "landscape")
+        orient_combo.setCurrentIndex(1 if last_orient == "landscape" else 0)
+
+        def _sync_orientation():
+            orient_combo.setEnabled(size_combo.currentData() != "single")
+
+        size_combo.currentIndexChanged.connect(_sync_orientation)
+        _sync_orientation()
+
+        form.addRow("紙張大小", size_combo)
+        form.addRow("方向", orient_combo)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("匯出")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        size_key = size_combo.currentData()
+        orientation = orient_combo.currentData()
+        settings.setValue("pdf_page_size", size_key)
+        settings.setValue("pdf_orientation", orientation)
+        return {"size": size_key, "orientation": orientation}
+
+    def _pdf_layout(self, size_key: str, orientation: str) -> QPageLayout:
+        size_id = _PDF_PAGE_SIZES.get(size_key, QPageSize.PageSizeId.A4)
+        orient = (
+            QPageLayout.Orientation.Landscape
+            if orientation == "landscape"
+            else QPageLayout.Orientation.Portrait
+        )
+        return QPageLayout(
+            QPageSize(size_id),
+            orient,
+            QMarginsF(12, 12, 12, 12),
+            QPageLayout.Unit.Millimeter,
+        )
+
+    def _export_single_page(self, dims):
+        try:
+            measured_w = float(dims[0])
+            h_px = float(dims[1])
+        except (TypeError, ValueError, IndexError):
+            measured_w, h_px = 0.0, 1123.0
+
+        # Base the page width on the actual viewport so the PDF mirrors the
+        # on-screen layout; widen if the content itself overflows (wide tables).
+        w_px = max(float(self._renderer.width()), measured_w)
+        if w_px < 200:
+            w_px = 800.0
+
+        w_pt = w_px * _PT_PER_PX
+        h_pt = (h_px + 4) * _PT_PER_PX
+
+        if h_pt > _PDF_MAX_PT:
+            reply = QMessageBox.question(
+                self,
+                "匯出 PDF",
+                "文件內容過長，無法放進單一頁面（PDF 頁面高度上限約 508 公分）。\n"
+                "要改用 A4 分頁匯出嗎？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self._pending_pdf_path = None
+                self._export_btn.setEnabled(
+                    bool(self._current_file) and not self._edit_mode
+                )
+                self._refresh_icons()
+                return
+            layout = self._pdf_layout("A4", "portrait")
+        else:
+            layout = QPageLayout(
+                QPageSize(
+                    QSizeF(w_pt, h_pt),
+                    QPageSize.Unit.Point,
+                    "Continuous",
+                    QPageSize.SizeMatchPolicy.ExactMatch,
+                ),
+                QPageLayout.Orientation.Portrait,
+                QMarginsF(0, 0, 0, 0),
+                QPageLayout.Unit.Point,
+            )
+
+        self._show_pdf_progress()
+        self._renderer.export_pdf(self._pending_pdf_path, self._on_pdf_exported, layout)
+        self._pending_pdf_path = None
+
+    def _show_pdf_progress(self):
+        self._pdf_progress = QProgressDialog("正在匯出 PDF…", None, 0, 0, self)
+        self._pdf_progress.setWindowTitle("匯出 PDF")
+        self._pdf_progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self._pdf_progress.setMinimumDuration(0)
+        self._pdf_progress.setAutoClose(False)
+        self._pdf_progress.setAutoReset(False)
+        self._pdf_progress.show()
+
+    def _close_pdf_progress(self):
+        if self._pdf_progress is not None:
+            self._pdf_progress.close()
+            self._pdf_progress = None
+
+    def _on_pdf_exported(self, path: str, ok: bool):
+        self._close_pdf_progress()
+        self._export_btn.setEnabled(bool(self._current_file) and not self._edit_mode)
+        self._refresh_icons()
+        if not ok:
+            self.statusBar().clearMessage()
+            QMessageBox.warning(self, "匯出 PDF", "匯出失敗，請重試。")
+            return
+
+        self.statusBar().showMessage(f"已匯出 PDF：{path}", 5000)
+        box = QMessageBox(self)
+        box.setWindowTitle("匯出 PDF")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"已成功匯出：\n{path}")
+        open_btn = box.addButton("開啟 PDF", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("關閉", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _scroll_to_anchor(self, anchor: str):
         self._renderer.scroll_to(anchor)
