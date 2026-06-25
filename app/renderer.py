@@ -3,10 +3,12 @@
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import QMarginsF, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QFile, QIODevice, QMarginsF, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QPageLayout, QPageSize
+from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
+from .annotation_bridge import AnnotationBridge
 from .md_converter import convert, state_page_html
 
 
@@ -27,6 +29,17 @@ class RendererView(QWebEngineView):
         self._spy_timer.setInterval(200)
         self._spy_timer.timeout.connect(self._poll_active_heading)
         self.page().loadFinished.connect(lambda _: self._spy_timer.start())
+
+        self.bridge = AnnotationBridge(self)
+        self._channel = QWebChannel(self)
+        self._channel.registerObject("bridge", self.bridge)
+        self.page().setWebChannel(self._channel)
+        self._annot_json = "[]"
+        self._qwebchannel_js = self._read_resource(":/qtwebchannel/qwebchannel.js")
+        self._annotations_js = (
+            Path(__file__).parent.parent / "assets" / "annotations.js"
+        ).read_text(encoding="utf-8")
+        self.page().loadFinished.connect(self._inject_annotations)
 
         self.show_empty()
 
@@ -77,6 +90,45 @@ class RendererView(QWebEngineView):
     def reload_current(self):
         if self._current_path:
             self.load_file(self._current_path)
+
+    @staticmethod
+    def _read_resource(path: str) -> str:
+        f = QFile(path)
+        if f.open(QIODevice.OpenModeFlag.ReadOnly):
+            data = bytes(f.readAll()).decode("utf-8")
+            f.close()
+            return data
+        return ""
+
+    def _inject_annotations(self, ok):
+        if not ok or not self._current_path:
+            return
+        boot = "window.__annotBoot(%s);" % json.dumps(self._annot_json)
+        self.page().runJavaScript(
+            self._qwebchannel_js + "\n" + self._annotations_js + "\n" + boot
+        )
+
+    def set_annotations(self, annotations: list[dict]):
+        self._annot_json = json.dumps(annotations, ensure_ascii=False)
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.render(%s)" % json.dumps(self._annot_json)
+        )
+
+    def remove_annotation(self, ann_id: str):
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.remove(%s)" % json.dumps(ann_id)
+        )
+
+    def update_annotation_color(self, ann_id: str, color: str):
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.updateColor(%s,%s)"
+            % (json.dumps(ann_id), json.dumps(color))
+        )
+
+    def scroll_to_annotation(self, ann_id: str):
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.scrollTo(%s)" % json.dumps(ann_id)
+        )
 
     def export_pdf(self, filepath: str | Path, on_done=None, layout=None):
         """Render the current page to a PDF. on_done(path, ok) fires when finished.
