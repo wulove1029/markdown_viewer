@@ -1,6 +1,7 @@
 """Markdown to self-contained HTML converter."""
 
 from html import escape
+import json
 import re
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 
 _CSS_PATH = Path(__file__).parent.parent / "assets" / "obsidian-light.css"
+_MERMAID_JS = _CSS_PATH.parent / "mermaid.min.js"
 _PYGMENTS_CSS = HtmlFormatter(style="one-dark").get_style_defs(".highlight")
 
 try:
@@ -24,11 +26,41 @@ _FORMATTER = HtmlFormatter(style="one-dark")
 
 
 def _highlight_code(code: str, lang: str, _attrs: str) -> str:
+    if lang and lang.lower() == "mermaid":
+        # Hand the raw diagram source to mermaid.js (rendered client-side).
+        # Leading "<pre" makes markdown-it emit this verbatim, unwrapped.
+        # data-diagram keeps the source so we can re-render on theme switch.
+        src = escape(code.strip())
+        return f'<pre class="mermaid" data-diagram="{src}">{src}</pre>'
     try:
         lexer = get_lexer_by_name(lang) if lang else TextLexer()
     except Exception:
         lexer = TextLexer()
     return highlight(code, lexer, _FORMATTER)
+
+
+def _mermaid_script(theme: str) -> str:
+    """Inline loader for the bundled mermaid.js (no-op if the asset is absent)."""
+    if not _MERMAID_JS.exists():
+        return ""
+    src = _MERMAID_JS.resolve().as_uri()
+    mtheme = "dark" if theme == "dark" else "default"
+    return (
+        f'<script src="{src}"></script>\n'
+        "<script>\n"
+        "(function() {\n"
+        "  function render() {\n"
+        "    if (!window.mermaid) { return; }\n"
+        f"    window.mermaid.initialize({{ startOnLoad: false, theme: {json.dumps(mtheme)} }});\n"
+        '    try { window.mermaid.run({ querySelector: ".mermaid" }); }\n'
+        "    catch (e) { console.error(e); }\n"
+        "  }\n"
+        '  if (document.readyState === "loading") {\n'
+        '    document.addEventListener("DOMContentLoaded", render);\n'
+        "  } else { render(); }\n"
+        "})();\n"
+        "</script>"
+    )
 
 
 def _build_parser() -> MarkdownIt:
@@ -103,16 +135,18 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
 
     body = _PARSER.render(text)
     body_with_anchors, headings = _inject_anchors(body)
-    return _wrap(body_with_anchors, path.stem, theme), headings
+    needs_mermaid = 'class="mermaid"' in body_with_anchors
+    return _wrap(body_with_anchors, path.stem, theme, mermaid=needs_mermaid), headings
 
 
 def _theme_class(theme: str) -> str:
     return "theme-dark" if theme == "dark" else "theme-light"
 
 
-def _wrap(body: str, title: str, theme: str = "light") -> str:
+def _wrap(body: str, title: str, theme: str = "light", mermaid: bool = False) -> str:
     safe_title = escape(title)
     theme_class = _theme_class(theme)
+    mermaid_html = f"\n{_mermaid_script(theme)}" if mermaid else ""
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant" class="{theme_class}">
 <head>
@@ -122,7 +156,7 @@ def _wrap(body: str, title: str, theme: str = "light") -> str:
 <style>{_FULL_CSS}</style>
 </head>
 <body class="{theme_class}">
-{body}
+{body}{mermaid_html}
 </body>
 </html>"""
 

@@ -82,6 +82,7 @@ class RendererView(QWebEngineView):
             return
 
         theme_class = f"theme-{self._theme}"
+        mermaid_theme = "dark" if self._theme == "dark" else "default"
         js = f"""(function() {{
             var targets = [document.documentElement, document.body];
             for (var i = 0; i < targets.length; i++) {{
@@ -89,6 +90,17 @@ class RendererView(QWebEngineView):
                 if (!el) {{ continue; }}
                 el.classList.remove('theme-light', 'theme-dark');
                 el.classList.add({json.dumps(theme_class)});
+            }}
+            if (window.mermaid) {{
+                var blocks = document.querySelectorAll('.mermaid');
+                for (var j = 0; j < blocks.length; j++) {{
+                    var src = blocks[j].getAttribute('data-diagram');
+                    if (src === null) {{ continue; }}
+                    blocks[j].removeAttribute('data-processed');
+                    blocks[j].textContent = src;
+                }}
+                window.mermaid.initialize({{ startOnLoad: false, theme: {json.dumps(mermaid_theme)} }});
+                try {{ window.mermaid.run({{ querySelector: '.mermaid' }}); }} catch (e) {{}}
             }}
         }})()"""
         self.page().runJavaScript(js)

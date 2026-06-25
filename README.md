@@ -2,6 +2,28 @@
 
 Windows desktop Markdown viewer built with PyQt6.
 
+## Images And Diagrams
+
+Standard Markdown images render directly — local (relative or absolute) and remote URLs are all supported. Large images scale to fit the content width automatically.
+
+```markdown
+![Architecture](./images/arch.png)
+![Logo](https://example.com/logo.png)
+```
+
+Diagrams can be written inline with [Mermaid](https://mermaid.js.org/) fenced code blocks and are rendered live (bundled offline — no network required):
+
+````markdown
+```mermaid
+graph TD
+  User --> Frontend
+  Frontend --> API
+  API --> Database
+```
+````
+
+Mermaid diagrams re-color automatically when you switch between light and dark themes.
+
 ## Development
 
 ```powershell
