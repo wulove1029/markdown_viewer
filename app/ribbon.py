@@ -98,6 +98,7 @@ class Ribbon(QWidget):
         self._add_btn("⊞", "檔案瀏覽", 0)
         self._add_btn("⊙", "最近開啟", 1)
         self._add_btn("☰", "目錄", 2)
+        self._add_btn("✍", "標註", 3)
 
         layout.addSpacerItem(
             QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .annotations_panel import AnnotationsPanel
 from .file_browser import FileBrowserView
 from .recent_files import RecentFilesView
 from .theme import LIGHT, Theme, panel_stylesheet, svg_icon
@@ -18,7 +19,8 @@ from .toc import TocView
 
 
 class LeftPanel(QWidget):
-    def __init__(self, on_file_selected, on_anchor_clicked, theme: Theme = LIGHT, parent=None):
+    def __init__(self, on_file_selected, on_anchor_clicked,
+                 annotation_callbacks, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
         self.setMinimumWidth(180)
@@ -60,12 +62,17 @@ class LeftPanel(QWidget):
         self._tabs.setDocumentMode(True)
 
         self._file_browser = FileBrowserView(on_file_selected=on_file_selected)
-        self._recent = RecentFilesView(on_file_selected=on_file_selected)
+        self._recent = RecentFilesView(
+            on_file_selected=on_file_selected,
+            tag_index=annotation_callbacks.get("tag_index"),
+        )
         self._toc = TocView(on_anchor_clicked=on_anchor_clicked)
+        self._annotations = AnnotationsPanel(annotation_callbacks)
 
         self._tabs.addTab(self._file_browser, "檔案")
         self._tabs.addTab(self._recent, "最近")
         self._tabs.addTab(self._toc, "目錄")
+        self._tabs.addTab(self._annotations, "標註")
 
         layout.addWidget(self._tabs)
         self.apply_theme(theme)
@@ -83,6 +90,10 @@ class LeftPanel(QWidget):
         return self._recent
 
     @property
+    def annotations(self) -> AnnotationsPanel:
+        return self._annotations
+
+    @property
     def close_btn(self) -> QPushButton:
         return self._close_btn
 
@@ -94,6 +105,7 @@ class LeftPanel(QWidget):
         self._file_browser.apply_theme(theme)
         self._recent.apply_theme(theme)
         self._toc.apply_theme(theme)
+        self._annotations.apply_theme(theme)
 
     def open_file_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
