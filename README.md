@@ -24,6 +24,16 @@ graph TD
 
 Mermaid diagrams re-color automatically when you switch between light and dark themes.
 
+## Annotations
+
+Select text in the preview to highlight it (pick a color from the popup), then
+use the **標註** tab to add a note or tags, change the color, or delete it. Tag a
+whole file in the same tab, and filter the **最近** list by tag to find files.
+
+Annotations are saved in a sidecar file named `<document>.md.notes.json` next to
+the Markdown file. They never modify your Markdown source. If you move or rename
+the Markdown file, move the `.notes.json` with it to keep the annotations.
+
 ## Development
 
 ```powershell
