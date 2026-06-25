@@ -15,9 +15,11 @@ _MAX = 10
 
 
 class RecentFilesView(QListWidget):
-    def __init__(self, on_file_selected, parent=None):
+    def __init__(self, on_file_selected, tag_index=None, parent=None):
         super().__init__(parent)
         self._on_file_selected = on_file_selected
+        self._tag_index = tag_index
+        self._active_tag = ""
         self._theme = LIGHT
         self.apply_theme(LIGHT)
         self.itemClicked.connect(self._on_clicked)
@@ -44,21 +46,30 @@ class RecentFilesView(QListWidget):
 
     def _refresh(self):
         self.clear()
+        allowed = None
+        if self._active_tag and self._tag_index is not None:
+            allowed = set(self._tag_index.files_with_tag(self._active_tag))
         has_items = False
         for p in self._load():
             path = Path(p)
             if not path.exists():
+                continue
+            if allowed is not None and str(path.resolve()) not in allowed:
                 continue
             item = QListWidgetItem(path.name)
             item.setToolTip(p)
             item.setData(Qt.ItemDataRole.UserRole, p)
             self.addItem(item)
             has_items = True
-
         if not has_items:
-            item = QListWidgetItem("尚無最近開啟的檔案")
+            msg = "沒有符合標籤的檔案" if self._active_tag else "尚無最近開啟的檔案"
+            item = QListWidgetItem(msg)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self.addItem(item)
+
+    def set_tag_filter(self, tag: str):
+        self._active_tag = tag or ""
+        self._refresh()
 
     def _show_context_menu(self, pos: QPoint):
         item = self.itemAt(pos)
