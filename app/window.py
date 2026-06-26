@@ -118,6 +118,12 @@ class MainWindow(QMainWindow):
         self._theme_name: ThemeName = settings.value("theme", "light") or "light"
         if self._theme_name != "dark":
             self._theme_name = "light"
+        side_notes_value = settings.value("annotation_side_notes_visible", False)
+        self._side_notes_visible = (
+            side_notes_value
+            if isinstance(side_notes_value, bool)
+            else str(side_notes_value).lower() in ("1", "true", "yes", "on")
+        )
         self._theme = get_theme(self._theme_name)
         self._current_file: Path | None = None
 
@@ -138,6 +144,7 @@ class MainWindow(QMainWindow):
             "tags_changed": self._annot_tags_changed,
             "deleted": self._annot_deleted,
             "doc_tags_changed": self._annot_doc_tags_changed,
+            "selected": self._annot_selected,
             "activated": self._annot_activated,
             "tag_index": self._tag_index,
         }
@@ -151,6 +158,7 @@ class MainWindow(QMainWindow):
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings
         )
+        self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
         self._renderer.active_anchor_changed.connect(
             self._panel.toc.set_active_anchor
         )
@@ -263,6 +271,11 @@ class MainWindow(QMainWindow):
         self._export_btn = self._toolbar_button(
             "file-down", "匯出 PDF", self._export_pdf
         )
+        self._side_notes_btn = self._toolbar_button(
+            "panel-right", "顯示旁註卡片", self._toggle_annotation_side_notes
+        )
+        self._side_notes_btn.setCheckable(True)
+        self._side_notes_btn.setChecked(self._side_notes_visible)
         self._theme_btn = self._toolbar_button(
             "moon", "切換深色模式", self._toggle_theme
         )
@@ -293,6 +306,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._reload_btn)
         layout.addWidget(self._edit_btn)
         layout.addWidget(self._export_btn)
+        layout.addWidget(self._side_notes_btn)
         layout.addWidget(title_wrap, stretch=1)
         layout.addWidget(self._theme_btn)
         layout.addWidget(self._update_btn)
@@ -377,6 +391,17 @@ QPushButton:pressed {{
             color = icon_color if button.isEnabled() else disabled_color
             button.setIcon(svg_icon(icon_name, color, 20))
 
+        side_notes_tip = (
+            "隱藏旁註卡片" if self._side_notes_visible else "顯示旁註卡片"
+        )
+        side_notes_color = (
+            self._theme.accent if self._side_notes_visible else icon_color
+        )
+        self._side_notes_btn.setChecked(self._side_notes_visible)
+        self._side_notes_btn.setToolTip(side_notes_tip)
+        self._side_notes_btn.setAccessibleName(side_notes_tip)
+        self._side_notes_btn.setIcon(svg_icon("panel-right", side_notes_color, 20))
+
         edit_icon = "eye" if self._edit_mode else "pencil"
         edit_tip = "回到預覽 (Ctrl+E)" if self._edit_mode else "編輯文件 (Ctrl+E)"
         edit_color = icon_color if self._edit_btn.isEnabled() else disabled_color
@@ -403,6 +428,16 @@ QPushButton:pressed {{
         self._theme_name = "light" if self._theme_name == "dark" else "dark"
         QSettings(_ORG, _APP).setValue("theme", self._theme_name)
         self._apply_theme()
+
+    def _toggle_annotation_side_notes(self, checked=None):
+        self._side_notes_visible = (
+            bool(checked) if checked is not None else self._side_notes_btn.isChecked()
+        )
+        QSettings(_ORG, _APP).setValue(
+            "annotation_side_notes_visible", self._side_notes_visible
+        )
+        self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
+        self._refresh_icons()
 
     def _search_style(self) -> str:
         return f"""
@@ -715,9 +750,7 @@ QWidget#searchBar QLabel {{
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
         self._doc_annotations = AnnotationStore.load(path)
-        self._renderer.set_annotations(
-            [a.to_dict() for a in self._doc_annotations.annotations]
-        )
+        self._sync_renderer_annotations()
         self._panel.annotations.set_document(self._doc_annotations)
         self._renderer.load_file(path)
         self._panel.file_browser.navigate_to(path.parent)
@@ -745,6 +778,12 @@ QWidget#searchBar QLabel {{
         AnnotationStore.save(self._current_file, self._doc_annotations)
         self._tag_index.update(self._current_file, self._doc_annotations)
         self._panel.annotations.set_document(self._doc_annotations)
+        self._sync_renderer_annotations()
+
+    def _sync_renderer_annotations(self):
+        self._renderer.set_annotations(
+            [a.to_dict() for a in self._doc_annotations.annotations]
+        )
 
     def _find_annotation(self, ann_id):
         for a in self._doc_annotations.annotations:
@@ -810,6 +849,9 @@ QWidget#searchBar QLabel {{
     def _annot_doc_tags_changed(self, tags):
         self._doc_annotations.doc_tags = tags
         self._persist_annotations()
+
+    def _annot_selected(self, ann_id):
+        self._renderer.select_annotation(ann_id)
 
     def _annot_activated(self, ann_id):
         self._renderer.scroll_to_annotation(ann_id)

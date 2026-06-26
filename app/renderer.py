@@ -21,6 +21,7 @@ class RendererView(QWebEngineView):
         self._current_anchor = ""
         self._current_path: Path | None = None
         self._theme = "light"
+        self._side_notes_visible = False
         self._pdf_callback = None
         self.setAcceptDrops(True)
         self.page().pdfPrintingFinished.connect(self._on_pdf_finished)
@@ -103,7 +104,10 @@ class RendererView(QWebEngineView):
     def _inject_annotations(self, ok):
         if not ok or not self._current_path:
             return
-        boot = "window.__annotBoot(%s);" % json.dumps(self._annot_json)
+        boot = "window.__annotBoot(%s, %s);" % (
+            json.dumps(self._annot_json),
+            json.dumps(self._side_notes_visible),
+        )
         self.page().runJavaScript(
             self._qwebchannel_js + "\n" + self._annotations_js + "\n" + boot
         )
@@ -128,6 +132,18 @@ class RendererView(QWebEngineView):
     def scroll_to_annotation(self, ann_id: str):
         self.page().runJavaScript(
             "window.__annot && window.__annot.scrollTo(%s)" % json.dumps(ann_id)
+        )
+
+    def select_annotation(self, ann_id: str):
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.select(%s)" % json.dumps(ann_id)
+        )
+
+    def set_annotation_side_notes_visible(self, visible: bool):
+        self._side_notes_visible = bool(visible)
+        self.page().runJavaScript(
+            "window.__annot && window.__annot.setSideNotesVisible(%s)"
+            % json.dumps(self._side_notes_visible)
         )
 
     def export_pdf(self, filepath: str | Path, on_done=None, layout=None):

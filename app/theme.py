@@ -121,6 +121,10 @@ ICONS: dict[str, str] = {
         '<rect x="3" y="4" width="18" height="16" rx="2"/>'
         '<path d="M9 4v16"/>'
     ),
+    "panel-right": (
+        '<rect x="3" y="4" width="18" height="16" rx="2"/>'
+        '<path d="M15 4v16"/>'
+    ),
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     "chevron-left": '<path d="m15 18-6-6 6-6"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',

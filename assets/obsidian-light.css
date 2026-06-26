@@ -69,6 +69,12 @@ body {
   max-width: clamp(900px, 90vw, 1600px);
   min-height: 100vh;
   padding: 42px 56px 64px;
+  position: relative;
+}
+
+body.annot-side-notes {
+  max-width: clamp(1120px, 94vw, 1720px);
+  padding-right: 376px;
 }
 
 h1,
@@ -349,6 +355,14 @@ mark.annot {
   padding: 0 1px;
   color: inherit;
   cursor: pointer;
+  transition: box-shadow 140ms ease, filter 140ms ease;
+}
+
+mark.annot:hover,
+mark.annot.is-active {
+  box-shadow: 0 0 0 2px rgba(49, 95, 189, 0.32);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 54%, transparent);
+  filter: saturate(1.08);
 }
 
 .theme-dark mark.annot {
@@ -373,4 +387,214 @@ mark.annot {
   border-radius: 50%;
   cursor: pointer;
   padding: 0;
+}
+
+.annot-rail {
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 56px;
+  top: 0;
+  width: 292px;
+  z-index: 30;
+}
+
+.annot-card {
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, var(--annot-color) 6%);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px 11px;
+  pointer-events: auto;
+  position: absolute;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  width: 100%;
+}
+
+.annot-card:hover,
+.annot-card.is-active {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px var(--shadow);
+  transform: translateX(-3px);
+}
+
+.annot-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.annot-card-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+
+.annot-card-note {
+  color: var(--text);
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.annot-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.annot-card-tags span {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.2;
+  padding: 2px 7px;
+}
+
+.annot-popover {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px var(--shadow);
+  color: var(--text);
+  max-width: 320px;
+  padding: 10px 12px;
+  position: absolute;
+  z-index: 9998;
+}
+
+.annot-popover-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+
+.annot-popover-note {
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.annot-editor {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 18px 44px var(--shadow);
+  color: var(--text);
+  max-width: min(360px, calc(100vw - 28px));
+  min-width: 300px;
+  padding: 12px;
+  position: absolute;
+  z-index: 10000;
+}
+
+.annot-editor-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+
+.annot-editor-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  display: block;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  min-height: 96px;
+  padding: 8px 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.annot-editor-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.annot-editor-hint {
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  margin-top: 6px;
+}
+
+.annot-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.annot-editor-actions button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.annot-editor-cancel {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.annot-editor-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.annot-editor-actions button:hover {
+  filter: brightness(0.98);
+}
+
+@media (max-width: 1120px) {
+  body.annot-side-notes {
+    max-width: clamp(900px, 90vw, 1600px);
+    padding-right: 56px;
+  }
+
+  .annot-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  body.annot-side-notes {
+    padding-right: 22px;
+  }
+}
+
+@media print {
+  body.annot-side-notes {
+    padding-right: 56px;
+  }
+
+  .annot-rail,
+  .annot-popover,
+  .annot-toolbar {
+    display: none !important;
+  }
 }

@@ -35,7 +35,7 @@ class AnnotationsPanel(QWidget):
         super().__init__(parent)
         # callbacks: note_changed(id,text), color_changed(id,hex),
         # tags_changed(id,list), deleted(id), doc_tags_changed(list),
-        # activated(id)
+        # selected(id), activated(id)
         self._cb = callbacks
         self._theme = LIGHT
         self._doc = None
@@ -90,11 +90,15 @@ class AnnotationsPanel(QWidget):
         self.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
 
     def set_document(self, doc):
+        previous_id = self._selected_id
         self._doc = doc
         self._doc_tags.setText(", ".join(doc.doc_tags) if doc else "")
-        self._selected_id = None
-        self._set_editor_enabled(False)
         self._refresh_list()
+        if previous_id and self._find(previous_id):
+            self.select(previous_id)
+        else:
+            self._selected_id = None
+            self._set_editor_enabled(False)
 
     def select(self, ann_id: str):
         self._selected_id = ann_id
@@ -133,6 +137,8 @@ class AnnotationsPanel(QWidget):
     def _on_item_clicked(self, item):
         self._selected_id = item.data(Qt.ItemDataRole.UserRole)
         self._load_editor(self._selected_id)
+        if "selected" in self._cb:
+            self._cb["selected"](self._selected_id)
 
     def _on_item_activated(self, item):
         ann_id = item.data(Qt.ItemDataRole.UserRole)
