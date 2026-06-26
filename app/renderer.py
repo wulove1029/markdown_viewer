@@ -6,9 +6,11 @@ from pathlib import Path
 from PyQt6.QtCore import QFile, QIODevice, QMarginsF, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QPageLayout, QPageSize
 from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtWebEngineCore import QWebEngineSettings
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from .annotation_bridge import AnnotationBridge
+from .file_types import document_kind, is_markdown, is_pdf
 from .md_converter import convert, state_page_html
 
 
@@ -24,12 +26,20 @@ class RendererView(QWebEngineView):
         self._side_notes_visible = False
         self._pdf_callback = None
         self.setAcceptDrops(True)
+        # The built-in PDF viewer is plugin-based, so both attributes are
+        # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
+        self.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.PluginsEnabled, True
+        )
+        self.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.PdfViewerEnabled, True
+        )
         self.page().pdfPrintingFinished.connect(self._on_pdf_finished)
 
         self._spy_timer = QTimer(self)
         self._spy_timer.setInterval(200)
         self._spy_timer.timeout.connect(self._poll_active_heading)
-        self.page().loadFinished.connect(lambda _: self._spy_timer.start())
+        self.page().loadFinished.connect(self._on_page_load_finished)
 
         self.bridge = AnnotationBridge(self)
         self._channel = QWebChannel(self)
@@ -44,6 +54,12 @@ class RendererView(QWebEngineView):
 
         self.show_empty()
 
+    def _on_page_load_finished(self, ok):
+        if ok and self._current_path and is_markdown(self._current_path):
+            self._spy_timer.start()
+        else:
+            self._spy_timer.stop()
+
     def _state_html(self, title: str, message: str, label: str = "") -> str:
         return state_page_html(title, message, self._theme, label)
 
@@ -53,8 +69,8 @@ class RendererView(QWebEngineView):
         self._spy_timer.stop()
         self.setHtml(
             self._state_html(
-                "開啟 Markdown 檔案",
-                "拖放 Markdown 檔案到視窗，或使用開啟按鈕選擇檔案。",
+                "開啟文件",
+                "拖放 Markdown 或 PDF 檔案到視窗，或使用開啟按鈕選擇檔案。",
                 "尚未載入",
             )
         )
@@ -64,10 +80,12 @@ class RendererView(QWebEngineView):
     def show_loading(self, path: Path):
         self._current_anchor = ""
         self._spy_timer.stop()
+        kind = document_kind(path)
+        label = "PDF" if kind == "pdf" else "Markdown"
         self.setHtml(
             self._state_html(
-                "正在載入 Markdown",
-                f"正在讀取並轉換：{path.name}",
+                f"正在載入 {label}",
+                f"正在讀取：{path.name}",
                 "載入中",
             )
         )
@@ -80,6 +98,12 @@ class RendererView(QWebEngineView):
 
     def _finish_load_file(self, path: Path):
         if path != self._current_path:
+            return
+
+        if is_pdf(path):
+            if self._on_headings_ready:
+                self._on_headings_ready([])
+            self.load(QUrl.fromLocalFile(str(path)))
             return
 
         html, headings = convert(path, self._theme)
@@ -102,7 +126,7 @@ class RendererView(QWebEngineView):
         return ""
 
     def _inject_annotations(self, ok):
-        if not ok or not self._current_path:
+        if not ok or not self._current_path or not is_markdown(self._current_path):
             return
         boot = "window.__annotBoot(%s, %s);" % (
             json.dumps(self._annot_json),
@@ -184,6 +208,8 @@ class RendererView(QWebEngineView):
         self._theme = "dark" if theme == "dark" else "light"
         if not self._current_path:
             self.show_empty()
+            return
+        if not is_markdown(self._current_path):
             return
 
         theme_class = f"theme-{self._theme}"

@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from PyQt6.QtCore import QStandardPaths
 
-MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+from .file_types import SUPPORTED_EXTENSIONS, document_kind
+
 _SKIP_DIRS = {
     ".git",
     ".hg",
@@ -50,11 +51,12 @@ class DocumentLibrary:
 
 
 @dataclass(frozen=True)
-class MarkdownDocument:
+class LibraryDocument:
     library_id: str
     library_name: str
     path: str
     relative_path: str
+    kind: str
     modified_ns: int
 
 
@@ -112,8 +114,8 @@ class DocumentLibraryStore:
         self.save([lib for lib in self.load() if lib.id != library_id])
 
 
-def scan_markdown_documents(libraries: list[DocumentLibrary]) -> list[MarkdownDocument]:
-    documents: list[MarkdownDocument] = []
+def scan_library_documents(libraries: list[DocumentLibrary]) -> list[LibraryDocument]:
+    documents: list[LibraryDocument] = []
     for lib in libraries:
         root = Path(lib.path)
         if not root.exists() or not root.is_dir():
@@ -124,7 +126,7 @@ def scan_markdown_documents(libraries: list[DocumentLibrary]) -> list[MarkdownDo
                 name for name in dirnames if not _should_skip_directory(name)
             ]
             for filename in filenames:
-                if Path(filename).suffix.lower() not in MARKDOWN_EXTENSIONS:
+                if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
                     continue
                 path = Path(dirpath) / filename
                 try:
@@ -136,11 +138,12 @@ def scan_markdown_documents(libraries: list[DocumentLibrary]) -> list[MarkdownDo
                 except OSError:
                     modified_ns = 0
                 documents.append(
-                    MarkdownDocument(
+                    LibraryDocument(
                         library_id=lib.id,
                         library_name=lib.name,
                         path=str(path),
                         relative_path=relative,
+                        kind=document_kind(path),
                         modified_ns=modified_ns,
                     )
                 )

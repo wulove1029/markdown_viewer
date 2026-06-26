@@ -25,9 +25,9 @@ from PyQt6.QtWidgets import (
 from .document_libraries import (
     DocumentLibrary,
     DocumentLibraryStore,
-    MarkdownDocument,
+    LibraryDocument,
     discover_cloud_library_paths,
-    scan_markdown_documents,
+    scan_library_documents,
 )
 from .theme import LIGHT, Theme, collection_stylesheet, svg_icon
 
@@ -44,7 +44,7 @@ class FileBrowserView(QWidget):
         self._theme = LIGHT
         self._store = DocumentLibraryStore()
         self._libraries: list[DocumentLibrary] = []
-        self._documents: list[MarkdownDocument] = []
+        self._documents: list[LibraryDocument] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -78,7 +78,7 @@ class FileBrowserView(QWidget):
         layout.addLayout(action_row)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("搜尋文件庫中的 Markdown")
+        self._filter.setPlaceholderText("搜尋文件庫中的文件")
         self._filter.textChanged.connect(self._refresh_list)
         layout.addWidget(self._filter)
 
@@ -117,7 +117,7 @@ QListWidget::item {{
 
     def refresh_libraries(self):
         self._libraries = self._store.load()
-        self._documents = scan_markdown_documents(self._libraries)
+        self._documents = scan_library_documents(self._libraries)
         self._refresh_list()
 
     def _refresh_list(self):
@@ -135,7 +135,7 @@ QListWidget::item {{
 
         total_shown = 0
         missing_count = 0
-        docs_by_library: dict[str, list[MarkdownDocument]] = {}
+        docs_by_library: dict[str, list[LibraryDocument]] = {}
         for doc in self._documents:
             if query and not self._matches_query(doc, query):
                 continue
@@ -160,14 +160,14 @@ QListWidget::item {{
                     self._add_file_item(doc)
                     total_shown += 1
             elif not query:
-                self._add_empty_item("這個文件庫目前沒有 Markdown 檔案")
+                self._add_empty_item("這個文件庫目前沒有支援的文件")
 
         if query and total_shown == 0:
-            self._add_empty_item("沒有符合搜尋的 Markdown 檔案")
+            self._add_empty_item("沒有符合搜尋的文件")
 
         missing_text = f"，{missing_count} 個來源找不到" if missing_count else ""
         self._status.setText(
-            f"{len(self._libraries)} 個文件庫，{len(self._documents)} 份 Markdown{missing_text}"
+            f"{len(self._libraries)} 個文件庫，{len(self._documents)} 份文件{missing_text}"
         )
 
     def _add_header_item(self, text: str):
@@ -180,10 +180,11 @@ QListWidget::item {{
         item.setData(_HEADER_ROLE, True)
         self._list.addItem(item)
 
-    def _add_file_item(self, doc: MarkdownDocument):
+    def _add_file_item(self, doc: LibraryDocument):
         name = Path(doc.path).name
         relative = doc.relative_path.replace("\\", " / ")
-        text = name if relative == name else f"{name}\n{relative}"
+        label = "PDF" if doc.kind == "pdf" else "MD"
+        text = f"[{label}] {name}" if relative == name else f"[{label}] {name}\n{relative}"
         item = QListWidgetItem(text)
         item.setSizeHint(QSize(0, 48 if "\n" in text else 36))
         item.setToolTip(doc.path)
@@ -199,7 +200,7 @@ QListWidget::item {{
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
         self._list.addItem(item)
 
-    def _matches_query(self, doc: MarkdownDocument, query: str) -> bool:
+    def _matches_query(self, doc: LibraryDocument, query: str) -> bool:
         haystack = " ".join(
             [
                 Path(doc.path).name,

@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
 
 from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .editor import EditorView
+from .file_types import document_kind, is_markdown, is_supported_document
 from .left_panel import LeftPanel
 from .md_converter import read_text
 from .renderer import RendererView
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         )
         self._theme = get_theme(self._theme_name)
         self._current_file: Path | None = None
+        self._current_kind = ""
 
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
@@ -257,7 +259,7 @@ class MainWindow(QMainWindow):
             "panel-left", "收合側邊欄", self._toggle_sidebar
         )
         self._open_btn = self._toolbar_button(
-            "file-text", "開啟單一 Markdown 文件", self._panel_open_file
+            "file-text", "開啟 Markdown 或 PDF 文件", self._panel_open_file
         )
         self._search_btn = self._toolbar_button(
             "search", "搜尋目前文件", self._toggle_search
@@ -394,9 +396,12 @@ QPushButton:pressed {{
         side_notes_tip = (
             "隱藏旁註卡片" if self._side_notes_visible else "顯示旁註卡片"
         )
-        side_notes_color = (
-            self._theme.accent if self._side_notes_visible else icon_color
-        )
+        if self._side_notes_btn.isEnabled():
+            side_notes_color = (
+                self._theme.accent if self._side_notes_visible else icon_color
+            )
+        else:
+            side_notes_color = disabled_color
         self._side_notes_btn.setChecked(self._side_notes_visible)
         self._side_notes_btn.setToolTip(side_notes_tip)
         self._side_notes_btn.setAccessibleName(side_notes_tip)
@@ -549,6 +554,8 @@ QWidget#searchBar QLabel {{
         return button
 
     def _toggle_search(self):
+        if self._current_file and not is_markdown(self._current_file):
+            return
         if self._edit_mode:
             return
         if self._search_bar.isHidden():
@@ -622,7 +629,7 @@ QWidget#searchBar QLabel {{
         )
 
     def _toggle_edit_mode(self):
-        if not self._current_file:
+        if not self._current_file or not is_markdown(self._current_file):
             return
         if self._edit_mode:
             self._exit_edit_mode()
@@ -666,9 +673,10 @@ QWidget#searchBar QLabel {{
 
     def _leave_edit_ui(self):
         self._edit_mode = False
-        self._search_btn.setEnabled(True)
+        is_md = bool(self._current_file and is_markdown(self._current_file))
+        self._search_btn.setEnabled(is_md)
         self._reload_btn.setEnabled(bool(self._current_file))
-        self._export_btn.setEnabled(bool(self._current_file))
+        self._export_btn.setEnabled(is_md)
         self._stack.setCurrentWidget(self._renderer)
         self._renderer.setFocus()
         self._refresh_icons()
@@ -741,24 +749,42 @@ QWidget#searchBar QLabel {{
 
     def _open_file(self, filepath: str):
         path = Path(filepath)
+        kind = document_kind(path)
+        if not kind:
+            QMessageBox.warning(
+                self,
+                "不支援的檔案",
+                "目前支援 Markdown（.md, .markdown）與 PDF（.pdf）檔案。",
+            )
+            return
         if self._edit_mode:
             if not self._confirm_discard_edits():
                 return
             self._leave_edit_ui()
         self._current_file = path
+        self._current_kind = kind
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
-        self._doc_annotations = AnnotationStore.load(path)
-        self._sync_renderer_annotations()
-        self._panel.annotations.set_document(self._doc_annotations)
+        if kind == "markdown":
+            self._doc_annotations = AnnotationStore.load(path)
+            self._sync_renderer_annotations()
+            self._panel.annotations.set_document(self._doc_annotations)
+            self._panel.set_annotations_enabled(True)
+        else:
+            self._doc_annotations = DocumentAnnotations()
+            self._renderer.set_annotations([])
+            self._panel.annotations.set_document(None)
+            self._panel.set_annotations_enabled(False)
         self._renderer.load_file(path)
         self._panel.file_browser.navigate_to(path.parent)
         self._panel.file_browser.select_path(path)
         self._panel.recent.add(str(path))
         self._reload_btn.setEnabled(True)
-        self._edit_btn.setEnabled(True)
-        self._export_btn.setEnabled(True)
+        self._search_btn.setEnabled(kind == "markdown")
+        self._edit_btn.setEnabled(kind == "markdown")
+        self._export_btn.setEnabled(kind == "markdown")
+        self._side_notes_btn.setEnabled(kind == "markdown")
         self._refresh_icons()
 
     def open_path(self, filepath: str):
@@ -774,7 +800,7 @@ QWidget#searchBar QLabel {{
         self.statusBar().showMessage("已重新載入文件", 3000)
 
     def _persist_annotations(self):
-        if not self._current_file:
+        if not self._current_file or not is_markdown(self._current_file):
             return
         AnnotationStore.save(self._current_file, self._doc_annotations)
         self._tag_index.update(self._current_file, self._doc_annotations)
@@ -794,7 +820,7 @@ QWidget#searchBar QLabel {{
 
     # --- signals from the page (bridge) ---
     def _on_bridge_added(self, payload_json):
-        if not self._current_file:
+        if not self._current_file or not is_markdown(self._current_file):
             return
         ann = Annotation.from_dict(json.loads(payload_json))
         self._doc_annotations.annotations.append(ann)
@@ -858,7 +884,7 @@ QWidget#searchBar QLabel {{
         self._renderer.scroll_to_annotation(ann_id)
 
     def _export_pdf(self):
-        if not self._current_file or self._edit_mode:
+        if not self._current_file or self._edit_mode or not is_markdown(self._current_file):
             return
         setup = self._ask_page_setup()
         if setup is None:
@@ -1109,7 +1135,7 @@ QWidget#searchBar QLabel {{
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             if any(
-                u.toLocalFile().lower().endswith(".md")
+                is_supported_document(u.toLocalFile())
                 for u in event.mimeData().urls()
             ):
                 event.acceptProposedAction()
@@ -1119,7 +1145,7 @@ QWidget#searchBar QLabel {{
     def dropEvent(self, event: QDropEvent):
         for url in event.mimeData().urls():
             local = url.toLocalFile()
-            if local.lower().endswith(".md"):
+            if is_supported_document(local):
                 self._open_file(local)
                 break
 

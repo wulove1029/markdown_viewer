@@ -102,9 +102,9 @@ class LeftPanel(QWidget):
     def open_file_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "開啟 Markdown 檔案",
+            "開啟文件",
             "",
-            "Markdown 檔案 (*.md *.markdown);;所有檔案 (*)",
+            "支援的文件 (*.md *.markdown *.pdf);;Markdown 檔案 (*.md *.markdown);;PDF 檔案 (*.pdf);;所有檔案 (*)",
         )
         if path:
             self._on_file_selected(path)
@@ -112,3 +112,11 @@ class LeftPanel(QWidget):
     def switch_to(self, index: int):
         if 0 <= index < self._tabs.count():
             self._tabs.setCurrentIndex(index)
+
+    def set_annotations_enabled(self, enabled: bool):
+        index = self._tabs.indexOf(self._annotations)
+        if index < 0:
+            return
+        self._tabs.setTabEnabled(index, enabled)
+        if not enabled and self._tabs.currentIndex() == index:
+            self._tabs.setCurrentIndex(0)
