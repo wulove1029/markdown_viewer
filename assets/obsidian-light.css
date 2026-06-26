@@ -570,6 +570,42 @@ mark.annot.is-active {
   filter: brightness(0.98);
 }
 
+.annot-menu {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px var(--shadow);
+  min-width: 132px;
+  padding: 5px;
+  position: absolute;
+  z-index: 10001;
+}
+
+.annot-menu button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.2;
+  min-height: 32px;
+  padding: 0 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.annot-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.annot-menu button.is-danger {
+  color: var(--danger);
+}
+
 @media (max-width: 1120px) {
   body.annot-side-notes {
     max-width: clamp(900px, 90vw, 1600px);
@@ -594,6 +630,8 @@ mark.annot.is-active {
 
   .annot-rail,
   .annot-popover,
+  .annot-editor,
+  .annot-menu,
   .annot-toolbar {
     display: none !important;
   }

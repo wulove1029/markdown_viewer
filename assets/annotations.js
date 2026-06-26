@@ -7,6 +7,7 @@
   var rail = null;
   var popover = null;
   var editor = null;
+  var contextMenu = null;
   var annotations = [];
   var annotationById = {};
   var renderedIds = {};
@@ -22,7 +23,7 @@
           if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
           var p = n.parentNode;
           if (p && p.closest &&
-              p.closest("script,style,.annot-toolbar,.annot-rail,.annot-popover,.annot-editor")) {
+              p.closest("script,style,.annot-toolbar,.annot-rail,.annot-popover,.annot-editor,.annot-menu")) {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
@@ -172,6 +173,32 @@
   function closeEditor() {
     if (editor && editor.parentNode) editor.parentNode.removeChild(editor);
     editor = null;
+  }
+
+  function closeContextMenu() {
+    if (contextMenu && contextMenu.parentNode) {
+      contextMenu.parentNode.removeChild(contextMenu);
+    }
+    contextMenu = null;
+  }
+
+  function removeAnnotationLocal(id) {
+    unwrap(id);
+    delete annotationById[id];
+    delete renderedIds[id];
+    annotations = annotations.filter(function (ann) { return ann.id !== id; });
+    if (activeId === id) activeId = "";
+    closeEditor();
+    closeContextMenu();
+    clearPopover();
+    renderSideNotes();
+    setActive(activeId);
+  }
+
+  function requestDeleteAnnotation(id) {
+    if (!annotationById[id]) return;
+    removeAnnotationLocal(id);
+    if (bridge) bridge.remove(id);
   }
 
   function buildNoteCard(ann) {
@@ -409,6 +436,63 @@
     input.select();
   }
 
+  function positionMenuAt(menu, x, y) {
+    menu.style.display = "block";
+    var maxLeft = window.scrollX + document.documentElement.clientWidth -
+                  menu.offsetWidth - 10;
+    var maxTop = window.scrollY + document.documentElement.clientHeight -
+                 menu.offsetHeight - 10;
+    menu.style.left = Math.max(10, Math.min(x, maxLeft)) + "px";
+    menu.style.top = Math.max(10, Math.min(y, maxTop)) + "px";
+  }
+
+  function openAnnotationMenu(id, x, y, target) {
+    var ann = annotationById[id];
+    if (!ann) return;
+    clearPopover();
+    closeContextMenu();
+    activateAnnotation(id, true, false);
+
+    contextMenu = document.createElement("div");
+    contextMenu.className = "annot-menu";
+    contextMenu.style.setProperty("--annot-color", ann.color || COLORS[0]);
+    contextMenu.addEventListener("mousedown", function (ev) {
+      ev.stopPropagation();
+    });
+    contextMenu.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+    });
+
+    var edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "編輯備註";
+    edit.addEventListener("click", function () {
+      closeContextMenu();
+      openNoteEditor(id, target);
+    });
+
+    var del = document.createElement("button");
+    del.type = "button";
+    del.className = "is-danger";
+    del.textContent = "刪除標註";
+    del.addEventListener("click", function () {
+      requestDeleteAnnotation(id);
+    });
+
+    contextMenu.appendChild(edit);
+    contextMenu.appendChild(del);
+    document.body.appendChild(contextMenu);
+    positionMenuAt(contextMenu, x, y);
+  }
+
+  function isTypingTarget(target) {
+    if (!target) return false;
+    var tag = (target.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" ||
+           target.isContentEditable ||
+           !!(target.closest && target.closest(".annot-editor"));
+  }
+
   // ---- selection toolbar -------------------------------------------------
   function hideToolbar() { if (toolbar) toolbar.style.display = "none"; }
 
@@ -493,14 +577,7 @@
       if (bridge) bridge.reportOrphans(JSON.stringify(orphans));
     },
     remove: function (id) {
-      unwrap(id);
-      delete annotationById[id];
-      delete renderedIds[id];
-      annotations = annotations.filter(function (ann) { return ann.id !== id; });
-      if (activeId === id) activeId = "";
-      closeEditor();
-      renderSideNotes();
-      setActive(activeId);
+      removeAnnotationLocal(id);
     },
     updateColor: function (id, color) {
       document.querySelectorAll('mark.annot[data-id="' + id + '"]')
@@ -548,8 +625,27 @@
   });
 
   document.addEventListener("mousedown", function (e) {
+    if (!(e.target.closest && e.target.closest(".annot-menu"))) {
+      closeContextMenu();
+    }
     var m = e.target.closest && e.target.closest("mark.annot");
     if (m) activateAnnotation(m.getAttribute("data-id"), true, false);
+  });
+
+  document.addEventListener("contextmenu", function (e) {
+    var m = e.target.closest && e.target.closest("mark.annot");
+    if (!m) {
+      closeContextMenu();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    openAnnotationMenu(
+      m.getAttribute("data-id"),
+      window.scrollX + e.clientX,
+      window.scrollY + e.clientY,
+      m
+    );
   });
 
   document.addEventListener("dblclick", function (e) {
@@ -571,6 +667,17 @@
     var to = e.relatedTarget;
     if (to && to.closest && to.closest("mark.annot")) return;
     clearPopover();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (isTypingTarget(e.target)) return;
+    if (e.key === "Escape") {
+      closeContextMenu();
+      return;
+    }
+    if (e.key !== "Delete" || !activeId) return;
+    e.preventDefault();
+    requestDeleteAnnotation(activeId);
   });
 
   window.addEventListener("resize", scheduleSideNoteLayout);
