@@ -41,12 +41,6 @@ class LeftPanel(QWidget):
         self._title_label = QLabel("工作面板")
         self._title_label.setObjectName("panelTitle")
 
-        self._open_btn = QPushButton()
-        self._open_btn.setToolTip("開啟 Markdown 檔案 (Ctrl+O)")
-        self._open_btn.setAccessibleName("開啟 Markdown 檔案")
-        self._open_btn.setIconSize(QSize(20, 20))
-        self._open_btn.clicked.connect(self.open_file_dialog)
-
         self._close_btn = QPushButton()
         self._close_btn.setToolTip("收合側邊欄")
         self._close_btn.setAccessibleName("收合側邊欄")
@@ -54,7 +48,6 @@ class LeftPanel(QWidget):
 
         header_layout.addWidget(self._title_label)
         header_layout.addStretch()
-        header_layout.addWidget(self._open_btn)
         header_layout.addWidget(self._close_btn)
         layout.addWidget(self._header)
 
@@ -100,7 +93,6 @@ class LeftPanel(QWidget):
     def apply_theme(self, theme: Theme):
         self._theme = theme
         self.setStyleSheet(panel_stylesheet(theme))
-        self._open_btn.setIcon(svg_icon("folder-open", theme.text_muted, 20))
         self._close_btn.setIcon(svg_icon("chevron-left", theme.text_muted, 20))
         self._file_browser.apply_theme(theme)
         self._recent.apply_theme(theme)

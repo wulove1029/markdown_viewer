@@ -257,7 +257,7 @@ class MainWindow(QMainWindow):
             "panel-left", "收合側邊欄", self._toggle_sidebar
         )
         self._open_btn = self._toolbar_button(
-            "folder-open", "開啟 Markdown 文件", self._panel_open_file
+            "file-text", "開啟單一 Markdown 文件", self._panel_open_file
         )
         self._search_btn = self._toolbar_button(
             "search", "搜尋目前文件", self._toggle_search
@@ -754,6 +754,7 @@ QWidget#searchBar QLabel {{
         self._panel.annotations.set_document(self._doc_annotations)
         self._renderer.load_file(path)
         self._panel.file_browser.navigate_to(path.parent)
+        self._panel.file_browser.select_path(path)
         self._panel.recent.add(str(path))
         self._reload_btn.setEnabled(True)
         self._edit_btn.setEnabled(True)
