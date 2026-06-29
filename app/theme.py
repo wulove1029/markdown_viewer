@@ -232,6 +232,46 @@ QToolTip {{
     color: {theme.text};
     padding: 6px 8px;
 }}
+QMenuBar {{
+    background: {theme.surface};
+    color: {theme.text};
+    border-bottom: 1px solid {theme.border};
+}}
+QMenuBar::item {{
+    background: transparent;
+    color: {theme.text};
+    padding: 4px 10px;
+}}
+QMenuBar::item:selected {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QMenuBar::item:pressed {{
+    background: {theme.surface_active};
+    color: {theme.text};
+}}
+QMenu {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    color: {theme.text};
+}}
+QMenu::item {{
+    background: transparent;
+    color: {theme.text};
+    padding: 6px 24px 6px 16px;
+}}
+QMenu::item:selected {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QMenu::item:disabled {{
+    color: {theme.text_subtle};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {theme.border};
+    margin: 4px 8px;
+}}
 QLineEdit, QTextEdit, QPlainTextEdit {{
     background: {theme.surface};
     border: 1px solid {theme.border};
