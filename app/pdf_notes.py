@@ -1,10 +1,10 @@
 """Page-anchored notes for PDFs, persisted in a sidecar next to the file.
 
-Qt's PDF widget exposes no widget->page coordinate transform or readable text
-selection, so pixel-precise text highlights aren't possible without replacing
-the renderer. Page-level notes give most of the studying value (annotate a
-page, tag it, jump back to it) and reuse the same crash-safe sidecar pattern
-as the Markdown annotations.
+These are page-level notes (annotate a page, tag it, jump back to it), reusing
+the same crash-safe sidecar pattern as the Markdown annotations. Text-anchored
+highlights — pinned to the exact selected glyphs — live separately in
+``pdf_highlights.py``, made possible by the custom paged renderer in
+``pdf_view.py`` that owns the widget->page coordinate transform.
 """
 
 from __future__ import annotations

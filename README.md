@@ -67,13 +67,18 @@ Open a PDF to read it in a native viewer:
 - The sidebar **目錄** (TOC) tab shows the PDF outline — click to jump.
 - **Ctrl+F** searches the PDF text in-app (Enter / Shift+Enter to step results).
 - The app remembers the last page you read and returns there next time.
-- The **標註** tab holds page-anchored notes: add a note to the page you're on,
-  tag it, and click it later to jump back. Notes are saved in a sidecar
-  (`<document>.pdf.notes.json`) next to the PDF.
+- **Select text** by dragging across it, then **Ctrl+C** to copy, or right-click
+  for **複製 / 螢光標記** (copy / highlight in a chosen color).
+- The **螢光筆** toolbar button toggles highlighter mode: with it on, simply drag
+  across text to highlight it in the current color (or press **H** on a
+  selection).
+- The **標註** tab has two sub-tabs: **螢光** lists your text highlights (jump,
+  recolor, attach a note, or delete each one) and **頁註** holds page-anchored
+  notes. Highlights save to `<document>.pdf.highlights.json` and notes to
+  `<document>.pdf.notes.json`, both sidecars next to the PDF.
 
-> Note: PDF notes are page-level. Pixel-precise text highlighting isn't offered
-> because Qt's PDF viewer exposes no text-selection geometry to anchor a
-> highlight to.
+PDFs are rendered by Qt's built-in engine (PDFium) — **no Adobe Reader or other
+external software is required**.
 
 ## Keyboard Shortcuts
 
@@ -85,6 +90,8 @@ Open a PDF to read it in a native viewer:
 | Ctrl+E | Toggle edit mode |
 | Ctrl+S | Save |
 | Ctrl+Shift+P | Export to PDF |
+| Ctrl+C | Copy selected PDF text |
+| H | Highlight the current PDF selection |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset |
 
 A menu bar (File / Edit / View / Tools / Help) exposes these actions, and

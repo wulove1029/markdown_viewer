@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from .annotations_panel import AnnotationsPanel
 from .backlinks_panel import BacklinksPanel
 from .file_browser import FileBrowserView
-from .pdf_notes_panel import PdfNotesPanel
+from .pdf_highlights_panel import PdfMarkupPanel
 from .recent_files import RecentFilesView
 from .tags_panel import TagsPanel
 from .theme import LIGHT, Theme, panel_stylesheet, svg_icon
@@ -25,6 +25,7 @@ from .toc import TocView
 class LeftPanel(QWidget):
     def __init__(self, on_file_selected, on_anchor_clicked,
                  annotation_callbacks, pdf_note_callbacks=None,
+                 pdf_highlight_callbacks=None,
                  on_tag_selected=None, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
@@ -66,11 +67,14 @@ class LeftPanel(QWidget):
         )
         self._toc = TocView(on_anchor_clicked=on_anchor_clicked)
         self._annotations = AnnotationsPanel(annotation_callbacks)
-        self._pdf_notes = PdfNotesPanel(pdf_note_callbacks or {})
-        # The "標註" tab swaps between Markdown annotations and PDF page notes.
+        self._pdf_markup = PdfMarkupPanel(
+            pdf_note_callbacks or {}, pdf_highlight_callbacks or {}
+        )
+        # The "標註" tab swaps between Markdown annotations and PDF markup
+        # (highlights + page notes).
         self._annot_stack = QStackedWidget()
         self._annot_stack.addWidget(self._annotations)  # index 0 (markdown)
-        self._annot_stack.addWidget(self._pdf_notes)    # index 1 (pdf)
+        self._annot_stack.addWidget(self._pdf_markup)   # index 1 (pdf)
         self._backlinks = BacklinksPanel(on_file_selected=on_file_selected)
         self._tags = TagsPanel(on_tag_selected=on_tag_selected or (lambda _t: None))
 
@@ -106,8 +110,12 @@ class LeftPanel(QWidget):
         return self._backlinks
 
     @property
-    def pdf_notes(self) -> PdfNotesPanel:
-        return self._pdf_notes
+    def pdf_notes(self):
+        return self._pdf_markup.notes
+
+    @property
+    def pdf_highlights(self):
+        return self._pdf_markup.highlights
 
     @property
     def tags(self) -> TagsPanel:
@@ -128,7 +136,7 @@ class LeftPanel(QWidget):
         self._recent.apply_theme(theme)
         self._toc.apply_theme(theme)
         self._annotations.apply_theme(theme)
-        self._pdf_notes.apply_theme(theme)
+        self._pdf_markup.apply_theme(theme)
         self._backlinks.apply_theme(theme)
         self._tags.apply_theme(theme)
 

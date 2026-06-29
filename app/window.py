@@ -68,6 +68,7 @@ from .md_converter import (
     set_user_css,
 )
 from .pdf_notes import PdfNote, PdfNoteStore
+from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
 from .renderer import RendererView
@@ -211,6 +212,15 @@ class MainWindow(QMainWindow):
         }
         self._pdf_notes: list[PdfNote] = []
 
+        pdf_highlight_callbacks = {
+            "activated": self._pdf_highlight_activated,
+            "recolor": self._pdf_highlight_recolor,
+            "note": self._pdf_highlight_edit_note,
+            "deleted": self._pdf_highlight_delete,
+        }
+        self._pdf_highlights: list[PdfHighlight] = []
+        self._pen_mode = False
+
         self._current_front_tags: list[str] = []
 
         self._panel = LeftPanel(
@@ -218,6 +228,7 @@ class MainWindow(QMainWindow):
             on_anchor_clicked=self._scroll_to_anchor,
             annotation_callbacks=annotation_callbacks,
             pdf_note_callbacks=pdf_note_callbacks,
+            pdf_highlight_callbacks=pdf_highlight_callbacks,
             on_tag_selected=self._on_tag_selected,
             theme=self._theme,
         )
@@ -285,6 +296,7 @@ class MainWindow(QMainWindow):
         self._pdf_view = PdfView()
         self._pdf_view.page_changed.connect(self._on_pdf_page_changed)
         self._pdf_view.search_count_changed.connect(self._on_pdf_search_count)
+        self._pdf_view.highlight_requested.connect(self._on_pdf_highlight_requested)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._renderer)
@@ -529,6 +541,11 @@ class MainWindow(QMainWindow):
         )
         self._side_notes_btn.setCheckable(True)
         self._side_notes_btn.setChecked(self._side_notes_visible)
+        self._highlight_btn = self._toolbar_button(
+            "highlighter", "螢光筆模式（在 PDF 拖曳選取即標記）", self._toggle_pen_mode
+        )
+        self._highlight_btn.setCheckable(True)
+        self._highlight_btn.setEnabled(False)
         self._theme_btn = self._toolbar_button(
             "moon", "切換深色模式", self._toggle_theme
         )
@@ -560,6 +577,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._edit_btn)
         layout.addWidget(self._export_btn)
         layout.addWidget(self._side_notes_btn)
+        layout.addWidget(self._highlight_btn)
         layout.addWidget(title_wrap, stretch=1)
         layout.addWidget(self._theme_btn)
         layout.addWidget(self._update_btn)
@@ -627,6 +645,7 @@ QPushButton:pressed {{
         )
         self._editor.apply_theme(self._theme)
         self._editor_search_bar.setStyleSheet(self._editor_search_style())
+        self._pdf_view.apply_theme(self._theme)
         self._refresh_icons()
         self._renderer.set_theme(self._theme_name)
         # The preview holds a throwaway HTML string (no _current_path), so the
@@ -662,6 +681,15 @@ QPushButton:pressed {{
         self._side_notes_btn.setToolTip(side_notes_tip)
         self._side_notes_btn.setAccessibleName(side_notes_tip)
         self._side_notes_btn.setIcon(svg_icon("panel-right", side_notes_color, 20))
+
+        if not self._highlight_btn.isEnabled():
+            highlight_color = disabled_color
+        elif self._pen_mode:
+            highlight_color = self._theme.accent
+        else:
+            highlight_color = icon_color
+        self._highlight_btn.setChecked(self._pen_mode)
+        self._highlight_btn.setIcon(svg_icon("highlighter", highlight_color, 20))
 
         edit_icon = "eye" if self._edit_mode else "pencil"
         edit_tip = "回到預覽 (Ctrl+E)" if self._edit_mode else "編輯文件 (Ctrl+E)"
@@ -1288,6 +1316,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._edit_btn.setEnabled(kind == "markdown")
         self._export_btn.setEnabled(kind == "markdown")
         self._side_notes_btn.setEnabled(kind == "markdown")
+        self._highlight_btn.setEnabled(kind == "pdf")
         if kind == "markdown":
             self._refresh_link_index()
         else:
@@ -1299,11 +1328,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._stack.setCurrentWidget(self._pdf_view)
         # Outline -> sidebar TOC; clicking an entry jumps to its page.
         self._panel.toc.update_outline(self._pdf_view.outline())
-        # Page-anchored notes live in the "標註" tab while a PDF is open.
+        # Page-anchored notes + text highlights live in the "標註" tab.
         self._pdf_notes = PdfNoteStore.load(path)
+        self._pdf_highlights = PdfHighlightStore.load(path)
+        self._pdf_view.set_highlights(self._pdf_highlights)
         self._panel.show_pdf_notes(True)
         self._panel.set_annotations_enabled(True)
         self._refresh_pdf_notes_panel()
+        self._refresh_pdf_highlights_panel()
         # Resume where the reader left off.
         page = self._pdf_pages_map().get(str(path), 0)
         self._pdf_view.restore_page(int(page))
@@ -1360,6 +1392,86 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._pdf_notes = [n for n in self._pdf_notes if n.id != note_id]
         self._save_pdf_notes()
         self._refresh_pdf_notes_panel()
+
+    # --- PDF text highlights ---
+    def _toggle_pen_mode(self):
+        self._pen_mode = not self._pen_mode
+        self._pdf_view.set_pen_mode(self._pen_mode)
+        self._refresh_icons()
+        if self._pen_mode:
+            self.statusBar().showMessage("螢光筆模式：拖曳選取文字即可標記", 3000)
+
+    def _refresh_pdf_highlights_panel(self):
+        self._panel.pdf_highlights.set_highlights(self._pdf_highlights)
+
+    def _save_pdf_highlights(self):
+        if self._current_file and self._current_kind == "pdf":
+            try:
+                PdfHighlightStore.save(self._current_file, self._pdf_highlights)
+            except OSError as exc:
+                self.statusBar().showMessage(f"無法儲存螢光標記：{exc}", 4000)
+
+    def _on_pdf_highlight_requested(self, payload):
+        if self._current_kind != "pdf" or not self._current_file:
+            return
+        rects = [Rect(x=x, y=y, w=w, h=h) for (x, y, w, h) in payload.get("rects", [])]
+        if not rects:
+            return
+        highlight = PdfHighlight.new(
+            page=int(payload.get("page", 0)),
+            rects=rects,
+            text=payload.get("text", ""),
+            color=payload.get("color", DEFAULT_COLOR),
+        )
+        self._pdf_highlights.append(highlight)
+        self._pdf_highlights.sort(key=lambda h: (h.page, h.created))
+        self._save_pdf_highlights()
+        self._pdf_view.set_highlights(self._pdf_highlights)
+        self._refresh_pdf_highlights_panel()
+
+    def _find_pdf_highlight(self, hid):
+        return next((h for h in self._pdf_highlights if h.id == hid), None)
+
+    def _pdf_highlight_activated(self, hid):
+        highlight = self._find_pdf_highlight(hid)
+        if not highlight:
+            return
+        if highlight.rects:
+            r = highlight.rects[0]
+            self._pdf_view.reveal(highlight.page, r.x, r.y, r.w, r.h)
+        else:
+            self._pdf_view.jump_to_page(highlight.page)
+
+    def _pdf_highlight_recolor(self, hid, color):
+        highlight = self._find_pdf_highlight(hid)
+        if not highlight:
+            return
+        highlight.color = color
+        highlight.updated = datetime.now().isoformat(timespec="seconds")
+        self._pdf_view.set_pen_color(color)
+        self._save_pdf_highlights()
+        self._pdf_view.set_highlights(self._pdf_highlights)
+        self._refresh_pdf_highlights_panel()
+
+    def _pdf_highlight_edit_note(self, hid):
+        highlight = self._find_pdf_highlight(hid)
+        if not highlight:
+            return
+        text, ok = QInputDialog.getMultiLineText(
+            self, "螢光標記備註", f"第 {highlight.page + 1} 頁：", highlight.note
+        )
+        if not ok:
+            return
+        highlight.note = text.strip()
+        highlight.updated = datetime.now().isoformat(timespec="seconds")
+        self._save_pdf_highlights()
+        self._refresh_pdf_highlights_panel()
+
+    def _pdf_highlight_delete(self, hid):
+        self._pdf_highlights = [h for h in self._pdf_highlights if h.id != hid]
+        self._save_pdf_highlights()
+        self._pdf_view.set_highlights(self._pdf_highlights)
+        self._refresh_pdf_highlights_panel()
 
     # --- wiki-links & backlinks ---
     def _link_roots(self) -> list[Path]:
@@ -1547,6 +1659,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             page = self._pdf_view.current_page()
             self._pdf_view.load(self._current_file)
             self._panel.toc.update_outline(self._pdf_view.outline())
+            self._pdf_view.set_highlights(self._pdf_highlights)
             self._pdf_view.restore_page(page)
         else:
             self._renderer.reload_current()
