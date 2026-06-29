@@ -272,6 +272,44 @@ QMenu::separator {{
     background: {theme.border};
     margin: 4px 8px;
 }}
+QDialog {{
+    background: {theme.window};
+    color: {theme.text};
+}}
+QMessageBox {{
+    background: {theme.window};
+}}
+QMessageBox QLabel, QInputDialog QLabel, QDialog QLabel {{
+    background: transparent;
+    color: {theme.text};
+}}
+QComboBox {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text};
+    min-height: 30px;
+    padding: 2px 10px;
+}}
+QComboBox:hover {{
+    border-color: {theme.accent};
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 22px;
+}}
+QComboBox QAbstractItemView {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    color: {theme.text};
+    selection-background-color: {theme.surface_hover};
+    selection-color: {theme.text};
+    outline: none;
+}}
+QCheckBox {{
+    background: transparent;
+    color: {theme.text};
+}}
 QLineEdit, QTextEdit, QPlainTextEdit {{
     background: {theme.surface};
     border: 1px solid {theme.border};
