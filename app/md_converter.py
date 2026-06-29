@@ -7,6 +7,7 @@ import urllib.parse
 from pathlib import Path
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from mdit_py_plugins.deflist import deflist_plugin
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
@@ -32,7 +33,41 @@ _WIKILINK_CSS = (
     "a.wikilink { text-decoration: none; border-bottom: 1px dashed currentColor; }"
     "a.wikilink:hover { border-bottom-style: solid; }"
 )
-_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}"
+_CALLOUT_CSS = """
+.callout { border: 1px solid rgba(128,128,128,.25); border-left: 4px solid var(--cl, #888);
+    border-radius: 6px; padding: 8px 14px; margin: 14px 0; background: var(--cl-bg, rgba(128,128,128,.06)); }
+.callout .callout-title { display: block; font-weight: 700; margin-bottom: 2px; color: var(--cl, #666); }
+.callout > :first-child:not(.callout-title) { margin-top: 0; }
+.callout > p:last-child { margin-bottom: 0; }
+.callout-note,.callout-info,.callout-important { --cl: #3b82f6; --cl-bg: rgba(59,130,246,.08); }
+.callout-tip,.callout-hint,.callout-success,.callout-done,.callout-check { --cl: #10b981; --cl-bg: rgba(16,185,129,.08); }
+.callout-warning,.callout-caution,.callout-attention,.callout-todo { --cl: #f59e0b; --cl-bg: rgba(245,158,11,.10); }
+.callout-danger,.callout-error,.callout-bug,.callout-failure,.callout-fail,.callout-missing { --cl: #ef4444; --cl-bg: rgba(239,68,68,.08); }
+.callout-question,.callout-faq,.callout-help { --cl: #8b5cf6; --cl-bg: rgba(139,92,246,.08); }
+.callout-quote,.callout-cite,.callout-abstract,.callout-summary,.callout-tldr,.callout-example { --cl: #6b7280; --cl-bg: rgba(107,114,128,.08); }
+kbd { background: rgba(128,128,128,.18); border: 1px solid rgba(128,128,128,.35); border-radius: 4px;
+    padding: 1px 5px; font-size: .85em; font-family: "Cascadia Code", Consolas, monospace; }
+details { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.frontmatter { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 8px 14px;
+    margin: 0 0 18px; background: rgba(128,128,128,.05); font-size: .9em; }
+.frontmatter .fm-row { display: flex; gap: 10px; padding: 2px 0; }
+.frontmatter .fm-key { min-width: 90px; font-weight: 600; opacity: .8; }
+.frontmatter .fm-val { flex: 1; }
+.frontmatter .fm-tag { display: inline-block; background: rgba(128,128,128,.15);
+    border-radius: 10px; padding: 0 8px; margin: 0 4px 2px 0; font-size: .9em; }
+"""
+_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}"
+
+# Optional user stylesheet (set from Preferences) appended after the bundled CSS
+# so it can override the defaults.
+_user_css = ""
+
+
+def set_user_css(css: str) -> None:
+    global _user_css
+    _user_css = css or ""
+    _CONVERT_CACHE.clear()  # cached HTML embeds the old stylesheet
 _FORMATTER = HtmlFormatter(style="one-dark")
 
 
@@ -146,6 +181,129 @@ def _katex_html() -> str:
     )
 
 
+_CALLOUT_RE = re.compile(r"^\[!([\w-]+)\]([+-]?)\s*(.*)$")
+_CALLOUT_TITLES = {
+    "note": "備註", "info": "資訊", "tip": "提示", "hint": "提示",
+    "warning": "警告", "caution": "注意", "attention": "注意",
+    "danger": "危險", "error": "錯誤", "bug": "錯誤",
+    "important": "重要", "success": "成功", "done": "完成", "check": "完成",
+    "question": "問題", "faq": "問題", "help": "問題",
+    "example": "範例", "quote": "引用", "cite": "引用",
+    "abstract": "摘要", "summary": "摘要", "tldr": "摘要",
+    "failure": "失敗", "fail": "失敗", "missing": "缺少", "todo": "待辦",
+}
+
+
+def _callout_plugin(md: MarkdownIt) -> None:
+    """Render Obsidian-style ``> [!note] Title`` blockquotes as callout boxes."""
+
+    def apply_title(inline, title: str):
+        children = inline.children or []
+        cut = len(children)
+        for idx, child in enumerate(children):
+            if child.type in ("softbreak", "hardbreak"):
+                cut = idx + 1
+                break
+        title_tok = Token("html_inline", "", 0)
+        # <span> (not <div>) keeps the HTML valid inside the paragraph.
+        title_tok.content = f'<span class="callout-title">{escape(title)}</span>'
+        inline.children = [title_tok] + children[cut:]
+        parts = inline.content.split("\n", 1)
+        inline.content = parts[1] if len(parts) > 1 else ""
+
+    def rule(state):
+        tokens = state.tokens
+        i = 0
+        while i < len(tokens):
+            if tokens[i].type != "blockquote_open":
+                i += 1
+                continue
+            inline = None
+            for k in range(i + 1, len(tokens)):
+                if tokens[k].type == "inline":
+                    inline = tokens[k]
+                    break
+                if tokens[k].type in ("blockquote_open", "blockquote_close"):
+                    break
+            match = _CALLOUT_RE.match(inline.content.split("\n", 1)[0].strip()) if inline else None
+            if not match:
+                i += 1
+                continue
+            ctype = match.group(1).lower()
+            title = match.group(3).strip() or _CALLOUT_TITLES.get(ctype, ctype.capitalize())
+            tokens[i].tag = "div"
+            tokens[i].attrSet("class", f"callout callout-{ctype}")
+            depth = 0
+            for k in range(i, len(tokens)):
+                if tokens[k].type == "blockquote_open":
+                    depth += 1
+                elif tokens[k].type == "blockquote_close":
+                    depth -= 1
+                    if depth == 0:
+                        tokens[k].tag = "div"
+                        break
+            apply_title(inline, title)
+            i += 1
+
+    md.core.ruler.push("callout", rule)
+
+
+# A deliberately tiny allowlist of safe HTML so notes can use <kbd>, <mark>,
+# super/subscript, etc. without enabling raw HTML wholesale. Only these fixed
+# tags pass through; no scriptable attributes are ever allowed.
+_SAFE_INLINE_RE = re.compile(
+    r"</?(?:kbd|sub|sup|mark|ins|del)>|<br\s*/?>|"
+    r'<abbr\s+title="[^"<>]*">|</abbr>',
+    re.IGNORECASE,
+)
+_DETAILS_OPEN_RE = re.compile(r"^<details(?:\s+open)?>$", re.IGNORECASE)
+_DETAILS_CLOSE_RE = re.compile(r"^</details>$", re.IGNORECASE)
+_SUMMARY_LINE_RE = re.compile(r"^<summary>(.*)</summary>$", re.IGNORECASE)
+_SUMMARY_OPEN_RE = re.compile(r"^<summary>$", re.IGNORECASE)
+_SUMMARY_CLOSE_RE = re.compile(r"^</summary>$", re.IGNORECASE)
+
+
+def _safe_html_plugin(md: MarkdownIt) -> None:
+    def inline_rule(state, silent):
+        if state.src[state.pos] != "<":
+            return False
+        match = _SAFE_INLINE_RE.match(state.src, state.pos)
+        if not match:
+            return False
+        if not silent:
+            token = state.push("html_inline", "", 0)
+            token.content = match.group(0)
+        state.pos = match.end()
+        return True
+
+    def block_rule(state, start, end, silent):
+        pos = state.bMarks[start] + state.tShift[start]
+        line = state.src[pos:state.eMarks[start]].strip()
+        summary = _SUMMARY_LINE_RE.match(line)
+        if _DETAILS_OPEN_RE.match(line):
+            out = line
+        elif _DETAILS_CLOSE_RE.match(line):
+            out = "</details>"
+        elif summary:
+            out = f"<summary>{escape(summary.group(1))}</summary>"
+        elif _SUMMARY_OPEN_RE.match(line):
+            out = "<summary>"
+        elif _SUMMARY_CLOSE_RE.match(line):
+            out = "</summary>"
+        else:
+            return False
+        if silent:
+            return True
+        token = state.push("html_block", "", 0)
+        token.map = [start, start + 1]
+        token.content = out + "\n"
+        state.line = start + 1
+        return True
+
+    md.inline.ruler.before("autolink", "safe_html_inline", inline_rule)
+    md.block.ruler.before("paragraph", "safe_html_block", block_rule)
+
+
 def _tasklist_line_plugin(md: MarkdownIt) -> None:
     """Tag each task-list checkbox with its source line (``data-line``).
 
@@ -221,6 +379,8 @@ def _build_parser() -> MarkdownIt:
     md = md.use(deflist_plugin)
     md = md.use(dollarmath_plugin)  # $inline$ and $$block$$ math
     md = md.use(_wikilink_plugin)   # [[note]] wiki-links
+    md = md.use(_callout_plugin)    # > [!note] callouts
+    md = md.use(_safe_html_plugin)  # small safe-HTML allowlist
     return md
 
 
@@ -257,6 +417,86 @@ def _inject_anchors(html: str) -> tuple[str, list[tuple[int, str, str]]]:
     return result, headings
 
 
+_FRONT_MATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+
+
+def _strip_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def _parse_yaml_subset(raw: str) -> dict:
+    """Parse the common front-matter shapes without a YAML dependency:
+    ``key: value``, ``key: [a, b]``, and block lists (``key:`` then ``- item``)."""
+    data: dict = {}
+    lines = raw.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip() or line.lstrip().startswith("#"):
+            i += 1
+            continue
+        match = re.match(r"^([A-Za-z0-9_\-]+)\s*:\s*(.*)$", line)
+        if not match:
+            i += 1
+            continue
+        key, value = match.group(1).strip(), match.group(2).strip()
+        if value == "":
+            items, j = [], i + 1
+            while j < len(lines) and re.match(r"^\s*-\s+", lines[j]):
+                items.append(_strip_quotes(re.sub(r"^\s*-\s+", "", lines[j]).strip()))
+                j += 1
+            data[key] = items if items else ""
+            i = j if items else i + 1
+            continue
+        if value.startswith("[") and value.endswith("]"):
+            inner = value[1:-1].strip()
+            data[key] = [_strip_quotes(x.strip()) for x in inner.split(",") if x.strip()]
+        else:
+            data[key] = _strip_quotes(value)
+        i += 1
+    return data
+
+
+def parse_front_matter(text: str) -> tuple[dict, str]:
+    """Return (front_matter_dict, body_without_front_matter)."""
+    match = _FRONT_MATTER_RE.match(text)
+    if not match:
+        return {}, text
+    return _parse_yaml_subset(match.group(1)), text[match.end():]
+
+
+def front_matter_tags(data: dict) -> list[str]:
+    raw = data.get("tags", data.get("tag"))
+    if isinstance(raw, str):
+        return [p for p in re.split(r"[,\s]+", raw.strip()) if p]
+    if isinstance(raw, list):
+        return [str(t).strip() for t in raw if str(t).strip()]
+    return []
+
+
+def _front_matter_html(data: dict) -> str:
+    if not data:
+        return ""
+    rows = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            if key.lower() in ("tags", "tag"):
+                val = "".join(
+                    f'<span class="fm-tag">#{escape(str(x))}</span>' for x in value
+                )
+            else:
+                val = escape(", ".join(str(x) for x in value))
+        else:
+            val = escape(str(value))
+        rows.append(
+            f'<div class="fm-row"><span class="fm-key">{escape(str(key))}</span>'
+            f'<span class="fm-val">{val}</span></div>'
+        )
+    return '<div class="frontmatter">' + "".join(rows) + "</div>"
+
+
 def read_text(path: Path) -> tuple[str, str] | None:
     """Return (text, encoding), trying UTF-8, Big5, GBK in order."""
     for encoding in ("utf-8", "cp950", "gbk"):
@@ -267,6 +507,13 @@ def read_text(path: Path) -> tuple[str, str] | None:
     return None
 
 
+# Small cache so reopening an unchanged file (common when switching tabs/notes)
+# skips the parse + Pygments + CSS work. Keyed by (path, mtime, theme); cleared
+# when the user stylesheet changes.
+_CONVERT_CACHE: dict = {}
+_CONVERT_CACHE_MAX = 32
+
+
 def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple[int, str, str]]]:
     """Return (html, headings). headings = list of (level, text, anchor_id)."""
     path = Path(filepath)
@@ -274,8 +521,17 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
     if not path.exists():
         return _error_page(f"找不到檔案：{path}", theme), []
 
-    if path.stat().st_size > 10 * 1024 * 1024:
+    try:
+        stat = path.stat()
+    except OSError:
+        return _error_page(f"無法讀取檔案：{path.name}", theme), []
+    if stat.st_size > 10 * 1024 * 1024:
         return _error_page(f"檔案超過 10MB，無法預覽：{path.name}", theme), []
+
+    cache_key = (str(path), stat.st_mtime_ns, theme)
+    cached = _CONVERT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
     result = read_text(path)
     if result is None:
@@ -284,7 +540,11 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
             theme,
         ), []
     text, _ = result
-    return convert_text(text, theme, title=path.stem)
+    out = convert_text(text, theme, title=path.stem)
+    _CONVERT_CACHE[cache_key] = out
+    if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
+        _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
+    return out
 
 
 def convert_text(
@@ -295,8 +555,12 @@ def convert_text(
     Used both by ``convert`` (file path) and by the live edit-mode preview,
     which has unsaved buffer text rather than a file on disk.
     """
+    # Render the full text (front_matter_plugin strips the YAML from the output
+    # but the source line numbers stay intact, so task-list data-line is correct).
+    front, _body = parse_front_matter(text)
     body = _PARSER.render(text)
     body_with_anchors, headings = _inject_anchors(body)
+    body_with_anchors = _front_matter_html(front) + body_with_anchors
     needs_mermaid = 'class="mermaid"' in body_with_anchors
     has_code = 'class="highlight"' in body_with_anchors
     needs_math = 'class="math' in body_with_anchors
@@ -337,6 +601,7 @@ def _wrap(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{safe_title}</title>
 <style>{_FULL_CSS}</style>
+{f"<style>{_user_css}</style>" if _user_css else ""}
 </head>
 <body class="{theme_class}">
 {body}{mermaid_html}{copy_html}{math_html}

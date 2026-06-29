@@ -61,6 +61,10 @@ def _find_icon() -> QIcon:
 
 
 def main():
+    # Crisper rendering on Windows fractional display scaling (125%, 150%).
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     app.setApplicationName("Markdown Viewer")
     app.setApplicationVersion(VERSION)

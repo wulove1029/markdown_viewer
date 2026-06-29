@@ -36,32 +36,46 @@ class TagIndex:
         )
         os.replace(tmp, self._path)
 
-    def update(self, md_path, doc):
+    def update(self, md_path, doc, front_tags=None):
         key = str(Path(md_path).resolve())
         annot_tags = sorted({t for a in doc.annotations for t in a.tags})
-        if not doc.doc_tags and not doc.annotations:
+        front_tags = sorted(set(front_tags or []))
+        if not doc.doc_tags and not doc.annotations and not front_tags:
             self._data.pop(key, None)
         else:
             self._data[key] = {
                 "doc_tags": list(doc.doc_tags),
                 "annot_tags": annot_tags,
+                "front_tags": front_tags,
                 "count": len(doc.annotations),
             }
         self._save()
 
+    def _entry_tags(self, entry: dict) -> set[str]:
+        return (
+            set(entry.get("doc_tags", []))
+            | set(entry.get("annot_tags", []))
+            | set(entry.get("front_tags", []))
+        )
+
     def all_tags(self) -> list[str]:
         tags: set[str] = set()
         for entry in self._data.values():
-            tags.update(entry.get("doc_tags", []))
-            tags.update(entry.get("annot_tags", []))
+            tags |= self._entry_tags(entry)
         return sorted(tags)
 
+    def tag_counts(self) -> list[tuple[str, int]]:
+        counts: dict[str, int] = {}
+        for entry in self._data.values():
+            for tag in self._entry_tags(entry):
+                counts[tag] = counts.get(tag, 0) + 1
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
     def files_with_tag(self, tag) -> list[str]:
-        out = []
-        for path, entry in self._data.items():
-            if tag in entry.get("doc_tags", []) or tag in entry.get("annot_tags", []):
-                out.append(path)
-        return out
+        return [
+            path for path, entry in self._data.items()
+            if tag in self._entry_tags(entry)
+        ]
 
     def prune(self):
         for path in list(self._data.keys()):

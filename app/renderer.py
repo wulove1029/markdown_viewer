@@ -82,6 +82,7 @@ class RendererView(QWebEngineView):
         self._side_notes_visible = False
         self._pdf_callback = None
         self._zoom_factor = 1.0
+        self._pending_scroll: int | None = None
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
         # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
@@ -115,6 +116,10 @@ class RendererView(QWebEngineView):
         if ok:
             # Re-apply zoom: a freshly loaded page otherwise resets to 1.0.
             self.setZoomFactor(self._zoom_factor)
+            if self._pending_scroll is not None:
+                target = self._pending_scroll
+                self._pending_scroll = None
+                self.page().runJavaScript(f"window.scrollTo(0, {target})")
         if ok and self._current_path and is_markdown(self._current_path):
             self._spy_timer.start()
         else:
@@ -181,6 +186,17 @@ class RendererView(QWebEngineView):
             self._on_headings_ready(headings)
 
     def reload_current(self):
+        if not self._current_path:
+            return
+        # Preserve the scroll position across a reload (reload button, external
+        # change, save) instead of jumping back to the top.
+        if is_markdown(self._current_path):
+            self.page().runJavaScript("window.scrollY", self._reload_at_scroll)
+        else:
+            self.load_file(self._current_path)
+
+    def _reload_at_scroll(self, scroll_y):
+        self._pending_scroll = int(scroll_y or 0)
         if self._current_path:
             self.load_file(self._current_path)
 

@@ -19,6 +19,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
 )
 from PyQt6.QtGui import (
+    QAction,
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
@@ -59,7 +60,13 @@ from .editor import EditorView
 from .file_types import document_kind, is_markdown, is_supported_document
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
-from .md_converter import convert_text, read_text
+from .md_converter import (
+    convert_text,
+    front_matter_tags,
+    parse_front_matter,
+    read_text,
+    set_user_css,
+)
 from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
@@ -204,11 +211,14 @@ class MainWindow(QMainWindow):
         }
         self._pdf_notes: list[PdfNote] = []
 
+        self._current_front_tags: list[str] = []
+
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
             on_anchor_clicked=self._scroll_to_anchor,
             annotation_callbacks=annotation_callbacks,
             pdf_note_callbacks=pdf_note_callbacks,
+            on_tag_selected=self._on_tag_selected,
             theme=self._theme,
         )
         self._renderer = RendererView(
@@ -350,8 +360,142 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self._zoom_out)
         QShortcut(QKeySequence("Ctrl+0"), self).activated.connect(self._zoom_reset)
 
+        self._build_menu_bar()
+        self._load_user_css()
         self._apply_theme()
+        self._refresh_tags_panel()
         QTimer.singleShot(2000, self._check_updates_silent)
+
+    def _build_menu_bar(self):
+        # Shortcuts stay on the QShortcuts above; the menu shows them as hints
+        # (text after \t) without re-registering, so there's no key conflict.
+        bar = self.menuBar()
+
+        def act(text, slot):
+            action = QAction(text, self)
+            action.triggered.connect(slot)
+            return action
+
+        file_menu = bar.addMenu("檔案(&F)")
+        file_menu.addAction(act("開啟…\tCtrl+O", self._panel_open_file))
+        file_menu.addAction(act("快速開啟…\tCtrl+P", self._quick_open))
+        file_menu.addAction(act("重新載入", self._reload_current))
+        file_menu.addSeparator()
+        file_menu.addAction(act("匯出 PDF…\tCtrl+Shift+P", self._export_pdf))
+        file_menu.addSeparator()
+        file_menu.addAction(act("離開", self.close))
+
+        edit_menu = bar.addMenu("編輯(&E)")
+        edit_menu.addAction(act("切換編輯 / 預覽\tCtrl+E", self._toggle_edit_mode))
+        edit_menu.addAction(act("儲存\tCtrl+S", self._save_edits))
+        edit_menu.addAction(act("尋找 / 取代\tCtrl+F", self._toggle_search))
+
+        view_menu = bar.addMenu("檢視(&V)")
+        view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
+        view_menu.addSeparator()
+        view_menu.addAction(act("放大\tCtrl++", self._zoom_in))
+        view_menu.addAction(act("縮小\tCtrl+-", self._zoom_out))
+        view_menu.addAction(act("重設縮放\tCtrl+0", self._zoom_reset))
+        view_menu.addSeparator()
+        view_menu.addAction(act("切換深色模式", self._toggle_theme))
+        view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
+
+        tools_menu = bar.addMenu("工具(&T)")
+        tools_menu.addAction(act("偏好設定…", self._open_preferences))
+
+        help_menu = bar.addMenu("說明(&H)")
+        help_menu.addAction(act("檢查更新…", lambda: self._check_for_updates(manual=True)))
+        help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
+
+    def _show_about(self):
+        QMessageBox.about(
+            self,
+            "關於 Markdown Viewer",
+            f"<b>Markdown Viewer</b><br>版本 {VERSION}<br><br>"
+            "Markdown 筆記閱讀 / 編輯與 PDF 閱讀工具。",
+        )
+
+    def _update_check_enabled(self) -> bool:
+        value = QSettings(_ORG, _APP).value("update_check_enabled", True)
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() not in ("0", "false", "no", "off")
+
+    def _load_user_css(self, reload: bool = False):
+        path = QSettings(_ORG, _APP).value("custom_css_path", "") or ""
+        css = ""
+        if path:
+            try:
+                css = Path(path).read_text(encoding="utf-8")
+            except OSError:
+                css = ""
+        set_user_css(css)
+        if (
+            reload
+            and self._current_file
+            and is_markdown(self._current_file)
+            and not self._edit_mode
+        ):
+            self._renderer.reload_current()
+
+    def _open_preferences(self):
+        settings = QSettings(_ORG, _APP)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("偏好設定")
+        form = QFormLayout(dialog)
+
+        zoom_combo = QComboBox(dialog)
+        for pct in (80, 90, 100, 110, 125, 150, 175, 200):
+            zoom_combo.addItem(f"{pct}%", pct / 100)
+        current_pct = round(self._content_zoom * 100)
+        zoom_index = next(
+            (i for i in range(zoom_combo.count())
+             if round(zoom_combo.itemData(i) * 100) == current_pct),
+            2,
+        )
+        zoom_combo.setCurrentIndex(zoom_index)
+
+        update_cb = QCheckBox("啟動時自動檢查更新（每日一次）", dialog)
+        update_cb.setChecked(self._update_check_enabled())
+
+        css_edit = QLineEdit(settings.value("custom_css_path", "") or "", dialog)
+        css_edit.setPlaceholderText("選用的 .css 檔案路徑")
+        browse_btn = QPushButton("瀏覽…", dialog)
+        css_row = QWidget(dialog)
+        css_layout = QHBoxLayout(css_row)
+        css_layout.setContentsMargins(0, 0, 0, 0)
+        css_layout.addWidget(css_edit, 1)
+        css_layout.addWidget(browse_btn)
+
+        def browse():
+            path, _ = QFileDialog.getOpenFileName(
+                dialog, "選擇 CSS 檔案", "", "CSS 樣式表 (*.css)"
+            )
+            if path:
+                css_edit.setText(path)
+
+        browse_btn.clicked.connect(browse)
+
+        form.addRow("內容縮放", zoom_combo)
+        form.addRow("", update_cb)
+        form.addRow("自訂 CSS", css_row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("確定")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._apply_zoom(zoom_combo.currentData())
+        settings.setValue("update_check_enabled", update_cb.isChecked())
+        settings.setValue("custom_css_path", css_edit.text().strip())
+        self._load_user_css(reload=True)
 
     def _build_toolbar(self) -> QWidget:
         toolbar = QWidget()
@@ -1058,9 +1202,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editor.mark_saved()
         self._loaded_signature = self._file_signature(self._current_file)
         self._rearm_watch()
-        self._renderer.load_file(self._current_file)
+        self._renderer.reload_current()  # keep scroll position across the save
         self._update_dirty_ui()
         self._refresh_link_index(force=True)
+        self._update_front_tags()
         return True
 
     def _on_editor_modified(self, _modified: bool):
@@ -1118,12 +1263,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
         self._close_search()
+        self._current_front_tags = []
         if kind == "markdown":
             self._doc_annotations = AnnotationStore.load(path)
             self._sync_renderer_annotations()
             self._panel.annotations.set_document(self._doc_annotations)
             self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
+            self._update_front_tags()
             self._renderer.load_file(path)
             self._stack.setCurrentWidget(self._renderer)
         else:
@@ -1478,9 +1625,34 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not self._current_file or not is_markdown(self._current_file):
             return
         AnnotationStore.save(self._current_file, self._doc_annotations)
-        self._tag_index.update(self._current_file, self._doc_annotations)
+        self._tag_index.update(
+            self._current_file, self._doc_annotations, self._current_front_tags
+        )
         self._panel.annotations.set_document(self._doc_annotations)
         self._sync_renderer_annotations()
+        self._refresh_tags_panel()
+
+    def _update_front_tags(self):
+        """Read the current file's front-matter tags and feed the tag index."""
+        self._current_front_tags = []
+        if not self._current_file or not is_markdown(self._current_file):
+            return
+        result = read_text(self._current_file)
+        if result:
+            front, _ = parse_front_matter(result[0])
+            self._current_front_tags = front_matter_tags(front)
+        self._tag_index.update(
+            self._current_file, self._doc_annotations, self._current_front_tags
+        )
+        self._refresh_tags_panel()
+
+    def _refresh_tags_panel(self):
+        self._panel.tags.set_tags(self._tag_index.tag_counts())
+
+    def _on_tag_selected(self, tag: str):
+        self._panel.recent.set_tag_filter(tag)
+        self._panel.tags.set_active(tag)
+        self._panel.switch_to(1)  # jump to the Recent tab to show filtered files
 
     def _sync_renderer_annotations(self):
         self._renderer.set_annotations(
@@ -1776,6 +1948,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._renderer.scroll_to(target)
 
     def _check_updates_silent(self):
+        # Privacy/perf: honour the opt-out and only phone home once a day.
+        if not self._update_check_enabled():
+            return
+        import time
+
+        settings = QSettings(_ORG, _APP)
+        try:
+            last = float(settings.value("last_update_check", 0) or 0)
+        except (TypeError, ValueError):
+            last = 0.0
+        now = time.time()
+        if now - last < 86400:
+            return
+        settings.setValue("last_update_check", now)
         self._check_for_updates(manual=False)
 
     def _check_for_updates(self, manual: bool):

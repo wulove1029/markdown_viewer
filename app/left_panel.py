@@ -17,6 +17,7 @@ from .backlinks_panel import BacklinksPanel
 from .file_browser import FileBrowserView
 from .pdf_notes_panel import PdfNotesPanel
 from .recent_files import RecentFilesView
+from .tags_panel import TagsPanel
 from .theme import LIGHT, Theme, panel_stylesheet, svg_icon
 from .toc import TocView
 
@@ -24,7 +25,7 @@ from .toc import TocView
 class LeftPanel(QWidget):
     def __init__(self, on_file_selected, on_anchor_clicked,
                  annotation_callbacks, pdf_note_callbacks=None,
-                 theme: Theme = LIGHT, parent=None):
+                 on_tag_selected=None, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
         self.setMinimumWidth(180)
@@ -71,13 +72,15 @@ class LeftPanel(QWidget):
         self._annot_stack.addWidget(self._annotations)  # index 0 (markdown)
         self._annot_stack.addWidget(self._pdf_notes)    # index 1 (pdf)
         self._backlinks = BacklinksPanel(on_file_selected=on_file_selected)
+        self._tags = TagsPanel(on_tag_selected=on_tag_selected or (lambda _t: None))
 
         self._tabs.addTab(self._file_browser, "檔案")
         self._tabs.addTab(self._recent, "最近")
         self._tabs.addTab(self._toc, "目錄")
         self._tabs.addTab(self._annot_stack, "標註")
-        # Keep backlinks last so the annotations tab index (3) is unchanged.
+        # Keep backlinks at index 4 so the annotations tab index (3) is unchanged.
         self._tabs.addTab(self._backlinks, "連結")
+        self._tabs.addTab(self._tags, "標籤")
 
         layout.addWidget(self._tabs)
         self.apply_theme(theme)
@@ -106,6 +109,10 @@ class LeftPanel(QWidget):
     def pdf_notes(self) -> PdfNotesPanel:
         return self._pdf_notes
 
+    @property
+    def tags(self) -> TagsPanel:
+        return self._tags
+
     def show_pdf_notes(self, show: bool):
         self._annot_stack.setCurrentIndex(1 if show else 0)
 
@@ -123,6 +130,7 @@ class LeftPanel(QWidget):
         self._annotations.apply_theme(theme)
         self._pdf_notes.apply_theme(theme)
         self._backlinks.apply_theme(theme)
+        self._tags.apply_theme(theme)
 
     def open_file_dialog(self):
         path, _ = QFileDialog.getOpenFileName(

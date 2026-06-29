@@ -11,6 +11,19 @@ Code blocks are syntax-highlighted and get a one-click **copy** button on hover.
 Task lists are interactive: ticking a `- [ ]` checkbox in the preview rewrites
 the underlying Markdown (`- [ ]` ↔ `- [x]`) and saves it.
 
+Obsidian-style callouts are supported, and a small allowlist of safe inline
+HTML (`<kbd>`, `<mark>`, `<sub>`, `<sup>`, `<ins>`, `<del>`, `<abbr>`) plus
+`<details>`/`<summary>` passes through — everything else stays escaped.
+
+```markdown
+> [!warning] Heads up
+> This renders as a coloured callout box.
+```
+
+YAML front matter is shown as a metadata block at the top of the document, and
+its `tags:` feed the **標籤** (tags) sidebar tab, where you can click a tag to
+filter your files.
+
 ## Wiki-links And Backlinks
 
 Link between notes with `[[Note]]` or `[[Note|display text]]`. Clicking a
@@ -73,6 +86,10 @@ Open a PDF to read it in a native viewer:
 | Ctrl+S | Save |
 | Ctrl+Shift+P | Export to PDF |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset |
+
+A menu bar (File / Edit / View / Tools / Help) exposes these actions, and
+**Tools → 偏好設定** (Preferences) lets you set the default zoom, a custom CSS
+file for the rendered content, and whether to check for updates on startup.
 
 ## Images And Diagrams
 
