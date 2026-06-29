@@ -2,4 +2,6 @@ PyQt6>=6.6
 PyQt6-WebEngine>=6.6
 markdown-it-py>=3.0
 mdit_py_plugins>=0.4
+linkify-it-py>=2.0
 Pygments>=2.17
+PyMuPDF>=1.24

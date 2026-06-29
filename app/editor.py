@@ -4,7 +4,8 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QFont, QFontMetricsF
 from PyQt6.QtWidgets import QPlainTextEdit
 
-from .theme import Theme
+from .md_highlighter import MarkdownHighlighter
+from .theme import LIGHT, Theme
 
 
 class EditorView(QPlainTextEdit):
@@ -18,6 +19,7 @@ class EditorView(QPlainTextEdit):
         self.setFont(font)
         self.setTabStopDistance(QFontMetricsF(font).horizontalAdvance(" ") * 4)
         self.document().modificationChanged.connect(self.modified_changed)
+        self._highlighter = MarkdownHighlighter(self.document(), LIGHT)
 
     def set_content(self, text: str):
         self.setPlainText(text)
@@ -30,6 +32,7 @@ class EditorView(QPlainTextEdit):
         self.document().setModified(False)
 
     def apply_theme(self, theme: Theme):
+        self._highlighter.set_theme(theme)
         self.setStyleSheet(
             f"""
 QPlainTextEdit {{

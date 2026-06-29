@@ -6,13 +6,16 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from .annotations_panel import AnnotationsPanel
+from .backlinks_panel import BacklinksPanel
 from .file_browser import FileBrowserView
+from .pdf_notes_panel import PdfNotesPanel
 from .recent_files import RecentFilesView
 from .theme import LIGHT, Theme, panel_stylesheet, svg_icon
 from .toc import TocView
@@ -20,7 +23,8 @@ from .toc import TocView
 
 class LeftPanel(QWidget):
     def __init__(self, on_file_selected, on_anchor_clicked,
-                 annotation_callbacks, theme: Theme = LIGHT, parent=None):
+                 annotation_callbacks, pdf_note_callbacks=None,
+                 theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
         self.setMinimumWidth(180)
@@ -61,11 +65,19 @@ class LeftPanel(QWidget):
         )
         self._toc = TocView(on_anchor_clicked=on_anchor_clicked)
         self._annotations = AnnotationsPanel(annotation_callbacks)
+        self._pdf_notes = PdfNotesPanel(pdf_note_callbacks or {})
+        # The "標註" tab swaps between Markdown annotations and PDF page notes.
+        self._annot_stack = QStackedWidget()
+        self._annot_stack.addWidget(self._annotations)  # index 0 (markdown)
+        self._annot_stack.addWidget(self._pdf_notes)    # index 1 (pdf)
+        self._backlinks = BacklinksPanel(on_file_selected=on_file_selected)
 
         self._tabs.addTab(self._file_browser, "檔案")
         self._tabs.addTab(self._recent, "最近")
         self._tabs.addTab(self._toc, "目錄")
-        self._tabs.addTab(self._annotations, "標註")
+        self._tabs.addTab(self._annot_stack, "標註")
+        # Keep backlinks last so the annotations tab index (3) is unchanged.
+        self._tabs.addTab(self._backlinks, "連結")
 
         layout.addWidget(self._tabs)
         self.apply_theme(theme)
@@ -87,6 +99,17 @@ class LeftPanel(QWidget):
         return self._annotations
 
     @property
+    def backlinks(self) -> BacklinksPanel:
+        return self._backlinks
+
+    @property
+    def pdf_notes(self) -> PdfNotesPanel:
+        return self._pdf_notes
+
+    def show_pdf_notes(self, show: bool):
+        self._annot_stack.setCurrentIndex(1 if show else 0)
+
+    @property
     def close_btn(self) -> QPushButton:
         return self._close_btn
 
@@ -98,6 +121,8 @@ class LeftPanel(QWidget):
         self._recent.apply_theme(theme)
         self._toc.apply_theme(theme)
         self._annotations.apply_theme(theme)
+        self._pdf_notes.apply_theme(theme)
+        self._backlinks.apply_theme(theme)
 
     def open_file_dialog(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -114,7 +139,7 @@ class LeftPanel(QWidget):
             self._tabs.setCurrentIndex(index)
 
     def set_annotations_enabled(self, enabled: bool):
-        index = self._tabs.indexOf(self._annotations)
+        index = self._tabs.indexOf(self._annot_stack)
         if index < 0:
             return
         self._tabs.setTabEnabled(index, enabled)

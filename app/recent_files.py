@@ -71,6 +71,10 @@ class RecentFilesView(QListWidget):
         self._active_tag = tag or ""
         self._refresh()
 
+    def paths(self) -> list[str]:
+        """Existing recent file paths, most-recent first."""
+        return [p for p in self._load() if Path(p).exists()]
+
     def _show_context_menu(self, pos: QPoint):
         item = self.itemAt(pos)
         if (

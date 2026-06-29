@@ -3,9 +3,13 @@
 from html import escape
 import json
 import re
+import urllib.parse
 from pathlib import Path
 
 from markdown_it import MarkdownIt
+from mdit_py_plugins.deflist import deflist_plugin
+from mdit_py_plugins.dollarmath import dollarmath_plugin
+from mdit_py_plugins.footnote import footnote_plugin
 from mdit_py_plugins.front_matter import front_matter_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 from pygments import highlight
@@ -14,6 +18,9 @@ from pygments.lexers import TextLexer, get_lexer_by_name
 
 _CSS_PATH = Path(__file__).parent.parent / "assets" / "obsidian-light.css"
 _MERMAID_JS = _CSS_PATH.parent / "mermaid.min.js"
+_KATEX_DIR = _CSS_PATH.parent / "katex"
+_KATEX_JS = _KATEX_DIR / "katex.min.js"
+_KATEX_CSS = _KATEX_DIR / "katex.min.css"
 _PYGMENTS_CSS = HtmlFormatter(style="one-dark").get_style_defs(".highlight")
 
 try:
@@ -21,7 +28,11 @@ try:
 except FileNotFoundError:
     _THEME_CSS = "body { font-family: sans-serif; padding: 2em; }"
 
-_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}"
+_WIKILINK_CSS = (
+    "a.wikilink { text-decoration: none; border-bottom: 1px dashed currentColor; }"
+    "a.wikilink:hover { border-bottom-style: solid; }"
+)
+_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}"
 _FORMATTER = HtmlFormatter(style="one-dark")
 
 
@@ -63,12 +74,153 @@ def _mermaid_script(theme: str) -> str:
     )
 
 
+def _copy_button_script() -> str:
+    """Client-side 'copy' affordance for each Pygments code block."""
+    return """
+<style>
+div.highlight { position: relative; }
+div.highlight .copy-btn {
+    position: absolute; top: 6px; right: 6px; opacity: 0;
+    transition: opacity .15s; font-size: 12px; padding: 2px 8px;
+    border-radius: 6px; border: 1px solid rgba(127,127,127,.4);
+    background: rgba(127,127,127,.15); color: inherit; cursor: pointer;
+}
+div.highlight:hover .copy-btn { opacity: 1; }
+div.highlight .copy-btn:hover { background: rgba(127,127,127,.3); }
+</style>
+<script>
+(function () {
+  function ready(fn) {
+    if (document.readyState !== 'loading') { fn(); }
+    else { document.addEventListener('DOMContentLoaded', fn); }
+  }
+  ready(function () {
+    document.querySelectorAll('div.highlight').forEach(function (block) {
+      if (block.querySelector('.copy-btn')) { return; }
+      var btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '複製';
+      btn.addEventListener('click', function () {
+        var pre = block.querySelector('pre');
+        var text = pre ? pre.innerText : '';
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = '已複製';
+          setTimeout(function () { btn.textContent = '複製'; }, 1500);
+        }).catch(function () { btn.textContent = '失敗'; });
+      });
+      block.appendChild(btn);
+    });
+  });
+})();
+</script>"""
+
+
+def _katex_html() -> str:
+    """Offline KaTeX loader; renders dollarmath ``.math`` elements client-side."""
+    if not _KATEX_JS.exists() or not _KATEX_CSS.exists():
+        return ""
+    css = _KATEX_CSS.resolve().as_uri()
+    js = _KATEX_JS.resolve().as_uri()
+    return (
+        f'<link rel="stylesheet" href="{css}">\n'
+        f'<script src="{js}"></script>\n'
+        "<script>\n"
+        "(function () {\n"
+        "  function render() {\n"
+        "    if (!window.katex) { return; }\n"
+        "    document.querySelectorAll('.math.inline, .math.block').forEach(function (el) {\n"
+        "      if (el.dataset.katexDone) { return; }\n"
+        "      var display = el.classList.contains('block');\n"
+        "      try {\n"
+        "        window.katex.render(el.textContent, el, { displayMode: display, throwOnError: false });\n"
+        "        el.dataset.katexDone = '1';\n"
+        "      } catch (e) { console.error(e); }\n"
+        "    });\n"
+        "  }\n"
+        "  if (document.readyState === 'loading') {\n"
+        "    document.addEventListener('DOMContentLoaded', render);\n"
+        "  } else { render(); }\n"
+        "})();\n"
+        "</script>"
+    )
+
+
+def _tasklist_line_plugin(md: MarkdownIt) -> None:
+    """Tag each task-list checkbox with its source line (``data-line``).
+
+    Lets the renderer tell Python which ``- [ ]`` line to rewrite when a
+    checkbox is toggled in the preview.
+    """
+
+    def add_lines(state):
+        for token in state.tokens:
+            if token.type != "inline" or not token.map or not token.children:
+                continue
+            child = token.children[0]
+            if child.type == "html_inline" and "task-list-item-checkbox" in child.content:
+                child.content = child.content.replace(
+                    "<input ", f'<input data-line="{token.map[0]}" ', 1
+                )
+
+    md.core.ruler.push("tasklist_line", add_lines)
+
+
+def _wikilink_plugin(md: MarkdownIt) -> None:
+    """Parse ``[[target]]`` / ``[[target|alias]]`` into wiki-link anchors.
+
+    Rendered as ``<a class="wikilink" href="wikilink:<target>">label</a>`` so
+    the renderer can intercept the click and open/create the target note.
+    """
+
+    def rule(state, silent):
+        pos = state.pos
+        if state.src[pos : pos + 2] != "[[":
+            return False
+        end = state.src.find("]]", pos + 2)
+        if end < 0:
+            return False
+        inner = state.src[pos + 2 : end]
+        if "[" in inner or "]" in inner or not inner.strip():
+            return False
+        if not silent:
+            token = state.push("wikilink", "", 0)
+            token.content = inner
+        state.pos = end + 2
+        return True
+
+    def render(tokens, idx, options, env):
+        inner = tokens[idx].content
+        target, _, alias = inner.partition("|")
+        target = target.strip()
+        label = alias.strip() or target
+        href = "wikilink:" + urllib.parse.quote(target, safe="")
+        return f'<a class="wikilink" href="{href}">{escape(label)}</a>'
+
+    md.inline.ruler.before("link", "wikilink", rule)
+    md.renderer.rules["wikilink"] = render
+
+
 def _build_parser() -> MarkdownIt:
-    md = MarkdownIt("commonmark", {"html": False, "highlight": _highlight_code})
+    md = MarkdownIt(
+        "commonmark",
+        {
+            "html": False,
+            "linkify": True,       # turn bare URLs into clickable links
+            "typographer": True,   # smart quotes, dashes, ellipses
+            "highlight": _highlight_code,
+        },
+    )
     md.enable("table")
     md.enable("strikethrough")
-    md = md.use(tasklists_plugin)
+    md.enable("linkify")
+    md = md.use(tasklists_plugin, enabled=True)  # interactive checkboxes
+    md = md.use(_tasklist_line_plugin)
     md = md.use(front_matter_plugin)
+    md = md.use(footnote_plugin)
+    md = md.use(deflist_plugin)
+    md = md.use(dollarmath_plugin)  # $inline$ and $$block$$ math
+    md = md.use(_wikilink_plugin)   # [[note]] wiki-links
     return md
 
 
@@ -132,21 +284,52 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
             theme,
         ), []
     text, _ = result
+    return convert_text(text, theme, title=path.stem)
 
+
+def convert_text(
+    text: str, theme: str = "light", title: str = "preview"
+) -> tuple[str, list[tuple[int, str, str]]]:
+    """Render raw Markdown *text* to a self-contained HTML document.
+
+    Used both by ``convert`` (file path) and by the live edit-mode preview,
+    which has unsaved buffer text rather than a file on disk.
+    """
     body = _PARSER.render(text)
     body_with_anchors, headings = _inject_anchors(body)
     needs_mermaid = 'class="mermaid"' in body_with_anchors
-    return _wrap(body_with_anchors, path.stem, theme, mermaid=needs_mermaid), headings
+    has_code = 'class="highlight"' in body_with_anchors
+    needs_math = 'class="math' in body_with_anchors
+    return (
+        _wrap(
+            body_with_anchors,
+            title,
+            theme,
+            mermaid=needs_mermaid,
+            code_copy=has_code,
+            math=needs_math,
+        ),
+        headings,
+    )
 
 
 def _theme_class(theme: str) -> str:
     return "theme-dark" if theme == "dark" else "theme-light"
 
 
-def _wrap(body: str, title: str, theme: str = "light", mermaid: bool = False) -> str:
+def _wrap(
+    body: str,
+    title: str,
+    theme: str = "light",
+    mermaid: bool = False,
+    code_copy: bool = False,
+    math: bool = False,
+) -> str:
     safe_title = escape(title)
     theme_class = _theme_class(theme)
     mermaid_html = f"\n{_mermaid_script(theme)}" if mermaid else ""
+    copy_html = f"\n{_copy_button_script()}" if code_copy else ""
+    math_html = f"\n{_katex_html()}" if math else ""
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant" class="{theme_class}">
 <head>
@@ -156,7 +339,7 @@ def _wrap(body: str, title: str, theme: str = "light", mermaid: bool = False) ->
 <style>{_FULL_CSS}</style>
 </head>
 <body class="{theme_class}">
-{body}{mermaid_html}
+{body}{mermaid_html}{copy_html}{math_html}
 </body>
 </html>"""
 

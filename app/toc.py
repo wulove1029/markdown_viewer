@@ -59,6 +59,37 @@ class TocView(QWidget):
             self._list.addItem(item)
             self._anchors.append(anchor)
 
+    def update_outline(self, entries: list[tuple[int, str, int]]):
+        """Populate from a PDF outline. entries = list of (level, title, page0)."""
+        self._list.clear()
+        self._anchors = []
+
+        if not entries:
+            item = QListWidgetItem("此 PDF 沒有大綱")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self._list.addItem(item)
+            return
+
+        for level, title, page0 in entries:
+            item = QListWidgetItem()
+            # int data marks a PDF page jump (vs a string markdown anchor).
+            item.setData(Qt.ItemDataRole.UserRole, int(page0))
+
+            font = QFont()
+            if level == 1:
+                font.setBold(True)
+                font.setPointSize(12)
+            elif level == 2:
+                font.setPointSize(11)
+            else:
+                font.setPointSize(10)
+                item.setForeground(QColor(self._theme.text_subtle))
+
+            item.setFont(font)
+            item.setText("  " * max(0, level - 1) + title)
+            self._list.addItem(item)
+            self._anchors.append(int(page0))
+
     def set_active_anchor(self, anchor: str):
         if not anchor:
             self._list.clearSelection()

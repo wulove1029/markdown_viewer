@@ -1,30 +1,87 @@
 """Right-side Markdown renderer (QWebEngineView wrapper)."""
 
 import json
+import urllib.parse
 from pathlib import Path
 
 from PyQt6.QtCore import QFile, QIODevice, QMarginsF, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QPageLayout, QPageSize
+from PyQt6.QtGui import QDesktopServices, QPageLayout, QPageSize
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEngineSettings
+from PyQt6.QtWebEngineCore import (
+    QWebEnginePage,
+    QWebEngineSettings,
+    QWebEngineUrlScheme,
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from .annotation_bridge import AnnotationBridge
-from .file_types import document_kind, is_markdown, is_pdf
+from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
 from .md_converter import convert, state_page_html
+
+# Register the custom "wikilink" scheme so Chromium routes [[note]] clicks
+# through acceptNavigationRequest instead of silently dropping them. Must run
+# before the QApplication / web engine starts — this import happens at module
+# load, ahead of QApplication() in both main.py and the app's entry points.
+if not QWebEngineUrlScheme.schemeByName(b"wikilink").name():
+    _wikilink_scheme = QWebEngineUrlScheme(b"wikilink")
+    _wikilink_scheme.setFlags(
+        QWebEngineUrlScheme.Flag.LocalScheme
+        | QWebEngineUrlScheme.Flag.LocalAccessAllowed
+        | QWebEngineUrlScheme.Flag.CorsEnabled
+    )
+    QWebEngineUrlScheme.registerScheme(_wikilink_scheme)
+
+
+class _DocumentPage(QWebEnginePage):
+    """Intercept link clicks: wiki-links and cross-note links open in-app,
+    external links open in the system browser, in-page anchors scroll."""
+
+    def __init__(self, view):
+        super().__init__(view)
+        self._view = view
+
+    def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        scheme = url.scheme()
+        # The wikilink scheme is always ours — intercept it regardless of how
+        # the navigation was triggered (real click, JS, etc.).
+        if scheme == "wikilink":
+            raw = url.toString()
+            target = urllib.parse.unquote(raw.split(":", 1)[1]) if ":" in raw else ""
+            if target:
+                self._view.wikilink_clicked.emit(target)
+            return False
+        if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            # Same-document fragment (footnote/anchor) -> let it scroll.
+            if url.matches(self.url(), QUrl.UrlFormattingOption.RemoveFragment):
+                return True
+            if scheme in ("http", "https", "mailto"):
+                QDesktopServices.openUrl(url)
+                return False
+            if scheme == "file":
+                local = url.toLocalFile()
+                if is_supported_document(local):
+                    self._view.local_doc_clicked.emit(local)
+                else:
+                    QDesktopServices.openUrl(url)
+                return False
+        return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
 class RendererView(QWebEngineView):
     active_anchor_changed = pyqtSignal(str)
+    wikilink_clicked = pyqtSignal(str)
+    local_doc_clicked = pyqtSignal(str)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
+        self.setPage(_DocumentPage(self))
         self._on_headings_ready = on_headings_ready
         self._current_anchor = ""
         self._current_path: Path | None = None
         self._theme = "light"
         self._side_notes_visible = False
         self._pdf_callback = None
+        self._zoom_factor = 1.0
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
         # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
@@ -55,10 +112,21 @@ class RendererView(QWebEngineView):
         self.show_empty()
 
     def _on_page_load_finished(self, ok):
+        if ok:
+            # Re-apply zoom: a freshly loaded page otherwise resets to 1.0.
+            self.setZoomFactor(self._zoom_factor)
         if ok and self._current_path and is_markdown(self._current_path):
             self._spy_timer.start()
         else:
             self._spy_timer.stop()
+
+    def set_zoom(self, factor: float):
+        self._zoom_factor = max(0.5, min(3.0, factor))
+        self.setZoomFactor(self._zoom_factor)
+        return self._zoom_factor
+
+    def zoom(self) -> float:
+        return self._zoom_factor
 
     def _state_html(self, title: str, message: str, label: str = "") -> str:
         return state_page_html(title, message, self._theme, label)
@@ -115,6 +183,30 @@ class RendererView(QWebEngineView):
     def reload_current(self):
         if self._current_path:
             self.load_file(self._current_path)
+
+    def render_html(self, html: str, base_url: QUrl | None = None):
+        """Render a self-contained HTML string (used by the live edit preview).
+
+        Does not set ``_current_path``, so annotation injection and heading
+        scroll-spy stay off — this surface is a throwaway preview, not the
+        annotatable document view.
+        """
+        self._current_path = None
+        if base_url is not None:
+            self.page().setHtml(html, base_url)
+        else:
+            self.page().setHtml(html)
+
+    def scroll_to_ratio(self, ratio: float):
+        ratio = max(0.0, min(1.0, ratio))
+        js = (
+            "(function(){"
+            "var d=document.documentElement,b=document.body;"
+            "var h=Math.max(d.scrollHeight,b.scrollHeight)-window.innerHeight;"
+            f"window.scrollTo(0, h*{ratio});"
+            "})()"
+        )
+        self.page().runJavaScript(js)
 
     @staticmethod
     def _read_resource(path: str) -> str:

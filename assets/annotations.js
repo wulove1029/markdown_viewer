@@ -632,6 +632,18 @@
     if (m) activateAnnotation(m.getAttribute("data-id"), true, false);
   });
 
+  // Persist task-list checkbox toggles back to the Markdown source.
+  document.addEventListener("change", function (e) {
+    var cb = e.target;
+    if (!cb || !cb.classList ||
+        !cb.classList.contains("task-list-item-checkbox")) {
+      return;
+    }
+    var line = parseInt(cb.getAttribute("data-line"), 10);
+    if (isNaN(line)) return;
+    if (bridge && bridge.toggleTask) bridge.toggleTask(line, !!cb.checked);
+  });
+
   document.addEventListener("contextmenu", function (e) {
     var m = e.target.closest && e.target.closest("mark.annot");
     if (!m) {

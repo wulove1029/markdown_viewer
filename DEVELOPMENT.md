@@ -39,8 +39,13 @@ PyQt6>=6.6
 PyQt6-WebEngine>=6.6
 markdown-it-py>=3.0
 mdit_py_plugins>=0.4
+linkify-it-py>=2.0
 Pygments>=2.17
+PyMuPDF>=1.24
 ```
+
+> PyQt6 內含 QtPdf / QtPdfWidgets（PDF 閱讀）與 QtWebEngine（Markdown 渲染），
+> 不需額外安裝。KaTeX 數學字型已離線打包於 `assets/katex/`。
 
 ---
 

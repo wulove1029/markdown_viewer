@@ -13,6 +13,7 @@ class AnnotationBridge(QObject):
     removed = pyqtSignal(str)          # id
     clicked = pyqtSignal(str)          # id
     orphansReported = pyqtSignal(list)  # list[str] of ids
+    taskToggled = pyqtSignal(int, bool)  # source line (0-based), new checked state
 
     @pyqtSlot(str)
     def add(self, payload_json):
@@ -37,3 +38,7 @@ class AnnotationBridge(QObject):
         except json.JSONDecodeError:
             ids = []
         self.orphansReported.emit(ids)
+
+    @pyqtSlot(int, bool)
+    def toggleTask(self, line, checked):
+        self.taskToggled.emit(line, checked)

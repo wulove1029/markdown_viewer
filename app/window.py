@@ -1,9 +1,12 @@
 """Main application window with toolbar, side panel, and renderer workspace."""
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import (
+    QFileSystemWatcher,
     QMarginsF,
     QProcess,
     QSettings,
@@ -23,9 +26,12 @@ from PyQt6.QtGui import (
     QPageLayout,
     QPageSize,
     QShortcut,
+    QTextCursor,
+    QTextDocument,
 )
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -35,6 +41,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QInputDialog,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -46,10 +53,16 @@ from PyQt6.QtWidgets import (
 )
 
 from .annotations import Annotation, AnnotationStore, DocumentAnnotations
+from .atomic_io import atomic_write_bytes
+from .document_libraries import DocumentLibraryStore
 from .editor import EditorView
 from .file_types import document_kind, is_markdown, is_supported_document
 from .left_panel import LeftPanel
-from .md_converter import read_text
+from .links import LinkIndex, collect_markdown_files, read_docs
+from .md_converter import convert_text, read_text
+from .pdf_notes import PdfNote, PdfNoteStore
+from .pdf_view import PdfView
+from .quick_open import QuickOpenDialog
 from .renderer import RendererView
 from .theme import (
     HIT_TARGET,
@@ -97,6 +110,25 @@ class UpdateCheckThread(QThread):
             self.finished_check.emit(None, exc)
 
 
+class LinkIndexThread(QThread):
+    """Build the wiki-link index off the UI thread (reads many small files)."""
+
+    ready = pyqtSignal(object)
+
+    def __init__(self, roots, parent=None):
+        super().__init__(parent)
+        self._roots = roots
+
+    def run(self):
+        try:
+            docs = read_docs(collect_markdown_files(self._roots))
+            index = LinkIndex()
+            index.build(docs)
+            self.ready.emit(index)
+        except Exception:
+            self.ready.emit(None)
+
+
 class UpdateDownloadThread(QThread):
     finished_download = pyqtSignal(object, object)
 
@@ -138,6 +170,19 @@ class MainWindow(QMainWindow):
         self._pdf_progress = None
         self._pending_pdf_path = None
 
+        # Detect when the open file is changed by another program (common with
+        # the Drive/OneDrive/Dropbox folders this app targets) so a background
+        # sync can't silently diverge from what's on screen.
+        self._fs_watcher = QFileSystemWatcher(self)
+        self._fs_watcher.fileChanged.connect(self._on_file_changed)
+        self._loaded_signature: tuple[int, int] | None = None
+        self._reload_prompt_open = False
+
+        # Wiki-link index ([[note]] -> file, plus inverted backlinks).
+        self._link_index = LinkIndex()
+        self._link_thread: LinkIndexThread | None = None
+        self._link_roots_key: tuple[str, ...] | None = None
+
         self._tag_index = TagIndex()
         self._doc_annotations = DocumentAnnotations()
         annotation_callbacks = {
@@ -151,16 +196,27 @@ class MainWindow(QMainWindow):
             "tag_index": self._tag_index,
         }
 
+        pdf_note_callbacks = {
+            "add": self._pdf_add_note,
+            "activated": self._pdf_note_activated,
+            "edit": self._pdf_edit_note,
+            "deleted": self._pdf_delete_note,
+        }
+        self._pdf_notes: list[PdfNote] = []
+
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
             on_anchor_clicked=self._scroll_to_anchor,
             annotation_callbacks=annotation_callbacks,
+            pdf_note_callbacks=pdf_note_callbacks,
             theme=self._theme,
         )
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings
         )
         self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
+        self._content_zoom = float(settings.value("content_zoom", 1.0) or 1.0)
+        self._renderer.set_zoom(self._content_zoom)
         self._renderer.active_anchor_changed.connect(
             self._panel.toc.set_active_anchor
         )
@@ -169,6 +225,9 @@ class MainWindow(QMainWindow):
         self._renderer.bridge.removed.connect(self._on_bridge_removed)
         self._renderer.bridge.clicked.connect(self._on_bridge_clicked)
         self._renderer.bridge.orphansReported.connect(self._on_bridge_orphans)
+        self._renderer.bridge.taskToggled.connect(self._on_task_toggled)
+        self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
+        self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
 
         self._edit_mode = False
@@ -177,12 +236,50 @@ class MainWindow(QMainWindow):
         self._editor = EditorView()
         self._editor.modified_changed.connect(self._on_editor_modified)
 
+        # Edit mode is a split pane: editor on the left, a live preview on the
+        # right, kept in sync as you type (debounced) and scroll.
+        self._edit_preview = RendererView()
+        self._edit_preview.set_zoom(self._content_zoom)
+        self._edit_preview.wikilink_clicked.connect(self._on_wikilink_clicked)
+        self._edit_preview.local_doc_clicked.connect(self._on_local_doc_clicked)
+
+        self._editor_search_bar = self._build_editor_search_bar()
+        self._editor_search_bar.hide()
+        editor_pane = QWidget()
+        editor_pane_layout = QVBoxLayout(editor_pane)
+        editor_pane_layout.setContentsMargins(0, 0, 0, 0)
+        editor_pane_layout.setSpacing(0)
+        editor_pane_layout.addWidget(self._editor_search_bar)
+        editor_pane_layout.addWidget(self._editor)
+
+        self._editor_split = QSplitter(Qt.Orientation.Horizontal)
+        self._editor_split.addWidget(editor_pane)
+        self._editor_split.addWidget(self._edit_preview)
+        self._editor_split.setStretchFactor(0, 1)
+        self._editor_split.setStretchFactor(1, 1)
+        self._editor_split.setSizes([480, 480])
+
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setInterval(250)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.timeout.connect(self._update_preview)
+        self._editor.textChanged.connect(self._on_editor_text_changed)
+        self._editor.verticalScrollBar().valueChanged.connect(
+            self._sync_preview_scroll
+        )
+
         self._search_bar = self._build_search_bar()
         self._search_bar.hide()
 
+        # Native PDF viewer (outline + search + remembered page).
+        self._pdf_view = PdfView()
+        self._pdf_view.page_changed.connect(self._on_pdf_page_changed)
+        self._pdf_view.search_count_changed.connect(self._on_pdf_search_count)
+
         self._stack = QStackedWidget()
         self._stack.addWidget(self._renderer)
-        self._stack.addWidget(self._editor)
+        self._stack.addWidget(self._editor_split)
+        self._stack.addWidget(self._pdf_view)
 
         renderer_wrap = QWidget()
         renderer_wrap.setObjectName("rendererWorkspace")
@@ -191,8 +288,9 @@ class MainWindow(QMainWindow):
         renderer_layout.setSpacing(0)
         renderer_layout.addWidget(self._search_bar)
         renderer_layout.addWidget(self._stack)
+        self._workspace = renderer_wrap
 
-        self._restore_btn = QPushButton(self._renderer)
+        self._restore_btn = QPushButton(renderer_wrap)
         self._restore_btn.setFixedSize(HIT_TARGET, HIT_TARGET)
         self._restore_btn.setIconSize(QSize(20, 20))
         self._restore_btn.setToolTip("展開側邊欄")
@@ -239,9 +337,18 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
             self._save_edits
         )
+        # Ctrl+P opens the fuzzy quick-open palette (VS Code / Obsidian muscle
+        # memory); PDF export moves to Ctrl+Shift+P.
         QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(
+            self._quick_open
+        )
+        QShortcut(QKeySequence("Ctrl+Shift+P"), self).activated.connect(
             self._export_pdf
         )
+        QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self._zoom_in)
+        QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self._zoom_in)
+        QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self._zoom_out)
+        QShortcut(QKeySequence("Ctrl+0"), self).activated.connect(self._zoom_reset)
 
         self._apply_theme()
         QTimer.singleShot(2000, self._check_updates_silent)
@@ -375,8 +482,13 @@ QPushButton:pressed {{
 """
         )
         self._editor.apply_theme(self._theme)
+        self._editor_search_bar.setStyleSheet(self._editor_search_style())
         self._refresh_icons()
         self._renderer.set_theme(self._theme_name)
+        # The preview holds a throwaway HTML string (no _current_path), so the
+        # renderer's in-place theme swap can't recolor it — re-render instead.
+        if getattr(self, "_edit_mode", False):
+            self._update_preview()
 
     def _refresh_icons(self):
         icon_color = self._theme.text_muted
@@ -554,9 +666,10 @@ QWidget#searchBar QLabel {{
         return button
 
     def _toggle_search(self):
-        if self._current_file and not is_markdown(self._current_file):
-            return
         if self._edit_mode:
+            self._toggle_editor_search()
+            return
+        if not self._current_file:
             return
         if self._search_bar.isHidden():
             self._search_bar.show()
@@ -568,16 +681,25 @@ QWidget#searchBar QLabel {{
     def _close_search(self):
         self._search_bar.hide()
         self._search_input.clear()
+        self._search_count.setText("")
         self._renderer.find_text("")
-        self._renderer.setFocus()
+        self._pdf_view.clear_search()
+        self._editor_search_bar.hide()
+        current = self._stack.currentWidget()
+        if current in (self._renderer, self._pdf_view):
+            current.setFocus()
 
     def _on_search_text_changed(self, text: str):
         if not text:
             self._search_count.setText("")
             self._renderer.find_text("")
+            self._pdf_view.clear_search()
             return
 
         self._search_count.setText("正在搜尋...")
+        if self._current_kind == "pdf":
+            self._pdf_view.search(text)
+            return
         self._renderer.find_text(
             text,
             lambda found, needle=text: self._on_search_result(needle, found),
@@ -593,14 +715,217 @@ QWidget#searchBar QLabel {{
         )
         self._search_count.setText("" if found else "找不到結果")
 
+    # --- editor find / replace (edit mode) ---
+    def _build_editor_search_bar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("editorSearchBar")
+        outer = QVBoxLayout(bar)
+        outer.setContentsMargins(10, 6, 10, 6)
+        outer.setSpacing(4)
+
+        find_row = QHBoxLayout()
+        find_row.setSpacing(4)
+        self._ed_find = QLineEdit()
+        self._ed_find.setPlaceholderText("尋找")
+        self._ed_find.textChanged.connect(lambda _t: self._update_editor_match_count())
+        self._ed_find.returnPressed.connect(self._editor_find_next)
+        self._ed_count = QLabel("")
+        self._ed_case = QCheckBox("Aa")
+        self._ed_case.setToolTip("區分大小寫")
+        self._ed_case.stateChanged.connect(lambda _s: self._update_editor_match_count())
+        prev_btn = QPushButton("‹")
+        prev_btn.setToolTip("上一個")
+        prev_btn.clicked.connect(self._editor_find_prev)
+        next_btn = QPushButton("›")
+        next_btn.setToolTip("下一個")
+        next_btn.clicked.connect(self._editor_find_next)
+        close_btn = QPushButton("✕")
+        close_btn.setToolTip("關閉 (Esc)")
+        close_btn.clicked.connect(self._close_editor_search)
+        for btn in (prev_btn, next_btn, close_btn):
+            btn.setFixedWidth(34)
+        find_row.addWidget(self._ed_find, 1)
+        find_row.addWidget(self._ed_count)
+        find_row.addWidget(self._ed_case)
+        find_row.addWidget(prev_btn)
+        find_row.addWidget(next_btn)
+        find_row.addWidget(close_btn)
+
+        replace_row = QHBoxLayout()
+        replace_row.setSpacing(4)
+        self._ed_replace = QLineEdit()
+        self._ed_replace.setPlaceholderText("取代為")
+        self._ed_replace.returnPressed.connect(self._editor_replace_one)
+        replace_btn = QPushButton("取代")
+        replace_btn.clicked.connect(self._editor_replace_one)
+        replace_all_btn = QPushButton("全部取代")
+        replace_all_btn.clicked.connect(self._editor_replace_all)
+        replace_row.addWidget(self._ed_replace, 1)
+        replace_row.addWidget(replace_btn)
+        replace_row.addWidget(replace_all_btn)
+
+        outer.addLayout(find_row)
+        outer.addLayout(replace_row)
+        return bar
+
+    def _editor_search_style(self) -> str:
+        t = self._theme
+        return f"""
+QWidget#editorSearchBar {{ background: {t.window}; border-bottom: 1px solid {t.border}; }}
+QWidget#editorSearchBar QLineEdit {{ background: {t.surface}; border: 1px solid {t.border};
+    border-radius: 6px; color: {t.text}; min-height: 28px; padding: 2px 8px; }}
+QWidget#editorSearchBar QLineEdit:focus {{ border-color: {t.accent}; }}
+QWidget#editorSearchBar QPushButton {{ background: {t.surface}; border: 1px solid {t.border};
+    border-radius: 6px; color: {t.text}; padding: 4px 10px; min-height: 28px; }}
+QWidget#editorSearchBar QPushButton:hover {{ background: {t.surface_hover}; border-color: {t.accent}; }}
+QWidget#editorSearchBar QCheckBox {{ color: {t.text_muted}; }}
+QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; padding: 0 4px; }}
+"""
+
+    def _toggle_editor_search(self):
+        if self._editor_search_bar.isHidden():
+            selected = self._editor.textCursor().selectedText()
+            if selected and " " not in selected:
+                self._ed_find.setText(selected)
+            self._editor_search_bar.show()
+            self._ed_find.setFocus()
+            self._ed_find.selectAll()
+            self._update_editor_match_count()
+        else:
+            self._close_editor_search()
+
+    def _close_editor_search(self):
+        self._editor_search_bar.hide()
+        self._editor.setFocus()
+
+    def _editor_find_flags(self):
+        flags = QTextDocument.FindFlag(0)
+        if self._ed_case.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        return flags
+
+    def _editor_find(self, backward: bool = False) -> bool:
+        text = self._ed_find.text()
+        if not text:
+            self._ed_count.setText("")
+            return False
+        flags = self._editor_find_flags()
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        found = self._editor.find(text, flags)
+        if not found:
+            cursor = self._editor.textCursor()
+            cursor.movePosition(
+                QTextCursor.MoveOperation.End if backward
+                else QTextCursor.MoveOperation.Start
+            )
+            self._editor.setTextCursor(cursor)
+            found = self._editor.find(text, flags)
+        self._update_editor_match_count(found)
+        return found
+
+    def _editor_find_next(self):
+        self._editor_find(False)
+
+    def _editor_find_prev(self):
+        self._editor_find(True)
+
+    def _update_editor_match_count(self, found: bool | None = None):
+        text = self._ed_find.text()
+        if not text:
+            self._ed_count.setText("")
+            return
+        doc = self._editor.toPlainText()
+        if self._ed_case.isChecked():
+            total = doc.count(text)
+        else:
+            total = doc.lower().count(text.lower())
+        if total == 0:
+            self._ed_count.setText("找不到")
+        else:
+            self._ed_count.setText(f"{total} 筆")
+
+    def _editor_replace_one(self):
+        find = self._ed_find.text()
+        if not find:
+            return
+        cursor = self._editor.textCursor()
+        selected = cursor.selectedText()
+        case = self._ed_case.isChecked()
+        matches = selected == find if case else selected.lower() == find.lower()
+        if cursor.hasSelection() and matches:
+            cursor.insertText(self._ed_replace.text())
+        self._editor_find(False)
+
+    def _editor_replace_all(self):
+        find = self._ed_find.text()
+        if not find:
+            return
+        replace = self._ed_replace.text()
+        flags = self._editor_find_flags()
+        doc = self._editor.document()
+        edit_cursor = QTextCursor(doc)
+        edit_cursor.beginEditBlock()
+        count = 0
+        match = doc.find(find, 0, flags)
+        while not match.isNull():
+            match.insertText(replace)
+            count += 1
+            match = doc.find(find, match.position(), flags)
+        edit_cursor.endEditBlock()
+        self._update_editor_match_count()
+        self.statusBar().showMessage(f"已取代 {count} 筆", 2000)
+
     def _search_next(self):
-        self._renderer.find_next(self._search_input.text())
+        if self._current_kind == "pdf":
+            self._pdf_view.search_next()
+        else:
+            self._renderer.find_next(self._search_input.text())
 
     def _search_prev(self):
-        self._renderer.find_prev(self._search_input.text())
+        if self._current_kind == "pdf":
+            self._pdf_view.search_prev()
+        else:
+            self._renderer.find_prev(self._search_input.text())
+
+    def _on_pdf_page_changed(self, page0: int):
+        if self._current_kind == "pdf":
+            self._save_pdf_page(page0)
+            self._panel.pdf_notes.set_current_page(page0)
+
+    def _on_pdf_search_count(self, count: int):
+        if self._current_kind != "pdf":
+            return
+        if not self._search_input.text():
+            self._search_count.setText("")
+        else:
+            self._search_count.setText("" if count > 0 else "找不到結果")
+
+    def _pdf_pages_map(self) -> dict:
+        raw = QSettings(_ORG, _APP).value("pdf_last_pages")
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save_pdf_page(self, page0: int):
+        if not self._current_file:
+            return
+        pages = self._pdf_pages_map()
+        pages[str(self._current_file)] = int(page0)
+        if len(pages) > 200:
+            for key in list(pages)[:-200]:
+                del pages[key]
+        QSettings(_ORG, _APP).setValue("pdf_last_pages", json.dumps(pages))
 
     def _toggle_sidebar(self):
-        self._renderer.page().runJavaScript("window.scrollY", self._do_toggle)
+        if self._stack.currentWidget() is self._renderer:
+            self._renderer.page().runJavaScript("window.scrollY", self._do_toggle)
+        else:
+            self._do_toggle(0)
 
     def _do_toggle(self, scroll_y: float):
         scroll_y = int(scroll_y or 0)
@@ -621,12 +946,13 @@ QWidget#searchBar QLabel {{
             self._sidebar_btn.setToolTip("展開側邊欄")
             self._sidebar_btn.setAccessibleName("展開側邊欄")
 
-        QTimer.singleShot(
-            50,
-            lambda: self._renderer.page().runJavaScript(
-                f"window.scrollTo(0, {scroll_y})"
-            ),
-        )
+        if self._stack.currentWidget() is self._renderer:
+            QTimer.singleShot(
+                50,
+                lambda: self._renderer.page().runJavaScript(
+                    f"window.scrollTo(0, {scroll_y})"
+                ),
+            )
 
     def _toggle_edit_mode(self):
         if not self._current_file or not is_markdown(self._current_file):
@@ -661,7 +987,8 @@ QWidget#searchBar QLabel {{
         self._search_btn.setEnabled(False)
         self._reload_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
-        self._stack.setCurrentWidget(self._editor)
+        self._stack.setCurrentWidget(self._editor_split)
+        self._update_preview()
         self._editor.setFocus()
         self._refresh_icons()
         self._update_dirty_ui()
@@ -673,6 +1000,7 @@ QWidget#searchBar QLabel {{
 
     def _leave_edit_ui(self):
         self._edit_mode = False
+        self._editor_search_bar.hide()
         is_md = bool(self._current_file and is_markdown(self._current_file))
         self._search_btn.setEnabled(is_md)
         self._reload_btn.setEnabled(bool(self._current_file))
@@ -714,7 +1042,7 @@ QWidget#searchBar QLabel {{
             data = text.encode(encoding)
 
         try:
-            self._current_file.write_bytes(data)
+            atomic_write_bytes(self._current_file, data)
         except OSError as exc:
             QMessageBox.warning(self, "儲存失敗", f"無法寫入檔案：\n{exc}")
             return False
@@ -728,12 +1056,35 @@ QWidget#searchBar QLabel {{
             self.statusBar().showMessage("已儲存", 3000)
 
         self._editor.mark_saved()
+        self._loaded_signature = self._file_signature(self._current_file)
+        self._rearm_watch()
         self._renderer.load_file(self._current_file)
         self._update_dirty_ui()
+        self._refresh_link_index(force=True)
         return True
 
     def _on_editor_modified(self, _modified: bool):
         self._update_dirty_ui()
+
+    def _on_editor_text_changed(self):
+        if self._edit_mode:
+            self._preview_timer.start()
+
+    def _update_preview(self):
+        if not self._edit_mode or not self._current_file:
+            return
+        text = self._editor.toPlainText()
+        html, _ = convert_text(text, self._theme_name, title=self._current_file.stem)
+        base = QUrl.fromLocalFile(str(self._current_file.parent) + "/")
+        self._edit_preview.render_html(html, base)
+
+    def _sync_preview_scroll(self):
+        if not self._edit_mode:
+            return
+        bar = self._editor.verticalScrollBar()
+        maximum = bar.maximum()
+        ratio = (bar.value() / maximum) if maximum > 0 else 0.0
+        self._edit_preview.scroll_to_ratio(ratio)
 
     def _update_dirty_ui(self):
         if not self._current_file:
@@ -766,26 +1117,217 @@ QWidget#searchBar QLabel {{
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
+        self._close_search()
         if kind == "markdown":
             self._doc_annotations = AnnotationStore.load(path)
             self._sync_renderer_annotations()
             self._panel.annotations.set_document(self._doc_annotations)
+            self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
+            self._renderer.load_file(path)
+            self._stack.setCurrentWidget(self._renderer)
         else:
             self._doc_annotations = DocumentAnnotations()
             self._renderer.set_annotations([])
             self._panel.annotations.set_document(None)
-            self._panel.set_annotations_enabled(False)
-        self._renderer.load_file(path)
+            self._open_pdf(path)
+        self._watch_current_file()
         self._panel.file_browser.navigate_to(path.parent)
         self._panel.file_browser.select_path(path)
         self._panel.recent.add(str(path))
         self._reload_btn.setEnabled(True)
-        self._search_btn.setEnabled(kind == "markdown")
+        # Search now works for both Markdown and PDF.
+        self._search_btn.setEnabled(True)
         self._edit_btn.setEnabled(kind == "markdown")
         self._export_btn.setEnabled(kind == "markdown")
         self._side_notes_btn.setEnabled(kind == "markdown")
+        if kind == "markdown":
+            self._refresh_link_index()
+        else:
+            self._panel.backlinks.clear()
         self._refresh_icons()
+
+    def _open_pdf(self, path: Path):
+        self._pdf_view.load(path)
+        self._stack.setCurrentWidget(self._pdf_view)
+        # Outline -> sidebar TOC; clicking an entry jumps to its page.
+        self._panel.toc.update_outline(self._pdf_view.outline())
+        # Page-anchored notes live in the "標註" tab while a PDF is open.
+        self._pdf_notes = PdfNoteStore.load(path)
+        self._panel.show_pdf_notes(True)
+        self._panel.set_annotations_enabled(True)
+        self._refresh_pdf_notes_panel()
+        # Resume where the reader left off.
+        page = self._pdf_pages_map().get(str(path), 0)
+        self._pdf_view.restore_page(int(page))
+
+    # --- PDF page notes ---
+    def _refresh_pdf_notes_panel(self):
+        self._panel.pdf_notes.set_notes(self._pdf_notes)
+        self._panel.pdf_notes.set_current_page(self._pdf_view.current_page())
+
+    def _save_pdf_notes(self):
+        if self._current_file and self._current_kind == "pdf":
+            try:
+                PdfNoteStore.save(self._current_file, self._pdf_notes)
+            except OSError as exc:
+                self.statusBar().showMessage(f"無法儲存 PDF 註記：{exc}", 4000)
+
+    def _pdf_add_note(self):
+        if self._current_kind != "pdf" or not self._current_file:
+            return
+        page = self._pdf_view.current_page()
+        text, ok = QInputDialog.getMultiLineText(
+            self, "新增頁面註記", f"第 {page + 1} 頁的註記：", ""
+        )
+        if not ok:
+            return
+        self._pdf_notes.append(PdfNote.new(page=page, note=text.strip()))
+        self._pdf_notes.sort(key=lambda n: (n.page, n.created))
+        self._save_pdf_notes()
+        self._refresh_pdf_notes_panel()
+
+    def _find_pdf_note(self, note_id):
+        return next((n for n in self._pdf_notes if n.id == note_id), None)
+
+    def _pdf_note_activated(self, note_id):
+        note = self._find_pdf_note(note_id)
+        if note:
+            self._pdf_view.jump_to_page(note.page)
+
+    def _pdf_edit_note(self, note_id):
+        note = self._find_pdf_note(note_id)
+        if not note:
+            return
+        text, ok = QInputDialog.getMultiLineText(
+            self, "編輯註記", f"第 {note.page + 1} 頁：", note.note
+        )
+        if not ok:
+            return
+        note.note = text.strip()
+        note.updated = datetime.now().isoformat(timespec="seconds")
+        self._save_pdf_notes()
+        self._refresh_pdf_notes_panel()
+
+    def _pdf_delete_note(self, note_id):
+        self._pdf_notes = [n for n in self._pdf_notes if n.id != note_id]
+        self._save_pdf_notes()
+        self._refresh_pdf_notes_panel()
+
+    # --- wiki-links & backlinks ---
+    def _link_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        try:
+            for lib in DocumentLibraryStore().load():
+                p = Path(lib.path)
+                if p.exists():
+                    roots.append(p)
+        except Exception:
+            pass
+        if self._current_file:
+            roots.append(self._current_file.parent)
+        seen: set[str] = set()
+        unique: list[Path] = []
+        for root in roots:
+            key = str(root).casefold()
+            if key not in seen:
+                seen.add(key)
+                unique.append(root)
+        return unique
+
+    def _refresh_link_index(self, force: bool = False):
+        roots = self._link_roots()
+        key = tuple(sorted(str(r).casefold() for r in roots))
+        if not force and key == self._link_roots_key:
+            self._refresh_backlinks()
+            return
+        self._link_roots_key = key
+        if self._link_thread is not None and self._link_thread.isRunning():
+            self._refresh_backlinks()
+            return
+        self._link_thread = LinkIndexThread(roots, self)
+        self._link_thread.ready.connect(self._on_link_index_ready)
+        self._link_thread.start()
+        self._refresh_backlinks()
+
+    def _on_link_index_ready(self, index):
+        if index is not None:
+            self._link_index = index
+        self._refresh_backlinks()
+
+    def _refresh_backlinks(self):
+        if self._current_file and self._current_kind == "markdown":
+            self._panel.backlinks.set_backlinks(
+                self._link_index.backlinks(self._current_file)
+            )
+        else:
+            self._panel.backlinks.clear()
+
+    def _on_local_doc_clicked(self, path: str):
+        if path and Path(path).exists():
+            self._open_file(path)
+
+    def _on_wikilink_clicked(self, target: str):
+        resolved = self._link_index.resolve(target, self._current_file)
+        if not resolved or not Path(resolved).exists():
+            resolved = self._resolve_in_current_folder(target)
+        if resolved and Path(resolved).exists():
+            self._open_file(str(resolved))
+            return
+        self._offer_create_note(target)
+
+    def _resolve_in_current_folder(self, target: str) -> Path | None:
+        if not self._current_file:
+            return None
+        name = target.split("#", 1)[0].strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if name.lower().endswith(".md"):
+            name = name[:-3]
+        if not name:
+            return None
+        folder = self._current_file.parent
+        for ext in (".md", ".markdown"):
+            candidate = folder / f"{name}{ext}"
+            if candidate.exists():
+                return candidate
+        try:
+            for entry in folder.iterdir():
+                if (
+                    entry.is_file()
+                    and is_markdown(entry)
+                    and entry.stem.casefold() == name.casefold()
+                ):
+                    return entry
+        except OSError:
+            pass
+        return None
+
+    def _offer_create_note(self, target: str):
+        if not self._current_file:
+            return
+        name = target.split("#", 1)[0].strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if name.lower().endswith(".md"):
+            name = name[:-3]
+        if not name or any(ch in name for ch in '<>:"/\\|?*'):
+            QMessageBox.information(self, "找不到筆記", f"找不到筆記「{target}」。")
+            return
+        answer = QMessageBox.question(
+            self,
+            "建立筆記",
+            f"找不到筆記「{name}」，要在目前資料夾建立嗎？",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        new_path = self._current_file.parent / f"{name}.md"
+        if not new_path.exists():
+            try:
+                atomic_write_bytes(
+                    new_path, f"# {name}\n".encode("utf-8"), backup=False
+                )
+            except OSError as exc:
+                QMessageBox.warning(self, "建立失敗", f"無法建立檔案：\n{exc}")
+                return
+        self._open_file(str(new_path))
+        self._refresh_link_index(force=True)
 
     def open_path(self, filepath: str):
         self._open_file(filepath)
@@ -793,11 +1335,144 @@ QWidget#searchBar QLabel {{
     def _panel_open_file(self):
         self._panel.open_file_dialog()
 
+    def _quick_open_candidates(self) -> list[tuple[str, str]]:
+        seen: set[str] = set()
+        candidates: list[tuple[str, str]] = []
+
+        def add(path_str: str):
+            path = Path(path_str)
+            key = str(path).casefold()
+            if key in seen or not is_supported_document(path) or not path.exists():
+                return
+            seen.add(key)
+            candidates.append((path.name, str(path)))
+
+        for path_str in self._panel.recent.paths():
+            add(path_str)
+        if self._current_file:
+            try:
+                for entry in sorted(self._current_file.parent.iterdir()):
+                    if entry.is_file():
+                        add(str(entry))
+            except OSError:
+                pass
+        return candidates
+
+    def _quick_open(self):
+        candidates = self._quick_open_candidates()
+        if not candidates:
+            self.statusBar().showMessage(
+                "沒有可快速開啟的檔案（最近清單與目前資料夾皆為空）", 4000
+            )
+            return
+        dialog = QuickOpenDialog(candidates, self._theme, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            path = dialog.selected_path()
+            if path:
+                self._open_file(path)
+
+    def _apply_zoom(self, factor: float):
+        self._content_zoom = self._renderer.set_zoom(factor)
+        self._edit_preview.set_zoom(self._content_zoom)
+        if self._current_kind == "pdf":
+            self._pdf_view.set_zoom_factor(self._content_zoom)
+        QSettings(_ORG, _APP).setValue("content_zoom", self._content_zoom)
+        self.statusBar().showMessage(f"縮放：{round(self._content_zoom * 100)}%", 2000)
+
+    def _zoom_in(self):
+        self._apply_zoom(self._content_zoom + 0.1)
+
+    def _zoom_out(self):
+        self._apply_zoom(self._content_zoom - 0.1)
+
+    def _zoom_reset(self):
+        self._apply_zoom(1.0)
+
+    def restore_last_session(self):
+        last = QSettings(_ORG, _APP).value("last_file")
+        if last and is_supported_document(last) and Path(last).exists():
+            self._open_file(last)
+
     def _reload_current(self):
         if not self._current_file:
             return
-        self._renderer.reload_current()
+        if self._current_kind == "pdf":
+            page = self._pdf_view.current_page()
+            self._pdf_view.load(self._current_file)
+            self._panel.toc.update_outline(self._pdf_view.outline())
+            self._pdf_view.restore_page(page)
+        else:
+            self._renderer.reload_current()
         self.statusBar().showMessage("已重新載入文件", 3000)
+
+    # --- external file-change detection ---
+    @staticmethod
+    def _file_signature(path) -> tuple[int, int] | None:
+        try:
+            st = Path(path).stat()
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
+    def _watch_current_file(self):
+        watched = self._fs_watcher.files()
+        if watched:
+            self._fs_watcher.removePaths(watched)
+        if self._current_file and self._current_file.exists():
+            self._fs_watcher.addPath(str(self._current_file))
+            self._loaded_signature = self._file_signature(self._current_file)
+
+    def _rearm_watch(self):
+        if not self._current_file or not self._current_file.exists():
+            return
+        if str(self._current_file) not in self._fs_watcher.files():
+            self._fs_watcher.addPath(str(self._current_file))
+
+    def _on_file_changed(self, path: str):
+        # An os.replace-style save (ours or another editor's) drops the watch,
+        # so always re-arm it shortly after the event settles.
+        QTimer.singleShot(150, self._rearm_watch)
+        if not self._current_file or str(self._current_file) != path:
+            return
+        current = self._file_signature(self._current_file)
+        if current is None:
+            self.statusBar().showMessage(
+                f"檔案已不存在或暫時無法存取：{self._current_file.name}", 5000
+            )
+            return
+        if current == self._loaded_signature:
+            return  # our own save, or a no-op touch — nothing changed
+        self._loaded_signature = current
+        self._prompt_external_change()
+
+    def _prompt_external_change(self):
+        if self._reload_prompt_open or not self._current_file:
+            return
+        self._reload_prompt_open = True
+        try:
+            name = self._current_file.name
+            if self._edit_mode and self._editor.is_modified():
+                answer = QMessageBox.question(
+                    self,
+                    "檔案已在外部變更",
+                    f"{name} 已被其他程式修改，但你有未儲存的編輯。\n"
+                    "要捨棄你的編輯並載入磁碟上的新版本嗎？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if answer == QMessageBox.StandardButton.Yes:
+                    self._leave_edit_ui()
+                    self._renderer.load_file(self._current_file)
+            else:
+                answer = QMessageBox.question(
+                    self,
+                    "檔案已在外部變更",
+                    f"{name} 已被其他程式修改，要重新載入嗎？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if answer == QMessageBox.StandardButton.Yes:
+                    self._renderer.reload_current()
+        finally:
+            self._reload_prompt_open = False
 
     def _persist_annotations(self):
         if not self._current_file or not is_markdown(self._current_file):
@@ -849,6 +1524,47 @@ QWidget#searchBar QLabel {{
     def _on_bridge_orphans(self, ids):
         # Orphans remain listed in the panel; no document marks to show.
         pass
+
+    def _on_task_toggled(self, line_no: int, checked: bool):
+        """Persist a preview checkbox toggle back to the source ``- [ ]`` line."""
+        if not self._current_file or not is_markdown(self._current_file):
+            return
+        if self._edit_mode:
+            return  # the editor owns the buffer while editing
+        try:
+            raw = self._current_file.read_bytes()
+        except OSError:
+            return
+        result = read_text(self._current_file)
+        if result is None:
+            return
+        text, encoding = result
+        newline = "\r\n" if b"\r\n" in raw else "\n"
+        lines = text.split("\n")
+        if line_no < 0 or line_no >= len(lines):
+            return
+        marker = "[x]" if checked else "[ ]"
+        new_line = re.sub(r"\[[ xX]\]", marker, lines[line_no], count=1)
+        if new_line == lines[line_no]:
+            return
+        lines[line_no] = new_line
+        out = "\n".join(lines)
+        if newline != "\n":
+            out = out.replace("\n", newline)
+        try:
+            data = out.encode(encoding)
+        except UnicodeEncodeError:
+            data = out.encode("utf-8")
+        try:
+            atomic_write_bytes(self._current_file, data)
+        except OSError as exc:
+            self.statusBar().showMessage(f"無法更新待辦：{exc}", 4000)
+            return
+        # The browser already toggled the checkbox visually; just persist so the
+        # scroll position is preserved (no reload).
+        self._loaded_signature = self._file_signature(self._current_file)
+        self._rearm_watch()
+        self.statusBar().showMessage("已更新待辦狀態", 1500)
 
     # --- callbacks from the annotations panel ---
     def _annot_note_changed(self, ann_id, text):
@@ -1052,8 +1768,12 @@ QWidget#searchBar QLabel {{
         if box.clickedButton() is open_btn:
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    def _scroll_to_anchor(self, anchor: str):
-        self._renderer.scroll_to(anchor)
+    def _scroll_to_anchor(self, target):
+        # int -> PDF page jump; str -> Markdown heading anchor.
+        if isinstance(target, int):
+            self._pdf_view.jump_to_page(target)
+        else:
+            self._renderer.scroll_to(target)
 
     def _check_updates_silent(self):
         self._check_for_updates(manual=False)
@@ -1161,5 +1881,8 @@ QWidget#searchBar QLabel {{
         if not self._confirm_discard_edits():
             event.ignore()
             return
-        QSettings(_ORG, _APP).setValue("geometry", self.saveGeometry())
+        settings = QSettings(_ORG, _APP)
+        settings.setValue("geometry", self.saveGeometry())
+        if self._current_file:
+            settings.setValue("last_file", str(self._current_file))
         super().closeEvent(event)
