@@ -5,3 +5,4 @@ mdit_py_plugins>=0.4
 linkify-it-py>=2.0
 Pygments>=2.17
 PyMuPDF>=1.24
+python-pptx>=1.0

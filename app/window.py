@@ -176,6 +176,7 @@ class MainWindow(QMainWindow):
         self._tab_state: dict[str, dict] = {}
         self._active_path: str | None = None
         self._tab_guard = False  # suppress currentChanged while we mutate tabs
+        self._exporting = False  # reentrancy guard for the PPT export action
 
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
@@ -414,6 +415,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act("重新載入", self._reload_current))
         file_menu.addSeparator()
         file_menu.addAction(act("匯出 PDF…\tCtrl+Shift+P", self._export_pdf))
+        file_menu.addAction(act("匯出 PPT…", self._export_pptx))
         file_menu.addSeparator()
         file_menu.addAction(act("離開", self.close))
 
@@ -2159,6 +2161,64 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             layout = self._pdf_layout(setup["size"], setup["orientation"])
             self._show_pdf_progress()
             self._renderer.export_pdf(path, self._on_pdf_exported, layout)
+
+    def _export_pptx(self):
+        if (
+            self._exporting
+            or not self._current_file
+            or self._edit_mode
+            or not is_markdown(self._current_file)
+        ):
+            return
+        result = read_text(self._current_file)
+        if result is None:
+            QMessageBox.warning(self, "匯出 PPT", "無法讀取檔案內容。")
+            return
+        text, _enc = result
+        default = str(self._current_file.with_suffix(".pptx"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "匯出 PPT", default, "PowerPoint 簡報 (*.pptx)"
+        )
+        if not path:
+            return
+
+        self._exporting = True
+        renderer = None
+        provider = None
+        # Render Mermaid / math fragments to images via the web engine; if that
+        # module can't be built, export still works with source-code boxes.
+        try:
+            from .fragment_render import FragmentRenderer
+
+            renderer = FragmentRenderer(parent=self)
+            provider = renderer.provide
+        except Exception:
+            renderer = None
+            provider = None
+
+        try:
+            from .pptx_export import export_markdown_to_pptx
+
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                count = export_markdown_to_pptx(
+                    text,
+                    path,
+                    base_dir=self._current_file.parent,
+                    image_provider=provider,
+                )
+            finally:
+                QApplication.restoreOverrideCursor()
+                if renderer is not None:
+                    renderer.cleanup()
+        except Exception as exc:
+            QMessageBox.warning(self, "匯出 PPT", f"匯出失敗：{exc}")
+            return
+        finally:
+            self._exporting = False
+        self.statusBar().showMessage(
+            f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
+        )
 
     def _ask_page_setup(self):
         settings = QSettings(_ORG, _APP)

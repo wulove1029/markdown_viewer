@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
 block_cipher = None
 
 a = Analysis(
@@ -9,7 +11,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),   # 帶入 CSS 檔案
         ('ICON/icon.ico', 'ICON'),
-    ],
+    ] + collect_data_files('pptx'),   # python-pptx 預設範本 (default.pptx 等)
     hiddenimports=[
         'pygments.lexers._mapping',
         'pygments.formatters.html',
@@ -21,6 +23,9 @@ a = Analysis(
         'linkify_it',
         'uc_micro',
         'pymupdf',
+        'pptx',
+        'lxml.etree',
+        'lxml._elementpath',
         'PyQt6.QtPdf',
         'PyQt6.QtPdfWidgets',
     ],

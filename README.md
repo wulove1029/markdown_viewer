@@ -106,6 +106,16 @@ A menu bar (File / Edit / View / Tools / Help) exposes these actions, and
 **Tools → 偏好設定** (Preferences) lets you set the default zoom, a custom CSS
 file for the rendered content, and whether to check for updates on startup.
 
+## Export
+
+A Markdown document can be exported to **PDF** (Ctrl+Shift+P) or to an editable
+**PowerPoint deck** (File → 匯出 PPT). The deck is split into slides by `---`
+thematic breaks if the document has any, otherwise by the `##` heading level, and
+headings, bullet lists, code blocks, tables and images become native (editable)
+PowerPoint objects — no Office or LibreOffice install required. Mermaid diagrams
+and `$$` math are rendered to images and embedded (a fragment that can't be
+rendered falls back to a labelled source box).
+
 ## Images And Diagrams
 
 Standard Markdown images render directly — local (relative or absolute) and remote URLs are all supported. Large images scale to fit the content width automatically.
