@@ -83,6 +83,7 @@ class RendererView(QWebEngineView):
         self._pdf_callback = None
         self._zoom_factor = 1.0
         self._pending_scroll: int | None = None
+        self._scroll_y = 0  # last polled vertical scroll (for per-tab restore)
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
         # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
@@ -163,9 +164,12 @@ class RendererView(QWebEngineView):
             )
         )
 
-    def load_file(self, filepath: str | Path):
+    def load_file(self, filepath: str | Path, scroll_y: int | None = None):
         path = Path(filepath)
         self._current_path = path
+        self._scroll_y = 0
+        # Restore a remembered scroll position once the page finishes loading.
+        self._pending_scroll = int(scroll_y) if scroll_y else None
         self.show_loading(path)
         QTimer.singleShot(0, lambda path=path: self._finish_load_file(path))
 
@@ -196,9 +200,8 @@ class RendererView(QWebEngineView):
             self.load_file(self._current_path)
 
     def _reload_at_scroll(self, scroll_y):
-        self._pending_scroll = int(scroll_y or 0)
         if self._current_path:
-            self.load_file(self._current_path)
+            self.load_file(self._current_path, scroll_y=int(scroll_y or 0))
 
     def render_html(self, html: str, base_url: QUrl | None = None):
         """Render a self-contained HTML string (used by the live edit preview).
@@ -212,6 +215,10 @@ class RendererView(QWebEngineView):
             self.page().setHtml(html, base_url)
         else:
             self.page().setHtml(html)
+
+    def scroll_y(self) -> int:
+        """Last polled vertical scroll position in px (0 when unknown)."""
+        return self._scroll_y
 
     def scroll_to_ratio(self, ratio: float):
         ratio = max(0.0, min(1.0, ratio))
@@ -381,11 +388,16 @@ class RendererView(QWebEngineView):
                 if (hs[i].getBoundingClientRect().top <= 80) { active = hs[i].id; }
                 else { break; }
             }
-            return active;
+            return [active, window.scrollY];
         })()"""
         self.page().runJavaScript(js, self._on_spy_result)
 
-    def _on_spy_result(self, anchor):
+    def _on_spy_result(self, result):
+        if isinstance(result, (list, tuple)) and len(result) == 2:
+            anchor, scroll = result
+            self._scroll_y = int(scroll or 0)
+        else:
+            anchor = result
         anchor = anchor or ""
         if anchor != self._current_anchor:
             self._current_anchor = anchor

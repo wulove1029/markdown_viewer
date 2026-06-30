@@ -92,9 +92,15 @@ external software is required**.
 | Ctrl+E | Toggle edit mode |
 | Ctrl+S | Save |
 | Ctrl+Shift+P | Export to PDF |
+| Ctrl+Tab / Ctrl+Shift+Tab | Switch to next / previous tab |
+| Ctrl+W | Close the current tab |
 | Ctrl+C | Copy selected PDF text |
 | H | Highlight the current PDF selection |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset |
+
+Open several documents at once as **tabs** — switch with Ctrl+Tab / Ctrl+Shift+Tab,
+close with Ctrl+W, drag to reorder, and your open tabs are restored on the next
+launch. The full list is also available in-app via **Help → 鍵盤快捷鍵**.
 
 A menu bar (File / Edit / View / Tools / Help) exposes these actions, and
 **Tools → 偏好設定** (Preferences) lets you set the default zoom, a custom CSS

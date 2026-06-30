@@ -49,6 +49,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -168,6 +169,13 @@ class MainWindow(QMainWindow):
         self._theme = get_theme(self._theme_name)
         self._current_file: Path | None = None
         self._current_kind = ""
+        # Open documents shown as tabs. The viewer (renderer / PDF view) is
+        # shared and reloaded on switch; per-tab view state (markdown scroll;
+        # PDF page already persists in pdf_last_pages) is kept here keyed by
+        # path string. _active_path is the path currently loaded in the view.
+        self._tab_state: dict[str, dict] = {}
+        self._active_path: str | None = None
+        self._tab_guard = False  # suppress currentChanged while we mutate tabs
 
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
@@ -303,24 +311,28 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._editor_split)
         self._stack.addWidget(self._pdf_view)
 
+        # Tab strip for switching between open documents (one shared viewer).
+        self._tab_bar = QTabBar()
+        self._tab_bar.setObjectName("documentTabs")
+        self._tab_bar.setTabsClosable(True)
+        self._tab_bar.setMovable(True)
+        self._tab_bar.setExpanding(False)
+        self._tab_bar.setDrawBase(False)
+        self._tab_bar.setUsesScrollButtons(True)
+        self._tab_bar.setElideMode(Qt.TextElideMode.ElideRight)
+        self._tab_bar.setVisible(False)
+        self._tab_bar.currentChanged.connect(self._on_tab_changed)
+        self._tab_bar.tabCloseRequested.connect(self._on_tab_close)
+
         renderer_wrap = QWidget()
         renderer_wrap.setObjectName("rendererWorkspace")
         renderer_layout = QVBoxLayout(renderer_wrap)
         renderer_layout.setContentsMargins(0, 0, 0, 0)
         renderer_layout.setSpacing(0)
+        renderer_layout.addWidget(self._tab_bar)
         renderer_layout.addWidget(self._search_bar)
         renderer_layout.addWidget(self._stack)
         self._workspace = renderer_wrap
-
-        self._restore_btn = QPushButton(renderer_wrap)
-        self._restore_btn.setFixedSize(HIT_TARGET, HIT_TARGET)
-        self._restore_btn.setIconSize(QSize(20, 20))
-        self._restore_btn.setToolTip("展開側邊欄")
-        self._restore_btn.setAccessibleName("展開側邊欄")
-        self._restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._restore_btn.clicked.connect(self._toggle_sidebar)
-        self._restore_btn.move(8, 8)
-        self._restore_btn.hide()
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.addWidget(self._panel)
@@ -371,6 +383,14 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self._zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self._zoom_out)
         QShortcut(QKeySequence("Ctrl+0"), self).activated.connect(self._zoom_reset)
+        # Tab navigation (browser / editor muscle memory).
+        QShortcut(QKeySequence("Ctrl+W"), self).activated.connect(
+            self._close_current_tab
+        )
+        QShortcut(QKeySequence("Ctrl+Tab"), self).activated.connect(self._next_tab)
+        QShortcut(QKeySequence("Ctrl+Shift+Tab"), self).activated.connect(
+            self._prev_tab
+        )
 
         self._build_menu_bar()
         self._load_user_css()
@@ -409,6 +429,10 @@ class MainWindow(QMainWindow):
         view_menu.addAction(act("縮小\tCtrl+-", self._zoom_out))
         view_menu.addAction(act("重設縮放\tCtrl+0", self._zoom_reset))
         view_menu.addSeparator()
+        view_menu.addAction(act("下一個分頁\tCtrl+Tab", self._next_tab))
+        view_menu.addAction(act("上一個分頁\tCtrl+Shift+Tab", self._prev_tab))
+        view_menu.addAction(act("關閉分頁\tCtrl+W", self._close_current_tab))
+        view_menu.addSeparator()
         view_menu.addAction(act("切換深色模式", self._toggle_theme))
         view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
 
@@ -416,6 +440,7 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(act("偏好設定…", self._open_preferences))
 
         help_menu = bar.addMenu("說明(&H)")
+        help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
         help_menu.addAction(act("檢查更新…", lambda: self._check_for_updates(manual=True)))
         help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
 
@@ -426,6 +451,49 @@ class MainWindow(QMainWindow):
             f"<b>Markdown Viewer</b><br>版本 {VERSION}<br><br>"
             "Markdown 筆記閱讀 / 編輯與 PDF 閱讀工具。",
         )
+
+    def _show_shortcuts(self):
+        groups = [
+            ("檔案", [
+                ("Ctrl+O", "開啟文件"),
+                ("Ctrl+P", "快速開啟（模糊搜尋檔名）"),
+                ("Ctrl+Shift+P", "匯出 PDF"),
+            ]),
+            ("分頁", [
+                ("Ctrl+Tab", "下一個分頁"),
+                ("Ctrl+Shift+Tab", "上一個分頁"),
+                ("Ctrl+W", "關閉目前分頁"),
+            ]),
+            ("編輯", [
+                ("Ctrl+E", "切換編輯 / 預覽"),
+                ("Ctrl+S", "儲存"),
+                ("Ctrl+F", "在文件 / PDF 中搜尋"),
+            ]),
+            ("檢視", [
+                ("Ctrl++ / Ctrl+- / Ctrl+0", "放大 / 縮小 / 重設縮放"),
+            ]),
+            ("PDF", [
+                ("Ctrl+C", "複製選取的 PDF 文字"),
+                ("H", "螢光標記目前 PDF 選取"),
+            ]),
+        ]
+        parts = ["<table cellspacing='6' cellpadding='2'>"]
+        for title, rows in groups:
+            parts.append(
+                f"<tr><td colspan='2' style='padding-top:10px;'><b>{title}</b></td></tr>"
+            )
+            for keys, action in rows:
+                parts.append(
+                    f"<tr><td style='padding-right:20px;'><code>{keys}</code></td>"
+                    f"<td>{action}</td></tr>"
+                )
+        parts.append("</table>")
+        box = QMessageBox(self)
+        box.setWindowTitle("鍵盤快捷鍵")
+        box.setIcon(QMessageBox.Icon.NoIcon)
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText("".join(parts))
+        box.exec()
 
     def _update_check_enabled(self) -> bool:
         value = QSettings(_ORG, _APP).value("update_check_enabled", True)
@@ -614,6 +682,32 @@ QLabel#toolbarSubtitle {{
 }}
 """
         )
+        self._tab_bar.setStyleSheet(
+            f"""
+QTabBar#documentTabs {{
+    background: {self._theme.window};
+    border-bottom: 1px solid {self._theme.border};
+}}
+QTabBar#documentTabs::tab {{
+    background: {self._theme.surface};
+    color: {self._theme.text_muted};
+    border: 1px solid {self._theme.border};
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 6px 12px;
+    margin-right: 2px;
+    max-width: 240px;
+}}
+QTabBar#documentTabs::tab:selected {{
+    background: {self._theme.surface_active};
+    color: {self._theme.text};
+}}
+QTabBar#documentTabs::tab:hover {{
+    background: {self._theme.surface_hover};
+}}
+"""
+        )
         self._search_bar.setStyleSheet(self._search_style())
         self._panel.apply_theme(self._theme)
         self._splitter.setStyleSheet(
@@ -623,23 +717,6 @@ QSplitter::handle {{
 }}
 QSplitter::handle:hover {{
     background: {self._theme.surface_hover};
-}}
-"""
-        )
-        self._restore_btn.setStyleSheet(
-            toolbar_stylesheet(self._theme)
-            + f"""
-QPushButton {{
-    background: {self._theme.surface};
-    border: 1px solid {self._theme.border};
-    border-radius: 8px;
-}}
-QPushButton:hover {{
-    background: {self._theme.surface_hover};
-    border-color: {self._theme.accent};
-}}
-QPushButton:pressed {{
-    background: {self._theme.surface_active};
 }}
 """
         )
@@ -705,9 +782,6 @@ QPushButton:pressed {{
         self._theme_btn.setToolTip(theme_tip)
         self._theme_btn.setAccessibleName(theme_tip)
         self._theme_btn.setIcon(svg_icon(theme_icon, icon_color, 20))
-
-        restore_icon = "panel-left"
-        self._restore_btn.setIcon(svg_icon(restore_icon, icon_color, 20))
 
         self._search_prev_btn.setIcon(svg_icon("chevron-left", icon_color, 18))
         self._search_next_btn.setIcon(svg_icon("chevron-right", icon_color, 18))
@@ -1107,14 +1181,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if self._sidebar_open:
             self._panel.show()
             self._splitter.setSizes([PANEL_WIDTH, max(width - PANEL_WIDTH, 1)])
-            self._restore_btn.hide()
             self._sidebar_btn.setToolTip("收合側邊欄")
             self._sidebar_btn.setAccessibleName("收合側邊欄")
         else:
             self._panel.hide()
             self._splitter.setSizes([0, width])
-            self._restore_btn.show()
-            self._restore_btn.raise_()
             self._sidebar_btn.setToolTip("展開側邊欄")
             self._sidebar_btn.setAccessibleName("展開側邊欄")
 
@@ -1270,6 +1341,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._toolbar_subtitle.setText(
             "未儲存變更" if dirty else str(self._current_file.parent)
         )
+        idx = self._tab_bar.currentIndex()
+        if idx >= 0:
+            self._tab_bar.setTabText(idx, f"{marker}{name}")
 
     def _open_file(self, filepath: str):
         path = Path(filepath)
@@ -1285,6 +1359,144 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if not self._confirm_discard_edits():
                 return
             self._leave_edit_ui()
+        key = str(path)
+        existing = self._index_of_path(key)
+        if existing >= 0:
+            # Already open — just bring its tab to the front (load it if it is
+            # the current-but-not-yet-loaded tab, e.g. right after a restore).
+            if self._tab_bar.currentIndex() == existing:
+                self._activate_tab(existing)
+            else:
+                self._tab_bar.setCurrentIndex(existing)
+            return
+        idx = self._add_tab(path, kind)
+        self._tab_guard = True
+        self._tab_bar.setCurrentIndex(idx)
+        self._tab_guard = False
+        self._activate_tab(idx)
+
+    # ---------------- document tabs ----------------
+    def _index_of_path(self, key: str) -> int:
+        for i in range(self._tab_bar.count()):
+            if self._tab_bar.tabData(i) == key:
+                return i
+        return -1
+
+    def _add_tab(self, path: Path, kind: str) -> int:
+        """Add a tab entry without loading it. Returns the new tab index."""
+        key = str(path)
+        self._tab_guard = True
+        idx = self._tab_bar.addTab(path.name)
+        self._tab_bar.setTabData(idx, key)
+        self._tab_bar.setTabToolTip(idx, key)
+        self._tab_guard = False
+        self._tab_state[key] = {"kind": kind, "scroll": None}
+        self._tab_bar.setVisible(self._tab_bar.count() > 0)
+        return idx
+
+    def _on_tab_changed(self, idx: int):
+        if self._tab_guard or idx < 0:
+            return
+        key = self._tab_bar.tabData(idx)
+        if not key or key == self._active_path:
+            return
+        # Switching documents while editing: confirm like opening a new file.
+        if self._edit_mode and not self._confirm_discard_edits():
+            self._tab_guard = True
+            prev = self._index_of_path(self._active_path) if self._active_path else -1
+            if prev >= 0:
+                self._tab_bar.setCurrentIndex(prev)
+            self._tab_guard = False
+            return
+        if self._edit_mode:
+            self._leave_edit_ui()
+        self._activate_tab(idx)
+
+    def _on_tab_close(self, idx: int):
+        key = self._tab_bar.tabData(idx)
+        closing_active = key == self._active_path
+        if closing_active and self._edit_mode:
+            if not self._confirm_discard_edits():
+                return
+            self._leave_edit_ui()
+        if closing_active:
+            self._active_path = None  # don't save state for a closing document
+        self._tab_guard = True
+        self._tab_bar.removeTab(idx)
+        self._tab_guard = False
+        self._tab_state.pop(key, None)
+        self._tab_bar.setVisible(self._tab_bar.count() > 0)
+        if self._tab_bar.count() == 0:
+            self._show_empty_state()
+        elif closing_active:
+            self._activate_tab(self._tab_bar.currentIndex())
+
+    def _close_current_tab(self):
+        if self._tab_bar.count() > 0:
+            self._on_tab_close(self._tab_bar.currentIndex())
+
+    def _next_tab(self):
+        self._step_tab(1)
+
+    def _prev_tab(self):
+        self._step_tab(-1)
+
+    def _step_tab(self, delta: int):
+        n = self._tab_bar.count()
+        if n <= 1:
+            return
+        self._tab_bar.setCurrentIndex((self._tab_bar.currentIndex() + delta) % n)
+
+    def _activate_tab(self, idx: int):
+        """Load the document for tab *idx* into the shared viewer."""
+        if idx < 0 or idx >= self._tab_bar.count():
+            return
+        key = self._tab_bar.tabData(idx)
+        if not key or key == self._active_path:
+            return
+        self._save_active_view_state()
+        self._active_path = key
+        state = self._tab_state.get(key) or {}
+        kind = state.get("kind") or document_kind(Path(key))
+        self._load_document(Path(key), kind)
+
+    def _save_active_view_state(self):
+        """Capture the outgoing tab's view position before switching away."""
+        if not self._active_path:
+            return
+        state = self._tab_state.get(self._active_path)
+        if not state:
+            return
+        if state.get("kind") == "markdown":
+            # Last value from the renderer's scroll poll (PDF page persists via
+            # pdf_last_pages on page_changed, so nothing to capture for PDFs).
+            state["scroll"] = self._renderer.scroll_y()
+
+    def _show_empty_state(self):
+        self._current_file = None
+        self._current_kind = ""
+        self._active_path = None
+        self.setWindowTitle("Markdown Viewer")
+        self._toolbar_title.setText("Markdown Viewer")
+        self._toolbar_subtitle.setText("尚未載入文件")
+        self._close_search()
+        self._renderer.show_empty()
+        self._stack.setCurrentWidget(self._renderer)
+        self._panel.toc.update_outline([])
+        self._panel.backlinks.clear()
+        self._panel.annotations.set_document(None)
+        self._panel.show_pdf_notes(False)
+        self._reload_btn.setEnabled(False)
+        self._search_btn.setEnabled(False)
+        self._edit_btn.setEnabled(False)
+        self._export_btn.setEnabled(False)
+        self._side_notes_btn.setEnabled(False)
+        self._highlight_btn.setEnabled(False)
+        self._watch_current_file()
+        self._refresh_icons()
+
+    def _load_document(self, path: Path, kind: str):
+        """Load *path* into the shared viewer, restoring its saved view state."""
         self._current_file = path
         self._current_kind = kind
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
@@ -1299,7 +1511,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
             self._update_front_tags()
-            self._renderer.load_file(path)
+            scroll = (self._tab_state.get(str(path)) or {}).get("scroll")
+            self._renderer.load_file(path, scroll_y=scroll)
             self._stack.setCurrentWidget(self._renderer)
         else:
             self._doc_annotations = DocumentAnnotations()
@@ -1657,7 +1870,37 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._apply_zoom(1.0)
 
     def restore_last_session(self):
-        last = QSettings(_ORG, _APP).value("last_file")
+        settings = QSettings(_ORG, _APP)
+        raw = settings.value("open_tabs")
+        paths = []
+        if raw:
+            try:
+                paths = json.loads(raw)
+            except (ValueError, TypeError):
+                paths = []
+        paths = [
+            p for p in paths if p and is_supported_document(p) and Path(p).exists()
+        ]
+        if paths:
+            # Add every remembered tab but load only the active one (the others
+            # load lazily when first selected).
+            for p in paths:
+                kind = document_kind(Path(p))
+                if kind:
+                    self._add_tab(Path(p), kind)
+            active = settings.value("active_tab", 0)
+            try:
+                active = int(active)
+            except (ValueError, TypeError):
+                active = 0
+            active = max(0, min(active, self._tab_bar.count() - 1))
+            self._tab_guard = True
+            self._tab_bar.setCurrentIndex(active)
+            self._tab_guard = False
+            self._activate_tab(active)
+            return
+        # Fallback to the single last_file remembered by older versions.
+        last = settings.value("last_file")
         if last and is_supported_document(last) and Path(last).exists():
             self._open_file(last)
 
@@ -2193,6 +2436,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         settings = QSettings(_ORG, _APP)
         settings.setValue("geometry", self.saveGeometry())
+        self._save_active_view_state()
+        open_tabs = [self._tab_bar.tabData(i) for i in range(self._tab_bar.count())]
+        settings.setValue("open_tabs", json.dumps(open_tabs))
+        settings.setValue("active_tab", self._tab_bar.currentIndex())
         if self._current_file:
             settings.setValue("last_file", str(self._current_file))
         super().closeEvent(event)
