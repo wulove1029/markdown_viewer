@@ -1324,8 +1324,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_icons()
 
     def _open_pdf(self, path: Path):
-        self._pdf_view.load(path)
+        # Switch first so the password prompt (if any) appears over the PDF view.
         self._stack.setCurrentWidget(self._pdf_view)
+        if not self._pdf_view.load(path):
+            if self._pdf_view.is_locked():
+                self.statusBar().showMessage(
+                    "已取消開啟受密碼保護的 PDF；重新開啟可再次輸入密碼。", 6000
+                )
+            else:
+                self.statusBar().showMessage(
+                    "無法開啟此 PDF：檔案可能已損毀或無法讀取。", 6000
+                )
         # Outline -> sidebar TOC; clicking an entry jumps to its page.
         self._panel.toc.update_outline(self._pdf_view.outline())
         # Page-anchored notes + text highlights live in the "標註" tab.
@@ -1657,7 +1666,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if self._current_kind == "pdf":
             page = self._pdf_view.current_page()
-            self._pdf_view.load(self._current_file)
+            if not self._pdf_view.load(self._current_file):
+                self.statusBar().showMessage("已取消或無法重新載入此 PDF。", 4000)
+                return
             self._panel.toc.update_outline(self._pdf_view.outline())
             self._pdf_view.set_highlights(self._pdf_highlights)
             self._pdf_view.restore_page(page)

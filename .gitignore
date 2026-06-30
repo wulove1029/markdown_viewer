@@ -20,3 +20,7 @@ installer_output/
 *.log
 *.tmp
 *.bak
+
+# Per-document annotation sidecars (notes / highlights) — local user data
+*.notes.json
+*.highlights.json

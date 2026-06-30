@@ -27,7 +27,13 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPixmap
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions, QPdfSearchModel
-from PyQt6.QtWidgets import QAbstractScrollArea, QApplication, QMenu
+from PyQt6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QInputDialog,
+    QLineEdit,
+    QMenu,
+)
 
 try:  # outline extraction (already a project dependency)
     import pymupdf
@@ -47,15 +53,21 @@ PALETTE: list[tuple[str, str]] = [
 ]
 
 
-def extract_outline(path) -> list[tuple[int, str, int]]:
+def extract_outline(path, password: str = "") -> list[tuple[int, str, int]]:
     """Return [(level, title, page0), ...] from a PDF's bookmarks.
 
     Pure function (no Qt) so it is testable without constructing a widget.
+    *password* unlocks an encrypted PDF before its bookmarks can be read; pass
+    the password the viewer already accepted (empty string for normal files).
+    Encrypted PDFs raise from ``get_toc`` until authenticated, so an empty or
+    wrong password degrades to an empty outline rather than crashing.
     """
     if pymupdf is None or not path:
         return []
     try:
         with pymupdf.open(str(path)) as doc:
+            if doc.needs_pass and not doc.authenticate(password or ""):
+                return []
             toc = doc.get_toc()  # [[level, title, page1based], ...]
     except Exception:
         return []
@@ -86,6 +98,12 @@ class PdfView(QAbstractScrollArea):
 
         self._path: Path | None = None
         self._theme: Theme = LIGHT
+        self._password = ""      # open-password accepted for the current file
+        self._locked = False     # encrypted file left unopened (needs password)
+        self._load_failed = False  # last load failed (locked, corrupt, missing)
+        # Overridable so tests can unlock without a modal dialog. Called as
+        # ``(file_name, attempt_index) -> str | None``; None means cancel.
+        self._password_prompt = self._default_password_prompt
 
         # --- layout state (content == scaled pixel space) ---
         self._page_sizes: list = []   # QSizeF per page, in points
@@ -125,8 +143,17 @@ class PdfView(QAbstractScrollArea):
         self.horizontalScrollBar().setSingleStep(40)
 
     # ================= loading =================
-    def load(self, path) -> None:
-        self._path = Path(path)
+    def load(self, path) -> bool:
+        """Load *path*, prompting for a password when the PDF is encrypted.
+
+        Returns True when the document opened; False when it is still locked —
+        the user cancelled the prompt or the file could not be read.
+        """
+        path = Path(path)
+        # Reuse a previously-accepted password when reloading the same file, so a
+        # reload (button / external change) of an unlocked PDF doesn't re-prompt.
+        candidate = self._password if path == self._path else ""
+        self._path = path
         self._search_index = -1
         self._search_results = []
         self._search.setSearchString("")
@@ -135,7 +162,80 @@ class PdfView(QAbstractScrollArea):
         self._highlights = []
         self._cache.clear()
         self._text_bounds.clear()
-        self._doc.load(str(path))
+        self._password = ""
+        self._locked = False
+        self._load_failed = False
+        # A page-restore request belongs to the file being loaded; never let a
+        # previous (e.g. cancelled-encrypted) file's pending page leak into this
+        # one and scroll it to the wrong page.
+        self._pending_page = None
+        err = self._authenticate_and_load(candidate)
+        if err == QPdfDocument.Error.None_:
+            return True
+        # Failed to open. Distinguish "needs a password" (cancelled encrypted
+        # file) from "cannot read" (corrupt / missing) so the placeholder and
+        # the status message don't tell the user to enter a non-existent password.
+        self._locked = err == QPdfDocument.Error.IncorrectPassword
+        self._load_failed = True
+        self._page_sizes = []
+        self._relayout()
+        self.viewport().update()
+        return False
+
+    def _authenticate_and_load(self, candidate: str):
+        """Load the document, looping a password prompt while it stays locked.
+
+        Returns the final ``QPdfDocument.Error``: ``None_`` on success,
+        ``IncorrectPassword`` when the user cancelled an encrypted file, or the
+        underlying error code for a corrupt / missing file.
+        """
+        err = self._try_password(candidate)
+        if err == QPdfDocument.Error.None_:
+            self._password = candidate
+            return err
+        if err != QPdfDocument.Error.IncorrectPassword:
+            return err  # missing / corrupt file — not a password problem
+        name = self._path.name if self._path else ""
+        attempt = 0
+        while True:
+            pwd = self._password_prompt(name, attempt)
+            if pwd is None:
+                return QPdfDocument.Error.IncorrectPassword  # cancelled -> locked
+            err = self._try_password(pwd)
+            if err == QPdfDocument.Error.None_:
+                self._password = pwd
+                return err
+            if err != QPdfDocument.Error.IncorrectPassword:
+                return err
+            attempt += 1
+
+    def _try_password(self, pwd: str):
+        """Set *pwd* and (re)load the document; return the QPdfDocument error.
+
+        Re-loading a document that is already ``Ready`` returns a spurious
+        ``IncorrectPassword`` for encrypted files (Qt quirk), so close it first.
+        Loading from the Null/Error state needs no close — that is the normal
+        first-load and wrong-password-retry path.
+        """
+        if self._doc.status() == QPdfDocument.Status.Ready:
+            self._doc.close()
+        self._doc.setPassword(pwd or "")
+        return self._doc.load(str(self._path))
+
+    def _default_password_prompt(self, name: str, attempt: int) -> str | None:
+        """Modal password prompt; returns the entered password or None to cancel."""
+        if attempt == 0:
+            prompt = f"「{name}」受密碼保護，請輸入開啟密碼："
+        else:
+            prompt = f"密碼錯誤，請重新輸入「{name}」的開啟密碼："
+        pwd, ok = QInputDialog.getText(
+            self, "需要密碼", prompt, QLineEdit.EchoMode.Password
+        )
+        return pwd if ok else None
+
+    def is_locked(self) -> bool:
+        """True when the current file is an encrypted PDF awaiting a password."""
+        return self._locked
 
     def _on_status(self, status):
         if status != QPdfDocument.Status.Ready:
@@ -262,6 +362,7 @@ class PdfView(QAbstractScrollArea):
         painter = QPainter(self.viewport())
         painter.fillRect(self.viewport().rect(), self._bg)
         if not self._page_tops:
+            self._paint_placeholder(painter)
             painter.end()
             return
         ox = self.horizontalScrollBar().value()
@@ -282,6 +383,21 @@ class PdfView(QAbstractScrollArea):
                 painter.fillRect(int(sx), int(sy), w, h, white)
             self._paint_overlays(painter, p, ox, oy)
         painter.end()
+
+    def _paint_placeholder(self, painter):
+        """Draw a centered message for the empty canvas when a load failed."""
+        name = self._path.name if self._path else "此檔案"
+        if self._locked:
+            text = f"🔒 「{name}」受密碼保護，尚未解鎖。\n重新開啟檔案可再次輸入密碼。"
+        elif self._load_failed:
+            text = f"⚠️ 無法開啟「{name}」。\n檔案可能已損毀或無法讀取。"
+        else:
+            return  # nothing loaded yet (initial empty state) — leave blank
+        painter.setPen(QColor(self._theme.text_subtle))
+        font = painter.font()
+        font.setPointSize(max(11, font.pointSize() + 1))
+        painter.setFont(font)
+        painter.drawText(self.viewport().rect(), Qt.AlignmentFlag.AlignCenter, text)
 
     def _paint_overlays(self, painter, p, ox, oy):
         # saved highlights
@@ -562,7 +678,7 @@ class PdfView(QAbstractScrollArea):
         return self._doc.pageCount()
 
     def outline(self) -> list[tuple[int, str, int]]:
-        return extract_outline(self._path)
+        return extract_outline(self._path, self._password)
 
     # ================= search =================
     def search(self, text: str) -> None:

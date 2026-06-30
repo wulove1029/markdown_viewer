@@ -67,6 +67,8 @@ Open a PDF to read it in a native viewer:
 - The sidebar **目錄** (TOC) tab shows the PDF outline — click to jump.
 - **Ctrl+F** searches the PDF text in-app (Enter / Shift+Enter to step results).
 - The app remembers the last page you read and returns there next time.
+- **Password-protected PDFs** prompt for the open password when you load them;
+  enter it to unlock reading, search, and the outline (a wrong password re-prompts).
 - **Select text** by dragging across it, then **Ctrl+C** to copy, or right-click
   for **複製 / 螢光標記** (copy / highlight in a chosen color).
 - The **螢光筆** toolbar button toggles highlighter mode: with it on, simply drag
