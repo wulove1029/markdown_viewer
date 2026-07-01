@@ -184,6 +184,21 @@ ICONS: dict[str, str] = {
         '<path d="m9 11-6 6v3h9l3-3"/>'
         '<path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>'
     ),
+    "copy": (
+        '<rect x="9" y="9" width="13" height="13" rx="2"/>'
+        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'
+    ),
+    "image": (
+        '<rect x="3" y="3" width="18" height="18" rx="2"/>'
+        '<circle cx="9" cy="9" r="2"/>'
+        '<path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>'
+    ),
+    "workflow": (
+        '<rect x="3" y="3" width="6" height="6" rx="1"/>'
+        '<rect x="15" y="15" width="6" height="6" rx="1"/>'
+        '<path d="M9 6h3a3 3 0 0 1 3 3v6"/>'
+        '<path d="M6 9v8a2 2 0 0 0 2 2h7"/>'
+    ),
 }
 
 

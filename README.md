@@ -92,6 +92,7 @@ external software is required**.
 | Ctrl+E | Toggle edit mode |
 | Ctrl+S | Save |
 | Ctrl+Shift+P | Export to PDF |
+| Ctrl+Shift+M | Open Mermaid workspace |
 | Ctrl+Tab / Ctrl+Shift+Tab | Switch to next / previous tab |
 | Ctrl+W | Close the current tab |
 | Ctrl+C | Copy selected PDF text |
@@ -137,6 +138,18 @@ graph TD
 ````
 
 Mermaid diagrams re-color automatically when you switch between light and dark themes.
+
+### Mermaid Workspace
+
+Press **Ctrl+Shift+M** or use **Tools > Mermaid Workspace** to open a dedicated
+diagram workspace. It has templates, snippets, a live preview, Mermaid error
+feedback, preview theme selection, source formatting, copy Mermaid, copy/export
+SVG, and copy/export PNG.
+
+When editing a Markdown file, use **Tools > Edit Mermaid Diagram** to pick an
+existing fenced Mermaid block, edit it in the workspace, and write it back to
+the source. **Tools > Insert Mermaid Diagram** inserts a new fenced block at the
+editor cursor.
 
 ## Annotations
 

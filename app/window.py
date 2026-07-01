@@ -68,6 +68,13 @@ from .md_converter import (
     read_text,
     set_user_css,
 )
+from .mermaid_blocks import (
+    find_mermaid_blocks,
+    insert_mermaid_block,
+    replace_mermaid_block,
+)
+from .mermaid_templates import default_template
+from .mermaid_workspace import MermaidWorkspaceDialog
 from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
@@ -380,6 +387,9 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+P"), self).activated.connect(
             self._export_pdf
         )
+        QShortcut(QKeySequence("Ctrl+Shift+M"), self).activated.connect(
+            self._open_mermaid_workspace
+        )
         QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self._zoom_in)
         QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self._zoom_in)
         QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self._zoom_out)
@@ -439,6 +449,12 @@ class MainWindow(QMainWindow):
         view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
 
         tools_menu = bar.addMenu("工具(&T)")
+        tools_menu.addAction(
+            act("Mermaid 工作區...\tCtrl+Shift+M", self._open_mermaid_workspace)
+        )
+        tools_menu.addAction(act("編輯 Mermaid 圖表...", self._edit_mermaid_diagram))
+        tools_menu.addAction(act("插入 Mermaid 圖表...", self._insert_mermaid_diagram))
+        tools_menu.addSeparator()
         tools_menu.addAction(act("偏好設定…", self._open_preferences))
 
         help_menu = bar.addMenu("說明(&H)")
@@ -603,6 +619,9 @@ class MainWindow(QMainWindow):
         self._edit_btn = self._toolbar_button(
             "pencil", "編輯文件 (Ctrl+E)", self._toggle_edit_mode
         )
+        self._mermaid_btn = self._toolbar_button(
+            "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
+        )
         self._export_btn = self._toolbar_button(
             "file-down", "匯出 PDF", self._export_pdf
         )
@@ -645,6 +664,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._search_btn)
         layout.addWidget(self._reload_btn)
         layout.addWidget(self._edit_btn)
+        layout.addWidget(self._mermaid_btn)
         layout.addWidget(self._export_btn)
         layout.addWidget(self._side_notes_btn)
         layout.addWidget(self._highlight_btn)
@@ -740,6 +760,7 @@ QSplitter::handle:hover {{
             self._open_btn,
             self._search_btn,
             self._reload_btn,
+            self._mermaid_btn,
             self._export_btn,
             self._update_btn,
         ):
@@ -1206,6 +1227,109 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._exit_edit_mode()
         else:
             self._enter_edit_mode()
+
+    def _open_mermaid_workspace(self):
+        dialog = MermaidWorkspaceDialog(theme_name=self._theme_name, parent=self)
+        dialog.exec()
+
+    def _edit_mermaid_diagram(self):
+        if not self._ensure_markdown_edit_mode():
+            return
+        text = self._editor.toPlainText()
+        blocks = find_mermaid_blocks(text)
+        if not blocks:
+            answer = QMessageBox.question(
+                self,
+                "Mermaid",
+                "No Mermaid diagrams were found. Insert a new diagram?",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._insert_mermaid_diagram()
+            return
+
+        block = self._choose_mermaid_block(blocks)
+        if block is None:
+            return
+
+        dialog = MermaidWorkspaceDialog(
+            block.source,
+            self._theme_name,
+            self,
+            commit_label="Update Markdown",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            new_text = replace_mermaid_block(text, block.id, dialog.source())
+        except ValueError:
+            QMessageBox.warning(
+                self,
+                "Mermaid",
+                "The selected diagram could not be found. Please try again.",
+            )
+            return
+        self._replace_editor_document(new_text, block.start_offset)
+        self.statusBar().showMessage("Mermaid diagram updated.", 3000)
+
+    def _insert_mermaid_diagram(self):
+        if not self._ensure_markdown_edit_mode():
+            return
+        dialog = MermaidWorkspaceDialog(
+            default_template().source,
+            self._theme_name,
+            self,
+            commit_label="Insert Diagram",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        pos = self._editor.textCursor().position()
+        new_text = insert_mermaid_block(
+            self._editor.toPlainText(), dialog.source(), position=pos
+        )
+        self._replace_editor_document(new_text, pos)
+        self.statusBar().showMessage("Mermaid diagram inserted.", 3000)
+
+    def _ensure_markdown_edit_mode(self) -> bool:
+        if not self._current_file or not is_markdown(self._current_file):
+            QMessageBox.information(
+                self,
+                "Mermaid",
+                "Open a Markdown file before editing Mermaid diagrams.",
+            )
+            return False
+        if not self._edit_mode:
+            self._enter_edit_mode()
+        return self._edit_mode
+
+    def _choose_mermaid_block(self, blocks):
+        if len(blocks) == 1:
+            return blocks[0]
+        items = [
+            f"{idx + 1}. {block.label} (lines {block.start_line + 1}-{block.end_line + 1})"
+            for idx, block in enumerate(blocks)
+        ]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Mermaid",
+            "Choose a diagram to edit:",
+            items,
+            0,
+            False,
+        )
+        if not ok:
+            return None
+        return blocks[items.index(choice)]
+
+    def _replace_editor_document(self, text: str, cursor_position: int | None = None):
+        self._editor.setPlainText(text)
+        if cursor_position is not None:
+            cursor = self._editor.textCursor()
+            cursor.setPosition(max(0, min(len(text), cursor_position)))
+            self._editor.setTextCursor(cursor)
+        self._editor.document().setModified(True)
+        self._update_preview()
+        self._update_dirty_ui()
 
     def _enter_edit_mode(self):
         try:
