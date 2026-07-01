@@ -65,6 +65,155 @@ def _looks_like_flowchart(source: str) -> bool:
     return False
 
 
+def _mermaid_workspace_stylesheet(theme: Theme) -> str:
+    return (
+        app_stylesheet(theme)
+        + toolbar_stylesheet(theme)
+        + f"""
+QWidget#mermaidToolbar {{
+    background: {theme.surface};
+    border-bottom: 1px solid {theme.border};
+    min-height: 92px;
+    max-height: 92px;
+}}
+QWidget#mermaidToolbar QPushButton {{
+    min-width: 38px;
+    max-width: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    padding: 0;
+}}
+QWidget#mermaidEditorPanel,
+QWidget#mermaidPreviewPanel,
+QWidget#mermaidSourceTab,
+QStackedWidget#mermaidVisualStack,
+QWidget#flowchartCanvas,
+QWidget#ganttEditor,
+QWidget#structuredMermaidEditor {{
+    background: {theme.window};
+}}
+QWidget#flowchartToolbar {{
+    background: {theme.window};
+}}
+QTabWidget#mermaidEditorTabs {{
+    background: {theme.window};
+}}
+QTabWidget#mermaidEditorTabs::pane {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    top: -1px;
+}}
+QTabWidget#mermaidEditorTabs QTabBar::tab {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-bottom-color: {theme.border};
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    color: {theme.text_muted};
+    min-height: 24px;
+    padding: 6px 14px;
+}}
+QTabWidget#mermaidEditorTabs QTabBar::tab:selected {{
+    background: {theme.surface};
+    border-color: {theme.border};
+    border-bottom-color: {theme.surface};
+    color: {theme.text};
+}}
+QTabWidget#mermaidEditorTabs QTabBar::tab:!selected {{
+    margin-top: 2px;
+}}
+QTabWidget#mermaidEditorTabs QTabBar::tab:hover {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QLabel#mermaidSection {{
+    color: {theme.text_muted};
+    font-size: 12px;
+    font-weight: 600;
+}}
+QLabel#mermaidStatus {{
+    background: {theme.surface};
+    border-top: 1px solid {theme.border};
+    color: {theme.text_muted};
+    padding: 8px 12px;
+    min-height: 24px;
+}}
+QGraphicsView#flowchartCanvasView {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QLabel#flowchartCanvasMessage {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text_muted};
+    padding: 10px 12px;
+}}
+QLabel#flowchartCanvasInfoBar {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text_muted};
+    padding: 8px 12px;
+    font-size: 12px;
+}}
+QWidget#flowchartProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QWidget#ganttProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QWidget#structuredProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QTableWidget#structuredTable {{
+    background: {theme.surface};
+    alternate-background-color: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text};
+    gridline-color: {theme.border};
+    selection-background-color: {theme.surface_active};
+    selection-color: {theme.text};
+}}
+QTableWidget#structuredTable QHeaderView::section {{
+    background: {theme.surface_alt};
+    border: 0;
+    border-bottom: 1px solid {theme.border};
+    color: {theme.text_muted};
+    padding: 6px;
+}}
+QLabel#structuredDiagramTitle {{
+    color: {theme.text};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#flowchartPropertiesTitle {{
+    color: {theme.text};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#flowchartPropertiesEmpty {{
+    color: {theme.text_muted};
+    padding-top: 6px;
+}}
+QPlainTextEdit#mermaidSource {{
+    border-radius: 6px;
+    padding: 10px 12px;
+    line-height: 1.5;
+}}
+"""
+    )
+
+
 class MermaidWorkspaceDialog(QDialog):
     """A split Mermaid source editor and live preview."""
 
@@ -186,11 +335,14 @@ class MermaidWorkspaceDialog(QDialog):
             self._on_structured_diagram_changed
         )
         self._visual_stack = QStackedWidget()
+        self._visual_stack.setObjectName("mermaidVisualStack")
         self._visual_stack.addWidget(self._canvas)
         self._visual_stack.addWidget(self._gantt_editor)
         self._visual_stack.addWidget(self._structured_editor)
         self._editor_tabs = QTabWidget()
+        self._editor_tabs.setObjectName("mermaidEditorTabs")
         source_tab = QWidget()
+        source_tab.setObjectName("mermaidSourceTab")
         source_layout = QVBoxLayout(source_tab)
         source_layout.setContentsMargins(0, 0, 0, 0)
         source_layout.addWidget(self._source_editor)
@@ -205,12 +357,14 @@ class MermaidWorkspaceDialog(QDialog):
         self._preview.page().loadFinished.connect(self._on_preview_loaded)
 
         left = QWidget()
+        left.setObjectName("mermaidEditorPanel")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 12, 6, 12)
         left_layout.addWidget(self._section_label("Mermaid 編輯器"))
         left_layout.addWidget(self._editor_tabs, stretch=1)
 
         self._preview_panel = QWidget()
+        self._preview_panel.setObjectName("mermaidPreviewPanel")
         right_layout = QVBoxLayout(self._preview_panel)
         right_layout.setContentsMargins(6, 12, 12, 12)
         right_layout.addWidget(self._section_label("即時預覽"))
@@ -263,96 +417,7 @@ class MermaidWorkspaceDialog(QDialog):
     def apply_theme(self, theme: Theme):
         self._theme = theme
         self._theme_name = theme.name
-        self.setStyleSheet(
-            app_stylesheet(theme)
-            + toolbar_stylesheet(theme)
-            + f"""
-QWidget#mermaidToolbar {{
-    background: {theme.surface};
-    border-bottom: 1px solid {theme.border};
-    min-height: 92px;
-    max-height: 92px;
-}}
-QWidget#mermaidToolbar QPushButton {{
-    min-width: 38px;
-    max-width: 38px;
-    min-height: 38px;
-    max-height: 38px;
-    padding: 0;
-}}
-QLabel#mermaidSection {{
-    color: {theme.text_muted};
-    font-size: 12px;
-    font-weight: 600;
-}}
-QLabel#mermaidStatus {{
-    background: {theme.surface};
-    border-top: 1px solid {theme.border};
-    color: {theme.text_muted};
-    padding: 8px 12px;
-    min-height: 24px;
-}}
-QGraphicsView#flowchartCanvasView {{
-    background: {theme.surface};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-}}
-QLabel#flowchartCanvasMessage {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-    color: {theme.text_muted};
-    padding: 10px 12px;
-}}
-QLabel#flowchartCanvasInfoBar {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-    color: {theme.text_muted};
-    padding: 8px 12px;
-    font-size: 12px;
-}}
-QWidget#flowchartProperties {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-}}
-QWidget#ganttProperties {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-}}
-QWidget#structuredProperties {{
-    background: {theme.surface_alt};
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-}}
-QTableWidget#structuredTable {{
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-    gridline-color: {theme.border};
-}}
-QLabel#structuredDiagramTitle {{
-    color: {theme.text};
-    font-size: 13px;
-    font-weight: 600;
-}}
-QLabel#flowchartPropertiesTitle {{
-    color: {theme.text};
-    font-size: 13px;
-    font-weight: 600;
-}}
-QLabel#flowchartPropertiesEmpty {{
-    color: {theme.text_muted};
-    padding-top: 6px;
-}}
-QPlainTextEdit#mermaidSource {{
-    border-radius: 6px;
-    padding: 10px 12px;
-    line-height: 1.5;
-}}
-"""
-        )
+        self.setStyleSheet(_mermaid_workspace_stylesheet(theme))
         self._canvas.apply_theme(theme)
         self._refresh_button_icons()
         self._render_preview()

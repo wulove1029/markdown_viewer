@@ -136,10 +136,11 @@ class _NodeItem(QGraphicsPathItem):
         if canvas._connect_mode and (self._is_hovered or canvas._connect_source == self.node_id):
             theme = getattr(canvas, "_theme", None)
             accent = QColor(theme.accent) if theme else QColor("#8b6cff")
+            port_fill = QColor(theme.surface) if theme else QColor("#ffffff")
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(QPen(accent, 1.2))
-            painter.setBrush(QBrush(QColor("#ffffff")))
+            painter.setBrush(QBrush(port_fill))
             
             r = 3.5 # port radius
             painter.drawEllipse(QPointF(self.WIDTH / 2, 0), r, r)
@@ -308,6 +309,7 @@ class FlowchartCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("flowchartCanvas")
         self._graph = default_flowchart()
         self._theme = None
         self._unsupported = ""
@@ -326,6 +328,7 @@ class FlowchartCanvas(QWidget):
         self._scene.selectionChanged.connect(self._on_scene_selection_changed)
         self._view = _CanvasView(self, self._scene)
         self._view.setObjectName("flowchartCanvasView")
+        self._apply_scene_background()
 
         self._message = QLabel("")
         self._message.setObjectName("flowchartCanvasMessage")
@@ -342,6 +345,7 @@ class FlowchartCanvas(QWidget):
         self._direction_combo.currentIndexChanged.connect(self._direction_changed)
 
         self._toolbar_widget = QWidget()
+        self._toolbar_widget.setObjectName("flowchartToolbar")
         toolbar = QHBoxLayout(self._toolbar_widget)
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(6)
@@ -788,7 +792,14 @@ class FlowchartCanvas(QWidget):
 
     def apply_theme(self, theme):
         self._theme = theme
+        self._apply_scene_background()
         self._rebuild_scene()
+
+    def _apply_scene_background(self):
+        color = QColor(self._theme.surface) if self._theme else QColor("#ffffff")
+        brush = QBrush(color)
+        self._scene.setBackgroundBrush(brush)
+        self._view.setBackgroundBrush(brush)
 
     def _direction_changed(self):
         if self._updating:

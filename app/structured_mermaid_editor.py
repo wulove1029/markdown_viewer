@@ -91,6 +91,7 @@ class StructuredMermaidEditor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("structuredMermaidEditor")
         self._diagram = StructuredDiagram("sequence", "sequenceDiagram")
         self._updating = False
         self._property_edits: dict[str, QLineEdit] = {}

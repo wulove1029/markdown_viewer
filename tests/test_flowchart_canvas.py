@@ -2,6 +2,7 @@
 
 from app.flowchart_canvas import FlowchartCanvas
 from app.flowchart_model import FlowchartGraph
+from app.theme import DARK
 
 
 def _graph():
@@ -95,3 +96,11 @@ def test_canvas_property_methods_update_graph(qapp):
     assert graph.node("A").x == 42
     assert graph.node("A").y == 84
     assert graph.edges[0].label == "ok"
+
+
+def test_canvas_dark_theme_updates_scene_background(qapp):
+    canvas = FlowchartCanvas()
+
+    canvas.apply_theme(DARK)
+
+    assert canvas._scene.backgroundBrush().color().name() == DARK.surface

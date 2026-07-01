@@ -28,6 +28,7 @@ class GanttEditor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("ganttEditor")
         self._chart = default_gantt()
         self._updating = False
         self._selected_task_id: str | None = None
