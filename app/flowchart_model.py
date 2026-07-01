@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 
 Direction = str
@@ -122,3 +123,63 @@ def default_flowchart() -> FlowchartGraph:
     graph.add_edge("Start", "Process")
     graph.add_edge("Process", "Done")
     return graph
+
+
+def auto_layout_graph(graph: FlowchartGraph) -> FlowchartGraph:
+    """Assign readable editor coordinates for the supported flowchart graph."""
+    if not graph.nodes:
+        return graph
+
+    levels = _node_levels(graph)
+    rows_by_level: dict[int, list[FlowNode]] = {}
+    for node in graph.nodes:
+        rows_by_level.setdefault(levels.get(node.id, 0), []).append(node)
+
+    major_gap = 220.0
+    minor_gap = 120.0
+    origin_x = 80.0
+    origin_y = 90.0
+
+    for level in sorted(rows_by_level):
+        nodes = rows_by_level[level]
+        offset = -(len(nodes) - 1) * minor_gap / 2
+        for row, node in enumerate(nodes):
+            if graph.direction == "TD":
+                node.x = origin_x + offset + row * minor_gap
+                node.y = origin_y + level * major_gap
+            else:
+                node.x = origin_x + level * major_gap
+                node.y = origin_y + offset + row * minor_gap
+    return graph
+
+
+def _node_levels(graph: FlowchartGraph) -> dict[str, int]:
+    incoming = {node.id: 0 for node in graph.nodes}
+    outgoing: dict[str, list[str]] = {node.id: [] for node in graph.nodes}
+    for edge in graph.edges:
+        if edge.source not in outgoing or edge.target not in incoming:
+            continue
+        outgoing[edge.source].append(edge.target)
+        incoming[edge.target] += 1
+
+    roots = [node.id for node in graph.nodes if incoming.get(node.id, 0) == 0]
+    if not roots:
+        roots = [graph.nodes[0].id]
+
+    levels: dict[str, int] = {root: 0 for root in roots}
+    queue: deque[str] = deque(roots)
+    while queue:
+        current = queue.popleft()
+        current_level = levels[current]
+        for target in outgoing.get(current, []):
+            if target in levels:
+                continue
+            levels[target] = current_level + 1
+            queue.append(target)
+
+    fallback_level = 0
+    for node in graph.nodes:
+        if node.id not in levels:
+            fallback_level += 1
+            levels[node.id] = fallback_level
+    return levels

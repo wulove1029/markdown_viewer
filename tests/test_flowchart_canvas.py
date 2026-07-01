@@ -55,3 +55,43 @@ def test_canvas_add_edge_and_set_direction(qapp):
     assert [(edge.source, edge.target, edge.label) for edge in canvas.graph().edges] == [
         ("A", "B", "next")
     ]
+
+
+def test_canvas_add_node_auto_connects_from_selected_node(qapp):
+    canvas = FlowchartCanvas()
+    canvas.set_graph(_graph())
+    canvas.select_node("A")
+    canvas.add_node("process")
+    graph = canvas.graph()
+    assert graph.nodes[-1].id == "N1"
+    assert graph.edges[-1].source == "A"
+    assert graph.edges[-1].target == "N1"
+    assert canvas.selected_node_id() == "N1"
+
+
+def test_canvas_auto_layout_updates_positions(qapp):
+    canvas = FlowchartCanvas()
+    graph = FlowchartGraph(direction="TD")
+    graph.add_node("A", "A", "process", x=500, y=500)
+    graph.add_node("B", "B", "process", x=500, y=500)
+    graph.add_edge("A", "B")
+    canvas.set_graph(graph)
+    canvas.auto_layout()
+    updated = canvas.graph()
+    assert updated.node("A").y < updated.node("B").y
+
+
+def test_canvas_property_methods_update_graph(qapp):
+    canvas = FlowchartCanvas()
+    canvas.set_graph(_graph())
+    canvas.set_node_label("A", "Begin")
+    canvas.set_node_shape("A", "decision")
+    canvas.set_node_position("A", 42, 84)
+    edge_id = canvas.graph().edges[0].id
+    canvas.set_edge_label(edge_id, "ok")
+    graph = canvas.graph()
+    assert graph.node("A").label == "Begin"
+    assert graph.node("A").shape == "decision"
+    assert graph.node("A").x == 42
+    assert graph.node("A").y == 84
+    assert graph.edges[0].label == "ok"

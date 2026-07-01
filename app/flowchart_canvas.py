@@ -16,6 +16,8 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsScene,
@@ -24,12 +26,20 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from .flowchart_model import FlowEdge, FlowNode, FlowchartGraph, default_flowchart
+from .flowchart_model import (
+    FlowEdge,
+    FlowNode,
+    FlowchartGraph,
+    auto_layout_graph,
+    default_flowchart,
+)
 
 
 class _NodeItem(QGraphicsPathItem):
@@ -154,18 +164,24 @@ class _CanvasView(QGraphicsView):
 
 class FlowchartCanvas(QWidget):
     graph_changed = pyqtSignal(object)
+    visual_copy_requested = pyqtSignal()
+    selection_changed = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._graph = default_flowchart()
         self._unsupported = ""
         self._updating = False
+        self._updating_properties = False
         self._connect_mode = False
         self._connect_source: str | None = None
+        self._selected_node_id: str | None = None
+        self._selected_edge_id: str | None = None
         self._node_items: dict[str, _NodeItem] = {}
         self._edge_items: dict[str, _EdgeItem] = {}
 
         self._scene = QGraphicsScene(self)
+        self._scene.selectionChanged.connect(self._on_scene_selection_changed)
         self._view = _CanvasView(self, self._scene)
         self._view.setObjectName("flowchartCanvasView")
 
@@ -173,6 +189,10 @@ class FlowchartCanvas(QWidget):
         self._message.setObjectName("flowchartCanvasMessage")
         self._message.setWordWrap(True)
         self._message.hide()
+
+        self._visual_copy_btn = QPushButton("Create visual copy")
+        self._visual_copy_btn.clicked.connect(self.visual_copy_requested.emit)
+        self._visual_copy_btn.hide()
 
         self._direction_combo = QComboBox()
         self._direction_combo.addItem("Left to right", "LR")
@@ -189,17 +209,24 @@ class FlowchartCanvas(QWidget):
         self._connect_btn = self._button("Connect", self._toggle_connect_mode)
         self._connect_btn.setCheckable(True)
         toolbar.addWidget(self._connect_btn)
+        toolbar.addWidget(self._button("Auto layout", self.auto_layout))
         toolbar.addWidget(self._button("Delete", self.delete_selected))
-        toolbar.addWidget(QLabel("Direction"))
-        toolbar.addWidget(self._direction_combo)
         toolbar.addStretch()
+
+        editor_row = QWidget()
+        editor_row_layout = QHBoxLayout(editor_row)
+        editor_row_layout.setContentsMargins(0, 0, 0, 0)
+        editor_row_layout.setSpacing(8)
+        editor_row_layout.addWidget(self._view, stretch=1)
+        editor_row_layout.addWidget(self._build_properties_panel())
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.addLayout(toolbar)
         layout.addWidget(self._message)
-        layout.addWidget(self._view, stretch=1)
+        layout.addWidget(self._visual_copy_btn)
+        layout.addWidget(editor_row, stretch=1)
 
         self.set_graph(self._graph)
 
@@ -211,20 +238,26 @@ class FlowchartCanvas(QWidget):
         try:
             self._unsupported = ""
             self._graph = deepcopy(graph)
+            self._selected_node_id = None
+            self._selected_edge_id = None
             self._direction_combo.setCurrentIndex(
                 1 if self._graph.direction == "TD" else 0
             )
             self._message.hide()
+            self._visual_copy_btn.hide()
             self._view.setEnabled(True)
+            self._properties.setEnabled(True)
             self._rebuild_scene()
         finally:
             self._updating = False
 
-    def set_unsupported(self, reason: str):
+    def set_unsupported(self, reason: str, *, can_create_copy: bool = False):
         self._unsupported = reason
         self._message.setText(reason)
         self._message.show()
+        self._visual_copy_btn.setVisible(can_create_copy)
         self._view.setEnabled(False)
+        self._properties.setEnabled(False)
 
     def add_node(self, shape: str):
         labels = {
@@ -233,17 +266,39 @@ class FlowchartCanvas(QWidget):
             "decision": "Decision?",
             "end": "Done",
         }
-        node = self._graph.add_node(label=labels.get(shape, "Process"), shape=shape)
-        if len(self._graph.nodes) > 1:
+        source_id = self.selected_node_id()
+        x = y = None
+        if source_id:
+            source = self._graph.node(source_id)
+            if self._graph.direction == "TD":
+                x = source.x
+                y = source.y + 150
+            else:
+                x = source.x + 220
+                y = source.y
+        node = self._graph.add_node(
+            label=labels.get(shape, "Process"), shape=shape, x=x, y=y
+        )
+        if source_id:
+            self._graph.add_edge(source_id, node.id)
+        elif len(self._graph.nodes) > 1:
             prev = self._graph.nodes[-2]
             node.x = prev.x + 180
             node.y = prev.y
-        self._rebuild_scene()
+        self._rebuild_scene(select_node_id=node.id)
         self._emit_changed()
 
-    def add_edge(self, source: str, target: str, label: str = ""):
-        self._graph.add_edge(source, target, label)
-        self._rebuild_scene()
+    def add_edge(self, source: str, target: str, label: str = "") -> FlowEdge:
+        edge = self._graph.add_edge(source, target, label)
+        self._rebuild_scene(select_edge_id=edge.id)
+        self._emit_changed()
+        return edge
+
+    def auto_layout(self):
+        node_id = self._selected_node_id
+        edge_id = self._selected_edge_id
+        auto_layout_graph(self._graph)
+        self._rebuild_scene(select_node_id=node_id, select_edge_id=edge_id)
         self._emit_changed()
 
     def set_direction(self, direction: str):
@@ -255,10 +310,29 @@ class FlowchartCanvas(QWidget):
             )
         finally:
             self._updating = False
+        self._update_properties()
         self._emit_changed()
+
+    def selected_node_id(self) -> str | None:
+        if self._selected_node_id and self._graph.find_node(self._selected_node_id):
+            return self._selected_node_id
+        return None
+
+    def selected_edge_id(self) -> str | None:
+        if self._selected_edge_id and any(
+            edge.id == self._selected_edge_id for edge in self._graph.edges
+        ):
+            return self._selected_edge_id
+        return None
 
     def select_node(self, node_id: str):
         item = self._node_items.get(node_id)
+        if item is not None:
+            self._scene.clearSelection()
+            item.setSelected(True)
+
+    def select_edge(self, edge_id: str):
+        item = self._edge_items.get(edge_id)
         if item is not None:
             self._scene.clearSelection()
             item.setSelected(True)
@@ -280,42 +354,170 @@ class FlowchartCanvas(QWidget):
         self._rebuild_scene()
         self._emit_changed()
 
+    def set_node_label(self, node_id: str, label: str):
+        node = self._graph.node(node_id)
+        node.label = label.strip() or node.label
+        self._rebuild_scene(select_node_id=node_id)
+        self._emit_changed()
+
+    def set_node_shape(self, node_id: str, shape: str):
+        node = self._graph.node(node_id)
+        node.shape = (
+            shape if shape in ("start", "process", "decision", "end") else "process"
+        )
+        self._rebuild_scene(select_node_id=node_id)
+        self._emit_changed()
+
+    def set_node_position(self, node_id: str, x: float, y: float):
+        node = self._graph.node(node_id)
+        node.x = float(x)
+        node.y = float(y)
+        item = self._node_items.get(node_id)
+        if item is not None:
+            self._updating = True
+            try:
+                item.setPos(node.x, node.y)
+            finally:
+                self._updating = False
+        for edge_item in self._edge_items.values():
+            if edge_item.source == node_id or edge_item.target == node_id:
+                edge_item.update_path()
+        self._scene.setSceneRect(self._items_rect())
+        self._update_properties()
+        self._emit_changed()
+
+    def set_edge_label(self, edge_id: str, label: str):
+        edge = self._edge(edge_id)
+        edge.label = label.strip()
+        self._rebuild_scene(select_edge_id=edge_id)
+        self._emit_changed()
+
     def edit_node_label(self, node_id: str):
         node = self._graph.node(node_id)
         text, ok = QInputDialog.getText(self, "Node Label", "Label:", text=node.label)
         if not ok:
             return
-        node.label = text.strip() or node.label
-        self._rebuild_scene()
-        self._emit_changed()
+        self.set_node_label(node_id, text)
 
     def edit_edge_label(self, edge_id: str):
-        edge = next(edge for edge in self._graph.edges if edge.id == edge_id)
+        edge = self._edge(edge_id)
         text, ok = QInputDialog.getText(self, "Edge Label", "Label:", text=edge.label)
         if not ok:
             return
-        edge.label = text.strip()
-        self._rebuild_scene()
-        self._emit_changed()
+        self.set_edge_label(edge_id, text)
 
     def _button(self, text: str, slot) -> QPushButton:
         button = QPushButton(text)
         button.clicked.connect(slot)
         return button
 
-    def _rebuild_scene(self):
-        self._scene.clear()
-        self._node_items.clear()
-        self._edge_items.clear()
-        for node in self._graph.nodes:
-            item = _NodeItem(self, node)
-            self._scene.addItem(item)
-            self._node_items[node.id] = item
-        for edge in self._graph.edges:
-            item = _EdgeItem(self, edge)
-            self._scene.addItem(item)
-            self._edge_items[edge.id] = item
-        self._scene.setSceneRect(self._items_rect())
+    def _build_properties_panel(self) -> QWidget:
+        self._properties = QWidget()
+        self._properties.setObjectName("flowchartProperties")
+        self._properties.setFixedWidth(240)
+        layout = QVBoxLayout(self._properties)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        title = QLabel("Properties")
+        title.setObjectName("flowchartPropertiesTitle")
+        layout.addWidget(title)
+
+        graph_form = QFormLayout()
+        graph_form.setContentsMargins(0, 0, 0, 0)
+        graph_form.addRow("Direction", self._direction_combo)
+        layout.addLayout(graph_form)
+
+        self._selection_stack = QStackedWidget()
+        self._empty_panel = QLabel("Select a node or connector")
+        self._empty_panel.setObjectName("flowchartPropertiesEmpty")
+        self._empty_panel.setWordWrap(True)
+        self._selection_stack.addWidget(self._empty_panel)
+        self._selection_stack.addWidget(self._build_node_panel())
+        self._selection_stack.addWidget(self._build_edge_panel())
+        layout.addWidget(self._selection_stack, stretch=1)
+        return self._properties
+
+    def _build_node_panel(self) -> QWidget:
+        panel = QWidget()
+        form = QFormLayout(panel)
+        form.setContentsMargins(0, 0, 0, 0)
+        self._node_id = QLineEdit()
+        self._node_id.setReadOnly(True)
+        self._node_label = QLineEdit()
+        self._node_label.editingFinished.connect(self._node_label_changed)
+        self._node_shape = QComboBox()
+        self._node_shape.addItem("Start", "start")
+        self._node_shape.addItem("Process", "process")
+        self._node_shape.addItem("Decision", "decision")
+        self._node_shape.addItem("End", "end")
+        self._node_shape.currentIndexChanged.connect(self._node_shape_changed)
+        self._node_x = self._coord_input()
+        self._node_y = self._coord_input()
+        self._node_x.valueChanged.connect(self._node_position_changed)
+        self._node_y.valueChanged.connect(self._node_position_changed)
+        form.addRow("ID", self._node_id)
+        form.addRow("Label", self._node_label)
+        form.addRow("Shape", self._node_shape)
+        form.addRow("X", self._node_x)
+        form.addRow("Y", self._node_y)
+        return panel
+
+    def _build_edge_panel(self) -> QWidget:
+        panel = QWidget()
+        form = QFormLayout(panel)
+        form.setContentsMargins(0, 0, 0, 0)
+        self._edge_id = QLineEdit()
+        self._edge_id.setReadOnly(True)
+        self._edge_source = QLineEdit()
+        self._edge_source.setReadOnly(True)
+        self._edge_target = QLineEdit()
+        self._edge_target.setReadOnly(True)
+        self._edge_label = QLineEdit()
+        self._edge_label.editingFinished.connect(self._edge_label_changed)
+        form.addRow("ID", self._edge_id)
+        form.addRow("From", self._edge_source)
+        form.addRow("To", self._edge_target)
+        form.addRow("Label", self._edge_label)
+        return panel
+
+    def _coord_input(self) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-10000, 10000)
+        spin.setDecimals(1)
+        spin.setSingleStep(10)
+        return spin
+
+    def _rebuild_scene(
+        self,
+        *,
+        select_node_id: str | None = None,
+        select_edge_id: str | None = None,
+    ):
+        if select_node_id is None and select_edge_id is None:
+            select_node_id = self._selected_node_id
+            select_edge_id = self._selected_edge_id
+        self._scene.blockSignals(True)
+        try:
+            self._scene.clear()
+            self._node_items.clear()
+            self._edge_items.clear()
+            for node in self._graph.nodes:
+                item = _NodeItem(self, node)
+                self._scene.addItem(item)
+                self._node_items[node.id] = item
+            for edge in self._graph.edges:
+                item = _EdgeItem(self, edge)
+                self._scene.addItem(item)
+                self._edge_items[edge.id] = item
+            if select_node_id in self._node_items:
+                self._node_items[select_node_id].setSelected(True)
+                select_edge_id = None
+            elif select_edge_id in self._edge_items:
+                self._edge_items[select_edge_id].setSelected(True)
+            self._scene.setSceneRect(self._items_rect())
+        finally:
+            self._scene.blockSignals(False)
+        self._on_scene_selection_changed()
 
     def _items_rect(self) -> QRectF:
         rect = self._scene.itemsBoundingRect()
@@ -335,6 +537,8 @@ class FlowchartCanvas(QWidget):
             if item.source == node_id or item.target == node_id:
                 item.update_path()
         self._scene.setSceneRect(self._items_rect())
+        if self._selected_node_id == node_id:
+            self._update_properties()
         self._emit_changed()
 
     def _handle_node_click(self, node_id: str) -> bool:
@@ -362,6 +566,84 @@ class FlowchartCanvas(QWidget):
         if self._updating:
             return
         self.set_direction(str(self._direction_combo.currentData() or "LR"))
+
+    def _on_scene_selection_changed(self):
+        node_id = None
+        edge_id = None
+        for item in self._scene.selectedItems():
+            if isinstance(item, _NodeItem):
+                node_id = item.node_id
+                break
+            if isinstance(item, _EdgeItem):
+                edge_id = item.edge_id
+        self._selected_node_id = node_id
+        self._selected_edge_id = None if node_id else edge_id
+        self._update_properties()
+        kind = "node" if node_id else "edge" if edge_id else ""
+        self.selection_changed.emit(kind, node_id or edge_id or "")
+
+    def _update_properties(self):
+        if not hasattr(self, "_selection_stack"):
+            return
+        self._updating_properties = True
+        try:
+            self._direction_combo.setCurrentIndex(
+                1 if self._graph.direction == "TD" else 0
+            )
+            if self._selected_node_id and self._graph.find_node(self._selected_node_id):
+                node = self._graph.node(self._selected_node_id)
+                self._selection_stack.setCurrentIndex(1)
+                self._node_id.setText(node.id)
+                self._node_label.setText(node.label)
+                self._node_shape.setCurrentIndex(self._node_shape.findData(node.shape))
+                self._node_x.setValue(node.x)
+                self._node_y.setValue(node.y)
+            elif self._selected_edge_id and any(
+                edge.id == self._selected_edge_id for edge in self._graph.edges
+            ):
+                edge = self._edge(self._selected_edge_id)
+                self._selection_stack.setCurrentIndex(2)
+                self._edge_id.setText(edge.id)
+                self._edge_source.setText(edge.source)
+                self._edge_target.setText(edge.target)
+                self._edge_label.setText(edge.label)
+            else:
+                self._selection_stack.setCurrentIndex(0)
+        finally:
+            self._updating_properties = False
+
+    def _node_label_changed(self):
+        if self._updating_properties or not self._selected_node_id:
+            return
+        self.set_node_label(self._selected_node_id, self._node_label.text())
+
+    def _node_shape_changed(self):
+        if self._updating_properties or not self._selected_node_id:
+            return
+        self.set_node_shape(
+            self._selected_node_id,
+            str(self._node_shape.currentData() or "process"),
+        )
+
+    def _node_position_changed(self):
+        if self._updating_properties or not self._selected_node_id:
+            return
+        self.set_node_position(
+            self._selected_node_id,
+            self._node_x.value(),
+            self._node_y.value(),
+        )
+
+    def _edge_label_changed(self):
+        if self._updating_properties or not self._selected_edge_id:
+            return
+        self.set_edge_label(self._selected_edge_id, self._edge_label.text())
+
+    def _edge(self, edge_id: str) -> FlowEdge:
+        for edge in self._graph.edges:
+            if edge.id == edge_id:
+                return edge
+        raise KeyError(edge_id)
 
     def _emit_changed(self):
         if not self._updating:

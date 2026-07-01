@@ -27,7 +27,11 @@ from PyQt6.QtWidgets import (
 )
 
 from .flowchart_canvas import FlowchartCanvas
-from .flowchart_mermaid import parse_flowchart, render_flowchart
+from .flowchart_mermaid import (
+    parse_flowchart,
+    render_flowchart,
+    visual_copy_from_source,
+)
 from .mermaid_format import format_mermaid_source
 from .mermaid_render import build_preview_html
 from .mermaid_templates import (
@@ -66,6 +70,8 @@ class MermaidWorkspaceDialog(QDialog):
         self._status_attempts = 0
         self._commit_label = commit_label
         self._syncing = False
+        self._preview_visible = True
+        self._preview_sizes = [520, 620]
 
         self.setWindowTitle("Mermaid Workspace")
         self.resize(1180, 760)
@@ -104,6 +110,9 @@ class MermaidWorkspaceDialog(QDialog):
         self._export_png_btn = self._button(
             "file-down", "Export PNG", self._export_png
         )
+        self._toggle_preview_btn = self._button(
+            "eye", "Collapse Preview", self._toggle_preview
+        )
 
         toolbar = QWidget()
         toolbar.setObjectName("mermaidToolbar")
@@ -131,6 +140,7 @@ class MermaidWorkspaceDialog(QDialog):
         actions_layout.addWidget(self._copy_png_btn)
         actions_layout.addWidget(self._export_svg_btn)
         actions_layout.addWidget(self._export_png_btn)
+        actions_layout.addWidget(self._toggle_preview_btn)
         actions_layout.addStretch()
 
         toolbar_layout.addLayout(controls_layout)
@@ -149,6 +159,7 @@ class MermaidWorkspaceDialog(QDialog):
 
         self._canvas = FlowchartCanvas()
         self._canvas.graph_changed.connect(self._on_canvas_graph_changed)
+        self._canvas.visual_copy_requested.connect(self._create_visual_copy)
         self._editor_tabs = QTabWidget()
         source_tab = QWidget()
         source_layout = QVBoxLayout(source_tab)
@@ -170,18 +181,18 @@ class MermaidWorkspaceDialog(QDialog):
         left_layout.addWidget(self._section_label("Mermaid Editor"))
         left_layout.addWidget(self._editor_tabs)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
+        self._preview_panel = QWidget()
+        right_layout = QVBoxLayout(self._preview_panel)
         right_layout.setContentsMargins(6, 12, 12, 12)
         right_layout.addWidget(self._section_label("Live Preview"))
         right_layout.addWidget(self._preview)
 
-        splitter = QSplitter()
-        splitter.addWidget(left)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([520, 620])
+        self._splitter = QSplitter()
+        self._splitter.addWidget(left)
+        self._splitter.addWidget(self._preview_panel)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.setSizes(self._preview_sizes)
 
         self._status = QLabel("Ready")
         self._status.setObjectName("mermaidStatus")
@@ -193,7 +204,7 @@ class MermaidWorkspaceDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(toolbar)
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self._splitter, stretch=1)
         layout.addWidget(self._status)
         layout.addWidget(self._button_box)
 
@@ -264,6 +275,20 @@ QLabel#flowchartCanvasMessage {{
     color: {theme.text_muted};
     padding: 10px 12px;
 }}
+QWidget#flowchartProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QLabel#flowchartPropertiesTitle {{
+    color: {theme.text};
+    font-size: 13px;
+    font-weight: 600;
+}}
+QLabel#flowchartPropertiesEmpty {{
+    color: {theme.text_muted};
+    padding-top: 6px;
+}}
 QPlainTextEdit#mermaidSource {{
     border-radius: 6px;
     padding: 10px 12px;
@@ -314,6 +339,7 @@ QPlainTextEdit#mermaidSource {{
             self._copy_png_btn,
             self._export_svg_btn,
             self._export_png_btn,
+            self._toggle_preview_btn,
         ):
             icon_name = button.property("iconName")
             button.setIcon(svg_icon(icon_name, color if button.isEnabled() else disabled, 18))
@@ -363,7 +389,9 @@ QPlainTextEdit#mermaidSource {{
             return
         self._canvas.set_unsupported(
             "Visual mode supports simple Mermaid flowchart TD/LR only.\n"
-            f"{result.reason}\n\nContinue editing this diagram in Source mode."
+            f"{result.reason}\n\nCreate a visual copy to edit a simplified "
+            "supported version.",
+            can_create_copy=True,
         )
 
     def _on_canvas_graph_changed(self, graph):
@@ -383,6 +411,51 @@ QPlainTextEdit#mermaidSource {{
         finally:
             self._syncing = False
         self._render_preview(sync_canvas=False)
+
+    def _create_visual_copy(self):
+        answer = QMessageBox.question(
+            self,
+            "Create Visual Copy",
+            "Create a simplified visual copy from the supported nodes and "
+            "connectors in this source?\n\nThe Markdown document is not changed "
+            "until you choose Update Markdown or Insert Diagram.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        result = visual_copy_from_source(self.source())
+        if not result.supported:
+            QMessageBox.warning(
+                self,
+                "Create Visual Copy",
+                result.reason or "This Mermaid source could not be converted.",
+            )
+            return
+        graph = result.require_graph()
+        text = render_flowchart(graph)
+        self._syncing = True
+        try:
+            self._source_editor.setPlainText(text)
+            self._source_editor.document().setModified(True)
+        finally:
+            self._syncing = False
+        self._canvas.set_graph(graph)
+        self._editor_tabs.setCurrentWidget(self._canvas)
+        self._status.setText("Visual copy created. Review before updating Markdown.")
+        self._render_preview(sync_canvas=False)
+
+    def _toggle_preview(self):
+        if self._preview_panel.isVisible():
+            self._preview_sizes = self._splitter.sizes()
+            total = max(1, sum(self._preview_sizes))
+            self._preview_panel.hide()
+            self._splitter.setSizes([total, 0])
+            self._toggle_preview_btn.setToolTip("Show Preview")
+            self._toggle_preview_btn.setAccessibleName("Show Preview")
+            return
+        self._preview_panel.show()
+        self._splitter.setSizes(self._preview_sizes or [520, 620])
+        self._toggle_preview_btn.setToolTip("Collapse Preview")
+        self._toggle_preview_btn.setAccessibleName("Collapse Preview")
 
     def _effective_preview_theme(self) -> ThemeName:
         mode = self._preview_theme_mode

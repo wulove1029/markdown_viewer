@@ -19,11 +19,26 @@ keeps standard Mermaid source as the saved format.
 Add a dual-mode Mermaid Flowchart Builder:
 
 - **Source mode** remains the current Mermaid text editor.
-- **Visual mode** lets users drag nodes, connect them, edit labels, and delete
-  graph items.
+- **Visual mode** is a real layout editor: users can drag nodes, preserve
+  positions, connect nodes, edit labels, inspect selected items, and delete graph
+  items.
 - Source and Visual mode synchronize both ways for a safe Mermaid `flowchart`
   subset.
 - The saved Markdown remains normal Mermaid fenced code, so files stay portable.
+
+## Confirmed Product Decisions
+
+These decisions were confirmed after the first visual-builder review:
+
+1. Visual mode is a real layout editor, not only a Mermaid syntax helper.
+2. Node positions should be saved, and Auto layout should be available.
+3. The Mermaid final preview should be collapsible.
+4. Adding a new node should automatically connect it from the currently selected
+   node when a selected source node exists.
+5. Node and edge editing should happen in a right-side properties panel.
+6. Unsupported Mermaid source should offer "Create visual copy" instead of
+   blocking the user in source-only mode.
+7. Auto layout is part of the next implementation scope.
 
 ## Non-Goals
 
@@ -104,7 +119,7 @@ Existing modules:
 - `id`: Mermaid-safe id such as `N1`, `N2`
 - `label`: displayed text
 - `shape`: `"start"`, `"process"`, `"decision"`, or `"end"`
-- `x`, `y`: canvas position for Visual mode only
+- `x`, `y`: canvas position in the visual editor
 
 `FlowEdge`:
 
@@ -113,9 +128,20 @@ Existing modules:
 - `target`: target node id
 - `label`: optional edge text such as `Yes` or `No`
 
-Canvas positions are not emitted into Mermaid source. Mermaid remains portable
-and Mermaid's renderer is still responsible for final layout. Visual mode uses
-positions only to make dragging/editing comfortable.
+Canvas positions are persisted as Mermaid comments that Mermaid ignores, keeping
+the fenced block portable while preserving the editing layout:
+
+```mermaid
+flowchart LR
+    %% markdown-viewer-layout: {"version":1,"nodes":{"A":{"x":80,"y":120}}}
+    A([Start]) --> B[Collect input]
+```
+
+Mermaid's renderer remains responsible for the final rendered diagram layout.
+The saved visual coordinates are for the editor canvas only.
+
+If layout metadata is missing, invalid, or incomplete, Visual mode should fall
+back to Auto layout and then save fresh positions on the next visual edit.
 
 ## Source-to-Visual Sync
 
@@ -123,9 +149,10 @@ When the source editor changes:
 
 1. Debounce the change.
 2. Try `parse_flowchart(source)`.
-3. If parsing succeeds, update the graph model and canvas.
+3. If parsing succeeds, read layout metadata if present, update the graph model
+   and canvas, and Auto layout any nodes without saved positions.
 4. If parsing fails because the syntax is unsupported, keep source intact and
-   show Visual mode as unavailable for that source.
+   show the source-only warning plus a "Create visual copy" action.
 5. Always update the Mermaid preview from the source.
 
 The parser must be conservative. It should reject unsupported syntax instead of
@@ -136,7 +163,8 @@ guessing and producing a graph that would rewrite the source incorrectly.
 When the user edits the visual canvas:
 
 1. Canvas emits `graph_changed`.
-2. Workspace renders the graph model with `render_flowchart(graph)`.
+2. Workspace renders the graph model with `render_flowchart(graph)`, including
+   visual layout metadata comments.
 3. Source editor text is replaced with the rendered Mermaid source.
 4. Mermaid preview updates.
 
@@ -150,25 +178,36 @@ or segmented control above the editor area.
 
 Visual mode layout:
 
-- Left or top tool strip:
+- Left tool strip:
   - Add Start
   - Add Process
   - Add Decision
   - Add End
   - Connect mode
+  - Auto layout
   - Delete selected
-  - Direction selector: TD / LR
 - Main canvas:
   - Drag nodes to move them.
+  - Added nodes connect automatically from the currently selected node when a
+    selected source node exists.
   - Double-click a node to edit its label.
   - In connect mode, click source node then target node to create an edge.
   - Double-click an edge to edit its label.
   - Select node or edge and press Delete to remove it.
+  - Auto layout arranges the supported graph using a clean LR or TD flow.
+- Right properties panel:
+  - Shows selected node id, label, shape, and position.
+  - Shows selected edge source, target, and label.
+  - Shows graph-level direction selector: TD / LR.
+  - Shows selection-aware actions such as duplicate, delete, and clear
+    selection when useful.
 - Bottom status:
-  - Shows whether Visual mode is synced, source-only, or has validation errors.
+  - Shows whether Visual mode is synced, source-only, converted-copy, or has
+    validation errors.
 
-The right-side Mermaid preview remains visible so users can see the exact final
-Mermaid rendering, not only the editable canvas representation.
+The Mermaid preview remains available so users can see the exact final Mermaid
+rendering, but it should be collapsible. In Visual mode, the canvas and
+properties panel are primary; the preview is secondary.
 
 ## Unsupported Source Handling
 
@@ -178,8 +217,11 @@ If the source is unsupported:
 - Source remains unchanged.
 - Mermaid preview continues to render using the existing source renderer.
 - The user can switch back to Source mode and continue editing.
-- A "Create visual copy" action may be added later, but is not required for the
-  first version.
+- A "Create visual copy" action creates a new supported flowchart from the
+  recognizable nodes and edges, opens it in Visual mode, and clearly marks it as
+  a copy until the user chooses to replace or insert it.
+- Creating a visual copy must never overwrite the original unsupported Mermaid
+  source without explicit user confirmation.
 
 ## Error Handling
 
@@ -190,6 +232,10 @@ If the source is unsupported:
 - Empty source: Visual mode starts with a small default graph.
 - Deleting a node: remove connected edges too.
 - Direction changes: update graph direction and regenerate Mermaid source.
+- Layout metadata parse failure: ignore the metadata, keep the Mermaid graph,
+  run Auto layout, and show a non-blocking status note.
+- Visual copy conversion failure: keep source intact and explain which Mermaid
+  constructs prevented conversion.
 
 ## Testing
 
@@ -217,20 +263,32 @@ Manual verification:
 - Edit simple flowchart source and see Visual update.
 - Drag nodes and see source/preview update.
 - Add nodes and edges in Visual mode.
+- Select a node, add another node, and confirm it auto-connects from the
+  selected node.
 - Edit node and edge labels.
+- Edit selected node and edge details from the right properties panel.
 - Delete selected node/edge.
+- Run Auto layout and confirm nodes remain readable and non-overlapping.
+- Collapse and reopen the Mermaid preview.
+- Reopen a Markdown file with saved layout metadata and confirm node positions
+  are restored.
 - Try unsupported Mermaid source and confirm it remains source-only.
+- Create a visual copy from unsupported Mermaid and confirm the original source
+  is preserved until explicit replacement.
 - Edit a Mermaid fenced block from Markdown and save the visually edited graph
   back to the fenced block.
 
 ## Rollout Plan
 
-1. Add pure graph model and parser/renderer with tests.
-2. Add `QGraphicsView` canvas with basic nodes and edges.
-3. Wire Source -> Visual sync.
-4. Wire Visual -> Source sync.
-5. Add visual controls and unsupported-source states.
-6. Update README.
+1. Persist layout metadata in Mermaid comments and restore positions on parse.
+2. Add Auto layout for supported LR and TD flowcharts.
+3. Add the right-side properties panel for selected nodes, edges, and graph
+   direction.
+4. Make Mermaid preview collapsible and promote the visual canvas to the primary
+   Visual mode surface.
+5. Add selection-aware node creation that auto-connects from the selected node.
+6. Add "Create visual copy" for unsupported Mermaid source.
+7. Update tests, README, and manual verification notes.
 
 ## Acceptance Criteria
 
@@ -238,6 +296,13 @@ Manual verification:
 - A user can edit a supported `flowchart TD/LR` source and see the canvas update.
 - A user can drag nodes, add nodes, connect nodes, edit labels, and delete graph
   items.
+- A user can preserve visual node positions across close/reopen.
+- A user can run Auto layout and get a readable, non-overlapping graph.
+- A user can collapse the final Mermaid preview while editing visually.
+- A user can edit selected node and edge details from a properties panel.
+- Adding a node while another node is selected creates a useful connected flow.
+- Unsupported Mermaid source can be converted into a visual copy without
+  damaging the original source.
 - Visual changes regenerate clean Mermaid source.
 - Unsupported Mermaid source is never rewritten or damaged.
 - Existing Mermaid preview, copy/export, and Markdown fenced-block integration

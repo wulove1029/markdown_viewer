@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import re
 
-from .flowchart_model import FlowchartGraph, FlowNode, default_flowchart
+from .flowchart_model import (
+    FlowchartGraph,
+    FlowNode,
+    auto_layout_graph,
+    default_flowchart,
+)
 
 
 class ParseError(ValueError):
@@ -41,10 +47,11 @@ _UNSUPPORTED_PREFIXES = (
     "style",
     "click",
     "linkstyle",
-    "accTitle",
-    "accDescr",
+    "acctitle",
+    "accdescr",
     "end",
 )
+_LAYOUT_PREFIX = "%% markdown-viewer-layout:"
 
 
 @dataclass(frozen=True)
@@ -60,14 +67,18 @@ def parse_flowchart(source: str) -> ParseResult:
     if not text:
         return ParseResult(default_flowchart())
     try:
-        return ParseResult(_parse(text))
+        graph = _parse(text)
+        _apply_layout_metadata(graph, _extract_layout_metadata(source))
+        return ParseResult(graph)
     except ParseError as exc:
         return ParseResult(None, str(exc))
 
 
-def render_flowchart(graph: FlowchartGraph) -> str:
+def render_flowchart(graph: FlowchartGraph, *, include_layout: bool = True) -> str:
     direction = "TD" if graph.direction == "TD" else "LR"
     lines = [f"flowchart {direction}"]
+    if include_layout and graph.nodes:
+        lines.append(f"    {_render_layout_metadata(graph)}")
     emitted: set[str] = set()
 
     for edge in graph.edges:
@@ -86,6 +97,37 @@ def render_flowchart(graph: FlowchartGraph) -> str:
             emitted.add(node.id)
 
     return "\n".join(lines)
+
+
+def visual_copy_from_source(source: str) -> ParseResult:
+    """Best-effort supported flowchart copy from a source-only Mermaid diagram."""
+    supported = parse_flowchart(source)
+    if supported.supported:
+        return supported
+
+    direction = "LR"
+    graph = FlowchartGraph(direction=direction)
+    saw_header = False
+    for idx, raw_line in enumerate(source.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("%%"):
+            continue
+        header = _HEADER_RE.match(line)
+        if header:
+            direction = header.group(1).upper()
+            graph.direction = direction
+            saw_header = True
+            continue
+        if not saw_header:
+            continue
+        for statement in [part.strip() for part in line.split(";") if part.strip()]:
+            if _try_copy_statement(statement, graph, idx):
+                continue
+
+    if not graph.nodes:
+        return ParseResult(None, "No supported flowchart nodes or edges were found.")
+    auto_layout_graph(graph)
+    return ParseResult(graph)
 
 
 def _parse(text: str) -> FlowchartGraph:
@@ -115,6 +157,22 @@ def _parse(text: str) -> FlowchartGraph:
     if not graph.nodes:
         return default_flowchart()
     return graph
+
+
+def _try_copy_statement(statement: str, graph: FlowchartGraph, line_no: int) -> bool:
+    lowered = statement.lower()
+    if _has_unsupported_prefix(lowered):
+        return False
+    try:
+        if _try_parse_edge(statement, graph):
+            return True
+        endpoint = _parse_endpoint(statement, line_no)
+        if endpoint.defined:
+            graph.ensure_node(endpoint.id, endpoint.label, endpoint.shape)
+            return True
+    except (ParseError, ValueError):
+        return False
+    return False
 
 
 def _try_parse_edge(line: str, graph: FlowchartGraph) -> bool:
@@ -195,13 +253,70 @@ def _escape_label(label: str) -> str:
     return label.replace("\n", " ").strip()
 
 
+def _extract_layout_metadata(source: str) -> dict | None:
+    for raw_line in source.splitlines():
+        line = raw_line.strip()
+        if not line.startswith(_LAYOUT_PREFIX):
+            continue
+        payload = line[len(_LAYOUT_PREFIX) :].strip()
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+    return None
+
+
+def _apply_layout_metadata(graph: FlowchartGraph, metadata: dict | None) -> None:
+    auto_layout_graph(graph)
+    if not metadata:
+        return
+    nodes = metadata.get("nodes")
+    if not isinstance(nodes, dict):
+        return
+    for node in graph.nodes:
+        saved = nodes.get(node.id)
+        if not isinstance(saved, dict):
+            continue
+        x = saved.get("x")
+        y = saved.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            node.x = float(x)
+            node.y = float(y)
+
+
+def _render_layout_metadata(graph: FlowchartGraph) -> str:
+    nodes = {
+        node.id: {"x": _clean_coord(node.x), "y": _clean_coord(node.y)}
+        for node in graph.nodes
+    }
+    payload = json.dumps(
+        {"version": 1, "nodes": nodes},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"{_LAYOUT_PREFIX} {payload}"
+
+
+def _clean_coord(value: float) -> int | float:
+    rounded = round(float(value))
+    if abs(float(value) - rounded) < 0.001:
+        return int(rounded)
+    return round(float(value), 3)
+
+
 def _reject_unsupported_line(line: str, line_no: int) -> None:
     lowered = line.lower().strip()
     if lowered.startswith("---") or lowered.startswith("```"):
         raise ParseError(f"Line {line_no}: fenced blocks are not part of the graph.")
-    if lowered.startswith(_UNSUPPORTED_PREFIXES):
+    if _has_unsupported_prefix(lowered):
         raise ParseError(f"Line {line_no}: unsupported Mermaid flowchart feature.")
     if any(op in line for op in ("-.->", "==>", "~~~", "o--", "x--", "--o", "--x")):
         raise ParseError(f"Line {line_no}: unsupported edge operator.")
     if "<" in line or ">" in line.replace("-->", ""):
         raise ParseError(f"Line {line_no}: HTML labels are not supported.")
+
+
+def _has_unsupported_prefix(lowered_line: str) -> bool:
+    first = lowered_line.split(maxsplit=1)[0].rstrip(":")
+    return first in _UNSUPPORTED_PREFIXES

@@ -148,11 +148,14 @@ SVG, and copy/export PNG.
 
 For `flowchart TD` / `flowchart LR` diagrams, the workspace also has a
 **Visual** tab. Use it to add Start, Process, Decision, and End nodes, drag
-nodes around, connect nodes, edit node/edge labels, delete graph items, and let
-the app regenerate Mermaid source automatically. Supported flowcharts sync both
-ways: editing source updates the visual canvas, and visual edits update source.
-More complex Mermaid syntax stays source-only so the app never rewrites it
-unsafely.
+nodes around, connect nodes, edit selected node/edge details in the properties
+panel, auto-layout the graph, collapse the final Mermaid preview, and let the app
+regenerate Mermaid source automatically. Visual node positions are saved in
+Mermaid comments that Mermaid ignores, so fenced blocks remain portable while the
+editor can restore the layout. Supported flowcharts sync both ways: editing
+source updates the visual canvas, and visual edits update source. More complex
+Mermaid syntax stays source-only, with an option to create a simplified visual
+copy without overwriting the original block until you confirm the update.
 
 When editing a Markdown file, use **Tools > Edit Mermaid Diagram** to pick an
 existing fenced Mermaid block, edit it in the workspace, and write it back to
