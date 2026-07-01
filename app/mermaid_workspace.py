@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QMimeData, QRectF, QSize, QTimer, QUrl
+from PyQt6.QtCore import QByteArray, QMimeData, QRectF, QSize, QTimer, QUrl, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWebEngineCore import QWebEngineSettings
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -32,6 +33,8 @@ from .flowchart_mermaid import (
     render_flowchart,
     visual_copy_from_source,
 )
+from .gantt_editor import GanttEditor
+from .gantt_mermaid import parse_gantt, render_gantt
 from .mermaid_format import format_mermaid_source
 from .mermaid_render import build_preview_html
 from .mermaid_templates import (
@@ -49,6 +52,15 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
+
+
+def _looks_like_flowchart(source: str) -> bool:
+    for line in source.splitlines():
+        text = line.strip().lower()
+        if not text or text.startswith("%%"):
+            continue
+        return text.startswith("flowchart ") or text.startswith("graph ")
+    return False
 
 
 class MermaidWorkspaceDialog(QDialog):
@@ -73,14 +85,18 @@ class MermaidWorkspaceDialog(QDialog):
         self._preview_visible = True
         self._preview_sizes = [520, 620]
 
-        self.setWindowTitle("Mermaid Workspace")
+        self.setWindowTitle("Mermaid 繪圖工作區")
         self.resize(1180, 760)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowType.WindowMinMaxButtonsHint
+        )
 
         self._template_combo = QComboBox()
         self._template_combo.setMinimumWidth(230)
         for template in TEMPLATES:
             self._template_combo.addItem(
-                f"{template.group}: {template.name}", template.id
+                f"{template.group}：{template.name}", template.id
             )
         self._template_combo.activated.connect(self._apply_selected_template)
 
@@ -90,28 +106,28 @@ class MermaidWorkspaceDialog(QDialog):
             self._snippet_combo.addItem(snippet.name, snippet.id)
 
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem("Auto theme", "auto")
-        self._theme_combo.addItem("Light", "light")
-        self._theme_combo.addItem("Dark", "dark")
+        self._theme_combo.addItem("自動主題", "auto")
+        self._theme_combo.addItem("淺色", "light")
+        self._theme_combo.addItem("深色", "dark")
         self._theme_combo.activated.connect(self._on_preview_theme_changed)
 
         self._copy_source_btn = self._button(
-            "copy", "Copy Mermaid", self._copy_source
+            "copy", "複製 Mermaid 原始碼", self._copy_source
         )
         self._insert_snippet_btn = self._button(
-            "workflow", "Insert Snippet", self._insert_selected_snippet
+            "workflow", "插入片段", self._insert_selected_snippet
         )
-        self._format_btn = self._button("pencil", "Format", self._format_source)
-        self._copy_svg_btn = self._button("copy", "Copy SVG", self._copy_svg)
-        self._copy_png_btn = self._button("image", "Copy PNG", self._copy_png)
+        self._format_btn = self._button("pencil", "格式化代碼", self._format_source)
+        self._copy_svg_btn = self._button("copy", "複製 SVG 圖片", self._copy_svg)
+        self._copy_png_btn = self._button("image", "複製 PNG 圖片", self._copy_png)
         self._export_svg_btn = self._button(
-            "file-down", "Export SVG", self._export_svg
+            "file-down", "匯出 SVG...", self._export_svg
         )
         self._export_png_btn = self._button(
-            "file-down", "Export PNG", self._export_png
+            "file-down", "匯出 PNG...", self._export_png
         )
         self._toggle_preview_btn = self._button(
-            "eye", "Collapse Preview", self._toggle_preview
+            "eye", "隱藏預覽", self._toggle_preview
         )
 
         toolbar = QWidget()
@@ -123,13 +139,13 @@ class MermaidWorkspaceDialog(QDialog):
 
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(6)
-        controls_layout.addWidget(QLabel("Template"))
+        controls_layout.addWidget(QLabel("範本"))
         controls_layout.addWidget(self._template_combo, stretch=3)
-        controls_layout.addWidget(QLabel("Snippet"))
+        controls_layout.addWidget(QLabel("片段"))
         controls_layout.addWidget(self._snippet_combo, stretch=2)
         controls_layout.addWidget(self._insert_snippet_btn)
         controls_layout.addWidget(self._format_btn)
-        controls_layout.addWidget(QLabel("Theme"))
+        controls_layout.addWidget(QLabel("主題"))
         controls_layout.addWidget(self._theme_combo, stretch=1)
 
         actions_layout = QHBoxLayout()
@@ -160,13 +176,18 @@ class MermaidWorkspaceDialog(QDialog):
         self._canvas = FlowchartCanvas()
         self._canvas.graph_changed.connect(self._on_canvas_graph_changed)
         self._canvas.visual_copy_requested.connect(self._create_visual_copy)
+        self._gantt_editor = GanttEditor()
+        self._gantt_editor.graph_changed.connect(self._on_gantt_chart_changed)
+        self._visual_stack = QStackedWidget()
+        self._visual_stack.addWidget(self._canvas)
+        self._visual_stack.addWidget(self._gantt_editor)
         self._editor_tabs = QTabWidget()
         source_tab = QWidget()
         source_layout = QVBoxLayout(source_tab)
         source_layout.setContentsMargins(0, 0, 0, 0)
         source_layout.addWidget(self._source_editor)
-        self._editor_tabs.addTab(source_tab, "Source")
-        self._editor_tabs.addTab(self._canvas, "Visual")
+        self._editor_tabs.addTab(source_tab, "原始碼")
+        self._editor_tabs.addTab(self._visual_stack, "視覺化編輯")
 
         self._preview = QWebEngineView()
         self._preview.setObjectName("mermaidPreview")
@@ -178,14 +199,14 @@ class MermaidWorkspaceDialog(QDialog):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 12, 6, 12)
-        left_layout.addWidget(self._section_label("Mermaid Editor"))
-        left_layout.addWidget(self._editor_tabs)
+        left_layout.addWidget(self._section_label("Mermaid 編輯器"))
+        left_layout.addWidget(self._editor_tabs, stretch=1)
 
         self._preview_panel = QWidget()
         right_layout = QVBoxLayout(self._preview_panel)
         right_layout.setContentsMargins(6, 12, 12, 12)
-        right_layout.addWidget(self._section_label("Live Preview"))
-        right_layout.addWidget(self._preview)
+        right_layout.addWidget(self._section_label("即時預覽"))
+        right_layout.addWidget(self._preview, stretch=1)
 
         self._splitter = QSplitter()
         self._splitter.addWidget(left)
@@ -194,7 +215,7 @@ class MermaidWorkspaceDialog(QDialog):
         self._splitter.setStretchFactor(1, 1)
         self._splitter.setSizes(self._preview_sizes)
 
-        self._status = QLabel("Ready")
+        self._status = QLabel("就緒")
         self._status.setObjectName("mermaidStatus")
         self._status.setWordWrap(True)
 
@@ -275,7 +296,20 @@ QLabel#flowchartCanvasMessage {{
     color: {theme.text_muted};
     padding: 10px 12px;
 }}
+QLabel#flowchartCanvasInfoBar {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text_muted};
+    padding: 8px 12px;
+    font-size: 12px;
+}}
 QWidget#flowchartProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QWidget#ganttProperties {{
     background: {theme.surface_alt};
     border: 1px solid {theme.border};
     border-radius: 6px;
@@ -296,6 +330,7 @@ QPlainTextEdit#mermaidSource {{
 }}
 """
         )
+        self._canvas.apply_theme(theme)
         self._refresh_button_icons()
         self._render_preview()
 
@@ -361,8 +396,8 @@ QPlainTextEdit#mermaidSource {{
         if self._source_editor.document().isModified():
             answer = QMessageBox.question(
                 self,
-                "Replace Source",
-                "Replace the current Mermaid source with this template?",
+                "替換原始碼",
+                "確定要用此範本替換目前的 Mermaid 原始碼嗎？",
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
@@ -383,15 +418,25 @@ QPlainTextEdit#mermaidSource {{
         self._preview.setHtml(html, QUrl.fromLocalFile(str(Path.cwd()) + "/"))
 
     def _sync_canvas_from_source(self):
-        result = parse_flowchart(self.source())
-        if result.supported:
-            self._canvas.set_graph(result.require_graph())
+        source = self.source()
+        flowchart_result = parse_flowchart(source)
+        if flowchart_result.supported:
+            self._canvas.set_graph(flowchart_result.require_graph())
+            self._visual_stack.setCurrentWidget(self._canvas)
             return
+
+        gantt_result = parse_gantt(source)
+        if gantt_result.supported:
+            self._gantt_editor.set_chart(gantt_result.require_chart())
+            self._visual_stack.setCurrentWidget(self._gantt_editor)
+            return
+
+        self._visual_stack.setCurrentWidget(self._canvas)
         self._canvas.set_unsupported(
-            "Visual mode supports simple Mermaid flowchart TD/LR only.\n"
-            f"{result.reason}\n\nCreate a visual copy to edit a simplified "
-            "supported version.",
-            can_create_copy=True,
+            "視覺化模式目前僅支援簡易流程圖 (flowchart TD/LR)。\n"
+            f"{flowchart_result.reason}\n\nGantt 圖表可視覺化編輯；其他 Mermaid "
+            "圖表請使用原始碼模式。",
+            can_create_copy=_looks_like_flowchart(source),
         )
 
     def _on_canvas_graph_changed(self, graph):
@@ -412,13 +457,29 @@ QPlainTextEdit#mermaidSource {{
             self._syncing = False
         self._render_preview(sync_canvas=False)
 
+    def _on_gantt_chart_changed(self, chart):
+        if self._syncing:
+            return
+        text = render_gantt(chart)
+        if text == self.source():
+            return
+        self._syncing = True
+        try:
+            cursor_pos = self._source_editor.textCursor().position()
+            self._source_editor.setPlainText(text)
+            cursor = self._source_editor.textCursor()
+            cursor.setPosition(max(0, min(len(text), cursor_pos)))
+            self._source_editor.setTextCursor(cursor)
+            self._source_editor.document().setModified(True)
+        finally:
+            self._syncing = False
+        self._render_preview(sync_canvas=False)
+
     def _create_visual_copy(self):
         answer = QMessageBox.question(
             self,
-            "Create Visual Copy",
-            "Create a simplified visual copy from the supported nodes and "
-            "connectors in this source?\n\nThe Markdown document is not changed "
-            "until you choose Update Markdown or Insert Diagram.",
+            "建立視覺化複本",
+            "是否根據此代碼中支援的節點與連線建立簡化版的視覺化複本？\n\n注意：在您點擊「更新 Markdown」或「插入圖表」之前，原文件內容不會被修改。",
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -426,8 +487,8 @@ QPlainTextEdit#mermaidSource {{
         if not result.supported:
             QMessageBox.warning(
                 self,
-                "Create Visual Copy",
-                result.reason or "This Mermaid source could not be converted.",
+                "建立視覺化複本",
+                result.reason or "此 Mermaid 原始碼無法被轉換。",
             )
             return
         graph = result.require_graph()
@@ -439,8 +500,9 @@ QPlainTextEdit#mermaidSource {{
         finally:
             self._syncing = False
         self._canvas.set_graph(graph)
-        self._editor_tabs.setCurrentWidget(self._canvas)
-        self._status.setText("Visual copy created. Review before updating Markdown.")
+        self._visual_stack.setCurrentWidget(self._canvas)
+        self._editor_tabs.setCurrentWidget(self._visual_stack)
+        self._status.setText("已建立視覺化複本。更新 Markdown 前請先確認內容。")
         self._render_preview(sync_canvas=False)
 
     def _toggle_preview(self):
@@ -449,13 +511,13 @@ QPlainTextEdit#mermaidSource {{
             total = max(1, sum(self._preview_sizes))
             self._preview_panel.hide()
             self._splitter.setSizes([total, 0])
-            self._toggle_preview_btn.setToolTip("Show Preview")
-            self._toggle_preview_btn.setAccessibleName("Show Preview")
+            self._toggle_preview_btn.setToolTip("顯示預覽")
+            self._toggle_preview_btn.setAccessibleName("顯示預覽")
             return
         self._preview_panel.show()
         self._splitter.setSizes(self._preview_sizes or [520, 620])
-        self._toggle_preview_btn.setToolTip("Collapse Preview")
-        self._toggle_preview_btn.setAccessibleName("Collapse Preview")
+        self._toggle_preview_btn.setToolTip("隱藏預覽")
+        self._toggle_preview_btn.setAccessibleName("隱藏預覽")
 
     def _effective_preview_theme(self) -> ThemeName:
         mode = self._preview_theme_mode
@@ -493,7 +555,7 @@ QPlainTextEdit#mermaidSource {{
 
     def _on_preview_loaded(self, ok: bool):
         if not ok:
-            self._status.setText("Preview failed to load.")
+            self._status.setText("預覽載入失敗。")
             return
         self._status_attempts = 0
         self._status_timer.start()
@@ -502,7 +564,7 @@ QPlainTextEdit#mermaidSource {{
         self._status_attempts += 1
         if self._status_attempts > 120:
             self._status_timer.stop()
-            self._status.setText("Mermaid render timed out.")
+            self._status.setText("Mermaid 轉譯逾時。")
             return
         self._preview.page().runJavaScript(
             "window.__mermaidStatus", self._on_render_status
@@ -514,17 +576,17 @@ QPlainTextEdit#mermaidSource {{
         self._status_timer.stop()
         if status.get("ok"):
             self._last_svg = str(status.get("svg") or "")
-            self._status.setText("Rendered")
+            self._status.setText("已轉譯")
             self._set_svg_actions_enabled(bool(self._last_svg))
             return
         error = str(status.get("error") or "").strip()
         self._last_svg = ""
         self._set_svg_actions_enabled(False)
-        self._status.setText(error if error else "Enter Mermaid source.")
+        self._status.setText(error if error else "請輸入 Mermaid 原始碼。")
 
     def _copy_source(self):
         QApplication.clipboard().setText(self.source())
-        self._status.setText("Mermaid source copied.")
+        self._status.setText("已複製 Mermaid 原始碼。")
 
     def _copy_svg(self):
         if not self._last_svg:
@@ -533,43 +595,43 @@ QPlainTextEdit#mermaidSource {{
         mime.setText(self._last_svg)
         mime.setData("image/svg+xml", QByteArray(self._last_svg.encode("utf-8")))
         QApplication.clipboard().setMimeData(mime)
-        self._status.setText("SVG copied.")
+        self._status.setText("已複製 SVG 圖片。")
 
     def _copy_png(self):
         image = self._svg_to_image()
         if image is None:
             return
         QApplication.clipboard().setImage(image)
-        self._status.setText("PNG copied.")
+        self._status.setText("已複製 PNG 圖片。")
 
     def _export_svg(self):
         if not self._last_svg:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export SVG", "diagram.svg", "SVG images (*.svg)"
+            self, "匯出 SVG", "diagram.svg", "SVG 圖片 (*.svg)"
         )
         if not path:
             return
         try:
             Path(path).write_text(self._last_svg, encoding="utf-8")
         except OSError as exc:
-            QMessageBox.warning(self, "Export Failed", str(exc))
+            QMessageBox.warning(self, "匯出失敗", str(exc))
             return
-        self._status.setText(f"SVG exported to {path}.")
+        self._status.setText(f"SVG 圖片已匯出至 {path}。")
 
     def _export_png(self):
         image = self._svg_to_image()
         if image is None:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export PNG", "diagram.png", "PNG images (*.png)"
+            self, "匯出 PNG", "diagram.png", "PNG 圖片 (*.png)"
         )
         if not path:
             return
         if not image.save(path, "PNG"):
-            QMessageBox.warning(self, "Export Failed", f"Could not save {path}.")
+            QMessageBox.warning(self, "匯出失敗", f"無法儲存檔案 {path}。")
             return
-        self._status.setText(f"PNG exported to {path}.")
+        self._status.setText(f"PNG 圖片已匯出至 {path}。")
 
     def _svg_to_image(self) -> QImage | None:
         if not self._last_svg:

@@ -157,6 +157,10 @@ source updates the visual canvas, and visual edits update source. More complex
 Mermaid syntax stays source-only, with an option to create a simplified visual
 copy without overwriting the original block until you confirm the update.
 
+For `gantt` diagrams, the **Visual** tab switches to a Gantt task editor. You can
+edit the title, date format, sections, task names, task IDs, status, start
+rules, and durations, and the workspace regenerates Mermaid Gantt source.
+
 When editing a Markdown file, use **Tools > Edit Mermaid Diagram** to pick an
 existing fenced Mermaid block, edit it in the workspace, and write it back to
 the source. **Tools > Insert Mermaid Diagram** inserts a new fenced block at the
