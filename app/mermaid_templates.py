@@ -24,9 +24,9 @@ class MermaidSnippet:
 TEMPLATES: tuple[MermaidTemplate, ...] = (
     MermaidTemplate(
         id="flowchart-basic",
-        group="Flowchart",
-        name="Basic Flowchart",
-        description="A simple left-to-right process flow.",
+        group="流程圖",
+        name="基礎流程圖",
+        description="簡單的左右向流程圖。",
         source="""flowchart LR
     Start([Start]) --> Input[Collect input]
     Input --> Decision{Valid?}
@@ -38,9 +38,9 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="flowchart-system",
-        group="Flowchart",
-        name="System Flow",
-        description="A practical software system flow.",
+        group="流程圖",
+        name="系統流程圖",
+        description="軟體系統運作流程圖。",
         source="""flowchart TD
     User[User] --> UI[Desktop app]
     UI --> Parser[Markdown parser]
@@ -52,14 +52,14 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="sequence-basic",
-        group="Sequence",
-        name="Sequence Diagram",
-        description="Request and response between actors.",
+        group="序列圖",
+        name="時序對話圖",
+        description="角色/物件之間的請求與回應關係。",
         source="""sequenceDiagram
     participant User
     participant App
     participant Renderer
-
+ 
     User->>App: Edit Mermaid source
     App->>Renderer: Render diagram
     Renderer-->>App: SVG or error
@@ -68,9 +68,9 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="class-basic",
-        group="Class",
-        name="Class Diagram",
-        description="Classes and relationships.",
+        group="類別圖",
+        name="物件類別圖",
+        description="物件類別及其關聯關係。",
         source="""classDiagram
     class MarkdownDocument {
         +path
@@ -87,9 +87,9 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="state-basic",
-        group="State",
-        name="State Diagram",
-        description="State transitions for a workflow.",
+        group="狀態圖",
+        name="狀態轉移圖",
+        description="工作流的狀態轉移關係。",
         source="""stateDiagram-v2
     [*] --> Editing
     Editing --> Previewing: debounce
@@ -101,9 +101,9 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="er-basic",
-        group="ER",
-        name="ER Diagram",
-        description="Entities and relationships.",
+        group="關係圖 (ER)",
+        name="資料庫關係圖",
+        description="資料庫實體及其關聯關係。",
         source="""erDiagram
     DOCUMENT ||--o{ DIAGRAM : contains
     DIAGRAM ||--o{ EXPORT : produces
@@ -119,9 +119,9 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
     ),
     MermaidTemplate(
         id="gantt-basic",
-        group="Gantt",
-        name="Gantt Plan",
-        description="A small project timeline.",
+        group="甘特圖",
+        name="甘特時程表",
+        description="專案進度時程表。",
         source="""gantt
     title Mermaid Workspace Rollout
     dateFormat  YYYY-MM-DD
@@ -132,32 +132,32 @@ TEMPLATES: tuple[MermaidTemplate, ...] = (
 """,
     ),
 )
-
-
+ 
+ 
 SNIPPETS: tuple[MermaidSnippet, ...] = (
     MermaidSnippet(
         id="flowchart-decision",
-        name="Flowchart decision",
+        name="流程圖決策分支",
         source="Decision{Decision?}\nDecision -- Yes --> Next[Next step]\nDecision -- No --> Back[Try again]",
     ),
     MermaidSnippet(
         id="flowchart-subgraph",
-        name="Flowchart subgraph",
+        name="流程圖子群組",
         source="subgraph GroupName[Group name]\n    A[Step A] --> B[Step B]\nend",
     ),
     MermaidSnippet(
         id="sequence-note",
-        name="Sequence note",
+        name="序列圖備註",
         source="Note over User,App: Important context",
     ),
     MermaidSnippet(
         id="sequence-alt",
-        name="Sequence alt",
+        name="序列圖條件分支 (alt)",
         source="alt Success\n    App-->>User: Done\nelse Failure\n    App-->>User: Error\nend",
     ),
     MermaidSnippet(
         id="state-transition",
-        name="State transition",
+        name="狀態圖轉移",
         source="StateA --> StateB: event",
     ),
 )

@@ -1255,7 +1255,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             block.source,
             self._theme_name,
             self,
-            commit_label="Update Markdown",
+            commit_label="更新 Markdown",
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1266,11 +1266,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             QMessageBox.warning(
                 self,
                 "Mermaid",
-                "The selected diagram could not be found. Please try again.",
+                "找不到選取的圖表，請再試一次。",
             )
             return
         self._replace_editor_document(new_text, block.start_offset)
-        self.statusBar().showMessage("Mermaid diagram updated.", 3000)
+        self.statusBar().showMessage("Mermaid 圖表已更新。", 3000)
 
     def _insert_mermaid_diagram(self):
         if not self._ensure_markdown_edit_mode():
@@ -1279,7 +1279,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             default_template().source,
             self._theme_name,
             self,
-            commit_label="Insert Diagram",
+            commit_label="插入圖表",
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1288,7 +1288,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._editor.toPlainText(), dialog.source(), position=pos
         )
         self._replace_editor_document(new_text, pos)
-        self.statusBar().showMessage("Mermaid diagram inserted.", 3000)
+        self.statusBar().showMessage("Mermaid 圖表已插入。", 3000)
 
     def _ensure_markdown_edit_mode(self) -> bool:
         if not self._current_file or not is_markdown(self._current_file):

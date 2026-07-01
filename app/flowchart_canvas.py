@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QStackedWidget,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -52,8 +53,25 @@ class _NodeItem(QGraphicsPathItem):
         self.node_id = node.id
         self.shape = node.shape
         self.setPath(self._shape_path(node.shape))
-        self.setBrush(QBrush(QColor("#f6f1ff")))
-        self.setPen(QPen(QColor("#8b6cff"), 1.4))
+        
+        # Read colors from theme
+        theme = getattr(canvas, "_theme", None)
+        if theme:
+            if theme.name == "dark":
+                bg_color = QColor("#2a204a")
+                border_color = QColor("#9d80ff")
+                text_color = QColor(theme.text)
+            else:
+                bg_color = QColor("#f4ebff")
+                border_color = QColor("#7f56d9")
+                text_color = QColor(theme.text)
+        else:
+            bg_color = QColor("#f6f1ff")
+            border_color = QColor("#8b6cff")
+            text_color = QColor("#1d1f23")
+
+        self.setBrush(QBrush(bg_color))
+        self.setPen(QPen(border_color, 1.4))
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -61,9 +79,11 @@ class _NodeItem(QGraphicsPathItem):
         )
         self.setPos(node.x, node.y)
         self.label = QGraphicsTextItem(node.label, self)
-        self.label.setDefaultTextColor(QColor("#1d1f23"))
+        self.label.setDefaultTextColor(text_color)
         self.label.setTextWidth(self.WIDTH - 20)
         self._center_label()
+        self.setAcceptHoverEvents(True)
+        self._is_hovered = False
 
     def _shape_path(self, shape: str) -> QPainterPath:
         rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
@@ -79,6 +99,54 @@ class _NodeItem(QGraphicsPathItem):
         else:
             path.addRoundedRect(rect, 4, 4)
         return path
+
+    def hoverEnterEvent(self, event):
+        self._is_hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._is_hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        from PyQt6.QtWidgets import QStyle
+        
+        is_selected = self.isSelected()
+        old_state = option.state
+        if is_selected:
+            option.state &= ~QStyle.StateFlag.State_Selected
+            
+        super().paint(painter, option, widget)
+        
+        option.state = old_state
+        
+        canvas = self.canvas
+        if is_selected:
+            theme = getattr(canvas, "_theme", None)
+            accent = QColor(theme.accent) if theme else QColor("#8b6cff")
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(accent, 2.5, Qt.PenStyle.SolidLine))
+            painter.drawPath(self.path())
+            painter.restore()
+
+        # Draw connection ports if in Connect Mode and hovered (or selected as source)
+        if canvas._connect_mode and (self._is_hovered or canvas._connect_source == self.node_id):
+            theme = getattr(canvas, "_theme", None)
+            accent = QColor(theme.accent) if theme else QColor("#8b6cff")
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(accent, 1.2))
+            painter.setBrush(QBrush(QColor("#ffffff")))
+            
+            r = 3.5 # port radius
+            painter.drawEllipse(QPointF(self.WIDTH / 2, 0), r, r)
+            painter.drawEllipse(QPointF(self.WIDTH / 2, self.HEIGHT), r, r)
+            painter.drawEllipse(QPointF(0, self.HEIGHT / 2), r, r)
+            painter.drawEllipse(QPointF(self.WIDTH, self.HEIGHT / 2), r, r)
+            painter.restore()
 
     def center(self) -> QPointF:
         return self.pos() + QPointF(self.WIDTH / 2, self.HEIGHT / 2)
@@ -97,15 +165,34 @@ class _NodeItem(QGraphicsPathItem):
     def itemChange(self, change, value):  # noqa: N802 (Qt override)
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.canvas._node_item_moved(self.node_id, self.pos())
-        return super().itemChange(change, value)
+        return value
 
     def mousePressEvent(self, event):
-        if self.canvas._handle_node_click(self.node_id):
-            event.accept()
-            return
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
+        canvas = self.canvas
+        if canvas._connect_mode:
+            if canvas._connect_source is None:
+                canvas._connect_source = self.node_id
+                canvas._scene.clearSelection()
+                self.setSelected(True)
+                canvas._update_info_bar()
+            else:
+                if canvas._connect_source != self.node_id:
+                    canvas._clear_temp_line()
+                    canvas.add_edge(canvas._connect_source, self.node_id)
+                    canvas._connect_source = None
+                    canvas._scene.clearSelection()
+                    canvas._update_info_bar()
+                else:
+                    canvas._connect_source = None
+                    canvas._clear_temp_line()
+                    canvas._scene.clearSelection()
+                    canvas._update_info_bar()
+            event.accept()
+            return
+        
         self.canvas.edit_node_label(self.node_id)
         event.accept()
 
@@ -118,10 +205,20 @@ class _EdgeItem(QGraphicsPathItem):
         self.source = edge.source
         self.target = edge.target
         self.setZValue(-1)
-        self.setPen(QPen(QColor("#575d66"), 1.3))
+        
+        # Read colors from theme
+        theme = getattr(canvas, "_theme", None)
+        if theme:
+            pen_color = QColor(theme.text_subtle)
+            text_color = QColor(theme.text)
+        else:
+            pen_color = QColor("#575d66")
+            text_color = QColor("#1d1f23")
+            
+        self.setPen(QPen(pen_color, 1.3))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.label = QGraphicsTextItem(edge.label, self)
-        self.label.setDefaultTextColor(QColor("#1d1f23"))
+        self.label.setDefaultTextColor(text_color)
         self.update_path()
 
     def update_path(self):
@@ -143,6 +240,27 @@ class _EdgeItem(QGraphicsPathItem):
         self.setPath(path)
         self.label.setPos((a.x() + b.x()) / 2, (a.y() + b.y()) / 2 - 22)
 
+    def paint(self, painter: QPainter, option, widget=None):
+        from PyQt6.QtWidgets import QStyle
+        
+        is_selected = self.isSelected()
+        old_state = option.state
+        if is_selected:
+            option.state &= ~QStyle.StateFlag.State_Selected
+            
+        super().paint(painter, option, widget)
+        
+        option.state = old_state
+        
+        if is_selected:
+            theme = getattr(self.canvas, "_theme", None)
+            accent = QColor(theme.accent) if theme else QColor("#8b6cff")
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QPen(accent, 2.2, Qt.PenStyle.SolidLine))
+            painter.drawPath(self.path())
+            painter.restore()
+
     def mouseDoubleClickEvent(self, event):
         self.canvas.edit_edge_label(self.edge_id)
         event.accept()
@@ -154,11 +272,32 @@ class _CanvasView(QGraphicsView):
         self._canvas = canvas
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.viewport().setMouseTracking(True)
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        if self._canvas._connect_mode and self._canvas._connect_source:
+            scene_pos = self.mapToScene(event.pos())
+            try:
+                self._canvas._update_temp_line(scene_pos)
+            except Exception:
+                pass
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self._canvas.delete_selected()
             return
+        if event.key() == Qt.Key.Key_Escape:
+            if self._canvas._connect_mode:
+                if self._canvas._connect_source is not None:
+                    self._canvas._connect_source = None
+                    self._canvas._clear_temp_line()
+                    self._canvas._scene.clearSelection()
+                    self._canvas._update_info_bar()
+                else:
+                    self._canvas._cancel_connect_mode()
+                event.accept()
+                return
         super().keyPressEvent(event)
 
 
@@ -170,11 +309,14 @@ class FlowchartCanvas(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._graph = default_flowchart()
+        self._theme = None
         self._unsupported = ""
         self._updating = False
         self._updating_properties = False
         self._connect_mode = False
         self._connect_source: str | None = None
+        self._is_dragging_connect = False
+        self._drag_start_pos = None
         self._selected_node_id: str | None = None
         self._selected_edge_id: str | None = None
         self._node_items: dict[str, _NodeItem] = {}
@@ -190,44 +332,50 @@ class FlowchartCanvas(QWidget):
         self._message.setWordWrap(True)
         self._message.hide()
 
-        self._visual_copy_btn = QPushButton("Create visual copy")
+        self._visual_copy_btn = QPushButton("建立視覺化複本")
         self._visual_copy_btn.clicked.connect(self.visual_copy_requested.emit)
         self._visual_copy_btn.hide()
 
         self._direction_combo = QComboBox()
-        self._direction_combo.addItem("Left to right", "LR")
-        self._direction_combo.addItem("Top down", "TD")
+        self._direction_combo.addItem("由左至右 (LR)", "LR")
+        self._direction_combo.addItem("由上至下 (TD)", "TD")
         self._direction_combo.currentIndexChanged.connect(self._direction_changed)
 
-        toolbar = QHBoxLayout()
+        self._toolbar_widget = QWidget()
+        toolbar = QHBoxLayout(self._toolbar_widget)
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(6)
-        toolbar.addWidget(self._button("Start", lambda: self.add_node("start")))
-        toolbar.addWidget(self._button("Process", lambda: self.add_node("process")))
-        toolbar.addWidget(self._button("Decision", lambda: self.add_node("decision")))
-        toolbar.addWidget(self._button("End", lambda: self.add_node("end")))
-        self._connect_btn = self._button("Connect", self._toggle_connect_mode)
+        toolbar.addWidget(self._button("起點", lambda: self.add_node("start")))
+        toolbar.addWidget(self._button("程序", lambda: self.add_node("process")))
+        toolbar.addWidget(self._button("決策", lambda: self.add_node("decision")))
+        toolbar.addWidget(self._button("終點", lambda: self.add_node("end")))
+        self._connect_btn = self._button("連線", self._toggle_connect_mode)
         self._connect_btn.setCheckable(True)
         toolbar.addWidget(self._connect_btn)
-        toolbar.addWidget(self._button("Auto layout", self.auto_layout))
-        toolbar.addWidget(self._button("Delete", self.delete_selected))
+        toolbar.addWidget(self._button("自動佈局", self.auto_layout))
+        toolbar.addWidget(self._button("刪除", self.delete_selected))
         toolbar.addStretch()
 
-        editor_row = QWidget()
-        editor_row_layout = QHBoxLayout(editor_row)
-        editor_row_layout.setContentsMargins(0, 0, 0, 0)
-        editor_row_layout.setSpacing(8)
-        editor_row_layout.addWidget(self._view, stretch=1)
-        editor_row_layout.addWidget(self._build_properties_panel())
+        self._info_bar = QLabel("")
+        self._info_bar.setObjectName("flowchartCanvasInfoBar")
+        self._info_bar.setWordWrap(True)
+
+        self._editor_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._editor_splitter.addWidget(self._view)
+        self._editor_splitter.addWidget(self._build_properties_panel())
+        self._editor_splitter.setStretchFactor(0, 4)
+        self._editor_splitter.setStretchFactor(1, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        layout.addLayout(toolbar)
+        layout.addWidget(self._toolbar_widget)
+        layout.addWidget(self._info_bar)
         layout.addWidget(self._message)
         layout.addWidget(self._visual_copy_btn)
-        layout.addWidget(editor_row, stretch=1)
+        layout.addWidget(self._editor_splitter, stretch=1)
 
+        self._update_info_bar()
         self.set_graph(self._graph)
 
     def graph(self) -> FlowchartGraph:
@@ -247,6 +395,7 @@ class FlowchartCanvas(QWidget):
             self._visual_copy_btn.hide()
             self._view.setEnabled(True)
             self._properties.setEnabled(True)
+            self._toolbar_widget.setEnabled(True)
             self._rebuild_scene()
         finally:
             self._updating = False
@@ -258,14 +407,25 @@ class FlowchartCanvas(QWidget):
         self._visual_copy_btn.setVisible(can_create_copy)
         self._view.setEnabled(False)
         self._properties.setEnabled(False)
+        self._toolbar_widget.setEnabled(False)
+        self._clear_temp_line()
+        self._scene.clear()
+        self._node_items.clear()
+        self._edge_items.clear()
+        self._selected_node_id = None
+        self._selected_edge_id = None
+        self._graph = FlowchartGraph()
+        self._update_properties()
 
     def add_node(self, shape: str):
         labels = {
-            "start": "Start",
-            "process": "Process",
-            "decision": "Decision?",
-            "end": "Done",
+            "start": "起點",
+            "process": "程序",
+            "decision": "決策？",
+            "end": "結束",
         }
+        if self._connect_mode:
+            self._cancel_connect_mode()
         source_id = self.selected_node_id()
         x = y = None
         if source_id:
@@ -393,18 +553,14 @@ class FlowchartCanvas(QWidget):
         self._emit_changed()
 
     def edit_node_label(self, node_id: str):
-        node = self._graph.node(node_id)
-        text, ok = QInputDialog.getText(self, "Node Label", "Label:", text=node.label)
-        if not ok:
-            return
-        self.set_node_label(node_id, text)
+        self.select_node(node_id)
+        self._node_label.setFocus()
+        self._node_label.selectAll()
 
     def edit_edge_label(self, edge_id: str):
-        edge = self._edge(edge_id)
-        text, ok = QInputDialog.getText(self, "Edge Label", "Label:", text=edge.label)
-        if not ok:
-            return
-        self.set_edge_label(edge_id, text)
+        self.select_edge(edge_id)
+        self._edge_label.setFocus()
+        self._edge_label.selectAll()
 
     def _button(self, text: str, slot) -> QPushButton:
         button = QPushButton(text)
@@ -414,21 +570,30 @@ class FlowchartCanvas(QWidget):
     def _build_properties_panel(self) -> QWidget:
         self._properties = QWidget()
         self._properties.setObjectName("flowchartProperties")
-        self._properties.setFixedWidth(240)
+        self._properties.setMinimumWidth(200)
         layout = QVBoxLayout(self._properties)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        title = QLabel("Properties")
+        title = QLabel("屬性")
         title.setObjectName("flowchartPropertiesTitle")
         layout.addWidget(title)
 
         graph_form = QFormLayout()
         graph_form.setContentsMargins(0, 0, 0, 0)
-        graph_form.addRow("Direction", self._direction_combo)
+        graph_form.addRow("版面方向", self._direction_combo)
         layout.addLayout(graph_form)
 
         self._selection_stack = QStackedWidget()
-        self._empty_panel = QLabel("Select a node or connector")
+        self._empty_panel = QLabel(
+            "<b>視覺化編輯器快速指南</b><br><br>"
+            "• <b>新增節點</b>：點選上方形狀按鈕。<br>"
+            "• <b>自動連線</b>：先選取一個節點，再點選形狀按鈕。<br>"
+            "• <b>建立連線</b>：點選<b>「連線」</b>，點擊起點節點，再點擊終點節點。<br>"
+            "• <b>修改名稱</b>：雙擊畫布物件，或選取物件後在此修改標籤。<br>"
+            "• <b>移動節點</b>：直接拖曳畫布上的節點。<br>"
+            "• <b>刪除物件</b>：選取後按 <b>Delete</b> 鍵或點選上方「刪除」按鈕。"
+        )
+        self._empty_panel.setTextFormat(Qt.TextFormat.RichText)
         self._empty_panel.setObjectName("flowchartPropertiesEmpty")
         self._empty_panel.setWordWrap(True)
         self._selection_stack.addWidget(self._empty_panel)
@@ -446,20 +611,27 @@ class FlowchartCanvas(QWidget):
         self._node_label = QLineEdit()
         self._node_label.editingFinished.connect(self._node_label_changed)
         self._node_shape = QComboBox()
-        self._node_shape.addItem("Start", "start")
-        self._node_shape.addItem("Process", "process")
-        self._node_shape.addItem("Decision", "decision")
-        self._node_shape.addItem("End", "end")
+        self._node_shape.addItem("起點", "start")
+        self._node_shape.addItem("程序", "process")
+        self._node_shape.addItem("決策", "decision")
+        self._node_shape.addItem("終點", "end")
         self._node_shape.currentIndexChanged.connect(self._node_shape_changed)
         self._node_x = self._coord_input()
         self._node_y = self._coord_input()
         self._node_x.valueChanged.connect(self._node_position_changed)
         self._node_y.valueChanged.connect(self._node_position_changed)
-        form.addRow("ID", self._node_id)
-        form.addRow("Label", self._node_label)
-        form.addRow("Shape", self._node_shape)
-        form.addRow("X", self._node_x)
-        form.addRow("Y", self._node_y)
+        
+        self._node_connect_to = QComboBox()
+        self._node_connect_btn = QPushButton("建立連線")
+        self._node_connect_btn.clicked.connect(self._create_link_from_dropdown)
+        
+        form.addRow("識別碼", self._node_id)
+        form.addRow("標籤文字", self._node_label)
+        form.addRow("節點形狀", self._node_shape)
+        form.addRow("位置 X", self._node_x)
+        form.addRow("位置 Y", self._node_y)
+        form.addRow("連接至", self._node_connect_to)
+        form.addRow("", self._node_connect_btn)
         return panel
 
     def _build_edge_panel(self) -> QWidget:
@@ -474,10 +646,10 @@ class FlowchartCanvas(QWidget):
         self._edge_target.setReadOnly(True)
         self._edge_label = QLineEdit()
         self._edge_label.editingFinished.connect(self._edge_label_changed)
-        form.addRow("ID", self._edge_id)
-        form.addRow("From", self._edge_source)
-        form.addRow("To", self._edge_target)
-        form.addRow("Label", self._edge_label)
+        form.addRow("識別碼", self._edge_id)
+        form.addRow("起點節點", self._edge_source)
+        form.addRow("終點節點", self._edge_target)
+        form.addRow("連線標籤", self._edge_label)
         return panel
 
     def _coord_input(self) -> QDoubleSpinBox:
@@ -542,25 +714,81 @@ class FlowchartCanvas(QWidget):
         self._emit_changed()
 
     def _handle_node_click(self, node_id: str) -> bool:
-        if not self._connect_mode:
-            return False
-        if self._connect_source is None:
-            self._connect_source = node_id
-            item = self._node_items.get(node_id)
-            if item:
-                self._scene.clearSelection()
-                item.setSelected(True)
-            return True
-        if self._connect_source != node_id:
-            self.add_edge(self._connect_source, node_id)
-        self._connect_source = None
-        self._connect_btn.setChecked(False)
-        self._connect_mode = False
-        return True
+        return False
 
     def _toggle_connect_mode(self):
         self._connect_mode = self._connect_btn.isChecked()
         self._connect_source = None
+        self._clear_temp_line()
+        if self._connect_mode:
+            self._view.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self._view.setCursor(Qt.CursorShape.ArrowCursor)
+        self._update_info_bar()
+
+    def _cancel_connect_mode(self):
+        self._connect_mode = False
+        self._connect_source = None
+        self._connect_btn.setChecked(False)
+        self._view.setCursor(Qt.CursorShape.ArrowCursor)
+        self._clear_temp_line()
+        self._update_info_bar()
+
+    def _update_temp_line(self, scene_pos: QPointF):
+        if not self._connect_source or self._connect_source not in self._node_items:
+            return
+        from PyQt6 import sip
+        is_deleted = False
+        if hasattr(self, "_temp_line_item") and self._temp_line_item is not None:
+            try:
+                is_deleted = sip.isdeleted(self._temp_line_item)
+            except Exception:
+                is_deleted = True
+        if not hasattr(self, "_temp_line_item") or self._temp_line_item is None or is_deleted:
+            self._temp_line_item = QGraphicsPathItem()
+            theme = getattr(self, "_theme", None)
+            accent = QColor(theme.accent) if theme else QColor("#8b6cff")
+            self._temp_line_item.setPen(QPen(accent, 1.5, Qt.PenStyle.DashLine))
+            self._temp_line_item.setZValue(-2)
+            self._scene.addItem(self._temp_line_item)
+        source_item = self._node_items[self._connect_source]
+        start_pos = source_item.center()
+        path = QPainterPath(start_pos)
+        path.lineTo(scene_pos)
+        try:
+            self._temp_line_item.setPath(path)
+        except Exception:
+            self._temp_line_item = None
+
+    def _clear_temp_line(self):
+        from PyQt6 import sip
+        if hasattr(self, "_temp_line_item") and self._temp_line_item is not None:
+            try:
+                if not sip.isdeleted(self._temp_line_item):
+                    self._scene.removeItem(self._temp_line_item)
+            except Exception:
+                pass
+            self._temp_line_item = None
+
+    def _update_info_bar(self):
+        if self._connect_mode:
+            if self._connect_source is None:
+                self._info_bar.setText("🔗 <b>連線模式</b>：請【雙擊】起點方塊以拉出虛線。（按 Esc 取消）")
+            else:
+                self._info_bar.setText(f"🔗 <b>連線模式</b>：請【雙擊】終點方塊以確認連線（起點：<b>{self._connect_source}</b>）。（按 Esc 取消）")
+        else:
+            node_id = self.selected_node_id()
+            edge_id = self.selected_edge_id()
+            if node_id:
+                self._info_bar.setText(f"💡 <b>已選取節點 ({node_id})</b>：點選上方按鈕可新增並自動連線，非連線模式下雙擊可重新命名，或在右側編輯屬性。")
+            elif edge_id:
+                self._info_bar.setText(f"💡 <b>已選取連線 ({edge_id})</b>：雙擊可重新命名，可在右側編輯標籤，或按 Delete 刪除。")
+            else:
+                self._info_bar.setText("💡 <b>操作提示</b>：拖曳節點可移動位置。先點選一個節點後再新增形狀，可自動連線。")
+
+    def apply_theme(self, theme):
+        self._theme = theme
+        self._rebuild_scene()
 
     def _direction_changed(self):
         if self._updating:
@@ -579,6 +807,7 @@ class FlowchartCanvas(QWidget):
         self._selected_node_id = node_id
         self._selected_edge_id = None if node_id else edge_id
         self._update_properties()
+        self._update_info_bar()
         kind = "node" if node_id else "edge" if edge_id else ""
         self.selection_changed.emit(kind, node_id or edge_id or "")
 
@@ -598,6 +827,14 @@ class FlowchartCanvas(QWidget):
                 self._node_shape.setCurrentIndex(self._node_shape.findData(node.shape))
                 self._node_x.setValue(node.x)
                 self._node_y.setValue(node.y)
+                
+                self._node_connect_to.blockSignals(True)
+                self._node_connect_to.clear()
+                self._node_connect_to.addItem("-- 選擇目標節點 --", "")
+                for other in self._graph.nodes:
+                    if other.id != node.id:
+                        self._node_connect_to.addItem(f"{other.label} ({other.id})", other.id)
+                self._node_connect_to.blockSignals(False)
             elif self._selected_edge_id and any(
                 edge.id == self._selected_edge_id for edge in self._graph.edges
             ):
@@ -648,3 +885,12 @@ class FlowchartCanvas(QWidget):
     def _emit_changed(self):
         if not self._updating:
             self.graph_changed.emit(self.graph())
+
+    def _create_link_from_dropdown(self):
+        if not self._selected_node_id:
+            return
+        target_id = self._node_connect_to.currentData()
+        if not target_id:
+            return
+        self.add_edge(self._selected_node_id, target_id)
+        self._update_properties()
