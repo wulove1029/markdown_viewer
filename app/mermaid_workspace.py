@@ -44,6 +44,8 @@ from .mermaid_templates import (
     snippet_by_id,
     template_by_id,
 )
+from .structured_mermaid import parse_structured_mermaid, render_structured_mermaid
+from .structured_mermaid_editor import StructuredMermaidEditor
 from .theme import (
     Theme,
     ThemeName,
@@ -178,9 +180,14 @@ class MermaidWorkspaceDialog(QDialog):
         self._canvas.visual_copy_requested.connect(self._create_visual_copy)
         self._gantt_editor = GanttEditor()
         self._gantt_editor.graph_changed.connect(self._on_gantt_chart_changed)
+        self._structured_editor = StructuredMermaidEditor()
+        self._structured_editor.diagram_changed.connect(
+            self._on_structured_diagram_changed
+        )
         self._visual_stack = QStackedWidget()
         self._visual_stack.addWidget(self._canvas)
         self._visual_stack.addWidget(self._gantt_editor)
+        self._visual_stack.addWidget(self._structured_editor)
         self._editor_tabs = QTabWidget()
         source_tab = QWidget()
         source_layout = QVBoxLayout(source_tab)
@@ -314,6 +321,21 @@ QWidget#ganttProperties {{
     border: 1px solid {theme.border};
     border-radius: 6px;
 }}
+QWidget#structuredProperties {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QTableWidget#structuredTable {{
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    gridline-color: {theme.border};
+}}
+QLabel#structuredDiagramTitle {{
+    color: {theme.text};
+    font-size: 13px;
+    font-weight: 600;
+}}
 QLabel#flowchartPropertiesTitle {{
     color: {theme.text};
     font-size: 13px;
@@ -431,11 +453,19 @@ QPlainTextEdit#mermaidSource {{
             self._visual_stack.setCurrentWidget(self._gantt_editor)
             return
 
+        structured_result = parse_structured_mermaid(source)
+        if structured_result.supported:
+            self._structured_editor.set_diagram(structured_result.require_diagram())
+            self._visual_stack.setCurrentWidget(self._structured_editor)
+            return
+
         self._visual_stack.setCurrentWidget(self._canvas)
         self._canvas.set_unsupported(
-            "視覺化模式目前僅支援簡易流程圖 (flowchart TD/LR)。\n"
-            f"{flowchart_result.reason}\n\nGantt 圖表可視覺化編輯；其他 Mermaid "
-            "圖表請使用原始碼模式。",
+            "視覺化模式支援 flowchart TD/LR、gantt、sequenceDiagram、"
+            "classDiagram、stateDiagram-v2 與 erDiagram 的常用語法。\n"
+            f"{flowchart_result.reason}\n\n"
+            f"{gantt_result.reason}\n\n"
+            f"{structured_result.reason}",
             can_create_copy=_looks_like_flowchart(source),
         )
 
@@ -461,6 +491,24 @@ QPlainTextEdit#mermaidSource {{
         if self._syncing:
             return
         text = render_gantt(chart)
+        if text == self.source():
+            return
+        self._syncing = True
+        try:
+            cursor_pos = self._source_editor.textCursor().position()
+            self._source_editor.setPlainText(text)
+            cursor = self._source_editor.textCursor()
+            cursor.setPosition(max(0, min(len(text), cursor_pos)))
+            self._source_editor.setTextCursor(cursor)
+            self._source_editor.document().setModified(True)
+        finally:
+            self._syncing = False
+        self._render_preview(sync_canvas=False)
+
+    def _on_structured_diagram_changed(self, diagram):
+        if self._syncing:
+            return
+        text = render_structured_mermaid(diagram)
         if text == self.source():
             return
         self._syncing = True

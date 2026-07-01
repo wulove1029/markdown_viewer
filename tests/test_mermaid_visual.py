@@ -21,5 +21,9 @@ def test_flowchart_source_routes_to_flowchart_visual_editor():
     assert visual_editor_kind("flowchart LR\nA --> B\n") == "flowchart"
 
 
-def test_other_mermaid_source_routes_to_unsupported_visual_editor():
-    assert visual_editor_kind("sequenceDiagram\nA->>B: hi\n") == "unsupported"
+def test_sequence_source_routes_to_structured_visual_editor():
+    assert visual_editor_kind("sequenceDiagram\nA->>B: hi\n") == "sequence"
+
+
+def test_unknown_mermaid_source_routes_to_unsupported_visual_editor():
+    assert visual_editor_kind("journey\nsection Work\n  Task: 5: Me\n") == "unsupported"

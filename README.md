@@ -161,6 +161,11 @@ For `gantt` diagrams, the **Visual** tab switches to a Gantt task editor. You ca
 edit the title, date format, sections, task names, task IDs, status, start
 rules, and durations, and the workspace regenerates Mermaid Gantt source.
 
+For `sequenceDiagram`, `classDiagram`, `stateDiagram-v2`, and `erDiagram`
+templates, the **Visual** tab switches to a structured table editor with row
+creation, deletion, ordering, and a properties panel. Source edits update the
+structured editor, and structured edits regenerate the Mermaid source.
+
 When editing a Markdown file, use **Tools > Edit Mermaid Diagram** to pick an
 existing fenced Mermaid block, edit it in the workspace, and write it back to
 the source. **Tools > Insert Mermaid Diagram** inserts a new fenced block at the
