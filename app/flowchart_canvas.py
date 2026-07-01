@@ -268,14 +268,67 @@ class _EdgeItem(QGraphicsPathItem):
 
 
 class _CanvasView(QGraphicsView):
+    MIN_ZOOM = 0.35
+    MAX_ZOOM = 3.0
+    ZOOM_STEP = 1.15
+
     def __init__(self, canvas: "FlowchartCanvas", scene: QGraphicsScene):
         super().__init__(scene)
         self._canvas = canvas
+        self._zoom = 1.0
+        self._is_panning = False
+        self._pan_last_pos = None
+        self._pan_drag_mode = QGraphicsView.DragMode.RubberBandDrag
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.viewport().setMouseTracking(True)
 
+    def zoom_factor(self) -> float:
+        return self._zoom
+
+    def zoom_by(self, factor: float):
+        if factor <= 0:
+            return
+        target = max(self.MIN_ZOOM, min(self.MAX_ZOOM, self._zoom * factor))
+        actual = target / self._zoom
+        if math.isclose(actual, 1.0):
+            return
+        self._zoom = target
+        self.scale(actual, actual)
+
+    def reset_zoom(self):
+        self._zoom = 1.0
+        self.resetTransform()
+
+    def pan_by(self, dx: int, dy: int):
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+        steps = delta / 120
+        self.zoom_by(self.ZOOM_STEP ** steps)
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if self._should_start_pan(event):
+            self._start_pan(event.pos())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event):
+        if self._is_panning and self._pan_last_pos is not None:
+            delta = event.pos() - self._pan_last_pos
+            self.pan_by(-delta.x(), -delta.y())
+            self._pan_last_pos = event.pos()
+            event.accept()
+            return
         super().mouseMoveEvent(event)
         if self._canvas._connect_mode and self._canvas._connect_source:
             scene_pos = self.mapToScene(event.pos())
@@ -284,9 +337,50 @@ class _CanvasView(QGraphicsView):
             except Exception:
                 pass
 
+    def mouseReleaseEvent(self, event):
+        if self._is_panning:
+            self._finish_pan()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        if self._is_panning:
+            self._finish_pan()
+        super().leaveEvent(event)
+
+    def _should_start_pan(self, event) -> bool:
+        button = event.button()
+        if button in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
+            return True
+        if button != Qt.MouseButton.LeftButton or self._canvas._connect_mode:
+            return False
+        return self.itemAt(event.pos()) is None
+
+    def _start_pan(self, position):
+        self._is_panning = True
+        self._pan_last_pos = position
+        self._pan_drag_mode = self.dragMode()
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _finish_pan(self):
+        self._is_panning = False
+        self._pan_last_pos = None
+        self.setDragMode(self._pan_drag_mode)
+        self.viewport().unsetCursor()
+
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self._canvas.delete_selected()
+            return
+        is_reset_zoom = (
+            event.key() == Qt.Key.Key_0
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        )
+        if is_reset_zoom:
+            self.reset_zoom()
+            event.accept()
             return
         if event.key() == Qt.Key.Key_Escape:
             if self._canvas._connect_mode:
@@ -788,7 +882,11 @@ class FlowchartCanvas(QWidget):
             elif edge_id:
                 self._info_bar.setText(f"💡 <b>已選取連線 ({edge_id})</b>：雙擊可重新命名，可在右側編輯標籤，或按 Delete 刪除。")
             else:
-                self._info_bar.setText("💡 <b>操作提示</b>：拖曳節點可移動位置。先點選一個節點後再新增形狀，可自動連線。")
+                self._info_bar.setText(
+                    "💡 <b>操作提示</b>：拖曳節點可移動位置；"
+                    "在空白處按住拖曳可平移畫布，滾輪可縮放，Ctrl+0 可重設縮放。"
+                    "先點選一個節點後再新增形狀，可自動連線。"
+                )
 
     def apply_theme(self, theme):
         self._theme = theme

@@ -1,5 +1,9 @@
 """Tests for the visual flowchart canvas widget."""
 
+import pytest
+
+from PyQt6.QtCore import QPoint, Qt
+
 from app.flowchart_canvas import FlowchartCanvas
 from app.flowchart_model import FlowchartGraph
 from app.theme import DARK
@@ -104,3 +108,73 @@ def test_canvas_dark_theme_updates_scene_background(qapp):
     canvas.apply_theme(DARK)
 
     assert canvas._scene.backgroundBrush().color().name() == DARK.surface
+
+
+def test_canvas_view_zoom_helpers_scale_and_clamp(qapp):
+    canvas = FlowchartCanvas()
+    view = canvas._view
+
+    view.zoom_by(1.5)
+    assert view.zoom_factor() == pytest.approx(1.5)
+    assert view.transform().m11() == pytest.approx(1.5)
+
+    view.zoom_by(99)
+    assert view.zoom_factor() == pytest.approx(3.0)
+
+    view.reset_zoom()
+    assert view.zoom_factor() == pytest.approx(1.0)
+    assert view.transform().m11() == pytest.approx(1.0)
+
+
+def test_canvas_view_pan_by_updates_scrollbars(qapp):
+    canvas = FlowchartCanvas()
+    view = canvas._view
+    view.resize(180, 140)
+    canvas._scene.setSceneRect(0, 0, 2000, 1600)
+    view.horizontalScrollBar().setValue(100)
+    view.verticalScrollBar().setValue(120)
+
+    view.pan_by(40, 30)
+
+    assert view.horizontalScrollBar().value() > 100
+    assert view.verticalScrollBar().value() > 120
+
+
+def test_canvas_view_dragging_empty_space_pans(qapp):
+    canvas = FlowchartCanvas()
+    view = canvas._view
+    view.resize(180, 140)
+    canvas.set_graph(FlowchartGraph(direction="LR"))
+    canvas._scene.setSceneRect(0, 0, 2000, 1600)
+    view.horizontalScrollBar().setValue(100)
+    view.verticalScrollBar().setValue(120)
+
+    press = _MouseEvent(Qt.MouseButton.LeftButton, QPoint(20, 20))
+    move = _MouseEvent(Qt.MouseButton.LeftButton, QPoint(-20, -10))
+    release = _MouseEvent(Qt.MouseButton.LeftButton, QPoint(-20, -10))
+
+    view.mousePressEvent(press)
+    view.mouseMoveEvent(move)
+    view.mouseReleaseEvent(release)
+
+    assert press.accepted
+    assert move.accepted
+    assert release.accepted
+    assert view.horizontalScrollBar().value() > 100
+    assert view.verticalScrollBar().value() > 120
+
+
+class _MouseEvent:
+    def __init__(self, button, position):
+        self._button = button
+        self._position = position
+        self.accepted = False
+
+    def button(self):
+        return self._button
+
+    def pos(self):
+        return self._position
+
+    def accept(self):
+        self.accepted = True
