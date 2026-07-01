@@ -78,6 +78,7 @@ class MermaidWorkspaceDialog(QDialog):
     ):
         super().__init__(parent)
         self._theme_name: ThemeName = "dark" if theme_name == "dark" else "light"
+        self._base_theme_name: ThemeName = self._theme_name
         self._theme = get_theme(self._theme_name)
         self._preview_theme_mode = "auto"
         self._last_svg = ""
@@ -111,7 +112,7 @@ class MermaidWorkspaceDialog(QDialog):
         self._theme_combo.addItem("自動主題", "auto")
         self._theme_combo.addItem("淺色", "light")
         self._theme_combo.addItem("深色", "dark")
-        self._theme_combo.activated.connect(self._on_preview_theme_changed)
+        self._theme_combo.activated.connect(self._on_workspace_theme_changed)
 
         self._copy_source_btn = self._button(
             "copy", "複製 Mermaid 原始碼", self._copy_source
@@ -575,9 +576,16 @@ QPlainTextEdit#mermaidSource {{
             return "light"
         return self._theme_name
 
+    def _on_workspace_theme_changed(self):
+        selected = str(self._theme_combo.currentData() or "auto")
+        target = self._base_theme_name if selected == "auto" else selected
+        if target not in ("light", "dark"):
+            target = "light"
+        self._preview_theme_mode = "auto"
+        self.apply_theme(get_theme(target))
+
     def _on_preview_theme_changed(self):
-        self._preview_theme_mode = str(self._theme_combo.currentData() or "auto")
-        self._render_preview()
+        self._on_workspace_theme_changed()
 
     def _insert_selected_snippet(self):
         snippet = snippet_by_id(str(self._snippet_combo.currentData() or ""))
