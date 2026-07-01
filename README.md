@@ -146,6 +146,14 @@ diagram workspace. It has templates, snippets, a live preview, Mermaid error
 feedback, preview theme selection, source formatting, copy Mermaid, copy/export
 SVG, and copy/export PNG.
 
+For `flowchart TD` / `flowchart LR` diagrams, the workspace also has a
+**Visual** tab. Use it to add Start, Process, Decision, and End nodes, drag
+nodes around, connect nodes, edit node/edge labels, delete graph items, and let
+the app regenerate Mermaid source automatically. Supported flowcharts sync both
+ways: editing source updates the visual canvas, and visual edits update source.
+More complex Mermaid syntax stays source-only so the app never rewrites it
+unsafely.
+
 When editing a Markdown file, use **Tools > Edit Mermaid Diagram** to pick an
 existing fenced Mermaid block, edit it in the workspace, and write it back to
 the source. **Tools > Insert Mermaid Diagram** inserts a new fenced block at the

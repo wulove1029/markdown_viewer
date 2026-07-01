@@ -21,10 +21,13 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from .flowchart_canvas import FlowchartCanvas
+from .flowchart_mermaid import parse_flowchart, render_flowchart
 from .mermaid_format import format_mermaid_source
 from .mermaid_render import build_preview_html
 from .mermaid_templates import (
@@ -62,6 +65,7 @@ class MermaidWorkspaceDialog(QDialog):
         self._last_svg = ""
         self._status_attempts = 0
         self._commit_label = commit_label
+        self._syncing = False
 
         self.setWindowTitle("Mermaid Workspace")
         self.resize(1180, 760)
@@ -143,6 +147,16 @@ class MermaidWorkspaceDialog(QDialog):
         )
         self._source_editor.textChanged.connect(self._on_source_changed)
 
+        self._canvas = FlowchartCanvas()
+        self._canvas.graph_changed.connect(self._on_canvas_graph_changed)
+        self._editor_tabs = QTabWidget()
+        source_tab = QWidget()
+        source_layout = QVBoxLayout(source_tab)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.addWidget(self._source_editor)
+        self._editor_tabs.addTab(source_tab, "Source")
+        self._editor_tabs.addTab(self._canvas, "Visual")
+
         self._preview = QWebEngineView()
         self._preview.setObjectName("mermaidPreview")
         self._preview.settings().setAttribute(
@@ -153,8 +167,8 @@ class MermaidWorkspaceDialog(QDialog):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(12, 12, 6, 12)
-        left_layout.addWidget(self._section_label("Mermaid Source"))
-        left_layout.addWidget(self._source_editor)
+        left_layout.addWidget(self._section_label("Mermaid Editor"))
+        left_layout.addWidget(self._editor_tabs)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -200,7 +214,9 @@ class MermaidWorkspaceDialog(QDialog):
         return self._source_editor.toPlainText()
 
     def set_source(self, source: str):
+        self._syncing = True
         self._source_editor.setPlainText(source)
+        self._syncing = False
         self._source_editor.document().setModified(False)
         self._render_preview()
 
@@ -235,6 +251,18 @@ QLabel#mermaidStatus {{
     color: {theme.text_muted};
     padding: 8px 12px;
     min-height: 24px;
+}}
+QGraphicsView#flowchartCanvasView {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+}}
+QLabel#flowchartCanvasMessage {{
+    background: {theme.surface_alt};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text_muted};
+    padding: 10px 12px;
 }}
 QPlainTextEdit#mermaidSource {{
     border-radius: 6px;
@@ -315,15 +343,46 @@ QPlainTextEdit#mermaidSource {{
         self.set_source(template.source)
 
     def _on_source_changed(self):
-        self._preview_timer.start()
+        if not self._syncing:
+            self._preview_timer.start()
 
-    def _render_preview(self):
+    def _render_preview(self, sync_canvas: bool = True):
         self._status_timer.stop()
         self._last_svg = ""
         self._set_svg_actions_enabled(False)
         self._status.setText("Rendering...")
+        if sync_canvas and not self._syncing:
+            self._sync_canvas_from_source()
         html = build_preview_html(self.source(), self._effective_preview_theme())
         self._preview.setHtml(html, QUrl.fromLocalFile(str(Path.cwd()) + "/"))
+
+    def _sync_canvas_from_source(self):
+        result = parse_flowchart(self.source())
+        if result.supported:
+            self._canvas.set_graph(result.require_graph())
+            return
+        self._canvas.set_unsupported(
+            "Visual mode supports simple Mermaid flowchart TD/LR only.\n"
+            f"{result.reason}\n\nContinue editing this diagram in Source mode."
+        )
+
+    def _on_canvas_graph_changed(self, graph):
+        if self._syncing:
+            return
+        text = render_flowchart(graph)
+        if text == self.source():
+            return
+        self._syncing = True
+        try:
+            cursor_pos = self._source_editor.textCursor().position()
+            self._source_editor.setPlainText(text)
+            cursor = self._source_editor.textCursor()
+            cursor.setPosition(max(0, min(len(text), cursor_pos)))
+            self._source_editor.setTextCursor(cursor)
+            self._source_editor.document().setModified(True)
+        finally:
+            self._syncing = False
+        self._render_preview(sync_canvas=False)
 
     def _effective_preview_theme(self) -> ThemeName:
         mode = self._preview_theme_mode
