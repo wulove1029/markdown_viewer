@@ -43,6 +43,12 @@ def test_preview_html_includes_mermaid_asset_when_available():
     assert "graph TD" in html
 
 
+def test_preview_html_scales_svg_to_workspace():
+    html = build_preview_html("graph TD\nA-->B")
+    assert "width: 100% !important" in html
+    assert "preserveAspectRatio" in html
+
+
 def test_preview_html_escapes_script_end_inside_source():
     html = build_preview_html('graph TD\nA["</script><script>alert(1)</script>"]')
     assert '<\\/script><script>alert(1)<\\/script>' in html

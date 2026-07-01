@@ -71,6 +71,8 @@ body {{
 }}
 .preview-shell {{
     min-height: calc(100vh - 40px);
+    width: 100%;
+    overflow: auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -89,11 +91,14 @@ body {{
     color: {error_fg};
 }}
 .mermaid {{
+    width: 100%;
     max-width: 100%;
+    text-align: center;
 }}
 .mermaid svg {{
-    max-width: 100%;
-    height: auto;
+    width: 100% !important;
+    height: auto !important;
+    max-height: calc(100vh - 72px);
 }}
 </style>
 {asset_tag}
@@ -161,6 +166,10 @@ window.__mermaidStatus = {{ ready: false, ok: false, error: "", svg: "" }};
       if (!svg.getAttribute("xmlns")) {{
         svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       }}
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svg.style.width = "100%";
+      svg.style.height = "auto";
+      svg.style.maxHeight = "calc(100vh - 72px)";
       finish(true, "", new XMLSerializer().serializeToString(svg));
     }} catch (err) {{
       const text = err && (err.str || err.message) ? (err.str || err.message) : String(err);

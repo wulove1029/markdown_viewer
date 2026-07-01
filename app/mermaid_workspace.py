@@ -103,24 +103,34 @@ class MermaidWorkspaceDialog(QDialog):
 
         toolbar = QWidget()
         toolbar.setObjectName("mermaidToolbar")
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(8, 0, 8, 0)
-        toolbar_layout.setSpacing(6)
-        toolbar_layout.addWidget(QLabel("Template"))
-        toolbar_layout.addWidget(self._template_combo)
-        toolbar_layout.addWidget(QLabel("Snippet"))
-        toolbar_layout.addWidget(self._snippet_combo)
-        toolbar_layout.addWidget(self._insert_snippet_btn)
-        toolbar_layout.addWidget(self._format_btn)
-        toolbar_layout.addWidget(QLabel("Theme"))
-        toolbar_layout.addWidget(self._theme_combo)
-        toolbar_layout.addSpacing(8)
-        toolbar_layout.addWidget(self._copy_source_btn)
-        toolbar_layout.addWidget(self._copy_svg_btn)
-        toolbar_layout.addWidget(self._copy_png_btn)
-        toolbar_layout.addWidget(self._export_svg_btn)
-        toolbar_layout.addWidget(self._export_png_btn)
-        toolbar_layout.addStretch()
+        toolbar.setFixedHeight(92)
+        toolbar_layout = QVBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(8, 6, 8, 6)
+        toolbar_layout.setSpacing(4)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(6)
+        controls_layout.addWidget(QLabel("Template"))
+        controls_layout.addWidget(self._template_combo, stretch=3)
+        controls_layout.addWidget(QLabel("Snippet"))
+        controls_layout.addWidget(self._snippet_combo, stretch=2)
+        controls_layout.addWidget(self._insert_snippet_btn)
+        controls_layout.addWidget(self._format_btn)
+        controls_layout.addWidget(QLabel("Theme"))
+        controls_layout.addWidget(self._theme_combo, stretch=1)
+
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(6)
+        actions_layout.addStretch()
+        actions_layout.addWidget(self._copy_source_btn)
+        actions_layout.addWidget(self._copy_svg_btn)
+        actions_layout.addWidget(self._copy_png_btn)
+        actions_layout.addWidget(self._export_svg_btn)
+        actions_layout.addWidget(self._export_png_btn)
+        actions_layout.addStretch()
+
+        toolbar_layout.addLayout(controls_layout)
+        toolbar_layout.addLayout(actions_layout)
 
         self._source_editor = QPlainTextEdit()
         self._source_editor.setObjectName("mermaidSource")
@@ -204,8 +214,15 @@ class MermaidWorkspaceDialog(QDialog):
 QWidget#mermaidToolbar {{
     background: {theme.surface};
     border-bottom: 1px solid {theme.border};
-    min-height: 48px;
-    max-height: 48px;
+    min-height: 92px;
+    max-height: 92px;
+}}
+QWidget#mermaidToolbar QPushButton {{
+    min-width: 38px;
+    max-width: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    padding: 0;
 }}
 QLabel#mermaidSection {{
     color: {theme.text_muted};
@@ -230,8 +247,9 @@ QPlainTextEdit#mermaidSource {{
         self._render_preview()
 
     def _button(self, icon_name: str, text: str, slot) -> QPushButton:
-        button = QPushButton(text)
+        button = QPushButton()
         button.setProperty("iconName", icon_name)
+        button.setFixedSize(38, 38)
         button.setIconSize(QSize(18, 18))
         button.setToolTip(text)
         button.setAccessibleName(text)
