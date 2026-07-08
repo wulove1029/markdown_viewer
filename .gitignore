@@ -24,3 +24,7 @@ installer_output/
 # Per-document annotation sidecars (notes / highlights) — local user data
 *.notes.json
 *.highlights.json
+
+# AI collaboration runtime state — local only, not synced
+AI協作/status.json
+.codex_verify/

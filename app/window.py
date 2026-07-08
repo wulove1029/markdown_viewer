@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QInputDialog,
     QMessageBox,
     QProgressDialog,
@@ -96,6 +97,7 @@ from .version import VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+_DETACHED_WINDOWS: set[QMainWindow] = set()
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
 _PDF_PAGE_SIZES = {
@@ -183,7 +185,10 @@ class MainWindow(QMainWindow):
         self._tab_state: dict[str, dict] = {}
         self._active_path: str | None = None
         self._tab_guard = False  # suppress currentChanged while we mutate tabs
-        self._exporting = False  # reentrancy guard for the PPT export action
+        # Detached (tab moved out) windows must not persist their session on
+        # close, or they would clobber the primary window's open_tabs/geometry.
+        self._is_detached = False
+        self._exporting = False  # reentrancy guard for long-running exports
 
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
@@ -329,8 +334,12 @@ class MainWindow(QMainWindow):
         self._tab_bar.setUsesScrollButtons(True)
         self._tab_bar.setElideMode(Qt.TextElideMode.ElideRight)
         self._tab_bar.setVisible(False)
+        self._tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
         self._tab_bar.tabCloseRequested.connect(self._on_tab_close)
+        self._tab_bar.customContextMenuRequested.connect(
+            self._show_tab_context_menu
+        )
 
         renderer_wrap = QWidget()
         renderer_wrap.setObjectName("rendererWorkspace")
@@ -426,6 +435,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(act("匯出 PDF…\tCtrl+Shift+P", self._export_pdf))
         file_menu.addAction(act("匯出 PPT…", self._export_pptx))
+        file_menu.addAction(act("匯出 Word…", self._export_docx))
         file_menu.addSeparator()
         file_menu.addAction(act("離開", self.close))
 
@@ -1561,6 +1571,66 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if self._tab_bar.count() > 0:
             self._on_tab_close(self._tab_bar.currentIndex())
 
+    def _show_tab_context_menu(self, pos):
+        idx = self._tab_bar.tabAt(pos)
+        if idx < 0:
+            return
+        menu = self._build_tab_context_menu(idx)
+        menu.exec(self._tab_bar.mapToGlobal(pos))
+
+    def _build_tab_context_menu(self, idx: int) -> QMenu:
+        menu = QMenu(self._tab_bar)
+        detach_action = menu.addAction("移至新視窗")
+        detach_action.setEnabled(self._can_detach_tab(idx))
+        detach_action.triggered.connect(
+            lambda _checked=False, tab_index=idx: self._detach_tab(tab_index)
+        )
+        return menu
+
+    def _can_detach_tab(self, idx: int) -> bool:
+        return (
+            self._tab_bar.count() > 1
+            and 0 <= idx < self._tab_bar.count()
+            and bool(self._tab_bar.tabData(idx))
+        )
+
+    def _detach_tab(self, idx: int):
+        if not self._can_detach_tab(idx):
+            return
+        key = self._tab_bar.tabData(idx)
+        path = Path(key)
+        if key == self._active_path:
+            if self._edit_mode:
+                if not self._confirm_discard_edits():
+                    return
+                self._leave_edit_ui()
+            self._save_active_view_state()
+        state = dict(self._tab_state.get(key) or {})
+        kind = state.get("kind") or document_kind(path)
+        if not kind:
+            return
+
+        new_window = MainWindow()
+        new_window._is_detached = True
+        new_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        new_window.setWindowIcon(self.windowIcon())
+        _DETACHED_WINDOWS.add(new_window)
+        new_window.destroyed.connect(
+            lambda _obj=None, window=new_window: _DETACHED_WINDOWS.discard(window)
+        )
+        new_window.open_path(key)
+        if new_window._index_of_path(key) < 0:
+            new_window.close()
+            return
+        new_window._tab_state[key] = {**new_window._tab_state.get(key, {}), **state}
+        if new_window._active_path == key:
+            new_window._load_document(path, kind)
+        new_window.show()
+        new_window.raise_()
+        new_window.activateWindow()
+
+        self._on_tab_close(idx)
+
     def _next_tab(self):
         self._step_tab(1)
 
@@ -2344,6 +2414,62 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
         )
 
+    def _export_docx(self):
+        if (
+            self._exporting
+            or not self._current_file
+            or self._edit_mode
+            or not is_markdown(self._current_file)
+        ):
+            return
+        result = read_text(self._current_file)
+        if result is None:
+            QMessageBox.warning(self, "匯出 Word", "無法讀取檔案內容。")
+            return
+        text, _enc = result
+        default = str(self._current_file.with_suffix(".docx"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "匯出 Word", default, "Word 文件 (*.docx)"
+        )
+        if not path:
+            return
+
+        self._exporting = True
+        renderer = None
+        provider = None
+        try:
+            from .fragment_render import FragmentRenderer
+
+            renderer = FragmentRenderer(parent=self)
+            provider = renderer.provide
+        except Exception:
+            renderer = None
+            provider = None
+
+        try:
+            from .docx_export import export_markdown_to_docx
+
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                export_markdown_to_docx(
+                    text,
+                    path,
+                    base_dir=self._current_file.parent,
+                    image_provider=provider,
+                )
+            finally:
+                QApplication.restoreOverrideCursor()
+                if renderer is not None:
+                    renderer.cleanup()
+        except Exception as exc:
+            QMessageBox.warning(self, "匯出 Word", f"匯出失敗：{exc}")
+            return
+        finally:
+            self._exporting = False
+        self.statusBar().showMessage(
+            f"已匯出 Word 文件至 {Path(path).name}", 5000
+        )
+
     def _ask_page_setup(self):
         settings = QSettings(_ORG, _APP)
         last_size = settings.value("pdf_page_size", "A4") or "A4"
@@ -2618,12 +2744,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not self._confirm_discard_edits():
             event.ignore()
             return
-        settings = QSettings(_ORG, _APP)
-        settings.setValue("geometry", self.saveGeometry())
         self._save_active_view_state()
-        open_tabs = [self._tab_bar.tabData(i) for i in range(self._tab_bar.count())]
-        settings.setValue("open_tabs", json.dumps(open_tabs))
-        settings.setValue("active_tab", self._tab_bar.currentIndex())
-        if self._current_file:
-            settings.setValue("last_file", str(self._current_file))
+        if not self._is_detached:
+            settings = QSettings(_ORG, _APP)
+            settings.setValue("geometry", self.saveGeometry())
+            open_tabs = [
+                self._tab_bar.tabData(i) for i in range(self._tab_bar.count())
+            ]
+            settings.setValue("open_tabs", json.dumps(open_tabs))
+            settings.setValue("active_tab", self._tab_bar.currentIndex())
+            if self._current_file:
+                settings.setValue("last_file", str(self._current_file))
         super().closeEvent(event)

@@ -11,7 +11,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),   # 帶入 CSS 檔案
         ('ICON/icon.ico', 'ICON'),
-    ] + collect_data_files('pptx'),   # python-pptx 預設範本 (default.pptx 等)
+    ] + collect_data_files('pptx') + collect_data_files('docx'),
     hiddenimports=[
         'pygments.lexers._mapping',
         'pygments.formatters.html',
@@ -24,6 +24,7 @@ a = Analysis(
         'uc_micro',
         'pymupdf',
         'pptx',
+        'docx',
         'lxml.etree',
         'lxml._elementpath',
         'PyQt6.QtPdf',
