@@ -2,7 +2,7 @@
 
 import pytest
 
-from PyQt6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, Qt
 
 from app.flowchart_canvas import FlowchartCanvas
 from app.flowchart_model import FlowchartGraph

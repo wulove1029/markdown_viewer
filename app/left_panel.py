@@ -1,7 +1,7 @@
 """Tabbed left workspace panel."""
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,

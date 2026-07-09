@@ -5,8 +5,8 @@ Status: Draft for user review
 
 ## Context
 
-Markdown Viewer is a Windows desktop Markdown previewer built with PyQt6 and
-PyQt6-WebEngine. Documents are converted to HTML (`app/md_converter.py`) and
+Markdown Viewer is a Windows desktop Markdown previewer built with PySide6 and
+PySide6 WebEngine. Documents are converted to HTML (`app/md_converter.py`) and
 rendered read-only in a `QWebEngineView` (`app/renderer.py`). An edit mode lets
 the user edit the raw Markdown text. The left side has a ribbon
 (`app/ribbon.py`) and a panel (`app/left_panel.py`) with three tabs: file
@@ -151,7 +151,7 @@ page, so existing marks persist; an explicit reload re-resolves all anchors.
 
 ## Bridge API (`annotation_bridge.py`)
 
-`AnnotationBridge(QObject)` exposes `@pyqtSlot`s callable from JS:
+`AnnotationBridge(QObject)` exposes `@Slot`s callable from JS:
 
 - `add(payload_json: str) -> str` (new id returned to JS asynchronously via the
   QWebChannel callback)

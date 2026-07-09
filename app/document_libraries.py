@@ -9,7 +9,7 @@ from pathlib import Path
 import string
 from uuid import uuid4
 
-from PyQt6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths
 
 from .file_types import SUPPORTED_EXTENSIONS, document_kind
 

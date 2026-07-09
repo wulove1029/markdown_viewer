@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QColor,
     QFont,
     QSyntaxHighlighter,

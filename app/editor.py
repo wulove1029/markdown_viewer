@@ -1,15 +1,15 @@
 """Plain-text Markdown editor shown when edit mode is active."""
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QFont, QFontMetricsF
-from PyQt6.QtWidgets import QPlainTextEdit
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QFont, QFontMetricsF
+from PySide6.QtWidgets import QPlainTextEdit
 
 from .md_highlighter import MarkdownHighlighter
 from .theme import LIGHT, Theme
 
 
 class EditorView(QPlainTextEdit):
-    modified_changed = pyqtSignal(bool)
+    modified_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)

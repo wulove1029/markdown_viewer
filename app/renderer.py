@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from pathlib import Path
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QFile,
     QIODevice,
     QMarginsF,
@@ -13,16 +13,16 @@ from PyQt6.QtCore import (
     QThreadPool,
     QTimer,
     QUrl,
-    pyqtSignal,
+    Signal,
 )
-from PyQt6.QtGui import QDesktopServices, QPageLayout, QPageSize
-from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import (
+from PySide6.QtGui import QDesktopServices, QPageLayout, QPageSize
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtWebEngineCore import (
     QWebEnginePage,
     QWebEngineSettings,
     QWebEngineUrlScheme,
 )
-from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .annotation_bridge import AnnotationBridge
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
@@ -102,7 +102,7 @@ class _DocumentPage(QWebEnginePage):
 
 
 class _RenderSignals(QObject):
-    ready = pyqtSignal(int, object, str, list)
+    ready = Signal(int, object, str, list)
 
 
 class _MarkdownRenderWorker(QRunnable):
@@ -147,9 +147,9 @@ class _MarkdownRenderWorker(QRunnable):
 
 
 class RendererView(QWebEngineView):
-    active_anchor_changed = pyqtSignal(str)
-    wikilink_clicked = pyqtSignal(str)
-    local_doc_clicked = pyqtSignal(str)
+    active_anchor_changed = Signal(str)
+    wikilink_clicked = Signal(str)
+    local_doc_clicked = Signal(str)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -543,7 +543,7 @@ class RendererView(QWebEngineView):
         self.page().runJavaScript(js)
 
     def find_text(self, text: str, result_callback=None):
-        # Passing resultCallback=None into PyQt6 findText crashes the process.
+        # Passing resultCallback=None into PySide6 findText crashes the process.
         if result_callback is None:
             self.page().findText(text)
         else:
@@ -553,7 +553,7 @@ class RendererView(QWebEngineView):
         self.page().findText(text)
 
     def find_prev(self, text: str):
-        from PyQt6.QtWebEngineCore import QWebEnginePage
+        from PySide6.QtWebEngineCore import QWebEnginePage
 
         self.page().findText(
             text, QWebEnginePage.FindFlag.FindBackward

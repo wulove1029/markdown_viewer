@@ -6,7 +6,7 @@
 
 **Architecture:** Add a small theme layer that owns semantic tokens, SVG icon generation, and shared PyQt styles. Rework the main window into toolbar + side panel + renderer while preserving existing file browser, recent files, outline, conversion, drag/drop, keyboard shortcuts, and updater behavior.
 
-**Tech Stack:** Python 3, PyQt6, PyQt6-WebEngine, markdown-it-py, mdit_py_plugins, Pygments, Qt stylesheets, inline SVG icons via `QIcon`.
+**Tech Stack:** Python 3, PySide6, PySide6 WebEngine, markdown-it-py, mdit_py_plugins, Pygments, Qt stylesheets, inline SVG icons via `QIcon`.
 
 ---
 
@@ -53,9 +53,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from PyQt6.QtCore import QByteArray, QSize
-from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtSvg import QSvgRenderer
+from PySide6.QtCore import QByteArray, QSize
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 
 ThemeName = Literal["light", "dark"]
 
@@ -173,8 +173,8 @@ def svg_icon(name: str, color: str, size: int = 20) -> QIcon:
 After adding this file, fix the missing imports by adding `QPainter` and `Qt` to the import section:
 
 ```python
-from PyQt6.QtCore import QByteArray, QSize, Qt
-from PyQt6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtCore import QByteArray, QSize, Qt
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 ```
 
 - [ ] **Step 2: Add shared stylesheet builders**
@@ -614,7 +614,7 @@ Modify `app/renderer.py` to store theme and current file:
 
 ```python
 class RendererView(QWebEngineView):
-    active_anchor_changed = pyqtSignal(str)
+    active_anchor_changed = Signal(str)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -717,7 +717,7 @@ Expected: commit succeeds.
 Update `LeftPanel` to accept a theme and use `QTabWidget`:
 
 ```python
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QTabWidget, QPushButton, QHBoxLayout,
     QFileDialog,
 )

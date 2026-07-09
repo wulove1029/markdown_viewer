@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QFileSystemWatcher,
     QMarginsF,
     QProcess,
@@ -16,9 +16,9 @@ from PyQt6.QtCore import (
     QThread,
     QTimer,
     QUrl,
-    pyqtSignal,
+    Signal,
 )
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QAction,
     QDesktopServices,
     QDragEnterEvent,
@@ -30,7 +30,7 @@ from PyQt6.QtGui import (
     QTextCursor,
     QTextDocument,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
@@ -119,7 +119,7 @@ _PT_PER_PX = 72.0 / 96.0
 
 
 class UpdateCheckThread(QThread):
-    finished_check = pyqtSignal(object, object)
+    finished_check = Signal(object, object)
 
     def run(self):
         try:
@@ -131,7 +131,7 @@ class UpdateCheckThread(QThread):
 class LinkIndexThread(QThread):
     """Build the wiki-link index off the UI thread (reads many small files)."""
 
-    ready = pyqtSignal(object)
+    ready = Signal(object)
 
     def __init__(self, roots, parent=None):
         super().__init__(parent)
@@ -148,7 +148,7 @@ class LinkIndexThread(QThread):
 
 
 class UpdateDownloadThread(QThread):
-    finished_download = pyqtSignal(object, object)
+    finished_download = Signal(object, object)
 
     def __init__(self, update: UpdateInfo, parent=None):
         super().__init__(parent)

@@ -5,8 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import (
+from shiboken6 import isValid
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import (
     QBrush,
     QColor,
     QKeyEvent,
@@ -14,7 +15,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -51,7 +52,7 @@ class _NodeItem(QGraphicsPathItem):
         super().__init__()
         self.canvas = canvas
         self.node_id = node.id
-        self.shape = node.shape
+        self._node_shape = node.shape
         self.setPath(self._shape_path(node.shape))
         
         # Read colors from theme
@@ -111,7 +112,7 @@ class _NodeItem(QGraphicsPathItem):
         super().hoverLeaveEvent(event)
 
     def paint(self, painter: QPainter, option, widget=None):
-        from PyQt6.QtWidgets import QStyle
+        from PySide6.QtWidgets import QStyle
         
         is_selected = self.isSelected()
         old_state = option.state
@@ -242,7 +243,7 @@ class _EdgeItem(QGraphicsPathItem):
         self.label.setPos((a.x() + b.x()) / 2, (a.y() + b.y()) / 2 - 22)
 
     def paint(self, painter: QPainter, option, widget=None):
-        from PyQt6.QtWidgets import QStyle
+        from PySide6.QtWidgets import QStyle
         
         is_selected = self.isSelected()
         old_state = option.state
@@ -397,9 +398,9 @@ class _CanvasView(QGraphicsView):
 
 
 class FlowchartCanvas(QWidget):
-    graph_changed = pyqtSignal(object)
-    visual_copy_requested = pyqtSignal()
-    selection_changed = pyqtSignal(str, str)
+    graph_changed = Signal(object)
+    visual_copy_requested = Signal()
+    selection_changed = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -835,11 +836,10 @@ class FlowchartCanvas(QWidget):
     def _update_temp_line(self, scene_pos: QPointF):
         if not self._connect_source or self._connect_source not in self._node_items:
             return
-        from PyQt6 import sip
         is_deleted = False
         if hasattr(self, "_temp_line_item") and self._temp_line_item is not None:
             try:
-                is_deleted = sip.isdeleted(self._temp_line_item)
+                is_deleted = not isValid(self._temp_line_item)
             except Exception:
                 is_deleted = True
         if not hasattr(self, "_temp_line_item") or self._temp_line_item is None or is_deleted:
@@ -859,10 +859,9 @@ class FlowchartCanvas(QWidget):
             self._temp_line_item = None
 
     def _clear_temp_line(self):
-        from PyQt6 import sip
         if hasattr(self, "_temp_line_item") and self._temp_line_item is not None:
             try:
-                if not sip.isdeleted(self._temp_line_item):
+                if isValid(self._temp_line_item):
                     self._scene.removeItem(self._temp_line_item)
             except Exception:
                 pass

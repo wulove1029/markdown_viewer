@@ -1,6 +1,6 @@
 # Markdown Viewer
 
-Windows desktop Markdown viewer and editor (with PDF reading) built with PyQt6.
+Windows desktop Markdown viewer and editor (with PDF reading) built with PySide6.
 
 ## Markdown Support
 

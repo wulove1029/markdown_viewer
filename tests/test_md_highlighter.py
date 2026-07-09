@@ -1,6 +1,6 @@
 """Tests for the editor's Markdown syntax highlighter."""
 
-from PyQt6.QtGui import QTextDocument
+from PySide6.QtGui import QTextDocument
 
 from app.md_highlighter import MarkdownHighlighter
 from app.theme import DARK, LIGHT

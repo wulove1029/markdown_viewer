@@ -3,9 +3,9 @@
 import subprocess
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QSettings, Qt
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QMenu
+from PySide6.QtCore import QPoint, QSettings, Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu
 
 from .theme import LIGHT, Theme, collection_stylesheet
 

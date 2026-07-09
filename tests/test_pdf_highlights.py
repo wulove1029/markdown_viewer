@@ -77,7 +77,7 @@ def _make_pdf(path):
 
 
 def _wait_ready(view, qapp):
-    from PyQt6.QtPdf import QPdfDocument
+    from PySide6.QtPdf import QPdfDocument
 
     for _ in range(300):
         if view._doc.status() == QPdfDocument.Status.Ready and view._page_tops:
@@ -88,8 +88,8 @@ def _wait_ready(view, qapp):
 
 
 def test_drag_selection_emits_highlight(qapp, tmp_path):
-    from PyQt6.QtCore import QEvent, QPointF, Qt
-    from PyQt6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
 
     from app.pdf_view import PdfView
 

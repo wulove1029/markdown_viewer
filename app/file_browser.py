@@ -5,9 +5,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt, QUrl
-from PyQt6.QtGui import QAction, QColor, QDesktopServices, QFont
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
+from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,

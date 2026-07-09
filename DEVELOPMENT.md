@@ -35,16 +35,17 @@ py -3 -m pip install -r requirements.txt
 `requirements.txt` 包含：
 
 ```
-PyQt6>=6.6
-PyQt6-WebEngine>=6.6
+PySide6>=6.11
 markdown-it-py>=3.0
 mdit_py_plugins>=0.4
 linkify-it-py>=2.0
 Pygments>=2.17
 PyMuPDF>=1.24
+python-pptx>=1.0
+python-docx>=1.1
 ```
 
-> PyQt6 內含 QtPdf / QtPdfWidgets（PDF 閱讀）與 QtWebEngine（Markdown 渲染），
+> PySide6 內含 QtPdf / QtPdfWidgets（PDF 閱讀）與 QtWebEngine（Markdown 渲染），
 > 不需額外安裝。KaTeX 數學字型已離線打包於 `assets/katex/`。
 
 ---
@@ -185,10 +186,10 @@ markdown_viewer/
 **Q: `py -3` 找不到指令？**
 重新安裝 Python 並勾選「Install launcher for all users」。
 
-**Q: `PyQt6` 安裝失敗？**
+**Q: `PySide6` 安裝失敗？**
 確認 pip 是最新版：`py -3 -m pip install --upgrade pip`
 
-**Q: 執行時出現 `No module named 'PyQt6'`？**
+**Q: 執行時出現 `No module named 'PySide6'`？**
 代表 IDE 使用的 Python 與 `py -3` 不同。在 VS Code 按 `Ctrl+Shift+P` → `Python: Select Interpreter`，選與 `py -3` 相同的路徑。
 
 **Q: 圖示在 Windows 沒有更新？**

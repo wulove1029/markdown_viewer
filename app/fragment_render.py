@@ -31,9 +31,9 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QMarginsF, QSizeF, QTimer, QUrl, QEventLoop
-from PyQt6.QtGui import QPageLayout, QPageSize
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PySide6.QtCore import QMarginsF, QSizeF, QTimer, QUrl, QEventLoop
+from PySide6.QtGui import QPageLayout, QPageSize
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 
 try:
     import pymupdf

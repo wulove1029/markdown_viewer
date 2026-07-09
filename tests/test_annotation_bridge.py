@@ -32,7 +32,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, QTimer
 
 from app.annotations import Annotation
 from app.renderer import RendererView

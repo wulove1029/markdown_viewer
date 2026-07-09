@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -24,7 +24,7 @@ from .gantt_model import GanttChart, GanttSection, GanttTask, default_gantt
 
 
 class GanttEditor(QWidget):
-    graph_changed = pyqtSignal(object)
+    graph_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)

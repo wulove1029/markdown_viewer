@@ -5,8 +5,8 @@ Status: Draft for user review
 
 ## Context
 
-Markdown Viewer is a Windows desktop Markdown previewer built with PyQt6 and
-PyQt6-WebEngine. The current UI uses an Obsidian-like left ribbon, a left panel,
+Markdown Viewer is a Windows desktop Markdown previewer built with PySide6 and
+PySide6 WebEngine. The current UI uses an Obsidian-like left ribbon, a left panel,
 and a central WebEngine preview. There is no existing `DESIGN.md` or design token
 source in the repository.
 

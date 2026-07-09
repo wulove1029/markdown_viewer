@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
     QLabel,
@@ -23,7 +23,7 @@ from .theme import LIGHT, Theme, collection_stylesheet
 class _NoteEdit(QPlainTextEdit):
     """QPlainTextEdit that emits editingFinished when it loses focus."""
 
-    editingFinished = pyqtSignal()
+    editingFinished = Signal()
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)

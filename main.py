@@ -5,10 +5,10 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QStandardPaths
-from PyQt6.QtGui import QIcon
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import Qt, QStandardPaths
+from PySide6.QtGui import QIcon
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QApplication
 
 from app.version import VERSION
 from app.window import MainWindow

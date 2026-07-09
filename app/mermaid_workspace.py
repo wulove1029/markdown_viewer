@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QMimeData, QRectF, QSize, QTimer, QUrl, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter
-from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtWebEngineCore import QWebEngineSettings
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QByteArray, QMimeData, QRectF, QSize, QTimer, QUrl, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtWebEngineCore import QWebEngineSettings
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,

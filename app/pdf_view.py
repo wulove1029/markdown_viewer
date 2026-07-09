@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QKeySequence, QPainter, QPixmap
-from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions, QPdfSearchModel
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPixmap
+from PySide6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions, QPdfSearchModel
+from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
     QInputDialog,
@@ -78,10 +78,10 @@ def extract_outline(path, password: str = "") -> list[tuple[int, str, int]]:
 
 
 class PdfView(QAbstractScrollArea):
-    page_changed = pyqtSignal(int)          # 0-based current page
-    search_count_changed = pyqtSignal(int)  # number of matches
-    selection_changed = pyqtSignal(bool)    # True when a non-empty selection exists
-    highlight_requested = pyqtSignal(object)  # {page, rects:[(x,y,w,h)], text, color}
+    page_changed = Signal(int)          # 0-based current page
+    search_count_changed = Signal(int)  # number of matches
+    selection_changed = Signal(bool)    # True when a non-empty selection exists
+    highlight_requested = Signal(object)  # {page, rects:[(x,y,w,h)], text, color}
 
     PAGE_MARGIN = 12   # gutter around the page column (px)
     PAGE_SPACING = 12  # gap between pages (px)

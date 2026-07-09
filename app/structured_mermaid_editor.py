@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -87,7 +87,7 @@ _COLUMN_LABELS = {
 class StructuredMermaidEditor(QWidget):
     """Edit sequence, class, state, and ER diagrams as structured rows."""
 
-    diagram_changed = pyqtSignal(object)
+    diagram_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)

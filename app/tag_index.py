@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths
 
 
 def _default_index_path() -> Path:

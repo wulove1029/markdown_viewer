@@ -1,9 +1,9 @@
 """Right panel: TOC (top) + File browser (bottom), each collapsible."""
 
 from pathlib import Path
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QPushButton,
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton,
                               QSplitter, QSizePolicy)
-from PyQt6.QtCore import Qt
+from PySide6.QtCore import Qt
 
 from .toc import TocView
 from .sidebar import SidebarView

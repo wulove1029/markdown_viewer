@@ -6,7 +6,7 @@
 
 **Architecture:** Pure-Python data layer (`annotations.py`, `tag_index.py`) is unit-tested with pytest. A `QWebChannel` bridge (`annotation_bridge.py`) connects in-page JavaScript (`assets/annotations.js`) to Python. The JS captures selections, anchors them with a TextQuoteSelector, and renders `<mark>` elements; Python persists to `<md>.notes.json`. Qt UI adds a "標註" tab and a recent-list tag filter.
 
-**Tech Stack:** Python 3.11+, PyQt6, PyQt6-WebEngine, QWebChannel, pytest (offscreen for WebEngine tests), vanilla JS.
+**Tech Stack:** Python 3.11+, PySide6, PySide6 WebEngine, QWebChannel, pytest (offscreen for WebEngine tests), vanilla JS.
 
 **Spec:** `docs/superpowers/specs/2026-06-25-annotations-design.md`
 
@@ -61,7 +61,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 
 @pytest.fixture(scope="session")
@@ -334,7 +334,7 @@ import json
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import QStandardPaths
+from PySide6.QtCore import QStandardPaths
 
 
 def _default_index_path() -> Path:
@@ -466,33 +466,33 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+from PySide6.QtCore import QObject, Signal, Slot
 
 
 class AnnotationBridge(QObject):
-    added = pyqtSignal(str)            # full annotation payload (json, id included)
-    changed = pyqtSignal(str, str)     # id, fields json
-    removed = pyqtSignal(str)          # id
-    clicked = pyqtSignal(str)          # id
-    orphansReported = pyqtSignal(list)  # list[str] of ids
+    added = Signal(str)            # full annotation payload (json, id included)
+    changed = Signal(str, str)     # id, fields json
+    removed = Signal(str)          # id
+    clicked = Signal(str)          # id
+    orphansReported = Signal(list)  # list[str] of ids
 
-    @pyqtSlot(str)
+    @Slot(str)
     def add(self, payload_json):
         self.added.emit(payload_json)
 
-    @pyqtSlot(str, str)
+    @Slot(str, str)
     def update(self, ann_id, fields_json):
         self.changed.emit(ann_id, fields_json)
 
-    @pyqtSlot(str)
+    @Slot(str)
     def remove(self, ann_id):
         self.removed.emit(ann_id)
 
-    @pyqtSlot(str)
+    @Slot(str)
     def clickedAnnotation(self, ann_id):
         self.clicked.emit(ann_id)
 
-    @pyqtSlot(str)
+    @Slot(str)
     def reportOrphans(self, ids_json):
         try:
             ids = json.loads(ids_json)
@@ -785,7 +785,7 @@ Append to `tests/test_annotation_bridge.py`:
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, QTimer
 
 from app.annotations import Annotation
 from app.renderer import RendererView
@@ -845,8 +845,8 @@ Expected: FAIL — `AttributeError: 'RendererView' object has no attribute 'set_
 
 After the existing imports (the block ending with `from .md_converter import convert, state_page_html`), add:
 ```python
-from PyQt6.QtCore import QFile, QIODevice
-from PyQt6.QtWebChannel import QWebChannel
+from PySide6.QtCore import QFile, QIODevice
+from PySide6.QtWebChannel import QWebChannel
 
 from .annotation_bridge import AnnotationBridge
 ```
@@ -981,7 +981,7 @@ In `app/theme.py`, in the `ICONS` dict, after the `"file-down"` entry add:
 Run:
 ```bash
 python -c "import os; os.environ['QT_QPA_PLATFORM']='offscreen'; \
-from PyQt6.QtWidgets import QApplication; QApplication([]); \
+from PySide6.QtWidgets import QApplication; QApplication([]); \
 from app.theme import svg_icon; print('ok', not svg_icon('highlighter', '#000').isNull())"
 ```
 Expected: `ok True`
@@ -1013,9 +1013,9 @@ existing `on_file_selected` pattern).
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
     QLabel,
@@ -1034,7 +1034,7 @@ from .theme import LIGHT, Theme, collection_stylesheet
 class _NoteEdit(QPlainTextEdit):
     """QPlainTextEdit that emits editingFinished when it loses focus."""
 
-    editingFinished = pyqtSignal()
+    editingFinished = Signal()
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
@@ -1193,7 +1193,7 @@ class AnnotationsPanel(QWidget):
 Run:
 ```bash
 python -c "import os; os.environ['QT_QPA_PLATFORM']='offscreen'; \
-from PyQt6.QtWidgets import QApplication; QApplication([]); \
+from PySide6.QtWidgets import QApplication; QApplication([]); \
 from app.annotations_panel import AnnotationsPanel; \
 cb={k:(lambda *a:None) for k in ['note_changed','color_changed','tags_changed','deleted','doc_tags_changed','activated']}; \
 print('ok', AnnotationsPanel(cb) is not None)"
