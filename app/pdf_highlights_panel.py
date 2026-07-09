@@ -12,10 +12,12 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QColorDialog,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -40,6 +42,7 @@ class PdfHighlightsPanel(QWidget):
         # callbacks: activated(id), recolor(id, hex), note(id), deleted(id)
         self._callbacks = callbacks
         self._theme = LIGHT
+        self._selected_id: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -55,7 +58,15 @@ class PdfHighlightsPanel(QWidget):
         self._list.customContextMenuRequested.connect(self._on_menu)
 
         layout.addWidget(self._hint)
-        layout.addWidget(self._list)
+        layout.addWidget(self._list, stretch=1)
+
+        row = QHBoxLayout()
+        self._delete_btn = QPushButton("刪除")
+        self._delete_btn.clicked.connect(self._delete_selected)
+        row.addStretch(1)
+        row.addWidget(self._delete_btn)
+        layout.addLayout(row)
+
         self.apply_theme(LIGHT)
         self.set_highlights([])
 
@@ -66,12 +77,16 @@ class PdfHighlightsPanel(QWidget):
         self._list.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
 
     def set_highlights(self, highlights):
+        previous_id = self._selected_id
         self._list.clear()
         if not highlights:
+            self._selected_id = None
             item = QListWidgetItem("此 PDF 尚無螢光標記")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self._list.addItem(item)
+            self._set_delete_enabled(False)
             return
+        self._selected_id = None
         for hl in highlights:
             snippet = (hl.text or "").strip().replace("\n", " ").replace("\r", " ")
             if len(snippet) > 50:
@@ -89,10 +104,16 @@ class PdfHighlightsPanel(QWidget):
                 tip = f"{tip}\n📝 {hl.note}" if tip else hl.note
             item.setToolTip(tip)
             self._list.addItem(item)
+            if hl.id == previous_id:
+                self._selected_id = hl.id
+                self._list.setCurrentItem(item)
+        self._set_delete_enabled(self._selected_id is not None)
 
     def _on_clicked(self, item: QListWidgetItem):
         hid = item.data(Qt.ItemDataRole.UserRole)
         if hid:
+            self._selected_id = hid
+            self._set_delete_enabled(True)
             self._callbacks.get("activated", lambda _i: None)(hid)
 
     def _on_menu(self, pos: QPoint):
@@ -136,6 +157,13 @@ class PdfHighlightsPanel(QWidget):
         color = QColorDialog.getColor(QColor("#ffd54f"), self, "選擇螢光顏色")
         if color.isValid():
             self._callbacks.get("recolor", lambda _i, _c: None)(hid, color.name())
+
+    def _set_delete_enabled(self, on: bool):
+        self._delete_btn.setEnabled(bool(on))
+
+    def _delete_selected(self):
+        if self._selected_id:
+            self._callbacks.get("deleted", lambda _i: None)(self._selected_id)
 
 
 class PdfMarkupPanel(QWidget):

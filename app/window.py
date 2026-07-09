@@ -7,11 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QFileSystemWatcher,
-    QMarginsF,
-    QProcess,
     QSettings,
     QSize,
-    QSizeF,
     Qt,
     QThread,
     QTimer,
@@ -20,24 +17,16 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction,
-    QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QKeySequence,
-    QPageLayout,
-    QPageSize,
     QShortcut,
     QTextCursor,
     QTextDocument,
 )
 from PySide6.QtWidgets import (
-    QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -45,7 +34,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QInputDialog,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -59,6 +47,7 @@ from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .editor import EditorView
+from . import export_actions, session_state, update_flow
 from .file_types import document_kind, is_markdown, is_supported_document
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
@@ -66,7 +55,6 @@ from .md_converter import (
     front_matter_tags,
     parse_front_matter,
     read_text,
-    set_user_css,
 )
 from .mermaid_blocks import (
     find_mermaid_blocks,
@@ -79,7 +67,6 @@ from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
-from .settings_dialog import SettingsDialog
 from .renderer import RendererView
 from .theme import (
     HIT_TARGET,
@@ -92,40 +79,11 @@ from .theme import (
     toolbar_stylesheet,
 )
 from .tag_index import TagIndex
-from .updater import UpdateInfo, check_for_update, download_installer
 from .version import VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
-
-# PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
-_PDF_PAGE_SIZES = {
-    "A4": QPageSize.PageSizeId.A4,
-    "A3": QPageSize.PageSizeId.A3,
-    "Letter": QPageSize.PageSizeId.Letter,
-    "Legal": QPageSize.PageSizeId.Legal,
-}
-_PDF_SIZE_CHOICES = [
-    ("A4", "A4"),
-    ("A3", "A3"),
-    ("Letter", "Letter（美規信紙）"),
-    ("Legal", "Legal（美規法律）"),
-    ("single", "單一長頁（不分頁）"),
-]
-# PDF pages cannot exceed ~200 inches; stay safely under that limit (points).
-_PDF_MAX_PT = 14000.0
-_PT_PER_PX = 72.0 / 96.0
-
-
-class UpdateCheckThread(QThread):
-    finished_check = Signal(object, object)
-
-    def run(self):
-        try:
-            self.finished_check.emit(check_for_update(), None)
-        except Exception as exc:
-            self.finished_check.emit(None, exc)
 
 
 class LinkIndexThread(QThread):
@@ -145,20 +103,6 @@ class LinkIndexThread(QThread):
             self.ready.emit(index)
         except Exception:
             self.ready.emit(None)
-
-
-class UpdateDownloadThread(QThread):
-    finished_download = Signal(object, object)
-
-    def __init__(self, update: UpdateInfo, parent=None):
-        super().__init__(parent)
-        self._update = update
-
-    def run(self):
-        try:
-            self.finished_download.emit(download_installer(self._update), None)
-        except Exception as exc:
-            self.finished_download.emit(None, exc)
 
 
 class MainWindow(QMainWindow):
@@ -318,6 +262,7 @@ class MainWindow(QMainWindow):
         self._pdf_view.page_changed.connect(self._on_pdf_page_changed)
         self._pdf_view.search_count_changed.connect(self._on_pdf_search_count)
         self._pdf_view.highlight_requested.connect(self._on_pdf_highlight_requested)
+        self._pdf_view.highlight_delete_requested.connect(self._pdf_highlight_delete)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._renderer)
@@ -504,6 +449,7 @@ class MainWindow(QMainWindow):
             ("PDF", [
                 ("Ctrl+C", "複製選取的 PDF 文字"),
                 ("H", "螢光標記目前 PDF 選取"),
+                ("Ctrl+Z", "螢光筆模式下撤銷上一筆標記"),
             ]),
         ]
         parts = ["<table cellspacing='6' cellpadding='2'>"]
@@ -524,47 +470,11 @@ class MainWindow(QMainWindow):
         box.setText("".join(parts))
         box.exec()
 
-    def _update_check_enabled(self) -> bool:
-        value = QSettings(_ORG, _APP).value("update_check_enabled", True)
-        if isinstance(value, bool):
-            return value
-        return str(value).lower() not in ("0", "false", "no", "off")
-
     def _load_user_css(self, reload: bool = False):
-        path = QSettings(_ORG, _APP).value("custom_css_path", "") or ""
-        css = ""
-        if path:
-            try:
-                css = Path(path).read_text(encoding="utf-8")
-            except OSError:
-                css = ""
-        set_user_css(css)
-        if (
-            reload
-            and self._current_file
-            and is_markdown(self._current_file)
-            and not self._edit_mode
-        ):
-            self._renderer.reload_current()
+        session_state.load_user_css(self, reload=reload)
 
     def _open_preferences(self):
-        dialog = SettingsDialog(
-            self,
-            current_theme=self._theme_name,
-            current_zoom=self._content_zoom,
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        r = dialog.results
-        # Apply zoom
-        self._apply_zoom(r["content_zoom"])
-        # Apply theme (instant)
-        new_theme = r.get("theme", self._theme_name)
-        if new_theme != self._theme_name:
-            self._theme_name = new_theme
-            self._apply_theme()
-        # Reload custom CSS
-        self._load_user_css(reload=True)
+        session_state.open_preferences(self)
 
     def _build_toolbar(self) -> QWidget:
         toolbar = QWidget()
@@ -782,19 +692,10 @@ QSplitter::handle:hover {{
         self._search_close_btn.setIcon(svg_icon("x", icon_color, 18))
 
     def _toggle_theme(self):
-        self._theme_name = "light" if self._theme_name == "dark" else "dark"
-        QSettings(_ORG, _APP).setValue("theme", self._theme_name)
-        self._apply_theme()
+        session_state.toggle_theme(self)
 
     def _toggle_annotation_side_notes(self, checked=None):
-        self._side_notes_visible = (
-            bool(checked) if checked is not None else self._side_notes_btn.isChecked()
-        )
-        QSettings(_ORG, _APP).setValue(
-            "annotation_side_notes_visible", self._side_notes_visible
-        )
-        self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
-        self._refresh_icons()
+        session_state.toggle_annotation_side_notes(self, checked=checked)
 
     def _search_style(self) -> str:
         return f"""
@@ -1142,24 +1043,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._search_count.setText("" if count > 0 else "找不到結果")
 
     def _pdf_pages_map(self) -> dict:
-        raw = QSettings(_ORG, _APP).value("pdf_last_pages")
-        if not raw:
-            return {}
-        try:
-            data = json.loads(raw)
-        except (ValueError, TypeError):
-            return {}
-        return data if isinstance(data, dict) else {}
+        return session_state.pdf_pages_map()
 
     def _save_pdf_page(self, page0: int):
-        if not self._current_file:
-            return
-        pages = self._pdf_pages_map()
-        pages[str(self._current_file)] = int(page0)
-        if len(pages) > 200:
-            for key in list(pages)[:-200]:
-                del pages[key]
-        QSettings(_ORG, _APP).setValue("pdf_last_pages", json.dumps(pages))
+        session_state.save_pdf_page(self, page0)
 
     def _toggle_sidebar(self):
         if self._stack.currentWidget() is self._renderer:
@@ -1622,16 +1509,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._load_document(Path(key), kind)
 
     def _save_active_view_state(self):
-        """Capture the outgoing tab's view position before switching away."""
-        if not self._active_path:
-            return
-        state = self._tab_state.get(self._active_path)
-        if not state:
-            return
-        if state.get("kind") == "markdown":
-            # Last value from the renderer's scroll poll (PDF page persists via
-            # pdf_last_pages on page_changed, so nothing to capture for PDFs).
-            state["scroll"] = self._renderer.scroll_y()
+        session_state.save_active_view_state(self)
 
     def _show_empty_state(self):
         self._current_file = None
@@ -1851,6 +1729,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_pdf_highlights_panel()
 
     def _pdf_highlight_delete(self, hid):
+        if not self._find_pdf_highlight(hid):
+            return
         self._pdf_highlights = [h for h in self._pdf_highlights if h.id != hid]
         self._save_pdf_highlights()
         self._pdf_view.set_highlights(self._pdf_highlights)
@@ -2014,12 +1894,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self._open_file(path)
 
     def _apply_zoom(self, factor: float):
-        self._content_zoom = self._renderer.set_zoom(factor)
-        self._edit_preview.set_zoom(self._content_zoom)
-        if self._current_kind == "pdf":
-            self._pdf_view.set_zoom_factor(self._content_zoom)
-        QSettings(_ORG, _APP).setValue("content_zoom", self._content_zoom)
-        self.statusBar().showMessage(f"縮放：{round(self._content_zoom * 100)}%", 2000)
+        session_state.apply_zoom(self, factor)
 
     def _zoom_in(self):
         self._apply_zoom(self._content_zoom + 0.1)
@@ -2031,39 +1906,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._apply_zoom(1.0)
 
     def restore_last_session(self):
-        settings = QSettings(_ORG, _APP)
-        raw = settings.value("open_tabs")
-        paths = []
-        if raw:
-            try:
-                paths = json.loads(raw)
-            except (ValueError, TypeError):
-                paths = []
-        paths = [
-            p for p in paths if p and is_supported_document(p) and Path(p).exists()
-        ]
-        if paths:
-            # Add every remembered tab but load only the active one (the others
-            # load lazily when first selected).
-            for p in paths:
-                kind = document_kind(Path(p))
-                if kind:
-                    self._add_tab(Path(p), kind)
-            active = settings.value("active_tab", 0)
-            try:
-                active = int(active)
-            except (ValueError, TypeError):
-                active = 0
-            active = max(0, min(active, self._tab_bar.count() - 1))
-            self._tab_guard = True
-            self._tab_bar.setCurrentIndex(active)
-            self._tab_guard = False
-            self._activate_tab(active)
-            return
-        # Fallback to the single last_file remembered by older versions.
-        last = settings.value("last_file")
-        if last and is_supported_document(last) and Path(last).exists():
-            self._open_file(last)
+        session_state.restore_last_session(self)
 
     def _reload_current(self):
         if not self._current_file:
@@ -2300,287 +2143,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._renderer.scroll_to_annotation(ann_id)
 
     def _export_pdf(self):
-        if not self._current_file or self._edit_mode or not is_markdown(self._current_file):
-            return
-        setup = self._ask_page_setup()
-        if setup is None:
-            return
-        default = str(self._current_file.with_suffix(".pdf"))
-        path, _ = QFileDialog.getSaveFileName(
-            self, "匯出 PDF", default, "PDF 檔案 (*.pdf)"
-        )
-        if not path:
-            return
-
-        self._export_btn.setEnabled(False)
-        if setup["size"] == "single":
-            self._pending_pdf_path = path
-            self._renderer.content_size(self._export_single_page)
-        else:
-            layout = self._pdf_layout(setup["size"], setup["orientation"])
-            self._show_pdf_progress()
-            self._renderer.export_pdf(path, self._on_pdf_exported, layout)
+        export_actions.export_pdf(self)
 
     def _export_pptx(self):
-        if (
-            self._exporting
-            or not self._current_file
-            or self._edit_mode
-            or not is_markdown(self._current_file)
-        ):
-            return
-        result = read_text(self._current_file)
-        if result is None:
-            QMessageBox.warning(self, "匯出 PPT", "無法讀取檔案內容。")
-            return
-        text, _enc = result
-        default = str(self._current_file.with_suffix(".pptx"))
-        path, _ = QFileDialog.getSaveFileName(
-            self, "匯出 PPT", default, "PowerPoint 簡報 (*.pptx)"
-        )
-        if not path:
-            return
-
-        self._exporting = True
-        renderer = None
-        provider = None
-        # Render Mermaid / math fragments to images via the web engine; if that
-        # module can't be built, export still works with source-code boxes.
-        try:
-            from .fragment_render import FragmentRenderer
-
-            renderer = FragmentRenderer(parent=self)
-            provider = renderer.provide
-        except Exception:
-            renderer = None
-            provider = None
-
-        try:
-            from .pptx_export import export_markdown_to_pptx
-
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                count = export_markdown_to_pptx(
-                    text,
-                    path,
-                    base_dir=self._current_file.parent,
-                    image_provider=provider,
-                )
-            finally:
-                QApplication.restoreOverrideCursor()
-                if renderer is not None:
-                    renderer.cleanup()
-        except Exception as exc:
-            QMessageBox.warning(self, "匯出 PPT", f"匯出失敗：{exc}")
-            return
-        finally:
-            self._exporting = False
-        self.statusBar().showMessage(
-            f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
-        )
+        export_actions.export_pptx(self)
 
     def _export_docx(self):
-        if (
-            self._exporting
-            or not self._current_file
-            or self._edit_mode
-            or not is_markdown(self._current_file)
-        ):
-            return
-        result = read_text(self._current_file)
-        if result is None:
-            QMessageBox.warning(self, "匯出 Word", "無法讀取檔案內容。")
-            return
-        text, _enc = result
-        default = str(self._current_file.with_suffix(".docx"))
-        path, _ = QFileDialog.getSaveFileName(
-            self, "匯出 Word", default, "Word 文件 (*.docx)"
-        )
-        if not path:
-            return
-
-        self._exporting = True
-        renderer = None
-        provider = None
-        try:
-            from .fragment_render import FragmentRenderer
-
-            renderer = FragmentRenderer(parent=self)
-            provider = renderer.provide
-        except Exception:
-            renderer = None
-            provider = None
-
-        try:
-            from .docx_export import export_markdown_to_docx
-
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                export_markdown_to_docx(
-                    text,
-                    path,
-                    base_dir=self._current_file.parent,
-                    image_provider=provider,
-                )
-            finally:
-                QApplication.restoreOverrideCursor()
-                if renderer is not None:
-                    renderer.cleanup()
-        except Exception as exc:
-            QMessageBox.warning(self, "匯出 Word", f"匯出失敗：{exc}")
-            return
-        finally:
-            self._exporting = False
-        self.statusBar().showMessage(
-            f"已匯出 Word 文件至 {Path(path).name}", 5000
-        )
-
-    def _ask_page_setup(self):
-        settings = QSettings(_ORG, _APP)
-        last_size = settings.value("pdf_page_size", "A4") or "A4"
-        last_orient = settings.value("pdf_orientation", "portrait") or "portrait"
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("匯出 PDF 設定")
-        form = QFormLayout(dialog)
-
-        size_combo = QComboBox(dialog)
-        for key, label in _PDF_SIZE_CHOICES:
-            size_combo.addItem(label, key)
-        size_index = next(
-            (i for i, (k, _) in enumerate(_PDF_SIZE_CHOICES) if k == last_size), 0
-        )
-        size_combo.setCurrentIndex(size_index)
-
-        orient_combo = QComboBox(dialog)
-        orient_combo.addItem("直向", "portrait")
-        orient_combo.addItem("橫向", "landscape")
-        orient_combo.setCurrentIndex(1 if last_orient == "landscape" else 0)
-
-        def _sync_orientation():
-            orient_combo.setEnabled(size_combo.currentData() != "single")
-
-        size_combo.currentIndexChanged.connect(_sync_orientation)
-        _sync_orientation()
-
-        form.addRow("紙張大小", size_combo)
-        form.addRow("方向", orient_combo)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            parent=dialog,
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("匯出")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-
-        size_key = size_combo.currentData()
-        orientation = orient_combo.currentData()
-        settings.setValue("pdf_page_size", size_key)
-        settings.setValue("pdf_orientation", orientation)
-        return {"size": size_key, "orientation": orientation}
-
-    def _pdf_layout(self, size_key: str, orientation: str) -> QPageLayout:
-        size_id = _PDF_PAGE_SIZES.get(size_key, QPageSize.PageSizeId.A4)
-        orient = (
-            QPageLayout.Orientation.Landscape
-            if orientation == "landscape"
-            else QPageLayout.Orientation.Portrait
-        )
-        return QPageLayout(
-            QPageSize(size_id),
-            orient,
-            QMarginsF(12, 12, 12, 12),
-            QPageLayout.Unit.Millimeter,
-        )
+        export_actions.export_docx(self)
 
     def _export_single_page(self, dims):
-        try:
-            measured_w = float(dims[0])
-            h_px = float(dims[1])
-        except (TypeError, ValueError, IndexError):
-            measured_w, h_px = 0.0, 1123.0
-
-        # Base the page width on the actual viewport so the PDF mirrors the
-        # on-screen layout; widen if the content itself overflows (wide tables).
-        w_px = max(float(self._renderer.width()), measured_w)
-        if w_px < 200:
-            w_px = 800.0
-
-        w_pt = w_px * _PT_PER_PX
-        h_pt = (h_px + 4) * _PT_PER_PX
-
-        if h_pt > _PDF_MAX_PT:
-            reply = QMessageBox.question(
-                self,
-                "匯出 PDF",
-                "文件內容過長，無法放進單一頁面（PDF 頁面高度上限約 508 公分）。\n"
-                "要改用 A4 分頁匯出嗎？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                self._pending_pdf_path = None
-                self._export_btn.setEnabled(
-                    bool(self._current_file) and not self._edit_mode
-                )
-                self._refresh_icons()
-                return
-            layout = self._pdf_layout("A4", "portrait")
-        else:
-            layout = QPageLayout(
-                QPageSize(
-                    QSizeF(w_pt, h_pt),
-                    QPageSize.Unit.Point,
-                    "Continuous",
-                    QPageSize.SizeMatchPolicy.ExactMatch,
-                ),
-                QPageLayout.Orientation.Portrait,
-                QMarginsF(0, 0, 0, 0),
-                QPageLayout.Unit.Point,
-            )
-
-        self._show_pdf_progress()
-        self._renderer.export_pdf(self._pending_pdf_path, self._on_pdf_exported, layout)
-        self._pending_pdf_path = None
-
-    def _show_pdf_progress(self):
-        self._pdf_progress = QProgressDialog("正在匯出 PDF…", None, 0, 0, self)
-        self._pdf_progress.setWindowTitle("匯出 PDF")
-        self._pdf_progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self._pdf_progress.setMinimumDuration(0)
-        self._pdf_progress.setAutoClose(False)
-        self._pdf_progress.setAutoReset(False)
-        self._pdf_progress.show()
-
-    def _close_pdf_progress(self):
-        if self._pdf_progress is not None:
-            self._pdf_progress.close()
-            self._pdf_progress = None
+        export_actions.export_single_page(self, dims)
 
     def _on_pdf_exported(self, path: str, ok: bool):
-        self._close_pdf_progress()
-        self._export_btn.setEnabled(bool(self._current_file) and not self._edit_mode)
-        self._refresh_icons()
-        if not ok:
-            self.statusBar().clearMessage()
-            QMessageBox.warning(self, "匯出 PDF", "匯出失敗，請重試。")
-            return
-
-        self.statusBar().showMessage(f"已匯出 PDF：{path}", 5000)
-        box = QMessageBox(self)
-        box.setWindowTitle("匯出 PDF")
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setText(f"已成功匯出：\n{path}")
-        open_btn = box.addButton("開啟 PDF", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("關閉", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        if box.clickedButton() is open_btn:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        export_actions.on_pdf_exported(self, path, ok)
 
     def _scroll_to_anchor(self, target):
         # int -> PDF page jump; str -> Markdown heading anchor.
@@ -2590,95 +2165,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._renderer.scroll_to(target)
 
     def _check_updates_silent(self):
-        # Privacy/perf: honour the opt-out and only phone home once a day.
-        if not self._update_check_enabled():
-            return
-        import time
-
-        settings = QSettings(_ORG, _APP)
-        try:
-            last = float(settings.value("last_update_check", 0) or 0)
-        except (TypeError, ValueError):
-            last = 0.0
-        now = time.time()
-        if now - last < 86400:
-            return
-        settings.setValue("last_update_check", now)
-        self._check_for_updates(manual=False)
+        update_flow.check_updates_silent(self)
 
     def _check_for_updates(self, manual: bool):
-        if self._update_check_thread and self._update_check_thread.isRunning():
-            return
-
-        if manual:
-            self.statusBar().showMessage("正在檢查更新...")
-
-        self._update_check_thread = UpdateCheckThread(self)
-        self._update_check_thread.finished_check.connect(
-            lambda update, error, is_manual=manual: self._on_update_check_done(
-                update, error, is_manual
-            )
-        )
-        self._update_check_thread.start()
-
-    def _on_update_check_done(self, update, error, manual: bool):
-        self.statusBar().clearMessage()
-
-        if error:
-            if manual:
-                QMessageBox.warning(self, "更新檢查失敗", str(error))
-            return
-
-        if not update.has_update:
-            if manual:
-                QMessageBox.information(
-                    self,
-                    "目前已是最新版本",
-                    f"Markdown Viewer 已是最新版本。\n目前版本：{VERSION}",
-                )
-            return
-
-        answer = QMessageBox.question(
-            self,
-            "有可用更新",
-            f"版本 {update.latest_version} 已可下載。\n\n"
-            "是否要立即下載並安裝？",
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self._download_update(update)
-
-    def _download_update(self, update: UpdateInfo):
-        if self._update_download_thread and self._update_download_thread.isRunning():
-            return
-
-        self._update_progress = QProgressDialog("正在下載更新...", None, 0, 0, self)
-        self._update_progress.setWindowTitle("Markdown Viewer 更新")
-        self._update_progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self._update_progress.setMinimumDuration(0)
-        self._update_progress.show()
-
-        self._update_download_thread = UpdateDownloadThread(update, self)
-        self._update_download_thread.finished_download.connect(
-            self._on_update_download_done
-        )
-        self._update_download_thread.start()
-
-    def _on_update_download_done(self, installer_path, error):
-        if self._update_progress:
-            self._update_progress.close()
-            self._update_progress = None
-
-        if error:
-            QMessageBox.warning(self, "更新下載失敗", str(error))
-            return
-
-        result = QProcess.startDetached(str(installer_path))
-        started = result[0] if isinstance(result, tuple) else bool(result)
-        if not started:
-            QMessageBox.warning(self, "更新失敗", "無法啟動安裝程式。")
-            return
-
-        QApplication.quit()
+        update_flow.check_for_updates(self, manual)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -2698,26 +2188,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 break
 
     def _restore_geometry(self):
-        settings = QSettings(_ORG, _APP)
-        geometry = settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            self.resize(1200, 750)
+        session_state.restore_geometry(self)
 
     def closeEvent(self, event):
-        if not self._confirm_discard_edits():
-            event.ignore()
-            return
-        self._save_active_view_state()
-        if not self._is_detached:
-            settings = QSettings(_ORG, _APP)
-            settings.setValue("geometry", self.saveGeometry())
-            open_tabs = [
-                self._tab_bar.tabData(i) for i in range(self._tab_bar.count())
-            ]
-            settings.setValue("open_tabs", json.dumps(open_tabs))
-            settings.setValue("active_tab", self._tab_bar.currentIndex())
-            if self._current_file:
-                settings.setValue("last_file", str(self._current_file))
-        super().closeEvent(event)
+        if session_state.close_event(self, event):
+            super().closeEvent(event)

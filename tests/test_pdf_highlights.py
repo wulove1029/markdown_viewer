@@ -46,6 +46,22 @@ def test_save_and_load_roundtrip(tmp_path):
     assert isinstance(passage.rects[0], Rect)
 
 
+def test_save_empty_removes_sidecar(tmp_path):
+    pdf = tmp_path / "book.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    PdfHighlightStore.save(
+        pdf,
+        [PdfHighlight.new(page=0, rects=[Rect(10, 10, 20, 8)], text="cover")],
+    )
+    sidecar = PdfHighlightStore.sidecar_path(pdf)
+    assert sidecar.exists()
+
+    PdfHighlightStore.save(pdf, [])
+
+    assert not sidecar.exists()
+    assert PdfHighlightStore.load(pdf) == []
+
+
 def test_load_missing_returns_empty(tmp_path):
     assert PdfHighlightStore.load(tmp_path / "nope.pdf") == []
 
@@ -61,6 +77,176 @@ def test_corrupt_sidecar_is_backed_up(tmp_path):
 def test_from_dict_tolerates_missing_keys():
     hl = PdfHighlight.from_dict({"page": 5})
     assert hl.page == 5 and hl.rects == [] and hl.color == "#ffd54f" and hl.id
+
+
+def test_view_hit_test_finds_highlight_under_pointer(qapp):
+    from PySide6.QtCore import QPoint
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    view.resize(800, 1000)
+    view._page_tops = [12]
+    view._page_lefts = [24]
+    view._page_pix = [(600, 800)]
+    view._scale = 1.0
+    first = PdfHighlight.new(page=0, rects=[Rect(10, 10, 80, 16)], text="alpha")
+    second = PdfHighlight.new(page=0, rects=[Rect(30, 10, 80, 16)], text="beta")
+    view.set_highlights([first, second])
+
+    assert view.highlight_at(QPoint(55, 30)) == second.id
+    assert view.highlight_at(QPoint(35, 30)) == first.id
+    assert view.highlight_at(QPoint(220, 30)) is None
+
+
+def test_context_menu_delete_action_requests_highlight_delete(qapp, monkeypatch):
+    from PySide6.QtCore import QPoint, QPointF
+
+    import app.pdf_view as pdf_view_mod
+    from app.pdf_view import PdfView
+
+    class _Signal:
+        def __init__(self):
+            self._callbacks = []
+
+        def connect(self, callback):
+            self._callbacks.append(callback)
+
+        def emit(self):
+            for callback in self._callbacks:
+                callback()
+
+    class _Action:
+        def __init__(self, text):
+            self.text = text
+            self.triggered = _Signal()
+            self.enabled = True
+
+        def setEnabled(self, enabled):
+            self.enabled = bool(enabled)
+
+        def trigger(self):
+            if self.enabled:
+                self.triggered.emit()
+
+    class _Menu:
+        def __init__(self, *_args):
+            self.actions = []
+
+        def setStyleSheet(self, _style):
+            pass
+
+        def addAction(self, text):
+            action = _Action(text)
+            self.actions.append(action)
+            return action
+
+        def addSeparator(self):
+            pass
+
+        def addMenu(self, text):
+            menu = _Menu()
+            self.actions.append(_Action(text))
+            return menu
+
+        def exec(self, _global_pos):
+            for action in self.actions:
+                if action.text == "刪除此螢光標記":
+                    action.trigger()
+                    return
+
+    monkeypatch.setattr(pdf_view_mod, "QMenu", _Menu)
+    view = PdfView()
+    view._page_tops = [12]
+    view._page_lefts = [24]
+    view._page_pix = [(600, 800)]
+    view._scale = 1.0
+    highlight = PdfHighlight.new(page=0, rects=[Rect(10, 10, 80, 16)], text="alpha")
+    view.set_highlights([highlight])
+    captured = []
+    view.highlight_delete_requested.connect(captured.append)
+
+    # Use a real QContextMenuEvent: the fake used before had a position()
+    # attribute the real event lacks, which masked a crash in production.
+    from PySide6.QtGui import QContextMenuEvent
+
+    local = QPoint(35, 30)
+    event = QContextMenuEvent(
+        QContextMenuEvent.Reason.Mouse,
+        local,
+        view.viewport().mapToGlobal(local),
+    )
+    view.contextMenuEvent(event)
+
+    assert captured == [highlight.id]
+
+
+def test_pen_mode_ctrl_z_requests_latest_highlight_delete(qapp):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    older = PdfHighlight.new(page=0, rects=[Rect(10, 10, 20, 8)], text="older")
+    newer = PdfHighlight.new(page=0, rects=[Rect(30, 10, 20, 8)], text="newer")
+    older.created = "2026-07-09T12:00:00"
+    newer.created = "2026-07-09T12:01:00"
+    view.set_highlights([newer, older])
+    view.set_pen_mode(True)
+    captured = []
+    view.highlight_delete_requested.connect(captured.append)
+
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Z,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    view.keyPressEvent(event)
+
+    assert captured == [newer.id]
+    assert event.isAccepted()
+
+
+def test_pen_mode_ctrl_z_ignores_empty_highlight_list(qapp):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    view.set_pen_mode(True)
+    captured = []
+    view.highlight_delete_requested.connect(captured.append)
+
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_Z,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    view.keyPressEvent(event)
+
+    assert captured == []
+
+
+def test_highlights_panel_delete_button_calls_deleted_callback(qapp):
+    from PySide6.QtCore import Qt
+
+    from app.pdf_highlights_panel import PdfHighlightsPanel
+
+    highlight = PdfHighlight.new(page=0, rects=[Rect(10, 10, 20, 8)], text="alpha")
+    deleted = []
+    panel = PdfHighlightsPanel({"deleted": deleted.append})
+    panel.set_highlights([highlight])
+
+    assert not panel._delete_btn.isEnabled()
+    panel._on_clicked(panel._list.item(0))
+    assert panel._delete_btn.isEnabled()
+
+    panel._delete_btn.click()
+
+    assert panel._list.item(0).data(Qt.ItemDataRole.UserRole) == highlight.id
+    assert deleted == [highlight.id]
 
 
 # ----------------------- in-canvas selection -----------------------

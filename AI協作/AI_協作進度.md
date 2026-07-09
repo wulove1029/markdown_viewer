@@ -96,7 +96,208 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
-### 2026-07-09 09:04 — PySide6 全面遷移完成，自動化通過〔已實作＋待驗證〕
+### 2026-07-09 14:25 — 螢光擦除驗收退回→Claude 修單行崩潰→複驗通過〔已實作＋已驗證〕
+
+**作者**：Claude
+**類型**：驗證＋實作
+
+**fresh 驗收結果（推翻 13:45 節的「已驗證」）**：面板刪除鈕、Ctrl+Z、
+sidecar 清除/相容、hit-test（zoom/多頁/重疊）全過；**但畫布右鍵在真事件下
+100% 崩潰**——`pdf_view.py:647` 用 `event.position()`，PySide6 的
+`QContextMenuEvent` 沒有此方法（只有 `pos()`/`globalPos()`），且連帶打壞
+既有「複製/螢光標記」右鍵選單。Codex 的測試 fake `_Event` 自帶 `position()`
+把 bug 蓋掉（測試綠但實際炸）。
+
+**Claude 修正**：`pdf_view.py` contextMenuEvent 改
+`self.viewport().mapFromGlobal(event.globalPos())`（驗收方已預先驗證此修法）；
+`tests/test_pdf_highlights.py` fake event 換成真 `QContextMenuEvent`。
+本機 pytest 235 passed, 2 skipped。已交同一驗收方複驗。
+
+**教訓（給之後的測試棒）**：fake 物件必須貼齊真 API——fake 出真物件沒有的
+方法會讓測試通過但產品崩潰。
+
+**複驗結果（14:40，同一驗收方，真視窗 13/13 全過）**：右鍵命中刪除、
+空白處無誤刪、選取右鍵「複製/螢光標記」回歸恢復、zoom 2.0 與第二頁命中、
+面板刪除鈕、Ctrl+Z、sidecar 清除與舊格式相容全過；pytest 235 passed。
+**驗收通過，無阻斷風險殘留。**
+
+**→ 下一棒**：無，待使用者裁決——工作樹含第三批重構＋螢光擦除 UI
+（未 commit），加上已本機 commit 的 PySide6 遷移（7a0936a 未 push），
+等使用者手動驗完裁決 commit/push/發版。
+
+---
+
+### 2026-07-09 13:45 — PDF 螢光筆擦除入口補齊〔已實作＋已驗證→部分退回，見 14:25 節〕
+
+**作者**：Codex
+**類型**：實作＋驗證
+
+照 13:25 派工節完成 1-4。`app/pdf_view.py:85` 新增
+`highlight_delete_requested`，`app/pdf_view.py:584` 用 `_pos_to_page` 後的
+頁座標 hit-test 既有 highlight rect；`app/pdf_view.py:647` 在 PDF 畫布右鍵
+命中 highlight 時加入「刪除此螢光標記」，並由 signal 接到
+`app/window.py:265` 的 `_pdf_highlight_delete`。pen mode undo 在
+`app/pdf_view.py:606`/`app/pdf_view.py:625` 以 Ctrl+Z 刪最新建立的 highlight；
+快捷鍵說明同步補在 `app/window.py:452`。`app/window.py:1731` 對不存在 id
+直接略過，避免多餘存檔。
+
+螢光面板新增可見刪除鈕：`app/pdf_highlights_panel.py:63` 建立按鈕列，
+`app/pdf_highlights_panel.py:80` 保留/清除選取狀態，`app/pdf_highlights_panel.py:162`
+依選取啟用刪除；既有右鍵刪除仍保留。為符合「刪除後 sidecar 消失」驗收，
+`app/pdf_highlights.py:130` 讓空 highlights 存檔移除 `.highlights.json`。
+
+測試：`tests/test_pdf_highlights.py:49` 覆蓋空清單移除 sidecar；
+`tests/test_pdf_highlights.py:82` 覆蓋 hit-test 命中/未命中與重疊優先；
+`tests/test_pdf_highlights.py:102` 覆蓋右鍵選單刪除 action 會發 signal；
+`tests/test_pdf_highlights.py:181` 覆蓋 pen mode Ctrl+Z；`tests/test_pdf_highlights.py:229`
+覆蓋面板可見刪除鈕。`tests/test_window_integration.py:106` 只補前一棒 fake
+PdfView 的新 signal，讓既有整合測試跟真介面一致。未修改
+`app/export_actions.py`、`app/session_state.py`、`app/update_flow.py`。
+
+**驗證證據**：
+
+- `py -3 -m py_compile app\pdf_view.py app\pdf_highlights_panel.py app\pdf_highlights.py app\window.py tests\test_pdf_highlights.py tests\test_window_integration.py`：通過。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest6 tests\test_pdf_highlights.py`：`13 passed`。
+- `py -3 -m pytest -rs -q -p no:cacheprovider --basetemp=.codex_verify\pytest6 tests`：`211 passed, 4 skipped`；skip 為本 sandbox 缺 `docx`、`pptx`，以及既有 headless WebEngine opt-in 2 個。
+- offscreen 程式化真流程：新增 highlight → `PdfView.highlight_at(QPoint(35, 30))`
+  命中該 id → `highlight_delete_requested` 接 `_pdf_highlight_delete` →
+  `flow.pdf.highlights.json` 被移除；腳本輸出 `flow ok: add -> hit-test -> delete -> sidecar removed`。
+
+**→ 下一棒**：@Claude fresh 驗收（建議含真視窗：畫布右鍵刪除、面板刪除鈕、pen mode Ctrl+Z）。
+
+### 2026-07-09 13:25 — PDF 螢光筆無法擦除：診斷＋派工補 UI 入口〔提案〕
+
+**作者**：Claude
+**類型**：分析＋派工
+
+使用者手動驗收時回報「螢光筆無法擦除」。診斷（fresh subagent）：**非回歸、
+是既有功能缺口**——刪除後端完好（store/save/panel 實測可用），唯一入口
+藏在側欄螢光清單右鍵（pdf_highlights_panel.py:130-132 →
+window.py:1729 `_pdf_highlight_delete`）；PDF 畫布 contextMenuEvent
+（pdf_view.py:602-622）對既有 highlight 無 hit-test、無刪除項；H 鍵只加
+不減、pen mode 無 undo。v1.14.0 行為相同（git diff 證實遷移/重構未碰）。
+
+**@Codex（gpt-5.5/high）補齊擦除 UI**（動 pdf_view.py、
+pdf_highlights_panel.py、window.py 接線、tests）：
+
+1. 畫布右鍵刪除：contextMenuEvent 加 highlight hit-test（`_pos_to_page`
+   轉頁座標對 `self._highlights` rects 包含測試），命中加「刪除此螢光標記」
+   選項，新增 `highlight_delete_requested = Signal(str)` 接
+   `_pdf_highlight_delete`。
+2. 螢光面板加可見「刪除」按鈕（對齊 annotations_panel.py:78-79 設計）。
+3. pen mode Ctrl+Z 撤銷最後一筆 highlight。
+4. pytest 補：hit-test 命中/未命中、刪除 signal 流、Ctrl+Z。
+
+**怎樣算做好**：真實流程可用——畫布畫一筆 → 右鍵點該筆 → 刪除 → 畫面
+與 sidecar 都消失；面板按鈕同效；Ctrl+Z 撤最後一筆；pytest 全綠
+（基線 229 passed, 2 skipped）。
+
+**→ 下一棒**：@Codex 實作 → Claude 派 fresh 驗收（含真視窗操作）。
+
+---
+
+### 2026-07-09 11:20 — 第三批 fresh 驗收通過：遷移＋重構全案完成〔已實作＋已驗證〕
+
+**作者**：Claude
+**類型**：驗證
+
+**fresh 驗收（未參與實作）：通過（6/6）。** pytest 229 passed（複跑兩次）；
+`git diff 7a0936a` 逐塊比對確認純搬家（closeEvent detached 跳過、匯出守衛、
+更新 SHA-256/白名單、QSettings key、選單接線全部原樣）；循環 import 零；
+整合測試 7 個全是真斷言、fake 邊界合理；真視窗 14 項冒煙全過（含 detach、
+session 存還原）；export_actions 新路徑實匯 PDF/DOCX 成功。
+備註：window.py 實為 1970 行（Codex 回報 2191 為誤差）；三個新模組
+untracked，commit 時必須 git add。
+
+**待使用者裁決**：push PySide6 遷移 commit（7a0936a）＋ commit 第三批
+＋發 v1.15.0？
+
+**→ 下一棒**：無，待使用者裁決。
+
+---
+
+### 2026-07-09 10:20 — 第三批 window.py 拆模組＋整合測試完成〔已實作＋已驗證〕
+
+**作者**：Codex
+**類型**：實作＋驗證
+
+**改動**：照 10:05 派工節只搬家不改行為，從 `app/window.py` 拆出三個模組。
+匯出流程移至 `app/export_actions.py:40`、`app/export_actions.py:67`、
+`app/export_actions.py:126`，PDF 頁面設定、單頁匯出與完成回呼在
+`app/export_actions.py:183`、`app/export_actions.py:249`、
+`app/export_actions.py:317`。session / QSettings 狀態移至
+`app/session_state.py:17`、`app/session_state.py:26`、`app/session_state.py:84`、
+`app/session_state.py:97`、`app/session_state.py:160`，保留 detached 視窗不覆蓋
+session 的 close 邏輯。更新檢查、下載與啟動安裝移至
+`app/update_flow.py:15`、`app/update_flow.py:25`、`app/update_flow.py:46`、
+`app/update_flow.py:63`、`app/update_flow.py:125`。
+
+**MainWindow 狀態**：`app/window.py` 保留薄委派入口，選單/快捷鍵簽名不變：
+偏好與 QSettings 狀態委派在 `app/window.py:471`、`app/window.py:474`、
+`app/window.py:692`、`app/window.py:695`、`app/window.py:1892`、
+`app/window.py:1904`；匯出入口在 `app/window.py:2141`、`app/window.py:2144`、
+`app/window.py:2147`；更新入口在 `app/window.py:2163`、`app/window.py:2166`；
+geometry/closeEvent 在 `app/window.py:2186`、`app/window.py:2189`。
+`app/window.py` 目前 2191 行，低於派工目標 <2200。
+
+**整合測試**：新增 `tests/test_window_integration.py:274`、
+`tests/test_window_integration.py:293`、`tests/test_window_integration.py:307`、
+`tests/test_window_integration.py:323`、`tests/test_window_integration.py:343`、
+`tests/test_window_integration.py:364`、`tests/test_window_integration.py:391`，
+覆蓋開檔成分頁、切換分頁載入正確文件、關分頁清狀態、detach 移至新視窗、
+session 存/還原、匯出守衛、`open_path` 進既有視窗路徑；使用 fake renderer/PDF/panel
+避開 WebEngine 依賴，斷言數 >10。
+
+**驗證證據**：
+
+- `py -3 -m py_compile app\window.py app\export_actions.py app\session_state.py app\update_flow.py tests\test_window_integration.py main.py`：通過。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest5 tests\test_window_integration.py`：`7 passed`。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest5 tests\test_window_integration.py tests\test_updater.py tests\test_settings_dialog.py`：`47 passed`。
+- `py -3 -m pytest -rs -q -p no:cacheprovider --basetemp=.codex_verify\pytest5 tests`：`205 passed, 4 skipped`；skip 為本 sandbox 缺 `docx`、`pptx`，以及既有 headless WebEngine opt-in 2 個。
+- 全 repo `py_compile`（`main.py` + `app/` + `tests/` + `tools/`）：通過。
+- 新模組 import 煙測：`import app.window, app.export_actions, app.session_state, app.update_flow` → `imports ok`。
+- offscreen 真主視窗煙測：真 `MainWindow.open_path("README.md")` 後 `tabs 1`、`current README.md`、`kind markdown`、`active README.md`；Chromium 僅輸出 GPU fallback 訊息。
+
+**→ 下一棒**：@Claude 派 fresh 驗收；使用者裁決是否 commit/push。
+
+### 2026-07-09 10:05 — PySide6 遷移驗收通過、本機 commit；派第三批〔提案〕
+
+**作者**：Claude
+**類型**：驗證＋派工
+
+**遷移 fresh 驗收：通過（7/7）。** 殘留掃描零命中；pytest 222 passed；
+`RUN_WEBENGINE_TESTS=1` 下標註橋 5 passed（**原本兩個 flaky skip 在 PySide6
+下轉為穩定通過**）；真視窗冒煙＋單一實例 IPC 過；flowchart shape 改名驗證過；
+**PyInstaller 實打包 exe 冒煙過**（644MB dist，WebEngine 資源齊）。
+已本機 commit `7a0936a`（44 檔，未 push——push/發版待使用者確認）。
+
+**第三批派工：window.py 拆模組＋整合測試。**
+
+**@Codex（gpt-5.5/high）**，範圍與原則：
+
+1. 從 `app/window.py`（2700+ 行）拆出三個高內聚模組，**只搬家不改行為**：
+   - `app/export_actions.py`：`_export_pdf`/`_export_pptx`/`_export_docx`
+     ＋頁面尺寸對話框＋單頁匯出流程（約 window.py:2337-2560）；
+   - `app/session_state.py`：session 儲存/還原（closeEvent 持久化、
+     `restore_last_session`、geometry、`_is_detached` 跳過邏輯）；
+   - `app/update_flow.py`：更新檢查/下載/啟動安裝流程（約 window.py:2627-2716）。
+   MainWindow 保留薄委派（選單 action 簽名不變）。
+2. 補整合測試 `tests/test_window_integration.py`：開檔成分頁、切換分頁
+   內容正確、關分頁、detach 移至新視窗、session 存/還原、匯出守衛
+   （編輯模式/非 markdown 時不觸發）、IPC open_path 進既有視窗。
+   離屏可跑（renderer 用假分頁內容即可，避免 WebEngine 依賴）。
+3. 鐵律：分頁不持有 widget 模型不可破壞；QSettings key 不改名；
+   公開行為（選單、快捷鍵、狀態列訊息）零變更。
+
+**怎樣算做好**：pytest 全綠且新增整合測試 ≥10 個實質斷言；window.py
+行數顯著下降（目標 <2200）；`py -3 main.py README.md` 冒煙正常；
+三個新模組無循環 import。
+
+**→ 下一棒**：@Codex 實作 → Claude 派 fresh 驗收 → 使用者裁決 push/發版。
+
+---
+
+### 2026-07-09 09:04 — PySide6 全面遷移完成，自動化通過〔已實作＋已驗證〕
 
 **作者**：Codex
 **類型**：實作＋驗證

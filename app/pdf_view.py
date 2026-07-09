@@ -82,6 +82,7 @@ class PdfView(QAbstractScrollArea):
     search_count_changed = Signal(int)  # number of matches
     selection_changed = Signal(bool)    # True when a non-empty selection exists
     highlight_requested = Signal(object)  # {page, rects:[(x,y,w,h)], text, color}
+    highlight_delete_requested = Signal(str)
 
     PAGE_MARGIN = 12   # gutter around the page column (px)
     PAGE_SPACING = 12  # gap between pages (px)
@@ -580,6 +581,35 @@ class PdfView(QAbstractScrollArea):
         self.viewport().update()
         return True
 
+    def highlight_at(self, pos) -> str | None:
+        """Return the id of the saved highlight under a viewport position."""
+        page, pt = self._pos_to_page(pos)
+        if page is None or pt is None:
+            return None
+        for hl in reversed(self._highlights):
+            if hl.page != page:
+                continue
+            for r in hl.rects:
+                if QRectF(r.x, r.y, r.w, r.h).contains(pt):
+                    return hl.id
+        return None
+
+    def _latest_highlight_id(self) -> str | None:
+        if not self._highlights:
+            return None
+        idx, highlight = max(
+            enumerate(self._highlights),
+            key=lambda item: (item[1].created or "", item[0]),
+        )
+        return highlight.id
+
+    def undo_last_highlight(self) -> bool:
+        hid = self._latest_highlight_id()
+        if not hid:
+            return False
+        self.highlight_delete_requested.emit(hid)
+        return True
+
     def _clear_selection(self):
         self._selection = None
         self._sel_page = -1
@@ -588,6 +618,13 @@ class PdfView(QAbstractScrollArea):
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.StandardKey.Copy) and self.copy_selection():
+            event.accept()
+            return
+        if (
+            self._pen_mode
+            and event.matches(QKeySequence.StandardKey.Undo)
+            and self.undo_last_highlight()
+        ):
             event.accept()
             return
         if (
@@ -607,6 +644,19 @@ class PdfView(QAbstractScrollArea):
             f"QMenu::item:selected {{ background: {self._theme.surface_hover}; }}"
             f"QMenu::item:disabled {{ color: {self._theme.text_subtle}; }}"
         )
+        # QContextMenuEvent has no position(); map the global point so the
+        # hit-test works no matter which widget the event was delivered to.
+        hit_highlight_id = self.highlight_at(
+            self.viewport().mapFromGlobal(event.globalPos())
+        )
+        if hit_highlight_id:
+            delete = menu.addAction("刪除此螢光標記")
+            delete.triggered.connect(
+                lambda _checked=False, hid=hit_highlight_id: (
+                    self.highlight_delete_requested.emit(hid)
+                )
+            )
+            menu.addSeparator()
         if self.has_selection():
             copy = menu.addAction("複製")
             copy.triggered.connect(self.copy_selection)

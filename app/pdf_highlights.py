@@ -127,6 +127,12 @@ class PdfHighlightStore:
     @classmethod
     def save(cls, pdf_path, highlights: list[PdfHighlight]) -> None:
         path = cls.sidecar_path(pdf_path)
+        if not highlights:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            return
         payload = {
             "schema": SCHEMA_VERSION,
             "highlights": [h.to_dict() for h in highlights],
