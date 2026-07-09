@@ -4,7 +4,17 @@ import json
 import urllib.parse
 from pathlib import Path
 
-from PyQt6.QtCore import QFile, QIODevice, QMarginsF, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import (
+    QFile,
+    QIODevice,
+    QMarginsF,
+    QObject,
+    QRunnable,
+    QThreadPool,
+    QTimer,
+    QUrl,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QDesktopServices, QPageLayout, QPageSize
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineCore import (
@@ -16,7 +26,31 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 from .annotation_bridge import AnnotationBridge
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
-from .md_converter import convert, state_page_html
+from .md_converter import convert, convert_text, state_page_html
+
+_RENDER_GENERATION_META = "markdown-viewer-render-generation"
+
+
+def _html_with_render_generation(html: str, generation: int) -> str:
+    marker = f'<meta name="{_RENDER_GENERATION_META}" content="{generation}">'
+    if "</head>" in html:
+        return html.replace("</head>", marker + "\n</head>", 1)
+    return marker + html
+
+
+def _pending_scroll_target(
+    pending_scroll: int | None,
+    pending_generation: int | None,
+    loaded_generation,
+) -> tuple[int | None, int | None, int | None]:
+    try:
+        loaded_generation = int(loaded_generation)
+    except (TypeError, ValueError):
+        return None, pending_scroll, pending_generation
+    if pending_scroll is None or pending_generation != loaded_generation:
+        return None, pending_scroll, pending_generation
+    return pending_scroll, None, None
+
 
 # Register the custom "wikilink" scheme so Chromium routes [[note]] clicks
 # through acceptNavigationRequest instead of silently dropping them. Must run
@@ -67,6 +101,51 @@ class _DocumentPage(QWebEnginePage):
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
+class _RenderSignals(QObject):
+    ready = pyqtSignal(int, object, str, list)
+
+
+class _MarkdownRenderWorker(QRunnable):
+    """Run Markdown conversion off the GUI thread."""
+
+    def __init__(
+        self,
+        generation: int,
+        *,
+        path: Path | None = None,
+        text: str | None = None,
+        theme: str = "light",
+        title: str = "preview",
+    ):
+        super().__init__()
+        self.generation = generation
+        self.path = path
+        self.text = text
+        self.theme = theme
+        self.title = title
+        self.signals = _RenderSignals()
+
+    def run(self):
+        try:
+            if self.path is not None:
+                html, headings = convert(self.path, self.theme)
+                source = self.path
+            else:
+                html, headings = convert_text(self.text or "", self.theme, self.title)
+                source = None
+        except Exception as exc:
+            label = self.path.name if self.path is not None else self.title
+            html = state_page_html(
+                "無法預覽 Markdown",
+                f"渲染 {label} 時發生錯誤：{exc}",
+                self.theme,
+                "錯誤",
+            )
+            headings = []
+            source = self.path
+        self.signals.ready.emit(self.generation, source, html, headings)
+
+
 class RendererView(QWebEngineView):
     active_anchor_changed = pyqtSignal(str)
     wikilink_clicked = pyqtSignal(str)
@@ -83,6 +162,10 @@ class RendererView(QWebEngineView):
         self._pdf_callback = None
         self._zoom_factor = 1.0
         self._pending_scroll: int | None = None
+        self._pending_scroll_generation: int | None = None
+        self._render_generation = 0
+        self._render_pool = QThreadPool.globalInstance()
+        self._pending_text_base_url: QUrl | None = None
         self._scroll_y = 0  # last polled vertical scroll (for per-tab restore)
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
@@ -113,18 +196,61 @@ class RendererView(QWebEngineView):
 
         self.show_empty()
 
+    def _next_render_generation(self) -> int:
+        self._render_generation += 1
+        return self._render_generation
+
     def _on_page_load_finished(self, ok):
         if ok:
             # Re-apply zoom: a freshly loaded page otherwise resets to 1.0.
             self.setZoomFactor(self._zoom_factor)
-            if self._pending_scroll is not None:
-                target = self._pending_scroll
-                self._pending_scroll = None
-                self.page().runJavaScript(f"window.scrollTo(0, {target})")
         if ok and self._current_path and is_markdown(self._current_path):
-            self._spy_timer.start()
+            generation = self._render_generation
+            path = self._current_path
+            js = (
+                "(function(){"
+                f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
+                "return m ? m.getAttribute('content') : null;"
+                "})()"
+            )
+            self.page().runJavaScript(
+                js,
+                lambda loaded_generation, generation=generation, path=path: (
+                    self._on_markdown_load_checked(
+                        generation, path, loaded_generation
+                    )
+                ),
+            )
         else:
             self._spy_timer.stop()
+
+    def _on_markdown_load_checked(self, generation: int, path: Path, loaded_generation):
+        if (
+            generation != self._render_generation
+            or path != self._current_path
+            or not is_markdown(path)
+        ):
+            return
+
+        try:
+            loaded_generation = int(loaded_generation)
+        except (TypeError, ValueError):
+            self._spy_timer.stop()
+            return
+        if loaded_generation != generation:
+            self._spy_timer.stop()
+            return
+
+        target, self._pending_scroll, self._pending_scroll_generation = (
+            _pending_scroll_target(
+                self._pending_scroll,
+                self._pending_scroll_generation,
+                loaded_generation,
+            )
+        )
+        if target is not None:
+            self.page().runJavaScript(f"window.scrollTo(0, {target})")
+        self._spy_timer.start()
 
     def set_zoom(self, factor: float):
         self._zoom_factor = max(0.5, min(3.0, factor))
@@ -138,8 +264,12 @@ class RendererView(QWebEngineView):
         return state_page_html(title, message, self._theme, label)
 
     def show_empty(self):
+        self._next_render_generation()
+        self._pending_text_base_url = None
         self._current_path = None
         self._current_anchor = ""
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
         self._spy_timer.stop()
         self.setHtml(
             self._state_html(
@@ -166,15 +296,18 @@ class RendererView(QWebEngineView):
 
     def load_file(self, filepath: str | Path, scroll_y: int | None = None):
         path = Path(filepath)
+        generation = self._next_render_generation()
+        self._pending_text_base_url = None
         self._current_path = path
         self._scroll_y = 0
         # Restore a remembered scroll position once the page finishes loading.
         self._pending_scroll = int(scroll_y) if scroll_y else None
+        self._pending_scroll_generation = generation if self._pending_scroll else None
         self.show_loading(path)
-        QTimer.singleShot(0, lambda path=path: self._finish_load_file(path))
+        self._finish_load_file(path, generation)
 
-    def _finish_load_file(self, path: Path):
-        if path != self._current_path:
+    def _finish_load_file(self, path: Path, generation: int):
+        if generation != self._render_generation or path != self._current_path:
             return
 
         if is_pdf(path):
@@ -183,8 +316,21 @@ class RendererView(QWebEngineView):
             self.load(QUrl.fromLocalFile(str(path)))
             return
 
-        html, headings = convert(path, self._theme)
+        worker = _MarkdownRenderWorker(generation, path=path, theme=self._theme)
+        worker.signals.ready.connect(self._on_file_render_ready)
+        self._render_pool.start(worker)
+
+    def _on_file_render_ready(self, generation: int, source, html: str, headings: list):
+        path = Path(source) if source is not None else None
+        if (
+            generation != self._render_generation
+            or path is None
+            or path != self._current_path
+            or not is_markdown(path)
+        ):
+            return
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
+        html = _html_with_render_generation(html, generation)
         self.page().setHtml(html, base_url)
         if self._on_headings_ready:
             self._on_headings_ready(headings)
@@ -210,7 +356,40 @@ class RendererView(QWebEngineView):
         scroll-spy stay off — this surface is a throwaway preview, not the
         annotatable document view.
         """
+        self._next_render_generation()
+        self._pending_text_base_url = None
         self._current_path = None
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
+        if base_url is not None:
+            self.page().setHtml(html, base_url)
+        else:
+            self.page().setHtml(html)
+
+    def render_markdown_text(
+        self,
+        text: str,
+        theme: str = "light",
+        title: str = "preview",
+        base_url: QUrl | None = None,
+    ):
+        """Render unsaved Markdown buffer text in the background."""
+        generation = self._next_render_generation()
+        self._current_path = None
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
+        self._pending_text_base_url = base_url
+        worker = _MarkdownRenderWorker(
+            generation, text=text, theme=theme, title=title
+        )
+        worker.signals.ready.connect(self._on_text_render_ready)
+        self._render_pool.start(worker)
+
+    def _on_text_render_ready(self, generation: int, _source, html: str, _headings: list):
+        if generation != self._render_generation or self._current_path is not None:
+            return
+        base_url = self._pending_text_base_url
+        self._pending_text_base_url = None
         if base_url is not None:
             self.page().setHtml(html, base_url)
         else:

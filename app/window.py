@@ -63,7 +63,6 @@ from .file_types import document_kind, is_markdown, is_supported_document
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
 from .md_converter import (
-    convert_text,
     front_matter_tags,
     parse_front_matter,
     read_text,
@@ -80,6 +79,7 @@ from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
+from .settings_dialog import SettingsDialog
 from .renderer import RendererView
 from .theme import (
     HIT_TARGET,
@@ -302,7 +302,7 @@ class MainWindow(QMainWindow):
         self._editor_split.setSizes([480, 480])
 
         self._preview_timer = QTimer(self)
-        self._preview_timer.setInterval(250)
+        self._preview_timer.setInterval(400)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.timeout.connect(self._update_preview)
         self._editor.textChanged.connect(self._on_editor_text_changed)
@@ -464,8 +464,9 @@ class MainWindow(QMainWindow):
         )
         tools_menu.addAction(act("編輯 Mermaid 圖表...", self._edit_mermaid_diagram))
         tools_menu.addAction(act("插入 Mermaid 圖表...", self._insert_mermaid_diagram))
-        tools_menu.addSeparator()
-        tools_menu.addAction(act("偏好設定…", self._open_preferences))
+
+        settings_menu = bar.addMenu("設定(&S)")
+        settings_menu.addAction(act("偏好設定…", self._open_preferences))
 
         help_menu = bar.addMenu("說明(&H)")
         help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
@@ -547,62 +548,22 @@ class MainWindow(QMainWindow):
             self._renderer.reload_current()
 
     def _open_preferences(self):
-        settings = QSettings(_ORG, _APP)
-        dialog = QDialog(self)
-        dialog.setWindowTitle("偏好設定")
-        form = QFormLayout(dialog)
-
-        zoom_combo = QComboBox(dialog)
-        for pct in (80, 90, 100, 110, 125, 150, 175, 200):
-            zoom_combo.addItem(f"{pct}%", pct / 100)
-        current_pct = round(self._content_zoom * 100)
-        zoom_index = next(
-            (i for i in range(zoom_combo.count())
-             if round(zoom_combo.itemData(i) * 100) == current_pct),
-            2,
+        dialog = SettingsDialog(
+            self,
+            current_theme=self._theme_name,
+            current_zoom=self._content_zoom,
         )
-        zoom_combo.setCurrentIndex(zoom_index)
-
-        update_cb = QCheckBox("啟動時自動檢查更新（每日一次）", dialog)
-        update_cb.setChecked(self._update_check_enabled())
-
-        css_edit = QLineEdit(settings.value("custom_css_path", "") or "", dialog)
-        css_edit.setPlaceholderText("選用的 .css 檔案路徑")
-        browse_btn = QPushButton("瀏覽…", dialog)
-        css_row = QWidget(dialog)
-        css_layout = QHBoxLayout(css_row)
-        css_layout.setContentsMargins(0, 0, 0, 0)
-        css_layout.addWidget(css_edit, 1)
-        css_layout.addWidget(browse_btn)
-
-        def browse():
-            path, _ = QFileDialog.getOpenFileName(
-                dialog, "選擇 CSS 檔案", "", "CSS 樣式表 (*.css)"
-            )
-            if path:
-                css_edit.setText(path)
-
-        browse_btn.clicked.connect(browse)
-
-        form.addRow("內容縮放", zoom_combo)
-        form.addRow("", update_cb)
-        form.addRow("自訂 CSS", css_row)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            parent=dialog,
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("確定")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self._apply_zoom(zoom_combo.currentData())
-        settings.setValue("update_check_enabled", update_cb.isChecked())
-        settings.setValue("custom_css_path", css_edit.text().strip())
+        r = dialog.results
+        # Apply zoom
+        self._apply_zoom(r["content_zoom"])
+        # Apply theme (instant)
+        new_theme = r.get("theme", self._theme_name)
+        if new_theme != self._theme_name:
+            self._theme_name = new_theme
+            self._apply_theme()
+        # Reload custom CSS
         self._load_user_css(reload=True)
 
     def _build_toolbar(self) -> QWidget:
@@ -1454,9 +1415,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not self._edit_mode or not self._current_file:
             return
         text = self._editor.toPlainText()
-        html, _ = convert_text(text, self._theme_name, title=self._current_file.stem)
         base = QUrl.fromLocalFile(str(self._current_file.parent) + "/")
-        self._edit_preview.render_html(html, base)
+        self._edit_preview.render_markdown_text(
+            text,
+            self._theme_name,
+            title=self._current_file.stem,
+            base_url=base,
+        )
 
     def _sync_preview_scroll(self):
         if not self._edit_mode:

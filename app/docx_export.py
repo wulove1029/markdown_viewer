@@ -9,13 +9,11 @@ one place. Rendering here is intentionally Qt-free; the GUI may pass an
 from __future__ import annotations
 
 import io
-import urllib.request
-from pathlib import Path
 
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt
+from docx.shared import Pt
 
 from .pptx_export import (
     Code,
@@ -24,6 +22,10 @@ from .pptx_export import (
     ListBlock,
     Para,
     Quote,
+    _RemoteImageBudget,
+    _force_bold,
+    _image_native_size_emu,
+    _load_image_bytes,
     Run,
     Table,
     parse_elements,
@@ -33,7 +35,6 @@ BODY_FONT = "Microsoft JhengHei"
 CODE_FONT = "Consolas"
 BODY_PT = 11
 CODE_PT = 9
-IMAGE_WIDTH = Inches(6.2)
 
 
 def _rfonts(run_or_style, font_name: str) -> None:
@@ -148,47 +149,48 @@ def _add_table(doc: Document, block: Table) -> None:
     n_cols = max([len(block.header)] + [len(row) for row in block.rows] or [1]) or 1
     data_rows = ([block.header] if block.header else []) + block.rows
     if not data_rows:
-        data_rows = [[""]]
+        data_rows = [[]]
     table = doc.add_table(rows=len(data_rows), cols=n_cols)
     table.style = "Table Grid"
     for row_idx, row in enumerate(data_rows):
         for col_idx in range(n_cols):
             cell = table.cell(row_idx, col_idx)
             paragraph = cell.paragraphs[0]
-            run = paragraph.add_run(row[col_idx] if col_idx < len(row) else "")
+            cell_runs = row[col_idx] if col_idx < len(row) else []
             if block.header and row_idx == 0:
-                run.bold = True
-            _rfonts(run, BODY_FONT)
+                cell_runs = _force_bold(cell_runs)
+            _emit_runs(paragraph, cell_runs)
     doc.add_paragraph()
 
 
-def _load_image_stream(src: str, base_dir):
-    if src.startswith(("http://", "https://")):
-        try:
-            with urllib.request.urlopen(src, timeout=8) as resp:  # nosec - user content
-                return io.BytesIO(resp.read())
-        except Exception:
-            return None
-    path = Path(src)
-    if not path.is_absolute() and base_dir is not None:
-        path = Path(base_dir) / src
-    try:
-        return io.BytesIO(path.read_bytes())
-    except Exception:
-        return None
+def _content_width_emu(doc: Document) -> int:
+    section = doc.sections[0]
+    return int(section.page_width - section.left_margin - section.right_margin)
 
 
-def _add_image(doc: Document, block: Image, base_dir, *, placeholder: bool = True) -> bool:
-    stream = _load_image_stream(block.src, base_dir)
-    if stream is None:
+def _docx_image_width(doc: Document, image_bytes: bytes):
+    native = _image_native_size_emu(image_bytes)
+    if native is None:
+        return _content_width_emu(doc)
+    native_w, _native_h = native
+    return min(native_w, _content_width_emu(doc))
+
+
+def _add_image(
+    doc: Document, block: Image, base_dir, *, placeholder: bool = True,
+    remote_budget: _RemoteImageBudget | None = None,
+) -> bool:
+    image_bytes = _load_image_bytes(block.src, base_dir, remote_budget)
+    if image_bytes is None:
         if placeholder:
             paragraph = doc.add_paragraph()
             run = paragraph.add_run(f"[Image: {block.alt or block.src}]")
             run.italic = True
             _rfonts(run, BODY_FONT)
         return False
+    stream = io.BytesIO(image_bytes)
     try:
-        doc.add_picture(stream, width=IMAGE_WIDTH)
+        doc.add_picture(stream, width=_docx_image_width(doc, image_bytes))
     except Exception:
         if placeholder:
             paragraph = doc.add_paragraph()
@@ -209,6 +211,7 @@ def export_markdown_to_docx(md_text: str, out_path, base_dir=None, image_provide
     elements = parse_elements(md_text)
     doc = Document()
     _set_doc_defaults(doc)
+    remote_budget = _RemoteImageBudget()
 
     for block in elements:
         if isinstance(block, Heading):
@@ -231,7 +234,7 @@ def export_markdown_to_docx(md_text: str, out_path, base_dir=None, image_provide
         elif isinstance(block, Table):
             _add_table(doc, block)
         elif isinstance(block, Image):
-            _add_image(doc, block, base_dir)
+            _add_image(doc, block, base_dir, remote_budget=remote_budget)
 
     if not elements:
         doc.add_paragraph()

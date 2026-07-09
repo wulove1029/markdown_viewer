@@ -78,8 +78,8 @@ class Code:
 
 @dataclass
 class Table:
-    header: list  # list[str]
-    rows: list  # list[list[str]]
+    header: list  # list[list[Run]]
+    rows: list  # list[list[list[Run]]]
 
 
 @dataclass
@@ -235,7 +235,7 @@ def _parse_table(tokens, i):
             i += 1
         elif tt in ("th_open", "td_open"):
             if current is not None:
-                current.append(_plain(tokens[i + 1]))
+                current.append(_runs(tokens[i + 1]))
             i += 3  # open, inline, close
         else:
             i += 1
@@ -383,6 +383,8 @@ _CODE_BG = RGBColor(0xF2, 0xF2, 0xF2)
 _CODE_FG = RGBColor(0x1A, 0x1A, 0x1A)
 _QUOTE_FG = RGBColor(0x55, 0x55, 0x55)
 _TITLE_FG = RGBColor(0x1F, 0x1F, 0x1F)
+REMOTE_IMAGE_TIMEOUT_SECONDS = 5
+REMOTE_IMAGE_MAX_TOTAL_BYTES = 8 * 1024 * 1024
 
 
 def _emit_runs(paragraph, runs, size_pt, color=None):
@@ -453,6 +455,26 @@ def _text_of(runs) -> str:
     return "".join(r.text for r in runs)
 
 
+def _cell_text(cell_runs) -> str:
+    return _text_of(cell_runs)
+
+
+def _force_bold(runs) -> list:
+    return [Run(r.text, bold=True, italic=r.italic, code=r.code) for r in runs]
+
+
+class _RemoteImageBudget:
+    def __init__(self, max_bytes: int = REMOTE_IMAGE_MAX_TOTAL_BYTES):
+        self.remaining = max_bytes
+
+    def consume(self, size: int) -> bool:
+        if size > self.remaining:
+            self.remaining = 0
+            return False
+        self.remaining -= size
+        return True
+
+
 def _bullet_prefix(item: ListItem) -> str:
     indent = "    " * item.level
     if item.ordered:
@@ -462,7 +484,8 @@ def _bullet_prefix(item: ListItem) -> str:
 
 
 def _render_block(
-    slide, block, left, top, width, base_dir, image_provider=None, prerendered=None
+    slide, block, left, top, width, base_dir, image_provider=None, prerendered=None,
+    remote_budget: _RemoteImageBudget | None = None,
 ) -> int:
     """Render one block at (left, top); return the height it consumed (EMU)."""
     if isinstance(block, (Heading, Para, Quote)):
@@ -551,39 +574,68 @@ def _render_block(
         for r_idx, row in enumerate(data_rows):
             for c_idx in range(n_cols):
                 cell = gtable.cell(r_idx, c_idx)
-                cell.text = row[c_idx] if c_idx < len(row) else ""
-                for para in cell.text_frame.paragraphs:
-                    for run in para.runs:
-                        run.font.size = Pt(TABLE_PT)
-                        if block.header and r_idx == 0:
-                            run.font.bold = True
+                cell_runs = row[c_idx] if c_idx < len(row) else []
+                if block.header and r_idx == 0:
+                    cell_runs = _force_bold(cell_runs)
+                text_frame = cell.text_frame
+                text_frame.clear()
+                _emit_runs(text_frame.paragraphs[0], cell_runs, TABLE_PT)
         return height
 
     if isinstance(block, Image):
-        return _render_image(slide, block, left, top, width, base_dir)
+        return _render_image(slide, block, left, top, width, base_dir, remote_budget)
 
     return 0
 
 
-def _load_image_stream(src: str, base_dir):
-    """Return a BytesIO for *src* (local path or remote URL), or None."""
+def _load_image_bytes(src: str, base_dir, remote_budget: _RemoteImageBudget | None = None):
+    """Return bytes for *src* (local path or remote URL), or None.
+
+    Remote images are read with a timeout and a shared total-byte budget so a
+    document cannot block indefinitely or download unbounded user content.
+    """
     if src.startswith(("http://", "https://")):
+        budget = remote_budget or _RemoteImageBudget()
         try:
-            with urllib.request.urlopen(src, timeout=8) as resp:  # nosec - user content
-                return io.BytesIO(resp.read())
+            with urllib.request.urlopen(  # nosec - user content
+                src, timeout=REMOTE_IMAGE_TIMEOUT_SECONDS
+            ) as resp:
+                content_length = resp.headers.get("Content-Length")
+                if content_length:
+                    try:
+                        if int(content_length) > budget.remaining:
+                            return None
+                    except ValueError:
+                        pass
+                chunks = []
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    if not budget.consume(len(chunk)):
+                        return None
+                    chunks.append(chunk)
+                return b"".join(chunks)
         except Exception:
             return None
     path = Path(src)
     if not path.is_absolute() and base_dir is not None:
         path = Path(base_dir) / src
     try:
-        return io.BytesIO(path.read_bytes())
+        return path.read_bytes()
     except Exception:
         return None
 
 
-def _render_image(slide, block, left, top, width, base_dir) -> int:
-    stream = _load_image_stream(block.src, base_dir)
+def _load_image_stream(src: str, base_dir, remote_budget: _RemoteImageBudget | None = None):
+    data = _load_image_bytes(src, base_dir, remote_budget)
+    return io.BytesIO(data) if data is not None else None
+
+
+def _render_image(
+    slide, block, left, top, width, base_dir, remote_budget: _RemoteImageBudget | None = None
+) -> int:
+    stream = _load_image_stream(block.src, base_dir, remote_budget)
     if stream is None:
         # Fall back to a labelled placeholder so the slide still reads sensibly.
         box = slide.shapes.add_textbox(left, top, width, Inches(0.4))
@@ -623,17 +675,12 @@ def _add_title(slide, runs, continuation: bool) -> int:
     return TITLE_H
 
 
-def _png_size_dpi(path):
+def _png_size_dpi_from_bytes(blob: bytes):
     """Return (width_px, height_px, dpi) for a PNG, or None. Pure stdlib."""
-    try:
-        with open(path, "rb") as f:
-            blob = f.read(256)
-    except OSError:
-        return None
     if blob[:8] != b"\x89PNG\r\n\x1a\n" or len(blob) < 24:
         return None
     w, h = struct.unpack(">II", blob[16:24])
-    dpi = 72
+    dpi = 96
     idx = blob.find(b"pHYs")
     if idx != -1 and idx + 13 <= len(blob):
         ppu_x, _ppu_y, unit = struct.unpack(">IIB", blob[idx + 4 : idx + 13])
@@ -642,24 +689,85 @@ def _png_size_dpi(path):
     return w, h, dpi
 
 
-def _image_display_height(path, width_emu) -> int:
-    """Height (EMU) a PNG will occupy after scaling to fit *width_emu* wide."""
-    info = _png_size_dpi(path)
+def _jpeg_size_dpi_from_bytes(blob: bytes):
+    if not blob.startswith(b"\xff\xd8"):
+        return None
+    dpi = 96
+    i = 2
+    while i + 4 <= len(blob):
+        if blob[i] != 0xFF:
+            i += 1
+            continue
+        marker = blob[i + 1]
+        i += 2
+        if marker in (0xD8, 0xD9):
+            continue
+        if marker == 0xDA or i + 2 > len(blob):
+            break
+        seg_len = struct.unpack(">H", blob[i : i + 2])[0]
+        if seg_len < 2 or i + seg_len > len(blob):
+            break
+        segment = blob[i + 2 : i + seg_len]
+        if marker == 0xE0 and segment.startswith(b"JFIF\x00") and len(segment) >= 12:
+            unit = segment[7]
+            x_density = struct.unpack(">H", segment[8:10])[0]
+            if x_density:
+                if unit == 1:
+                    dpi = x_density
+                elif unit == 2:
+                    dpi = max(1, round(x_density * 2.54))
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            if len(segment) >= 5:
+                h, w = struct.unpack(">HH", segment[1:5])
+                return w, h, dpi
+        i += seg_len
+    return None
+
+
+def _image_size_dpi_from_bytes(blob: bytes):
+    return _png_size_dpi_from_bytes(blob) or _jpeg_size_dpi_from_bytes(blob)
+
+
+def _image_native_size_emu(blob: bytes):
+    info = _image_size_dpi_from_bytes(blob)
     if not info:
+        return None
+    width_px, height_px, dpi = info
+    return int(width_px / dpi * 914400), int(height_px / dpi * 914400)
+
+
+def _png_size_dpi(path):
+    try:
+        blob = Path(path).read_bytes()
+    except OSError:
+        return None
+    return _png_size_dpi_from_bytes(blob)
+
+
+def _image_display_height(path, width_emu) -> int:
+    """Height (EMU) an image will occupy after scaling to fit *width_emu* wide."""
+    try:
+        blob = Path(path).read_bytes()
+    except OSError:
         return Inches(3.0)
-    pw, ph, dpi = info
-    w_emu = int(pw / dpi * 914400)
-    h_emu = int(ph / dpi * 914400)
+    native = _image_native_size_emu(blob)
+    if not native:
+        return Inches(3.0)
+    w_emu, h_emu = native
     if w_emu > width_emu and w_emu > 0:
         h_emu = int(h_emu * width_emu / w_emu)
     return h_emu
 
 
-def _render_slide(prs, layout, model: SlideModel, base_dir, image_provider=None) -> int:
+def _render_slide(
+    prs, layout, model: SlideModel, base_dir, image_provider=None,
+    remote_budget: _RemoteImageBudget | None = None,
+) -> int:
     """Render one slide model into the deck, paginating long content. Returns
     the number of PowerPoint slides actually produced."""
     bottom = SLIDE_H - MARGIN
     produced = 0
+    remote_budget = remote_budget or _RemoteImageBudget()
 
     def new_slide(continuation):
         nonlocal produced
@@ -689,7 +797,7 @@ def _render_slide(prs, layout, model: SlideModel, base_dir, image_provider=None)
             slide, cursor, first_top = new_slide(True)
         used = _render_block(
             slide, block, MARGIN, cursor, CONTENT_W, base_dir,
-            image_provider, prerendered,
+            image_provider, prerendered, remote_budget,
         )
         cursor += used + BLOCK_GAP
     return produced
@@ -710,13 +818,14 @@ def export_markdown_to_pptx(md_text: str, out_path, base_dir=None, image_provide
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
     blank = prs.slide_layouts[6]  # Blank layout — we place every shape ourselves.
+    remote_budget = _RemoteImageBudget()
 
     total = 0
     if not slides:
         prs.slides.add_slide(blank)
         total = 1
     for model in slides:
-        total += _render_slide(prs, blank, model, base_dir, image_provider)
+        total += _render_slide(prs, blank, model, base_dir, image_provider, remote_budget)
 
     prs.save(str(out_path))
     return total

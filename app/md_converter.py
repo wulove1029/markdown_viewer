@@ -3,6 +3,7 @@
 from html import escape
 import json
 import re
+import threading
 import urllib.parse
 from pathlib import Path
 
@@ -62,12 +63,14 @@ _FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}"
 # Optional user stylesheet (set from Preferences) appended after the bundled CSS
 # so it can override the defaults.
 _user_css = ""
+_CONVERT_LOCK = threading.RLock()
 
 
 def set_user_css(css: str) -> None:
     global _user_css
-    _user_css = css or ""
-    _CONVERT_CACHE.clear()  # cached HTML embeds the old stylesheet
+    with _CONVERT_LOCK:
+        _user_css = css or ""
+        _CONVERT_CACHE.clear()  # cached HTML embeds the old stylesheet
 _FORMATTER = HtmlFormatter(style="one-dark")
 
 
@@ -529,7 +532,8 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
         return _error_page(f"檔案超過 10MB，無法預覽：{path.name}", theme), []
 
     cache_key = (str(path), stat.st_mtime_ns, theme)
-    cached = _CONVERT_CACHE.get(cache_key)
+    with _CONVERT_LOCK:
+        cached = _CONVERT_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
@@ -541,9 +545,10 @@ def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple
         ), []
     text, _ = result
     out = convert_text(text, theme, title=path.stem)
-    _CONVERT_CACHE[cache_key] = out
-    if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
-        _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
+    with _CONVERT_LOCK:
+        _CONVERT_CACHE[cache_key] = out
+        if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
+            _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
     return out
 
 
@@ -555,26 +560,27 @@ def convert_text(
     Used both by ``convert`` (file path) and by the live edit-mode preview,
     which has unsaved buffer text rather than a file on disk.
     """
-    # Render the full text (front_matter_plugin strips the YAML from the output
-    # but the source line numbers stay intact, so task-list data-line is correct).
-    front, _body = parse_front_matter(text)
-    body = _PARSER.render(text)
-    body_with_anchors, headings = _inject_anchors(body)
-    body_with_anchors = _front_matter_html(front) + body_with_anchors
-    needs_mermaid = 'class="mermaid"' in body_with_anchors
-    has_code = 'class="highlight"' in body_with_anchors
-    needs_math = 'class="math' in body_with_anchors
-    return (
-        _wrap(
-            body_with_anchors,
-            title,
-            theme,
-            mermaid=needs_mermaid,
-            code_copy=has_code,
-            math=needs_math,
-        ),
-        headings,
-    )
+    with _CONVERT_LOCK:
+        # Render the full text (front_matter_plugin strips the YAML from the output
+        # but the source line numbers stay intact, so task-list data-line is correct).
+        front, _body = parse_front_matter(text)
+        body = _PARSER.render(text)
+        body_with_anchors, headings = _inject_anchors(body)
+        body_with_anchors = _front_matter_html(front) + body_with_anchors
+        needs_mermaid = 'class="mermaid"' in body_with_anchors
+        has_code = 'class="highlight"' in body_with_anchors
+        needs_math = 'class="math' in body_with_anchors
+        return (
+            _wrap(
+                body_with_anchors,
+                title,
+                theme,
+                mermaid=needs_mermaid,
+                code_copy=has_code,
+                math=needs_math,
+            ),
+            headings,
+        )
 
 
 def _theme_class(theme: str) -> str:

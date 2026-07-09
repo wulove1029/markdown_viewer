@@ -15,7 +15,10 @@ from app.pptx_export import (
     Image,
     ListBlock,
     Para,
+    REMOTE_IMAGE_MAX_TOTAL_BYTES,
+    REMOTE_IMAGE_TIMEOUT_SECONDS,
     Table,
+    _load_image_bytes,
     export_markdown_to_pptx,
     parse_elements,
     split_into_slides,
@@ -28,6 +31,10 @@ def _slide_text(slide):
         if shape.has_text_frame:
             out.append(shape.text_frame.text)
     return "\n".join(out)
+
+
+def _runs_text(runs):
+    return "".join(r.text for r in runs)
 
 
 # ------------------------------ parsing ------------------------------
@@ -46,10 +53,27 @@ def test_parse_table_and_nested_list():
         "| A | B |\n| - | - |\n| 1 | 2 |\n\n- top\n    - nested\n"
     )
     table = next(e for e in els if isinstance(e, Table))
-    assert table.header == ["A", "B"]
-    assert table.rows == [["1", "2"]]
+    assert [_runs_text(cell) for cell in table.header] == ["A", "B"]
+    assert [[_runs_text(cell) for cell in row] for row in table.rows] == [["1", "2"]]
     lst = next(e for e in els if isinstance(e, ListBlock))
     assert [i.level for i in lst.items] == [0, 1]
+
+
+def test_parse_table_preserves_inline_runs():
+    table = next(
+        e for e in parse_elements(
+            "| A | B | C |\n| - | - | - |\n| **bold** | *italic* | `code` |\n"
+        ) if isinstance(e, Table)
+    )
+
+    bold_cell, italic_cell, code_cell = table.rows[0]
+
+    assert bold_cell[0].text == "bold"
+    assert bold_cell[0].bold is True
+    assert italic_cell[0].text == "italic"
+    assert italic_cell[0].italic is True
+    assert code_cell[0].text == "code"
+    assert code_cell[0].code is True
 
 
 # --------------------------- slide splitting ---------------------------
@@ -105,6 +129,26 @@ def test_export_code_table_list_present(tmp_path):
     assert "int x = 1;" in text
     has_table = any(shape.has_table for shape in slide.shapes)
     assert has_table
+
+
+def test_export_table_cell_inline_formatting(tmp_path):
+    md = (
+        "## Slide\n\n"
+        "| H1 | H2 | H3 |\n| - | - | - |\n"
+        "| **bold** | *italic* | `code` |\n"
+    )
+    out = tmp_path / "table-inline.pptx"
+
+    export_markdown_to_pptx(md, out)
+
+    table_shape = next(shape for shape in Presentation(str(out)).slides[0].shapes if shape.has_table)
+    row = table_shape.table.rows[1]
+    bold_run = row.cells[0].text_frame.paragraphs[0].runs[0]
+    italic_run = row.cells[1].text_frame.paragraphs[0].runs[0]
+    code_run = row.cells[2].text_frame.paragraphs[0].runs[0]
+    assert bold_run.font.bold is True
+    assert italic_run.font.italic is True
+    assert code_run.font.name == "Consolas"
 
 
 def test_export_empty_document_makes_one_slide(tmp_path):
@@ -191,6 +235,31 @@ def test_png_size_dpi_and_display_height(tmp_path):
     not_png = tmp_path / "fake.png"
     not_png.write_bytes(b"not a png at all")
     assert _png_size_dpi(str(not_png)) is None
+
+
+def test_remote_image_download_uses_timeout_and_budget(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        headers = {"Content-Length": str(REMOTE_IMAGE_MAX_TOTAL_BYTES + 1)}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, _size):
+            raise AssertionError("oversized images should be rejected before reading")
+
+    def fake_urlopen(url, timeout):
+        calls.append((url, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr("app.pptx_export.urllib.request.urlopen", fake_urlopen)
+
+    assert _load_image_bytes("https://example.test/too-large.png", None) is None
+    assert calls == [("https://example.test/too-large.png", REMOTE_IMAGE_TIMEOUT_SECONDS)]
 
 
 def test_export_long_section_paginates(tmp_path):

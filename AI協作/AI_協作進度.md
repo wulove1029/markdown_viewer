@@ -96,6 +96,310 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PyQt6。
 
 ## 進度紀錄
 
+### 2026-07-09 08:45 — 第二批重驗通過：升級輪一、二批全數完成〔已實作＋已驗證〕
+
+**作者**：Claude
+**類型**：驗證
+
+**fresh 重驗（同一驗收方，對照其昨日基準）：通過。**
+捲動還原修復實證（scrollY 1500 vs 修前 0，與 v1.12.0 基準一致）；效能三項
+未被破壞（心跳 137.9ms、50 次編輯只渲染 1 次、race 8/8）；pytest
+**222 passed, 2 skipped**；marker 方案邊界審視過（使用者文件偽造 meta 會被
+escape 無法誤判；PDF/錯誤頁路徑合理；fail-safe 方向安全）。低風險備註：
+自訂 CSS 含字面 `</head>` 的極端情況 marker 會失效（僅捲動不還原，不誤套）。
+
+**升級輪狀態**：第一批（匯出品質＋偏好設定視窗）＋第二批（大檔效能）
+全部實作完成、獨立驗收通過，皆在工作樹未 commit。
+
+**→ 下一棒**：使用者裁決——是否 commit／發 v1.14.0；第三批（window.py
+拆模組＋整合測試）是否開工。
+
+**作者**：Codex
+**類型**：實作＋驗證
+
+**改動**：`app/renderer.py:31` 新增最終 Markdown HTML 的 generation meta marker；
+`app/renderer.py:41` 新增 `_pending_scroll_target()`，讓 `_pending_scroll` 只有在
+實際載入的最終內容 generation 與 pending generation 相符時才取出並清空。
+`app/renderer.py:202` 的 `loadFinished` 改為先查頁面 marker，再由
+`app/renderer.py:227` 判斷是否為目前 generation 的最終 Markdown 頁；
+中繼「載入中」頁沒有 marker，因此不會消耗 pending scroll，也不會啟動 scroll-spy timer。
+`app/renderer.py:333` 在最終 Markdown `setHtml()` 前寫入 marker。
+`tests/test_renderer_async.py:46`、`tests/test_renderer_async.py:58`、`tests/test_renderer_async.py:80`
+補上回歸測試，覆蓋中繼頁不消耗、錯 generation 不消耗、正確 generation 才消耗與最終
+HTML marker。
+
+**驗證證據**：
+
+- `py -3 -m py_compile app\renderer.py tests\test_renderer_async.py`：通過。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest3 tests\test_renderer_async.py`：
+  `5 passed`。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest3 tests`：
+  `198 passed, 4 skipped`；skip 為既有環境/opt-in 類型，未處理 docx/pptx 套件缺口。
+- sandbox 內真 `QWebEngineView` 端到端腳本：`load_file(md, scroll_y=1500)` 非同步完成後
+  `scroll_y=1500`，exit code 0；Chromium 僅輸出 GPU fallback 訊息。
+
+**→ 下一棒**：@Claude 派 fresh 重驗捲動還原與既有 debounce/race 行為。
+
+---
+
+### 2026-07-09 08:25 — 續工：派 Codex 修捲動還原回歸〔提案〕
+
+**作者**：Claude
+**類型**：派工
+
+接 2026-07-08 18:30 節。工作區狀態確認完好（pytest 219 passed, 2 skipped）。
+
+**@Codex（gpt-5.5/high）**：修 `app/renderer.py:182-185` 的 `_pending_scroll`
+消耗時機——非同步化後「載入中」中繼頁必定先 loadFinished，提前把 pending
+scroll 消耗掉並捲動中繼頁，導致所有還原捲動情境（切分頁、存檔 reload、
+外部變更 reload）跳回頂端。修法照驗收建議：以 generation 標記中繼頁、
+只在最終內容那次 loadFinished 套用 `_pending_scroll`（或等價方案）。
+順手修低風險項：中繼頁不要啟動 scroll-spy 輪詢 timer（renderer.py:186-187）。
+
+**怎樣算做好**：`load_file(doc, scroll_y=1500)` 非同步完成後 scrollY≈1500
+（昨日驗收腳本 verify_scroll_restore.py 的斷言）；切分頁捲動記憶恢復正常；
+pytest 全綠；不動昨天已通過驗收的行為（debounce、race 防護、心跳）。
+
+**→ 下一棒**：@Codex 實作；交回後 Claude 派 fresh 重驗（沿用昨日驗收方）。
+
+---
+
+### 2026-07-08 18:30 — 第二批 fresh 驗收：退回（捲動還原回歸）；使用者喊停，明日續〔已駁回〕
+
+**作者**：Claude
+**類型**：驗證＋同步
+
+**fresh 驗收結果（推翻 16:35 節的「已驗證」）**：效能目標全達標——5MB 檔
+GUI 心跳最大 129ms（<200ms）、50 次連打只渲染 1 次、race 防護 8/8、執行緒
+安全審視過、真視窗冒煙過、pytest 219 passed。**但發現一個已實證的中度回歸**：
+
+- **捲動位置還原壞掉**（`app/renderer.py:182-185`）：改非同步後「載入中」
+  中繼頁必定先 loadFinished，把 `_pending_scroll` 提前消耗掉；實測
+  `load_file(doc, scroll_y=1500)` 新碼最終 scrollY=0，v1.12.0 基準=1500。
+  影響：切分頁記憶捲動、存檔 reload、外部變更 reload 全部跳回頂端。
+  **修法**：`_pending_scroll` 改在最終內容那次 loadFinished 才套用
+  （以 generation 標記中繼頁，或套用最終 HTML 前不消耗）。
+
+次要（低）：中繼頁就啟動 scroll-spy timer 空轉（renderer.py:186-187）。
+另供參考：tests/conftest.py 用 `QApplication([])`，PyQt6 6.11 下若未來加
+WebEngine 測試會因空 argv 崩潰（0xC0000409），現有測試不受影響。
+
+**目前工作區狀態（未 commit）**：第一批（匯出品質＋設定視窗，已驗收通過）
+＋第二批（大檔效能，待修上述回歸）都在工作樹。驗收腳本在 Claude session
+scratchpad（verify_scroll_restore.py 可直接重驗）。
+
+**→ 下一棒（明日）**：@Codex 修 `_pending_scroll` 消耗時機（單點修正）→
+fresh 重驗捲動還原＋回歸；通過後使用者裁決是否 commit／發版；之後才輪
+第三批（window.py 拆模組＋整合測試）。
+
+---
+
+### 2026-07-08 16:35 — 大檔效能背景渲染＋debounce 防串頁〔已實作＋已驗證→已駁回，見 18:30 節〕
+
+**作者**：Codex
+**類型**：實作＋驗證
+
+**改動**：`app/renderer.py:84` 新增 `_MarkdownRenderWorker`，把 Markdown
+檔案與編輯預覽的 `convert()` / `convert_text()` 搬到 `QThreadPool` 背景執行；
+`app/renderer.py:174`、`app/renderer.py:231` 以 generation counter 標記每次
+載入/預覽請求，`app/renderer.py:256` 在結果回 GUI thread 時同時檢查 generation
+與 `_current_path`，過期結果直接丟棄，避免快速切換分頁後串頁。`app/renderer.py:299`
+新增 `render_markdown_text()` 給編輯預覽走同一條背景渲染管線。`app/md_converter.py:66`
+與 `app/md_converter.py:563` 對 parser/cache/user CSS 加 `RLock`，避免背景 worker
+同時碰全域 parser/cache。`app/window.py:305` 把 live preview debounce 調成 400ms，
+`app/window.py:1414` 的 `_update_preview()` 改為呼叫非同步 `render_markdown_text()`。
+新增 `tests/test_renderer_async.py:6`、`tests/test_renderer_async.py:22` 覆蓋 worker
+回傳 generation/source/headings 與文字預覽 HTML。
+
+**驗證證據**：
+
+- `py -3 -m py_compile app\md_converter.py app\renderer.py app\window.py`：通過。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest2 tests`：
+  `195 passed, 4 skipped`；skip 屬 sandbox 缺 docx/pptx 與既有 WebEngine opt-in 類型，
+  未嘗試修 docx/pptx 套件。
+- 受影響測試先跑：`tests\test_renderer_async.py tests\test_md_converter_features.py`
+  → `18 passed`；`tests\test_annotation_bridge.py` → `3 passed, 2 skipped`。
+- 自動化驗證腳本（因 `$env:TEMP` 與 `D:\tmp` 對 sandbox 拒絕寫入，改暫放
+  `.codex_verify\codex_verify_large_render.py`，跑完已刪）：5MB 級 md 背景 worker
+  啟動 `2.4ms`、QTimer heartbeat 最大間隔 `118.4ms`（<200ms）；連續 50 次輸入只觸發
+  `1` 次 debounce 預覽渲染（≤3）；快速切換 20 次後舊 generation 結果未覆蓋目前內容、
+  current generation 可正常套用。一次失敗的 headless WebEngine 嘗試留下
+  `.codex_verify\codex_mdviewer_6wvcgf0u\big.md`，sandbox ACL 鎖住無法刪除，與既有
+  `.codex_verify` 權限限制同類。
+
+**→ 下一棒**：@Claude 派 fresh 驗收。
+
+---
+
+### 2026-07-08 15:52 — 第一批 fresh 驗收通過＋Gemini 派工檔位疏失檢討〔已實作＋已驗證〕
+
+**作者**：Claude
+**類型**：驗證＋反省
+
+**第一批驗收（fresh subagent，未參與實作）：通過。**
+pytest 217 passed / 2 既有 skip。匯出品質端到端 23 項檢查過（DOCX cell run
+bold/italic/Consolas、小圖不放大、大圖夾內容寬、壞遠端圖占位且 5s timeout
+生效、budget 不扣本地圖）；設定視窗 GUI 驗證 18/18（四分頁、現值載入、
+改 dark 即時生效寫入 QSettings、cancel 不寫入、6 個 key 全未改名）。
+低風險項記入待辦：PPT 無 DPI PNG 以 72dpi 解讀與 DOCX 96dpi 不一致
+（pptx_export.py:649）；單張超額圖直接歸零 budget（:470-473）；GIF/WebP
+無原生尺寸解讀會撐滿頁寬（docx_export.py:171-176）；settings_dialog.py:14
+未使用 import。
+
+**檔位疏失（Claude 自認）**：本日兩次 `agy` 派工均未帶
+`--model "Gemini 3.5 Flash (Medium)"` flag，Antigravity 以其自身預設模型
+（Claude Sonnet/Opus）執行，**實際消耗的是 Antigravity 內的 Claude 配額**，
+違反「派工一律照設定表帶 flag」規則。糾正：今後 agy 派工一律明帶 `--model`，
+派工前用 `agy models` 核對名稱。
+
+**→ 下一棒**：Claude 派第二批（大檔效能，@Codex）。
+
+---
+
+### 2026-07-08 15:58 — 第二批派工：大檔效能〔提案〕
+
+**作者**：Claude
+**類型**：派工
+
+**@Codex（gpt-5.5/high）大檔效能**，兩個痛點：
+
+1. **渲染不卡 UI**：`md_converter.convert()` 目前在 GUI 執行緒同步
+   `read_text`＋`_PARSER.render` 全文渲染，大檔會凍介面。改為背景執行
+   （QThread/QThreadPool worker），完成後回 GUI 執行緒 setHtml；切換分頁/
+   關檔要能取消未完成的渲染（world id 或 generation counter 防過期結果
+   蓋新內容）。>10MB 拒絕預覽的既有保護保留。
+2. **編輯模式即時預覽 debounce**：目前每次按鍵全文重渲染
+   （window.py:1453 一帶），改為 300-500ms debounce＋僅在停止輸入後渲染，
+   渲染中再有輸入則丟棄舊任務。
+
+範圍：`app/md_converter.py`、`app/renderer.py`、`app/window.py` 渲染呼叫點、
+tests。**不動** settings_dialog.py、docx/pptx_export.py。鐵律：分頁切換的
+`_activate_tab` 重載模型不可破壞；渲染結果必須對應當下 active path
+（防 race 蓋錯分頁內容）。
+
+**怎樣算做好**：pytest 全綠；自動化驗證——產生 5MB 級 md，開檔時 UI 執行緒
+不被阻塞超過 200ms（可用 QTimer 心跳量測）；編輯模式連續輸入 50 字元只觸發
+≤3 次渲染；快速切換兩個分頁 20 次內容不串頁。
+
+**→ 下一棒**：@Codex 實作，交回後 Claude 派 fresh 驗收。
+
+---
+
+### 2026-07-08 15:20 — 偏好設定視窗：Gemini 棒中斷、實作已落地〔已實作＋待驗證〕
+
+**作者**：Claude（代記；實作者 Gemini，其 session 在最後 GUI 驗證步驟 timeout
+中斷，未及自行留痕）
+
+**Gemini 已完成**：新增 `app/settings_dialog.py`（分頁式設定對話框）、
+`app/window.py` 接線（`_open_preferences` 改開新對話框）、新增
+`tests/test_settings_dialog.py`；其回報 pytest **217 passed, 2 skipped** 全綠；
+沿用既有 QSettings key（theme/content_zoom/update_check_enabled/
+custom_css_path/pdf_page_size/pdf_orientation）。**GUI 實際開啟驗證未完成**
+（timeout 中斷點），留給 fresh 驗收一併驗。Claude 已清掉其留在專案根目錄的
+臨時驗證腳本與 stackdump。
+
+**→ 下一棒**：等 @Codex 匯出品質棒交回後，Claude 對第一批兩項一起派 fresh 驗收。
+
+---
+
+### 2026-07-08 15:03 — 匯出品質三項實作〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作＋驗證
+
+**改動**：表格 cell model 從純文字改為 runs，parser 在 `app/pptx_export.py:210`
+的 table cell 內保留粗體/斜體/inline code；PPT 表格輸出在
+`app/pptx_export.py:577` 逐 run 寫入 cell，DOCX 表格輸出在
+`app/docx_export.py:148` 共用同一組 runs。圖片載入改成 `app/pptx_export.py:591`
+的 bytes loader，遠端圖片使用 `app/pptx_export.py:386` 的 5 秒 timeout 與
+`app/pptx_export.py:466` 的整份 export byte budget；超量/逾時/失敗維持占位退化。
+DOCX 圖片寬度改由 `app/docx_export.py:171` 依像素與 DPI 算原生寬度，小於頁面可用寬
+不放大，超過才夾到 `app/docx_export.py:166` 的內容寬；PPT 仍使用 PowerPoint
+原生圖片尺寸並只在超過內容寬/頁高時縮小。
+
+**測試**：新增/更新 `tests/test_pptx_export.py:62`（table inline runs parser）、
+`tests/test_pptx_export.py:134`（PPT table cell inline 格式讀回）、
+`tests/test_pptx_export.py:240`（遠端圖 timeout/總量保護）、
+`tests/test_docx_export.py:69`（DOCX table cell inline 格式讀回）、
+`tests/test_docx_export.py:87` 與 `tests/test_docx_export.py:103`（小圖不放大、大圖夾頁寬）、
+`tests/test_docx_export.py:158`（遠端大圖退化占位）。
+
+**驗證證據**：
+
+- `py -3 -m py_compile app\docx_export.py app\pptx_export.py`：通過。
+- `py -3 -m pytest -q -p no:cacheprovider --basetemp=.codex_verify\pytest-final tests`：
+  `193 passed, 4 skipped`。
+- `py -3 -m pytest -rs -p no:cacheprovider --basetemp=.codex_verify\pytest-rs tests`：
+  `193 passed, 4 skipped`；skip 原因為此 sandbox 的 Python 3.13 缺
+  `docx`、`pptx`，另 2 個既有 WebEngine flaky 測試。
+- 已嘗試 `py -3 -m pip install python-docx python-pptx`，被 sandbox 網路限制擋下
+  （`WinError 10013`）；`py -3 -m pip show python-docx python-pptx` 也顯示目前
+  `py -3` 看不到這兩個套件。
+- 已建立系統 Temp 臨時端到端腳本（含表格粗體/斜體、inline code、小圖、大圖、
+  超量遠端圖，並含 DOCX/PPTX 讀回斷言），腳本已自刪；執行在
+  `from docx import Document` 失敗：`ModuleNotFoundError: No module named 'docx'`。
+
+**→ 下一棒**：@Claude 在有 `python-docx`/`python-pptx` 的完整本機環境補跑
+`py -3 -m pytest tests` 與同款端到端匯出讀回斷言，通過後再標記已驗證。
+
+---
+
+### 2026-07-08 14:54 — 商業化升級輪：三批派工計畫＋第一批派出〔提案〕
+
+**作者**：Claude
+**類型**：分析＋派工
+
+背景：商業化盤點（14:40 口頭報告使用者）確認升級項。本輪分三批：
+第一批＝匯出品質＋偏好設定視窗（並行，檔案不重疊）；第二批＝大檔效能；
+第三批＝window.py 拆模組＋整合測試。WYSIWYG 不在此輪（待使用者定位裁決）。
+
+**第一批派工**：
+
+1. **@Codex（gpt-5.5/high）匯出品質三項**（動 `app/docx_export.py`、
+   `app/pptx_export.py`、對應 tests；不動 window.py）：
+   a) 表格 cell 內 inline 格式（粗體/斜體/inline code）保留——共用 parser
+      `pptx_export.py:80-82` 目前只存純文字，需讓 cell 帶 runs model，
+      docx/pptx 兩端渲染都吃到；
+   b) 圖片尺寸：讀實際像素與 DPI，小於頁寬就用原尺寸，超過才夾到頁寬
+      （docx_export.py:36,191 目前固定 6.2 吋）；
+   c) 遠端圖片下載加總量上限與逾時保護、失敗退化占位（docx_export.py:168，
+      PPT 同模式一併處理；GUI 執行緒不可無上限阻塞）。
+   驗收：新增/更新 pytest 覆蓋三項；`py -3 -m pytest tests` 全綠；
+   端到端匯出一份含表格粗體＋大小圖＋壞遠端圖連結的 md，docx/pptx 讀回斷言。
+
+2. **@Gemini（Gemini 3.5 Flash (Medium)）完整偏好設定視窗**（新增
+   `app/settings_dialog.py`＋window.py 接線；不動 docx/pptx_export）：
+   把現有隱式 QSettings 選項集中成一個設定對話框（分頁式）：外觀（主題
+   深/淺、內容縮放預設值）、匯出（PDF 頁面尺寸/方向預設）、行為（更新檢查
+   開關、自訂 CSS 路徑——取代現有散落選單項 window.py:550-605）、
+   關於（版本）。既有 QSettings key 不可改名（相容舊設定）。
+   驗收：對話框可開可存、改主題即時生效、舊選單入口移除或導向新對話框、
+   `py -3 -m pytest tests` 全綠＋新增 settings dialog 純邏輯測試。
+
+**→ 下一棒**：兩位並行實作；交回後 Claude 派 fresh 驗收，通過即派第二批
+（自動接棒 ✅）。
+
+---
+
+### 2026-07-08 14:30 — v1.13.0 發布完成〔已同步〕
+
+**作者**：Claude
+**類型**：同步
+
+照 DEVELOPMENT.md 第 6 節流程發布：`bump_version.py 1.13.0`（version.py 與
+installer.iss 同步）、CHANGELOG 補 1.13.0 節、commit `05e38fd` 推 main、
+tag `v1.13.0` 觸發 GitHub Actions（run 28922281559）→ 全步驟綠，Release
+資產 `MarkdownViewer_Setup_v1.13.0.exe` 已發布（非 draft）。發布前
+`py -3 -m pytest tests -q` → 195 passed, 2 skipped。
+
+內容：匯出 Word (.docx)、單一實例（多開檔案改開分頁）、分頁移至新視窗。
+`AI協作/` 入版控；`status.json` 與 `*.log` 已 gitignore。附註：`.codex_verify/`
+被 sandbox ACL 鎖住刪不掉，已 gitignore，待使用者以系統管理員手動刪。
+
+**→ 下一棒**：無，本輪結束。低風險待辦見「待辦與未決」。
+
+---
+
 ### 2026-07-08 13:45 — 匯出 Word (.docx)：fresh 驗收通過〔已實作＋已驗證〕
 
 **作者**：Claude
