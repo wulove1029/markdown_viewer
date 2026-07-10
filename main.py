@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
+from app import session_state
 from app.version import VERSION
 from app.window import MainWindow
 
@@ -154,6 +155,8 @@ def main():
 
     # Support: py main.py path/to/file.md — otherwise reopen the last document.
     if file_arg:
+        # Still bring the file tree back the way it was, then open the file.
+        session_state.restore_file_tree_state(window)
         window.open_path(file_arg)
     else:
         window.restore_last_session()

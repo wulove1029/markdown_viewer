@@ -1,3 +1,5 @@
+import json
+
 from app.annotations import Annotation, DocumentAnnotations
 from app.tag_index import TagIndex
 
@@ -36,3 +38,25 @@ def test_prune_removes_missing_files(tmp_path):
     idx.update(tmp_path / "ghost.md", _doc(["PD"], []))
     idx.prune()
     assert idx.all_tags() == []
+
+
+def test_loads_legacy_entry_without_body_tags(tmp_path):
+    path = tmp_path / "idx.json"
+    md = tmp_path / "legacy.md"
+    path.write_text(
+        json.dumps(
+            {
+                str(md.resolve()): {
+                    "doc_tags": ["old"],
+                    "annot_tags": [],
+                    "front_tags": ["front"],
+                    "count": 0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    idx = TagIndex(path)
+    assert set(idx.all_tags()) == {"old", "front"}
+    assert idx.files_with_tag("old") == [str(md.resolve())]

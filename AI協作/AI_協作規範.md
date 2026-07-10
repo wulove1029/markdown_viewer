@@ -86,7 +86,7 @@ Claude，不自行主導整體方向、不自行決定要不要動下一棒。
 ```json
 {"tasks": [
   {"ai": "Codex", "task": "實作 Array Level Control characteristic",
-   "started": "2026-07-07 01:00", "model": "gpt-5.5 / high"}
+   "started": "2026-07-07 01:00", "model": "gpt-5.6-sol / high"}
 ]}
 ```
 
@@ -124,7 +124,7 @@ Claude，不自行主導整體方向、不自行決定要不要動下一棒。
 | 任務類型 | Codex（`codex exec`） | Gemini（`agy`） |
 |---|---|---|
 | 輕任務：同步、抄寫、格式、小修 | `-c model_reasoning_effort=medium` | 預設 `Gemini 3.5 Flash (Medium)` |
-| 一般實作、除錯 | **預設即可**（gpt-5.5 / high） | `--model "Gemini 3.5 Flash (High)"` |
+| 一般實作、除錯 | **預設即可**（gpt-5.6-sol / high） | `--model "Gemini 3.5 Flash (High)"` |
 | 深度分析、架構、難題 | `-c model_reasoning_effort=xhigh` | `--model "Gemini 3.1 Pro (High)"` |
 
 - Codex 全域預設在 `~/.codex/config.toml`；單次覆蓋用 `-m ＜模型＞` 與

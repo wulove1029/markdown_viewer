@@ -4,6 +4,7 @@ from html import escape
 import json
 import re
 import threading
+import unicodedata
 import urllib.parse
 from pathlib import Path
 
@@ -477,6 +478,75 @@ def front_matter_tags(data: dict) -> list[str]:
     if isinstance(raw, list):
         return [str(t).strip() for t in raw if str(t).strip()]
     return []
+
+
+_BACKTICK_FENCE_RE = re.compile(r"^\s*```")
+
+
+def _mask_inline_code(line: str) -> str:
+    """Replace backtick code spans with spaces while preserving offsets."""
+    chars = list(line)
+    cursor = 0
+    while cursor < len(line):
+        if line[cursor] != "`":
+            cursor += 1
+            continue
+        end_ticks = cursor + 1
+        while end_ticks < len(line) and line[end_ticks] == "`":
+            end_ticks += 1
+        marker = line[cursor:end_ticks]
+        closing = line.find(marker, end_ticks)
+        span_end = len(line) if closing < 0 else closing + len(marker)
+        chars[cursor:span_end] = " " * (span_end - cursor)
+        cursor = span_end
+    return "".join(chars)
+
+
+def mask_markdown_code(text: str) -> str:
+    """Mask fenced and inline backtick code while preserving line boundaries."""
+    visible_lines: list[str] = []
+    in_fence = False
+
+    for line in (text or "").splitlines():
+        if _BACKTICK_FENCE_RE.match(line):
+            in_fence = not in_fence
+            visible_lines.append("")
+        elif in_fence:
+            visible_lines.append("")
+        else:
+            visible_lines.append(_mask_inline_code(line))
+    return "\n".join(visible_lines)
+
+
+def _ends_hashtag(char: str) -> bool:
+    return char.isspace() or char == "#" or unicodedata.category(char).startswith("P")
+
+
+def body_hashtags(text: str) -> list[str]:
+    """Extract inline ``#tags`` outside fenced and inline code.
+
+    A hashtag starts at the beginning of a line or after whitespace. Its value
+    ends at whitespace, another ``#``, or Unicode punctuation. ATX heading
+    markers do not match because their ``#`` is followed by whitespace or a
+    second ``#`` rather than a tag character.
+    """
+    tags: list[str] = []
+    seen: set[str] = set()
+
+    for visible in mask_markdown_code(text).splitlines():
+        for match in re.finditer(r"(?<!\S)#", visible):
+            start = match.end()
+            if start >= len(visible) or _ends_hashtag(visible[start]):
+                continue
+            end = start
+            while end < len(visible) and not _ends_hashtag(visible[end]):
+                end += 1
+            tag = visible[start:end]
+            key = tag.casefold()
+            if tag and key not in seen:
+                seen.add(key)
+                tags.append(tag)
+    return tags
 
 
 def _front_matter_html(data: dict) -> str:

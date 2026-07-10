@@ -19,6 +19,20 @@ def test_extract_ignores_single_brackets():
     assert extract_wikilinks("[not a wikilink](x) and [single]") == []
 
 
+def test_extract_ignores_inline_code():
+    text = "real [[One]] and `[[Hidden]]` and ``[[Also hidden]]``"
+    assert extract_wikilinks(text) == [("One", None)]
+
+
+def test_extract_ignores_fenced_code():
+    text = "before [[Visible]]\n```md\n[[Hidden]]\n```\nafter [[Also|alias]]"
+    assert extract_wikilinks(text) == [("Visible", None), ("Also", "alias")]
+
+
+def test_extract_does_not_match_across_lines():
+    assert extract_wikilinks("[[Never\nmatches]] and [[Yes]]") == [("Yes", None)]
+
+
 def _index(docs):
     idx = LinkIndex()
     idx.build([(Path(p), t) for p, t in docs])

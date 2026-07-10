@@ -199,6 +199,10 @@ ICONS: dict[str, str] = {
         '<path d="M9 6h3a3 3 0 0 1 3 3v6"/>'
         '<path d="M6 9v8a2 2 0 0 0 2 2h7"/>'
     ),
+    "columns": (
+        '<rect x="3" y="4" width="18" height="16" rx="2"/>'
+        '<path d="M12 4v16"/>'
+    ),
 }
 
 

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .document_libraries import DocumentLibraryStore
+from .note_templates import default_subfolder
 from .version import VERSION
 
 # ── constants (must match window.py originals) ──────────────────────────
@@ -201,6 +204,93 @@ class SettingsDialog(QDialog):
         browse_btn.clicked.connect(_browse)
         form.addRow("自訂 CSS", css_row)
 
+        try:
+            libraries = DocumentLibraryStore().load()
+        except OSError:
+            libraries = []
+        default_daily = default_subfolder(libraries, "Daily Notes")
+        default_templates = default_subfolder(libraries, "Templates")
+
+        daily_group = QGroupBox("Daily notes")
+        daily_form = QFormLayout(daily_group)
+        daily_path = settings.value(
+            "daily_notes_folder", str(default_daily or "")
+        ) or str(default_daily or "")
+        self._daily_notes_edit = QLineEdit(str(daily_path))
+        daily_browse = QPushButton("瀏覽…")
+        daily_row = QWidget()
+        daily_layout = QHBoxLayout(daily_row)
+        daily_layout.setContentsMargins(0, 0, 0, 0)
+        daily_layout.addWidget(self._daily_notes_edit, 1)
+        daily_layout.addWidget(daily_browse)
+
+        def _browse_daily_folder():
+            path = QFileDialog.getExistingDirectory(
+                self,
+                "選擇 Daily notes 資料夾",
+                self._daily_notes_edit.text(),
+            )
+            if path:
+                self._daily_notes_edit.setText(path)
+
+        daily_browse.clicked.connect(_browse_daily_folder)
+        daily_form.addRow("資料夾", daily_row)
+        daily_form.addRow("檔名格式", QLabel("YYYY-MM-DD（固定）"))
+
+        self._daily_template_edit = QLineEdit(
+            str(settings.value("daily_note_template", "") or "")
+        )
+        self._daily_template_edit.setPlaceholderText("選用的 Markdown 範本檔")
+        daily_template_browse = QPushButton("瀏覽…")
+        daily_template_row = QWidget()
+        daily_template_layout = QHBoxLayout(daily_template_row)
+        daily_template_layout.setContentsMargins(0, 0, 0, 0)
+        daily_template_layout.addWidget(self._daily_template_edit, 1)
+        daily_template_layout.addWidget(daily_template_browse)
+
+        def _browse_daily_template():
+            initial = self._daily_template_edit.text() or str(
+                default_templates or ""
+            )
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "選擇 Daily note 範本",
+                initial,
+                "Markdown 範本 (*.md)",
+            )
+            if path:
+                self._daily_template_edit.setText(path)
+
+        daily_template_browse.clicked.connect(_browse_daily_template)
+        daily_form.addRow("範本檔", daily_template_row)
+        form.addRow(daily_group)
+
+        templates_group = QGroupBox("筆記範本")
+        templates_form = QFormLayout(templates_group)
+        templates_path = settings.value(
+            "templates_folder", str(default_templates or "")
+        ) or str(default_templates or "")
+        self._templates_folder_edit = QLineEdit(str(templates_path))
+        templates_browse = QPushButton("瀏覽…")
+        templates_row = QWidget()
+        templates_layout = QHBoxLayout(templates_row)
+        templates_layout.setContentsMargins(0, 0, 0, 0)
+        templates_layout.addWidget(self._templates_folder_edit, 1)
+        templates_layout.addWidget(templates_browse)
+
+        def _browse_templates_folder():
+            path = QFileDialog.getExistingDirectory(
+                self,
+                "選擇筆記範本資料夾",
+                self._templates_folder_edit.text(),
+            )
+            if path:
+                self._templates_folder_edit.setText(path)
+
+        templates_browse.clicked.connect(_browse_templates_folder)
+        templates_form.addRow("資料夾", templates_row)
+        form.addRow(templates_group)
+
         return page
 
     def _build_about_tab(self) -> QWidget:
@@ -248,9 +338,18 @@ class SettingsDialog(QDialog):
         # Behavior
         update_check = self._update_cb.isChecked()
         css_path = self._css_edit.text().strip()
+        daily_notes_folder = self._daily_notes_edit.text().strip()
+        daily_note_template = self._daily_template_edit.text().strip()
+        templates_folder = self._templates_folder_edit.text().strip()
         self.results["update_check_enabled"] = update_check
         self.results["custom_css_path"] = css_path
+        self.results["daily_notes_folder"] = daily_notes_folder
+        self.results["daily_note_template"] = daily_note_template
+        self.results["templates_folder"] = templates_folder
         settings.setValue("update_check_enabled", update_check)
         settings.setValue("custom_css_path", css_path)
+        settings.setValue("daily_notes_folder", daily_notes_folder)
+        settings.setValue("daily_note_template", daily_note_template)
+        settings.setValue("templates_folder", templates_folder)
 
         super().accept()

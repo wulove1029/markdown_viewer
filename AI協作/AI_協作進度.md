@@ -21,7 +21,7 @@
 | AI | 參與 | 模型 | 推理強度 | 速度 |
 |---|---|---|---|---|
 | Claude | ✅ | session（由使用者 /model 控制） | session | session |
-| Codex | ✅ | gpt-5.5 | high | default |
+| Codex | ✅ | gpt-5.6-sol | high | default |
 | Gemini | ✅ | Gemini 3.5 Flash (Medium) | 內含於模型 | — |
 | 自動接棒 | ✅ | —（全域開關，規則見下） | — | — |
 
@@ -84,6 +84,24 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
       詳見進度紀錄 2026-07-08 11:25 派工節（Claude/07-08 11:25）
 - [x] @Codex：實作「分頁移出成獨立視窗」（`app/window.py` 分頁右鍵選單），
       詳見進度紀錄 2026-07-08 11:25 派工節（Claude/07-08 11:25）
+- [x] @Codex：實作「標籤篩選擴及檔案分頁」，詳見進度紀錄 2026-07-10 09:57 派工節
+      （Claude/07-10 09:57）
+- [x] @Codex：實作「階段 1a：全 vault 全文搜尋」，詳見進度紀錄 2026-07-10 11:27
+      路線圖節（Claude/07-10 11:27）
+- [x] @Codex：實作「階段 1b：檔案樹 CRUD＋資料夾記憶」，詳見進度紀錄 2026-07-10
+      11:27 路線圖節與 12:00 派工節（Claude/07-10 12:00）（改由 Claude subagent
+      實作，Codex 額度用罄）
+- [x] @Claude(subagent)：實作「階段 2a：並排即時預覽」（Claude/07-10 13:35）
+- [x] @Codex：實作「階段 2b：[[ 自動補全＋內文 #tag 入標籤索引」，詳見進度紀錄
+      2026-07-10 17:48 派工節（Claude/07-10 17:48）
+- [x] @Codex：實作「階段 3a：Graph view 筆記關聯圖」，詳見進度紀錄 2026-07-10
+      20:48 派工節（Claude/07-10 20:48）
+- [x] @Codex：實作「階段 3b：Daily notes＋筆記範本」，詳見進度紀錄 2026-07-10
+      23:55 派工節（Claude/07-10 23:55）
+- [x] @Codex：修復 links.py wikilink 解析器（code 遮罩＋禁跨行），詳見進度紀錄
+      2026-07-11 00:40 分析節與 00:50 派工節（Claude/07-11 00:50）
+- [x] @Codex：Graph view 體驗棒（防重疊＋資料夾分群著色＋圖例＋hover 高亮＋
+      零邊引導），詳見進度紀錄 2026-07-11 01:21 派工節（Claude/07-11 01:21）
 
 ---
 
@@ -95,6 +113,598 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 ---
 
 ## 進度紀錄
+
+### 2026-07-11 02:10 — Graph view 體驗棒獨立驗收通過〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證
+
+**驗收結果：8/8 全過**，推進下方 01:36 節為已驗證。
+1. 防重疊 min_gap=12＋fit cap 1.5x（`graph_model.py:157`、`graph_view.py:211,439-441`）。
+2. 資料夾分群著色純函式＋圖例勾選切換群組顯示（`graph_model.py:99,138`、
+   `graph_view.py:597-625`），ghost 維持虛線灰。
+3. hover 高亮節點＋鄰居、其餘 opacity 0.2（`graph_view.py:511-528`）。
+4. 零邊提示（`graph_view.py:41,581`）。5. 邊 2.0px／hover accent 2.2px。
+6. 迴歸全過。7. `py -3 -m pytest`＝**288 passed, 4 skipped, exit 0**。
+8. 測試品質良好；一小瑕疵不擋收：`test_graph_view.py:107` set_index 未傳
+   libraries 會讀使用者真實設定（有 try/except 保護），後續可補隔離。
+
+**→ 下一棒**：無，待使用者實機試用（重啟檢視器）與裁決 commit。
+
+### 2026-07-11 01:36 — Graph view 防重疊、分群圖例與焦點互動〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+**改動**：`app/graph_model.py:99` 新增文件庫路徑分群純函式，ghost 不入群；
+`app/graph_model.py:138` 新增圖例群組可見性純函式；`app/graph_model.py:150`
+加入以節點矩形尺寸與 12px 間距碰撞分離，密集情況有確保無重疊的確定性 fallback。
+`app/graph_view.py:63` 將邊寬調為 2.0px、hover 相連邊改 accent 2.2px；
+`app/graph_view.py:107` 加節點／直接鄰居高亮與其餘淡化，ghost 維持灰色虛線；
+`app/graph_view.py:306` 將碰撞分離接進初始、分幀收斂與拖曳放開流程；
+`app/graph_view.py:431` 的 fit 留 70px 邊距並將初始放大上限設為 1.5x；
+`app/graph_view.py:536` 加文件庫分群圖例、點擊顯隱群組及零邊底部引導。
+
+**測試**：`tests/test_graph_model.py:83`、`:105`、`:121` 新增分群、12px
+碰撞、群組可見性純函式測試；`tests/test_graph_view.py:49`、`:82` 新增圖例顯隱、
+hover、邊樣式、零邊提示與 fit cap GUI 測試。`py -3 -m py_compile
+app\graph_model.py app\graph_view.py` 通過；Graph 專項 `10 passed`；整套 pytest
+為 **288 passed, 4 skipped in 42.21s**（較基準 +5 passed、skip 不變）。另以 60
+節點離屏跑完 180 次佈局迭代，結果 `overlap=0`；兩節點 fit 實測 `1.500x`。
+
+**意外發現**：managed sandbox 中 Python 直接建立 pytest 暫存目錄會立即遇到 ACL
+拒絕讀取；完整測試以一次性 pytest 外掛改由 PowerShell 建目錄後通過，外掛已刪除，
+未納入產品碼。未確認：使用者真實 vault 的視覺手感，待獨立 GUI 實機驗收。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-11 01:21 — 使用者回饋：關聯圖分群＋視覺改善；「無線條」查明非 bug〔分析→派工〕
+
+**作者**：Claude
+**類型**：分析＋派工
+
+**使用者回饋**：(1) 想要檔案分類集合成群組的功能；(2) 關聯圖不清楚、沒有線條。
+
+**查證**：邊繪製程式碼結構正確（`graph_view.py:34-54` 中心連線＋
+ItemSendsGeometryChanges 跟隨）。實測整個 vault build_graph＝**11 節點、0 邊**
+——筆記之間目前沒有任何真 `[[連結]]`（README 等檔的 `[[...]]` 都在 code 引用
+內，links.py 修復後正確排除）。「沒有線條」屬預期行為，非 bug。
+
+**真問題**：節點重疊、無分群、零邊時無引導。派 Codex 做 Graph view 體驗棒：
+防重疊佈局、按資料夾分群著色＋圖例、hover 高亮鄰居、零邊提示。
+
+**→ 下一棒**：@Codex 實作（規格見派工 prompt 與收件匣）。
+
+### 2026-07-11 01:35 — links.py 修復獨立驗收通過：Obsidian 化路線圖全部收工〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證
+
+**修復驗收：6/6 全過**，推進下方 00:57 節為已驗證。
+1. 行內 code／fence／跨行三種誤解析全排除且各有測試（`tests/test_links.py:22-33`）。
+2. 正常 wikilink 行為零改變（既有測試全過）。
+3. 遮罩邏輯單一實作共用：`mask_markdown_code`（`md_converter.py:505`）供
+   links 與 body_hashtags 共用（`links.py:15,33`、`md_converter.py:536`）。
+4. 實測 AI協作 兩檔建圖：**ghost count = 0**，碎片產物消失。
+5. 迴歸 50 項全過（反連/補全/graph/hashtag/tag）。
+6. `py -3 -m pytest`＝**283 passed, 4 skipped, exit 0**，無掛住。
+
+**Obsidian 化路線圖總結（2026-07-10 11:27 起）**：
+1a 全文搜尋、1b 檔案樹 CRUD＋資料夾記憶、2a 三態並排即時預覽、
+2b [[ 補全＋內文 #tag、3a Graph view、3b Daily notes＋範本、
+外加 links.py 解析器修復——**七棒全部實作＋獨立驗收通過**。
+測試由基準 213 → 283 passed。改動尚未 commit，等使用者裁決
+（建議實機試用後 commit / 出 release）。
+
+**遺留追蹤項**：間歇性 pytest 掛住（faulthandler_timeout=120 已就位等抓堆疊）；
+wikilink 改名不自動改寫內文；U+FFFD 檔被全文搜尋跳過。
+
+**→ 下一棒**：無，待使用者實機試用與裁決。
+
+### 2026-07-11 00:57 — 修復 wikilink code 誤解析與跨行配對〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+- 把既有 fence 狀態機與行內 code 遮罩收斂成公開共用函式
+  `mask_markdown_code`（`app/md_converter.py:483-518`），`body_hashtags` 改共用該函式
+  （`app/md_converter.py:525-536`）；取捨是避免 `links.py` 匯入私有符號，也不複製
+  兩份遮罩邏輯。
+- `extract_wikilinks` 先遮罩再解析（`app/links.py:30-38`）；`WIKILINK_RE` 的 target、
+  alias 與周邊空白均禁止 CR/LF，杜絕跨行配對（`app/links.py:17-20`）。正常
+  `[[Note]]`、`[[Note|alias]]`、`[[Note#Section]]` 行為由既有測試確認未變。
+- 新增行內 code、三反引號 fence、跨行不配對回歸測試
+  （`tests/test_links.py:22-33`）。目標測試：**15 passed**；`py_compile` 與
+  `git diff --check` 通過。
+- 實檔驗證：以 `AI協作/AI_協作規範.md`、`AI協作/AI_協作進度.md` 建
+  `LinkIndex`＋`build_graph`，結果 `ghost_count=0`、`ghost_labels=[]`、
+  `contains_wikilink_artifact=False`。
+- 完整 pytest：原始 `py -3 -m pytest` 遇既知 sandbox temp ACL，關鍵幀
+  `_pytest/pathlib.py:229 make_numbered_dir`，為 160 passed／4 skipped／123 setup
+  errors；改用全新 TEMP/TMP＋permissive-mkdir 等價 runner 後為
+  **283 passed, 4 skipped, exit 0（3.67s）**。新增 3 例，故較 280 基準多 3 passed。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-11 00:50 — 階段 3b 獨立驗收通過＋派工 links.py 修復棒〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 3b 驗收結果：8/8 全過**，推進下方 00:36 節為已驗證。
+1. 檔案選單＋Ctrl+D 開今日筆記、已存在直接開啟、進編輯模式、自動建資料夾
+   （`window.py:351-352,418,2066-2115`、`note_templates.py:74`）。
+2. 設定對話框 Daily notes 區塊＋預設值＋QSettings 持久化
+   （`settings_dialog.py:211-266,351-353`）。
+3. render_template 純函式、datetime 可注入、{{date}}/{{time}}/{{title}}
+   （`note_templates.py:12-25`）。
+4. daily 套範本＋編輯選單「插入範本…」游標插入＋缺資料夾優雅提示
+   （`window.py:433,2083,2142-2180`）。
+5. `pytest.ini:2` faulthandler_timeout=120 已加（掛住追蹤項落地）。
+6. 迴歸全過。7. `py -3 -m pytest`＝**280 passed, 4 skipped, exit 0**（無掛住）。
+8. fake 物件貼齊真 API。
+
+**Obsidian 化路線圖 6 棒（1a/1b/2a/2b/3a/3b）全部完成並驗收。**
+剩餘：links.py 修復棒（見下方 00:40 分析節，使用者實機發現）。
+
+**→ 下一棒**：@Codex 修復 links.py wikilink 解析器（規格見派工 prompt 與收件匣）。
+
+### 2026-07-11 00:40 — Graph view 實機碎片 bug：根因在 links.py 解析器〔分析〕
+
+**作者**：Claude（診斷由 Explore subagent 執行）
+**類型**：分析
+
+使用者實機截圖：關聯圖除正常節點外散落大量細直線碎片（弧形排列）。
+
+**根因（已實測重現）**：`app/links.py:17` `WIKILINK_RE` 與 `extract_wikilinks`
+（:27-35）未遮罩 code fence／行內 code——文件內 `` `[[wikilink]]` `` 範例
+文字被解析成真連結，生成大量 ghost 節點；且字元類允許跨行配對產生超長
+label。碎片視覺＝眾多 ghost 節點的初始圓形佈局被 fitInView 縮小後的樣子。
+graph_view/graph_model 本身無誤。
+
+**修法**：(1) `extract_wikilinks` 解析前比照 `md_converter.body_hashtags`
+（md_converter.py:519-528）套 fence 狀態機＋行內 code 遮罩；
+(2) `WIKILINK_RE` 字元類改 `[^\[\]|\n]` 禁止跨行。
+附帶效益：反向連結面板同樣受惠（同一解析器）。
+
+**→ 下一棒**：3b 驗收後派修復棒（改 links.py＋測試，與 3b 改動檔案不重疊）。
+
+### 2026-07-11 00:36 — 階段 3b：Daily notes＋筆記範本〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+- 新增可獨立測試的範本核心：支援 `{{date}}`、`{{time}}`、`{{title}}` 與可注入時間，
+  遞迴列出範本資料夾 `.md`，缺失時回空清單；Daily note 會自動建立資料夾、以
+  `YYYY-MM-DD.md` 精確建檔，既有檔不覆寫（`app/note_templates.py:12-79`）。
+- 偏好設定「行為」頁新增 Daily notes／筆記範本區塊：預設第一個文件庫下的
+  `Daily Notes/`、`Templates/`，固定檔名格式、可瀏覽資料夾與每日範本，三項均存入
+  既有 QSettings（`app/settings_dialog.py:204-292,338-353`）。
+- 主視窗新增「檔案→開啟今日筆記」與 `Ctrl+D`、開啟後進編輯模式；新增編輯選單
+  「插入範本…」，由設定資料夾選檔並在游標處插入替換後內容。開檔沿用
+  `open_path`，未動 `_tab_state`（`app/window.py:351-353,418,433,2057-2181`）。
+- 新增 daily 建立／重開、純函式變數、設定預設值、游標插入與缺失資料夾容錯測試
+  （`tests/test_note_templates.py:12-59`、`tests/test_settings_dialog.py:103-107`、
+  `tests/test_window_integration.py:616-704`）；pytest 常駐逾時堆疊設定在
+  `pytest.ini:1-2`。
+- 驗證：`py -3 -m py_compile` 通過；Codex 沙箱原始 pytest 受既知 Windows temp
+  `0700` ACL 阻擋 setup，改用前棒同型 permissive-mkdir 等價完整執行＝
+  **280 passed, 4 skipped, exit 0（3.85s）**。4 skips 為既知依賴／headless WebEngine。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 23:55 — 階段 3a 獨立驗收通過（附追蹤項）＋派工階段 3b〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 3a 驗收結果：9/9 全過**，推進下方 21:00 節為已驗證。
+1. graph_model 純函式（無 Qt import），孤立/ghost 節點正確（`app/graph_model.py:48-73`）。
+2. 非模態 QDialog＋檢視選單＋Ctrl+G，開檔走 open_path、分頁模型未動
+   （`graph_view.py:333`、`window.py:374,428,1945`）。
+3. FR 式力導向、平移/縮放/拖曳節點/點擊開檔/當前檔高亮/ghost 虛線，
+   純 QGraphicsScene 無網路依賴（`graph_model.py:98-166`、`graph_view.py:69-186`）。
+4. 存檔自動刷新開著的 Graph 視窗（`window.py:1421,1925-1931`，有測試）。
+5. QTimer 16ms 分幀佈局；實測 205 節點 build 1.8ms、每幀 19ms，不凍結。
+6. 深淺主題接 theme.py（`graph_view.py:359-365`）。
+7. 迴歸全過。8. `py -3 -m pytest`＝**273 passed, 4 skipped, exit 0**；
+   實作方回報的 117 setup errors 判定為**其沙箱 temp ACL 環境問題，非程式碼問題**
+   （驗收環境同命令三跑零 error）。9. fake 物件貼齊真 API。
+
+**⚠ 追蹤項（間歇性 pytest 掛住）**：驗收中再次出現整套 pytest 掛住
+（`test_window_integration.py:424` `test_body_tags_update_...`，CPU 2.9s/7.3min
+純等待；2b 驗收也掛過一次同型）。faulthandler 重跑未重現、無堆疊。
+判定非 3a 引入，懷疑 LinkIndexThread 或 Qt offscreen 時序。
+**建議**：pytest 設定常駐 `faulthandler_timeout` 以便下次抓堆疊（併入 3b 順手做）。
+
+**→ 下一棒**：@Codex 實作階段 3b（Daily notes＋筆記範本，Obsidian 化最後一棒），
+規格見派工 prompt 與收件匣。
+
+### 2026-07-10 21:00 — 階段 3a：Graph view 筆記關聯圖〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+- 圖資料與佈局：`LinkIndex` 保留未解析的原始 wikilink 目標而不改既有正反向索引
+  語意（`app/links.py:100,112-117`）；新增純函式模型，涵蓋全部筆記、孤立筆記、
+  去重邊與 ghost 節點，並提供確定性初始位置和可釘選節點的力導向單步迭代
+  （`app/graph_model.py:14-79,82-95,98-171`）。
+- 視窗與互動：新增獨立非模態原生 Qt 關聯圖，含分幀佈局、目前檔案高亮、ghost
+  虛線淡色、空白拖曳平移、滾輪縮放、節點拖曳及點擊開檔
+  （`app/graph_view.py:189-326,329-365`）。主視窗以「檢視 → 筆記關聯圖」及
+  `Ctrl+G` 進入，不改分頁模型；主題、切換目前檔案、存檔後背景索引重建與開啟中
+  Graph 刷新均已接線（`app/window.py:163-164,374-376,428,663-665,1715-1718,
+  1903-1956`）。
+- 測試：新增模型建構／ghost／孤立筆記、佈局更新與釘選、200 節點效能、真實
+  QGraphics 點擊、深色主題，以及非模態／分頁不變／存檔刷新整合測試
+  （`tests/test_graph_model.py:14-75`、`tests/test_graph_view.py:11-45`、
+  `tests/test_window_integration.py:349-400`）。`py -3 -m py_compile` 通過；
+  `py -3 -m pytest` 等價 permissive-temp 執行＝**273 passed, 4 skipped, exit 0**。
+  200 節點實測純佈局單步 7.49 ms、含兩步及 scene 更新一幀 20.22 ms。
+- 意外發現：原始 `py -3 -m pytest` 因 pytest 將系統 temp 建成 sandbox 不可讀 ACL，
+  結果為 156 passed / 4 skipped / 117 setup errors；改用既有 permissive-mkdir 等價
+  runner 後全綠。另一次 permissive 全套首跑的既有
+  `test_rename_folder_maps_every_file` 曾偶發 `PermissionError`；該項單跑 1 passed，
+  隨後全套重跑全綠。尚待 Claude 以 fresh 驗收確認實際 GUI 手感與本棒改動。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 20:48 — 階段 2b 獨立驗收通過＋派工階段 3a Graph view〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 2b 驗收結果：8/8 全過**，推進下方 18:02 節為已驗證。
+1. `[[` 補全：偵測/過濾/插入游標定位/Esc（`app/wikilink_completion.py:10,57-70,98`、
+   `app/editor.py:80-90,100`），來源＝_link_roots 掃描（`window.py:1870-1888`）。
+2. 編輯/並排可用、預覽無作用、上限 50。
+3. hashtag 純函式解析＋排除規則（fence/行內 code/ATX 標題）全有測試
+   （`md_converter.py:486-541`、`tests/test_inline_hashtags.py`）。
+4. body_tags 第四來源聯集＋開檔/存檔更新＋舊 JSON 向後相容
+   （`tag_index.py:39-86`、`window.py:1412,1682`）。
+5. 標籤面板/篩選自動生效，無 UI 特例。
+6. 迴歸全過。7. `py -3 -m pytest`＝**266 passed, 4 skipped, exit 0**（連跑 3 次同）。
+8. fake 物件貼齊真 API。
+
+**觀察（未確認）**：驗收方首輪有一次 `test_body_tags_update_when_markdown_is_opened_and_saved`
+掛住 16 分鐘後手動終止，之後 3 次全過且無法重現，疑偶發環境干擾，留意即可。
+
+**階段 3 拆棒**：3a＝Graph view 關聯圖；3b＝Daily notes＋筆記範本。
+
+**→ 下一棒**：@Codex 實作階段 3a（規格見派工 prompt 與收件匣）。
+
+### 2026-07-10 18:02 — 階段 2b：[[ 自動補全＋內文 #tag 入標籤索引〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+- `[[` 補全：新增 vault 相對路徑候選建立、大小寫不敏感部分比對、相關度排序與
+  50 筆上限的純函式（`app/wikilink_completion.py:13-102`）；背景 link index 掃描
+  完成後把全部 `.md` 候選送進編輯器（`app/window.py:99-107,1905-1909`）。
+- 編輯器 popup：`QCompleter` 在輸入 `[[` 後顯示並隨輸入過濾，選定後補上 `]]`、
+  游標移至其後，Esc 關閉（`app/editor.py:12-100`）；編輯與並排共用同一
+  `EditorView`，預覽模式不持有輸入焦點，未改 `_tab_state`／切分頁回預覽語意。
+- 內文標籤：新增 fence、行內 code、ATX heading 排除與 Unicode 標點終止解析
+  （`app/md_converter.py:482-548`）；`TagIndex` 加入向後相容 `body_tags` 第四來源聯集
+  （`app/tag_index.py:39-67`），開檔與存檔沿既有 frontmatter 路徑更新
+  （`app/window.py:2181-2212`），現有 counts/files/filter/UI 自動生效。
+- 測試：新增解析、補全純函式、真 EditorView 插入、第四來源聯集、舊 JSON 相容與
+  開存檔更新測試（`tests/test_inline_hashtags.py:1`、
+  `tests/test_wikilink_completion.py:1`、`tests/test_editor_completion.py:1`、
+  `tests/test_tag_counts.py:49`、`tests/test_tag_index.py:43`、
+  `tests/test_window_integration.py:370`）。`py -3 -m pytest`＝**266 passed,
+  4 skipped, exit 0**；另以 offscreen GUI smoke 實測 popup／部分過濾／Esc 全過。
+- 意外發現：Python 3.13 在沙箱以 `0700` 建 pytest temp 會觸發 Windows ACL 拒絕；
+  本次用既有 test-support 等價的 permissive mkdir 跑完整命令，並以
+  `.gitignore:18` 排除這類測試暫存目錄。另有 1 個既有
+  `.pytest_cache` 寫入 warning，不影響 exit 0；4 skips 仍是既知依賴/WebEngine。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 17:48 — 階段 2a 獨立驗收通過＋派工階段 2b〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 2a 驗收結果：8/8 全過**，推進下方 17:35 節為已驗證。
+1. 三態狀態機＋快捷鍵（`app/window.py:346-350,526`、`app/view_mode.py:25-38`）。
+2. 並排 400ms 去抖渲染＋預覽捲動位置保持（generation 對齊，
+   `renderer.py:284-287,425-427`）。
+3. editor→preview 單向捲動同步＋ScrollSyncGuard 方向鎖（`view_mode.py:53-75`）。
+4. 存檔/分頁切換 Discard/Cancel/PDF 阻擋 皆有測試覆蓋。
+5. `_tab_state` 模型未破壞（模式屬視窗層級，切分頁一律回預覽，
+   `window.py:1518-1519`）。
+6. 迴歸全過（全域搜尋/文件內搜尋/標籤篩選/檔案樹 CRUD 測試全綠）。
+7. `py -3 -m pytest`＝**255 passed, 4 skipped, exit 0**。
+8. 測試品質：僅一小瑕疵——fake renderer 的 `set_scroll_y` 為測試自用 setter，
+   真物件無此方法（無害，建議後續改名）。
+
+**未確認（留給使用者實機試用）**：GUI 實跑 smoke（打字流暢度、Mermaid/KaTeX
+即時渲染）——驗收時使用者的舊版檢視器實例在跑，單一實例 IPC 會攔走啟動，
+故未實機驗。請使用者關閉舊視窗重開後試用三態切換。
+
+**→ 下一棒**：@Codex 實作階段 2b（`[[` 自動補全＋內文 `#tag` 入標籤索引），
+Codex 額度已重置，規格見派工 prompt 與收件匣。
+
+### 2026-07-10 17:35 — 階段 2a：並排即時預覽＋捲動同步〔已實作＋待驗證〕
+
+**作者**：Claude（general-purpose subagent）／**類型**：實作
+
+**前提修正**：派工描述說「編輯與預覽互斥」，但 HEAD（v1.15.0）其實已有
+「編輯＝左編輯右即時預覽」的雙欄實作（window.py 舊 234-262 行）。本棒把它
+重構成**三態模式**：`preview`（純預覽）／`edit`（純編輯，新增）／`split`
+（並排即時預覽），並補齊去抖後捲動保持、方向鎖與測試。
+
+**改動摘要**（檔名:行號以本次工作區為準）：
+
+- **新增 `app/view_mode.py`**（純邏輯、無 Qt，可 headless 測試）：三態常數、
+  `cycle_mode`/`toggle_edit`/`toggle_split`/`normalize`/`is_editing`、
+  捲動映射 `editor_scroll_ratio()`、防抖動迴圈方向鎖 `ScrollSyncGuard`
+  （cooldown 內壓制對向來源）。
+- **`app/window.py`**：
+  - `_view_mode` 成為單一事實來源（:228），`_edit_mode` 改為相容 property
+    （getter/setter，:1137-1148），export_actions／session_state 舊介面不變。
+  - 狀態機 `_set_view_mode`（:1167）＋`_apply_split_visibility`（:1187，
+    edit↔split 只切預覽欄可見性、保留編輯緩衝）；`_enter_edit_mode(mode)`
+    （:1299）、`_leave_edit_ui` 停 debounce timer（:1340）。
+  - 進入方式：工具列編輯鈕改三態循環 `_cycle_view_mode`（:526，圖示
+    pencil→columns→eye）；新快捷鍵 **Ctrl+Shift+E** 直切並排（:349）；
+    **Ctrl+E 維持編輯↔預覽切換**；選單（:409）與快捷鍵說明（:466）同步。
+  - 去抖：`_preview_timer` 400ms single-shot 沿用，僅 split 模式啟動
+    （`_on_editor_text_changed` :1410）；渲染走既有 `render_markdown_text`
+    背景執行緒（markdown-it-py 鏈不變，Mermaid/KaTeX 同一條）。
+  - 捲動同步：`_sync_preview_scroll`（:1428）改用 `editor_scroll_ratio`＋
+    `ScrollSyncGuard`；同步比例存 `_preview_scroll_ratio` 供重渲染後還原。
+    預覽側目前無回向同步（單向設計，結構上不可能抖動迴圈）。
+- **`app/renderer.py`**：`render_markdown_text(..., scroll_ratio=)`（:407）
+  ＋`_pending_ratio` generation 對齊（:169、:228、:273），文字渲染
+  HTML 現在也嵌 render-generation meta——**去抖重渲染後預覽不再跳回頂端**。
+- **`app/theme.py`**：新增 `columns` 圖示（:202）。
+
+**測試**：新增 `tests/test_view_mode.py`（11 個：三態狀態機、捲動映射、
+方向鎖含假時鐘）＋ `tests/test_window_integration.py` 增 9 個（Ctrl+E／
+Ctrl+Shift+E／三態循環、PDF 不適用、去抖只在 split 觸發、split 下 Ctrl+S
+寫檔、切分頁 Discard/Cancel 行為、捲動同步僅 split 生效）；fake renderer
+只補真 API 既有簽名的記錄版。
+**pytest：255 passed / 4 skipped**（基準 235+4，新增 20 全過；4 skips＝
+python-docx/pptx 缺件＋headless WebEngine，既知）。
+
+**限制註記**：
+1. 分頁切換時維持既有語意：離開編輯／並排會先詢問存檔，切回後為 preview
+   （模式不跨分頁記憶；`_tab_state` 模型不變、無錯亂，見新測試）。
+2. GUI 實測：啟動 smoke 時檔案被 10:33 的舊實例經單一實例 IPC 接走（未殺
+   使用者行程），故打字不卡頓、Mermaid/KaTeX 即時渲染屬**未確認**，請驗收
+   棒先關舊實例再 `py -3 main.py` 實測。
+3. `_on_browser_note_created`／Mermaid 工具現在進入的是純編輯模式（原本是
+   雙欄）；如要改回並排可傳 `view_mode.SPLIT`。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 13:35 — 階段 1b 獨立驗收通過＋階段 2 拆棒派工〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 1b 驗收結果：8/8 全過**，推進下方 13:25 節為已驗證。
+1. 右鍵選單完整（`app/file_browser.py:389-420,429-451`）。
+2. 新增筆記＋重名加序號＋直接進編輯（`app/file_ops.py:53-62`、`window.py:1891-1901`）。
+3. 改名/移動同步遷移 sidecar/tag_index/最近清單/分頁狀態
+   （`file_ops.py:83-89`、`file_browser.py:604-606`、`window.py:1907-1927`）。
+4. 刪除走 send2trash＋永久刪除備援＋關分頁不誤跳存檔（`file_ops.py:122-132`、
+   `window.py:1931-1943`）。
+5. 檔案樹展開/選中記憶 round-trip，含帶檔案參數啟動（`session_state.py:189-191`、
+   `main.py:157-160`）。
+6. 檔案系統錯誤六個呼叫端全 try/except → QMessageBox（`file_browser.py:475-589`）。
+7. **迴歸全過**：標籤篩選 set_tag_filter/has_open_folder 仍在且有測試；全文搜尋
+   roots 不受影響；分頁索引順序不變。
+8. `py -3 -m pytest`＝**235 passed, 4 skipped, exit 0**。
+
+**非阻斷備註**：新筆記自動進編輯模式與 main.py 帶參啟動樹恢復，無自動化測試
+（程式碼路徑已核對）。既知限制：wikilink 內文不自動改寫、pdf_last_pages 鍵
+不遷移、文件庫根節點改名僅改顯示名。
+
+**階段 2 拆棒**：2a＝並排即時預覽＋捲動同步（Codex 額度未重置，續由 Claude
+subagent 接）；2b＝`[[` 自動補全＋內文 `#tag` 入索引（Codex 14:54 重置後派）。
+
+**→ 下一棒**：Claude subagent 實作 2a。
+
+### 2026-07-10 13:25 — 階段 1b：檔案樹 CRUD＋資料夾記憶〔已實作＋待驗證〕
+
+**作者**：Claude（general-purpose subagent）
+**類型**：實作
+
+「檔案」分頁由平面清單改為 QTreeWidget 檔案樹（文件庫→資料夾→檔案），加上
+CRUD 右鍵選單與資料夾展開/選中記憶。改動：
+
+- `app/file_ops.py`（新檔）：檔案系統操作核心——`create_note`（重名自動加
+  「名稱 2/3…」序號）、`create_folder`、`rename_document`/`move_document`
+  （連同 `.notes.json`/`.highlights.json` sidecar 一起搬）、`rename_folder`
+  （回傳整棵樹的 old→new 路徑 mapping）、`delete_document`（優先 send2trash，
+  未安裝時退回永久刪除）。全部以 OSError 上拋給 UI 捕捉。
+- `app/file_browser.py`（重寫，約 926 行）：樹狀顯示＋右鍵選單。資料夾/文件庫
+  節點：新增筆記/新增資料夾/重新命名/在檔案總管顯示（`_show_context_menu`
+  file_browser.py:379）；檔案節點：開啟/重新命名/移動到…/刪除/在檔案總管顯示。
+  CRUD 動作在 `_create_note_action` 起（file_browser.py:469）；展開狀態
+  `tree_state()`/`restore_tree_state()`（file_browser.py:155-177）。文件庫節點
+  的「重新命名」改的是 store 顯示名稱（不動磁碟資料夾）。
+- `app/tag_index.py:80-97`：新增 `migrate_paths(mapping)`、`remove_path()`
+  遷移/移除索引鍵。
+- `app/recent_files.py:47-70`：新增 `migrate_paths()`、`remove_paths()`。
+- `app/document_libraries.py:116-128`：store 新增 `rename()`。
+- `app/window.py:202-206` 掛 callback；`app/window.py:1891-1946` 三個 handler：
+  `_on_browser_note_created`（開檔＋直接進編輯模式）、`_on_browser_paths_migrated`
+  （更新分頁 tabData/tabText/`_tab_state`/`_active_path`/標題/檔案監看/最近清單）、
+  `_on_browser_paths_deleted`（關對應分頁、清最近清單；正在編輯的檔案被刪時
+  先 `mark_saved()` 避免跳出「儲存已刪除檔案」）。
+- `app/session_state.py:26-37`（`restore_file_tree_state`）與 `close_event`
+  （session_state.py:189-191）：展開/選中狀態存 QSettings `file_tree_state`，
+  與 open_tabs 恢復並存（先還原樹，再由 `_load_document` 定位使用中檔案）。
+- `main.py:159`：帶檔案參數啟動時也還原檔案樹狀態。
+- `requirements.txt`：加 `Send2Trash>=1.8`（本機已 `pip install send2trash` 成功，
+  刪除走資源回收筒；仍保留未安裝時的永久刪除備援路徑）。
+
+測試：`tests/test_file_ops.py`（新，9 例：建檔序號/非法名、重命名遷移 sidecar
+＋tag_index 且重載仍在、移動、資料夾改名 mapping、刪除含 sidecar/回收筒）、
+`tests/test_file_browser.py`（改寫＋新增樹狀結構、展開/選中 round-trip、刪除
+通知 3 例）、`tests/test_window_integration.py`（新增遷移改指分頁、刪除關分頁
+2 例）。`py -3 -m pytest`＝**235 passed / 4 skipped**（基準 221+14 新增，
+4 skips 同既知）。
+
+限制註記：
+- wikilink 內文引用**不會**隨重命名/移動自動改寫（規格明訂不要求）；連結索引
+  會強制重建，舊連結會變成「找不到→建立筆記」流程。
+- PDF 的 `pdf_last_pages` 記錄鍵未隨改名遷移（只影響記住的頁碼，重開歸第 1 頁）。
+- 文件庫根節點重新命名只改顯示名稱，不改磁碟資料夾名。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 12:10 — 階段 1b 改派：Codex 額度用罄，Claude subagent 接棒〔阻塞→改派〕
+
+**作者**：Claude
+**類型**：同步
+
+Codex 派工失敗（exit 1）：帳號 usage limit 用罄，14:54 重置（PurityGo Flutter
+遷移大棒＋本專案連兩棒所致），任務未開工、無任何檔案改動。為不停擺，階段 1b
+改由 Claude 內建 general-purpose subagent 實作（Claude 參與 ✅、模型＝session，
+不涉 Codex/Gemini 檔位變更）。規格不變（見 12:00 節），驗收仍另派 fresh 獨立方。
+Codex 額度重置後，後續棒次恢復依設定表派 Codex。
+
+### 2026-07-10 12:00 — 階段 1a 獨立驗收通過＋派工階段 1b〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證＋派工
+
+**階段 1a 驗收結果：8/8 全過**，推進下方 11:46 節為已驗證。
+1. 搜尋分頁＋遞迴＋大小寫不敏感：`app/left_panel.py:86-101`、`app/global_search.py:79,93`，
+   roots＝`window.py:1771 _link_roots()`（全部文件庫＋當前資料夾）。
+2. 分組/醒目/計數/無結果文字：`global_search.py:309-313,319,359-383`。
+3. 點擊開檔定位：`window.py:834-849`＋`renderer.py:558`（render generation 對齊）。
+4. QThreadPool 背景搜尋＋300ms 去抖＋取消/過期丟棄：`global_search.py:157-177,218-223,300`。
+5. Ctrl+Shift+F／Ctrl+F 不互相干擾：`window.py:326-330`。
+6. UTF-8 errors=replace、壞檔/權限錯誤跳過：`global_search.py:114-118`。
+7. 左側分頁索引未被打亂（新分頁 append 於尾端 index 6，`switch_to` 呼叫點僅
+   `window.py:2059,2097`，行為不變）。
+8. `py -3 -m pytest`＝**221 passed, 4 skipped, exit 0**（與基準相符）。
+   fake 物件逐一比對真 API 無虛構方法。
+
+**非阻斷備註**：內文含 U+FFFD 的合法檔會被搜尋跳過；點擊結果若目標非
+markdown 只開檔不定位（搜尋範圍僅 .md，無實害）。
+
+**→ 下一棒**：@Codex 實作階段 1b（檔案樹右鍵 CRUD＋重命名/移動同步遷移
+標註與 tag_index＋刪除＋資料夾記憶），規格見派工 prompt 與收件匣。
+
+### 2026-07-10 11:46 — 階段 1a：全 vault 全文搜尋〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+**改動摘要**：
+- `app/global_search.py:64,180,273,306`：新增全 vault UTF-8 全文搜尋核心、
+  300ms 去抖、`QThreadPool` 背景工作、過期任務取消、按檔案分組結果、總命中數、
+  無結果訊息與命中字富文字醒目顯示；壞編碼／無法讀取檔案跳過。
+- `app/left_panel.py:86,101,142`：把「搜尋」分頁加在尾端並提供具名切換／聚焦，
+  保持既有檔案／最近／標註等索引不變。
+- `app/window.py:195-199,329-331,829-853`：搜尋根沿用 `_link_roots()`（所有文件庫＋
+  目前文件資料夾）；新增 Ctrl+Shift+F；點結果開檔並觸發既有文件內搜尋，Ctrl+F 未改。
+- `app/renderer.py:166,254-258,558-563`：把點擊結果的搜尋排到正確 Markdown render
+  generation 載入完成後重做，避免只搜尋到「載入中」頁。
+- `tests/test_global_search.py:11-95`、`tests/test_window_integration.py:356-382`：覆蓋跨
+  資料夾、大小寫不敏感、無結果、壞編碼、重疊根去重、背景 UI／醒目顯示、快捷入口與
+  開檔後搜尋。`tests/test_settings_dialog.py:23-33`、`tests/test_window_integration.py:269-279`
+  改用臨時 INI 隔離真實 HKCU `QSettings`，避免測試污染使用者偏好。
+
+**驗證證據**：`py -3 -m py_compile ...` 與 `git diff --check` 通過；相關測試
+`21 passed`；完整 `py -3 -m pytest`＝**221 passed, 4 skipped**（exit 0；4 skipped
+與既知基準相同）。意外發現：Python 3.13 pytest 的 0700 Temp ACL 及 HKCU sandbox
+限制會造成假失敗，已用測試支援路徑取得有效全綠；首輪留下的
+`.pytest_tmp_global_search` 因 ACL 拒絕存取而未能清除，非產品檔案。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 11:27 — Obsidian 化路線圖定案＋階段 1 派工〔提案→派工〕
+
+**作者**：Claude
+**類型**：提案＋派工
+
+**背景**：使用者要求把檢視器往 Obsidian 方向擴充。Claude 盤點（Explore subagent）
+確認現況：編輯模式已存在（`app/editor.py:11`、Ctrl+E `app/window.py:1081`、
+存檔 `window.py:1256`）；`[[wikilink]]`＋反向連結索引已存在（`app/links.py:17,146`、
+點擊跳轉 `window.py:1792`）；文件庫≈vault（`app/document_libraries.py:31,89`）；
+渲染為 markdown-it-py → QWebEngineView（`app/md_converter.py:10`、`app/renderer.py:149`）。
+
+**路線圖（使用者已裁決：照順序全跑，自動接棒）**：
+- **階段 1a**：全 vault 全文搜尋（跨文件庫資料夾，結果面板＋跳轉）
+- **階段 1b**：檔案樹右鍵建立/改名/搬移/刪除＋記住上次開啟資料夾
+- **階段 2**：編輯｜預覽並排＋捲動同步、`[[` 自動補全、內文 `#tag` 入標籤索引
+- **階段 3**：Graph view、Daily notes、筆記範本
+- Canvas 不在本輪範圍。每棒 Codex 實作、fresh 獨立方驗收。
+
+**→ 下一棒**：@Codex 實作階段 1a（規格見收件匣與派工 prompt），完成留
+〔已實作＋待驗證〕節。
+
+### 2026-07-10 10:30 — 標籤篩選擴及檔案分頁：獨立驗收通過〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行）
+**類型**：驗證
+
+**結果：6/6 全過**，推進下方 10:15 節為已驗證。
+1. 檔案分頁依標籤過濾＋「沒有符合標籤的檔案」提示：`app/file_browser.py:151-164,190-192`。
+2. 「全部（清除篩選）」兩邊同清：`app/window.py:2023-2026`。
+3. 已開資料夾切「檔案」分頁、否則切「最近」：`app/window.py:2027-2028`。
+4. refresh 後篩選保持：`app/file_browser.py:127-130`＋`tests/test_file_browser.py:58-59`。
+5. 「最近」篩選無回歸：`app/recent_files.py:47-72` 未動、整合測試過。
+6. `py -3 -m pytest`＝**213 passed, 4 skipped, exit 0**。與基準 235/2 落差已查明：
+   本機缺 `python-docx`/`python-pptx`，`test_docx_export.py`（8 測試）與
+   `test_pptx_export.py`（16 測試）整檔 importorskip；235−24＋2 新測試＝213，
+   無測試被刪、無收集錯誤，落差與本功能無關。fake 物件核對貼齊真 API。
+
+**遺留（非阻擋）**：本機 24 個 docx/pptx 匯出測試未實跑（缺套件，未確認現況）；
+建議 `py -3 -m pip install python-docx python-pptx` 恢復完整基準。
+空目錄 `.pytest_tmp_tag` 已由 Claude 刪除。
+
+**→ 下一棒**：無，待使用者裁決（可實際開檢視器點標籤試用）。
+
+### 2026-07-10 10:15 — 標籤篩選擴及檔案分頁〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+**Changes**:
+
+- `app/file_browser.py:40-195`: added persistent tag filtering, filtered library headers, the no-match hint, and `has_open_folder()`.
+- `app/left_panel.py:63-71`: shared the real `TagIndex` with Recent and Files.
+- `app/window.py:2023-2028`: filters both panels and selects Files when a library folder is available, otherwise Recent.
+- `tests/test_file_browser.py:23-75` and `tests/test_window_integration.py:322-342`: cover filtering, refresh persistence, no-match, clear, existing Recent behavior, and tab selection.
+
+**pytest**:
+
+- Targeted: `2 passed`.
+- Full suite: `213 passed, 4 skipped` (exit 0). The supplied `235 passed, 2 skipped` baseline could not be reproduced because `py -3` is Python 3.13.5 and lacks `python-docx` / `python-pptx`; a Temp-only install was blocked by the restricted package index.
+- `py -3 -m py_compile ...` and `git diff --check`: passed.
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-10 09:57 — 派工：標籤篩選擴及「檔案」分頁〔提案→派工〕
+
+**作者**：Claude
+**類型**：提案＋派工
+
+**動機**：現況點「標籤」分頁的標籤只篩「最近」清單（`app/window.py:2023-2026`
+`_on_tag_selected` → `recent.set_tag_filter`），「檔案」分頁的資料夾樹完全不受
+影響。使用者預期標籤可用於檔案分類瀏覽，故擴充篩選範圍至檔案樹。
+
+**規格**：
+1. 點標籤時，「檔案」分頁的檔案樹只顯示帶該標籤的檔案（來源
+   `TagIndex.files_with_tag()`，`app/tag_index.py:74`）；資料夾節點只保留
+   含符合檔案者。無符合檔案時顯示「沒有符合標籤的檔案」提示。
+2. 「全部（清除篩選）」同時清除「最近」與「檔案」兩邊的篩選。
+3. 分頁切換行為：點標籤後，若「檔案」分頁已開資料夾則切到「檔案」分頁，
+   否則維持現行切到「最近」。
+4. 篩選狀態在檔案樹重新整理（換資料夾、手動 refresh）後須保持。
+5. 既有「最近」篩選行為（`app/recent_files.py:47-68`）不得回歸。
+
+**→ 下一棒**：@Codex 實作（gpt-5.6-sol / high，預設檔），完成後留
+〔已實作＋待驗證〕節；自動接棒 ✅，Claude 收到後另派 fresh 獨立方驗收。
 
 ### 2026-07-09 14:25 — 螢光擦除驗收退回→Claude 修單行崩潰→複驗通過〔已實作＋已驗證〕
 

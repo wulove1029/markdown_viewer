@@ -15,6 +15,7 @@ installer_output/
 *.spec.bak
 
 .pytest_cache/
+.pytest_tmp*/
 .mypy_cache/
 
 *.log
@@ -28,3 +29,4 @@ installer_output/
 # AI collaboration runtime state — local only, not synced
 AI協作/status.json
 .codex_verify/
+.codex_test_support/

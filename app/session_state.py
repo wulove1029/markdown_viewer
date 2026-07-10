@@ -23,7 +23,21 @@ def restore_geometry(window):
         window.resize(1200, 750)
 
 
+def restore_file_tree_state(window):
+    """Re-open the file tree the way it looked last session."""
+    raw = QSettings(_ORG, _APP).value("file_tree_state")
+    if not raw:
+        return
+    try:
+        state = json.loads(raw)
+    except (ValueError, TypeError):
+        return
+    if isinstance(state, dict):
+        window._panel.file_browser.restore_tree_state(state)
+
+
 def restore_last_session(window):
+    restore_file_tree_state(window)
     settings = QSettings(_ORG, _APP)
     raw = settings.value("open_tabs")
     paths = []
@@ -172,4 +186,7 @@ def close_event(window, event) -> bool:
         settings.setValue("active_tab", window._tab_bar.currentIndex())
         if window._current_file:
             settings.setValue("last_file", str(window._current_file))
+        tree_state = window._panel.file_browser.tree_state()
+        if isinstance(tree_state, dict):
+            settings.setValue("file_tree_state", json.dumps(tree_state))
     return True

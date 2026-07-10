@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from .annotations_panel import AnnotationsPanel
 from .backlinks_panel import BacklinksPanel
 from .file_browser import FileBrowserView
+from .global_search import GlobalSearchView
 from .pdf_highlights_panel import PdfMarkupPanel
 from .recent_files import RecentFilesView
 from .tags_panel import TagsPanel
@@ -26,7 +27,8 @@ class LeftPanel(QWidget):
     def __init__(self, on_file_selected, on_anchor_clicked,
                  annotation_callbacks, pdf_note_callbacks=None,
                  pdf_highlight_callbacks=None,
-                 on_tag_selected=None, theme: Theme = LIGHT, parent=None):
+                 on_tag_selected=None, search_roots_provider=None,
+                 on_search_result=None, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
         self.setMinimumWidth(180)
@@ -60,10 +62,14 @@ class LeftPanel(QWidget):
         self._tabs = QTabWidget()
         self._tabs.setDocumentMode(True)
 
-        self._file_browser = FileBrowserView(on_file_selected=on_file_selected)
+        tag_index = annotation_callbacks.get("tag_index")
+        self._file_browser = FileBrowserView(
+            on_file_selected=on_file_selected,
+            tag_index=tag_index,
+        )
         self._recent = RecentFilesView(
             on_file_selected=on_file_selected,
-            tag_index=annotation_callbacks.get("tag_index"),
+            tag_index=tag_index,
         )
         self._toc = TocView(on_anchor_clicked=on_anchor_clicked)
         self._annotations = AnnotationsPanel(annotation_callbacks)
@@ -77,6 +83,12 @@ class LeftPanel(QWidget):
         self._annot_stack.addWidget(self._pdf_markup)   # index 1 (pdf)
         self._backlinks = BacklinksPanel(on_file_selected=on_file_selected)
         self._tags = TagsPanel(on_tag_selected=on_tag_selected or (lambda _t: None))
+        self._search = GlobalSearchView(
+            roots_provider=search_roots_provider or (lambda: []),
+            on_result_selected=on_search_result or (
+                lambda path, _query, _line: on_file_selected(path)
+            ),
+        )
 
         self._tabs.addTab(self._file_browser, "檔案")
         self._tabs.addTab(self._recent, "最近")
@@ -85,6 +97,8 @@ class LeftPanel(QWidget):
         # Keep backlinks at index 4 so the annotations tab index (3) is unchanged.
         self._tabs.addTab(self._backlinks, "連結")
         self._tabs.addTab(self._tags, "標籤")
+        # Keep every established tab index stable; global search is appended.
+        self._tabs.addTab(self._search, "搜尋")
 
         layout.addWidget(self._tabs)
         self.apply_theme(theme)
@@ -121,6 +135,16 @@ class LeftPanel(QWidget):
     def tags(self) -> TagsPanel:
         return self._tags
 
+    @property
+    def search(self) -> GlobalSearchView:
+        return self._search
+
+    def show_search(self):
+        index = self._tabs.indexOf(self._search)
+        if index >= 0:
+            self._tabs.setCurrentIndex(index)
+            self._search.focus_input()
+
     def show_pdf_notes(self, show: bool):
         self._annot_stack.setCurrentIndex(1 if show else 0)
 
@@ -139,6 +163,7 @@ class LeftPanel(QWidget):
         self._pdf_markup.apply_theme(theme)
         self._backlinks.apply_theme(theme)
         self._tags.apply_theme(theme)
+        self._search.apply_theme(theme)
 
     def open_file_dialog(self):
         path, _ = QFileDialog.getOpenFileName(

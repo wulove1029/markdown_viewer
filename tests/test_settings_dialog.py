@@ -8,6 +8,7 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
+from app import settings_dialog as settings_dialog_mod
 from app.settings_dialog import SettingsDialog, _bool_from_qsettings
 
 _ORG = "markdown-viewer"
@@ -21,20 +22,22 @@ def qapp():
 
 
 @pytest.fixture(autouse=True)
-def _clean_settings():
-    """Save & restore QSettings so tests don't pollute the user's registry."""
-    settings = QSettings(_ORG, _APP)
-    keys_of_interest = [
-        "theme", "content_zoom", "update_check_enabled",
-        "custom_css_path", "pdf_page_size", "pdf_orientation",
-    ]
-    backup = {k: settings.value(k) for k in keys_of_interest}
+def _clean_settings(tmp_path, monkeypatch):
+    """Use an isolated INI file instead of the user's registry."""
+    settings_path = tmp_path / "settings.ini"
+
+    def isolated_settings(*_args, **_kwargs):
+        return QSettings(str(settings_path), QSettings.Format.IniFormat)
+
+    monkeypatch.setattr(settings_dialog_mod, "QSettings", isolated_settings)
+    library_root = tmp_path / "Vault"
+
+    class FakeStore:
+        def load(self):
+            return [type("Library", (), {"path": str(library_root)})()]
+
+    monkeypatch.setattr(settings_dialog_mod, "DocumentLibraryStore", FakeStore)
     yield
-    for k, v in backup.items():
-        if v is None:
-            settings.remove(k)
-        else:
-            settings.setValue(k, v)
 
 
 # ── _bool_from_qsettings ───────────────────────────────────────────────
@@ -97,6 +100,12 @@ class TestSettingsDialogConstruction:
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.25)
         assert dlg._zoom_combo.currentData() == pytest.approx(1.25, abs=0.01)
 
+    def test_note_folders_default_below_first_library(self, qapp, tmp_path):
+        dlg = SettingsDialog(None)
+
+        assert dlg._daily_notes_edit.text() == str(tmp_path / "Vault" / "Daily Notes")
+        assert dlg._templates_folder_edit.text() == str(tmp_path / "Vault" / "Templates")
+
 
 class TestSettingsDialogAccept:
     """Simulate clicking OK by calling accept() directly."""
@@ -122,6 +131,9 @@ class TestSettingsDialogAccept:
         )
         dlg._pdf_size_combo.setCurrentIndex(letter_idx)
         dlg._pdf_orient_combo.setCurrentIndex(1)  # landscape
+        dlg._daily_notes_edit.setText("/notes/daily")
+        dlg._daily_template_edit.setText("/templates/daily.md")
+        dlg._templates_folder_edit.setText("/templates")
 
         dlg.accept()
 
@@ -132,13 +144,16 @@ class TestSettingsDialogAccept:
         assert r["update_check_enabled"] is False
         assert r["pdf_page_size"] == "Letter"
         assert r["pdf_orientation"] == "landscape"
+        assert r["daily_notes_folder"] == "/notes/daily"
+        assert r["daily_note_template"] == "/templates/daily.md"
+        assert r["templates_folder"] == "/templates"
 
     def test_accept_persists_to_qsettings(self, qapp):
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
         dlg._theme_combo.setCurrentIndex(1)  # dark
         dlg.accept()
 
-        s = QSettings(_ORG, _APP)
+        s = settings_dialog_mod.QSettings(_ORG, _APP)
         assert s.value("theme") == "dark"
 
     def test_results_empty_before_accept(self, qapp):

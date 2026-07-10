@@ -36,17 +36,24 @@ class TagIndex:
         )
         os.replace(tmp, self._path)
 
-    def update(self, md_path, doc, front_tags=None):
+    def update(self, md_path, doc, front_tags=None, body_tags=None):
         key = str(Path(md_path).resolve())
         annot_tags = sorted({t for a in doc.annotations for t in a.tags})
         front_tags = sorted(set(front_tags or []))
-        if not doc.doc_tags and not doc.annotations and not front_tags:
+        body_tags = sorted(set(body_tags or []))
+        if (
+            not doc.doc_tags
+            and not doc.annotations
+            and not front_tags
+            and not body_tags
+        ):
             self._data.pop(key, None)
         else:
             self._data[key] = {
                 "doc_tags": list(doc.doc_tags),
                 "annot_tags": annot_tags,
                 "front_tags": front_tags,
+                "body_tags": body_tags,
                 "count": len(doc.annotations),
             }
         self._save()
@@ -56,6 +63,7 @@ class TagIndex:
             set(entry.get("doc_tags", []))
             | set(entry.get("annot_tags", []))
             | set(entry.get("front_tags", []))
+            | set(entry.get("body_tags", []))
         )
 
     def all_tags(self) -> list[str]:
@@ -76,6 +84,23 @@ class TagIndex:
             path for path, entry in self._data.items()
             if tag in self._entry_tags(entry)
         ]
+
+    def migrate_paths(self, mapping: dict) -> None:
+        """Re-key entries after files were renamed/moved on disk."""
+        changed = False
+        for old, new in mapping.items():
+            old_key = str(Path(old).resolve())
+            if old_key not in self._data:
+                continue
+            self._data[str(Path(new).resolve())] = self._data.pop(old_key)
+            changed = True
+        if changed:
+            self._save()
+
+    def remove_path(self, path) -> None:
+        key = str(Path(path).resolve())
+        if self._data.pop(key, None) is not None:
+            self._save()
 
     def prune(self):
         for path in list(self._data.keys()):

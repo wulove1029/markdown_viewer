@@ -113,6 +113,19 @@ class DocumentLibraryStore:
     def remove(self, library_id: str):
         self.save([lib for lib in self.load() if lib.id != library_id])
 
+    def rename(self, library_id: str, name: str):
+        name = str(name).strip()
+        if not name:
+            return
+        self.save(
+            [
+                DocumentLibrary(id=lib.id, name=name, path=lib.path)
+                if lib.id == library_id
+                else lib
+                for lib in self.load()
+            ]
+        )
+
 
 def scan_library_documents(libraries: list[DocumentLibrary]) -> list[LibraryDocument]:
     documents: list[LibraryDocument] = []

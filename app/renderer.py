@@ -163,6 +163,10 @@ class RendererView(QWebEngineView):
         self._zoom_factor = 1.0
         self._pending_scroll: int | None = None
         self._pending_scroll_generation: int | None = None
+        self._pending_find: tuple[int, str] | None = None
+        # Scroll ratio to re-apply once a live-preview (text) render loads, so
+        # the debounced re-render doesn't snap the preview back to the top.
+        self._pending_ratio: tuple[int, float] | None = None
         self._render_generation = 0
         self._render_pool = QThreadPool.globalInstance()
         self._pending_text_base_url: QUrl | None = None
@@ -204,21 +208,31 @@ class RendererView(QWebEngineView):
         if ok:
             # Re-apply zoom: a freshly loaded page otherwise resets to 1.0.
             self.setZoomFactor(self._zoom_factor)
+        js = (
+            "(function(){"
+            f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
+            "return m ? m.getAttribute('content') : null;"
+            "})()"
+        )
         if ok and self._current_path and is_markdown(self._current_path):
             generation = self._render_generation
             path = self._current_path
-            js = (
-                "(function(){"
-                f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
-                "return m ? m.getAttribute('content') : null;"
-                "})()"
-            )
             self.page().runJavaScript(
                 js,
                 lambda loaded_generation, generation=generation, path=path: (
                     self._on_markdown_load_checked(
                         generation, path, loaded_generation
                     )
+                ),
+            )
+        elif ok and self._current_path is None and self._pending_ratio is not None:
+            # Live-preview text render: restore the synced scroll ratio.
+            self._spy_timer.stop()
+            generation = self._render_generation
+            self.page().runJavaScript(
+                js,
+                lambda loaded_generation, generation=generation: (
+                    self._on_text_load_checked(generation, loaded_generation)
                 ),
             )
         else:
@@ -250,7 +264,27 @@ class RendererView(QWebEngineView):
         )
         if target is not None:
             self.page().runJavaScript(f"window.scrollTo(0, {target})")
+        if self._pending_find and self._pending_find[0] == loaded_generation:
+            _generation, text = self._pending_find
+            self._pending_find = None
+            self.find_text(text)
         self._spy_timer.start()
+
+    def _on_text_load_checked(self, generation: int, loaded_generation):
+        try:
+            loaded_generation = int(loaded_generation)
+        except (TypeError, ValueError):
+            return
+        if (
+            loaded_generation != generation
+            or generation != self._render_generation
+            or self._current_path is not None
+        ):
+            return
+        if self._pending_ratio and self._pending_ratio[0] == loaded_generation:
+            _generation, ratio = self._pending_ratio
+            self._pending_ratio = None
+            self.scroll_to_ratio(ratio)
 
     def set_zoom(self, factor: float):
         self._zoom_factor = max(0.5, min(3.0, factor))
@@ -270,6 +304,7 @@ class RendererView(QWebEngineView):
         self._current_anchor = ""
         self._pending_scroll = None
         self._pending_scroll_generation = None
+        self._pending_ratio = None
         self._spy_timer.stop()
         self.setHtml(
             self._state_html(
@@ -297,6 +332,8 @@ class RendererView(QWebEngineView):
     def load_file(self, filepath: str | Path, scroll_y: int | None = None):
         path = Path(filepath)
         generation = self._next_render_generation()
+        self._pending_find = None
+        self._pending_ratio = None
         self._pending_text_base_url = None
         self._current_path = path
         self._scroll_y = 0
@@ -361,6 +398,7 @@ class RendererView(QWebEngineView):
         self._current_path = None
         self._pending_scroll = None
         self._pending_scroll_generation = None
+        self._pending_ratio = None
         if base_url is not None:
             self.page().setHtml(html, base_url)
         else:
@@ -372,12 +410,21 @@ class RendererView(QWebEngineView):
         theme: str = "light",
         title: str = "preview",
         base_url: QUrl | None = None,
+        scroll_ratio: float | None = None,
     ):
-        """Render unsaved Markdown buffer text in the background."""
+        """Render unsaved Markdown buffer text in the background.
+
+        When *scroll_ratio* is given, the freshly loaded page is scrolled to
+        that 0..1 ratio (used by the live preview so a debounced re-render
+        keeps following the editor instead of jumping back to the top).
+        """
         generation = self._next_render_generation()
         self._current_path = None
         self._pending_scroll = None
         self._pending_scroll_generation = None
+        self._pending_ratio = (
+            (generation, float(scroll_ratio)) if scroll_ratio is not None else None
+        )
         self._pending_text_base_url = base_url
         worker = _MarkdownRenderWorker(
             generation, text=text, theme=theme, title=title
@@ -388,6 +435,7 @@ class RendererView(QWebEngineView):
     def _on_text_render_ready(self, generation: int, _source, html: str, _headings: list):
         if generation != self._render_generation or self._current_path is not None:
             return
+        html = _html_with_render_generation(html, generation)
         base_url = self._pending_text_base_url
         self._pending_text_base_url = None
         if base_url is not None:
@@ -548,6 +596,13 @@ class RendererView(QWebEngineView):
             self.page().findText(text)
         else:
             self.page().findText(text, resultCallback=result_callback)
+
+    def find_text_after_load(self, text: str):
+        """Repeat a search when the current Markdown generation is fully loaded."""
+        self._pending_find = (self._render_generation, text) if text else None
+
+    def cancel_pending_find(self):
+        self._pending_find = None
 
     def find_next(self, text: str):
         self.page().findText(text)

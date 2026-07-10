@@ -47,11 +47,13 @@ from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .editor import EditorView
-from . import export_actions, session_state, update_flow
+from . import export_actions, session_state, update_flow, view_mode
 from .file_types import document_kind, is_markdown, is_supported_document
+from .graph_view import GraphWindow
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
 from .md_converter import (
+    body_hashtags,
     front_matter_tags,
     parse_front_matter,
     read_text,
@@ -63,6 +65,12 @@ from .mermaid_blocks import (
 )
 from .mermaid_templates import default_template
 from .mermaid_workspace import MermaidWorkspaceDialog
+from .note_templates import (
+    default_subfolder,
+    find_templates,
+    open_or_create_daily_note,
+    render_template_file,
+)
 from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
@@ -79,6 +87,7 @@ from .theme import (
     toolbar_stylesheet,
 )
 from .tag_index import TagIndex
+from .wikilink_completion import completion_candidates
 from .version import VERSION
 
 _ORG = "markdown-viewer"
@@ -97,9 +106,11 @@ class LinkIndexThread(QThread):
 
     def run(self):
         try:
-            docs = read_docs(collect_markdown_files(self._roots))
+            files = collect_markdown_files(self._roots)
+            docs = read_docs(files)
             index = LinkIndex()
             index.build(docs)
+            index.completion_candidates = completion_candidates(self._roots, files)
             self.ready.emit(index)
         except Exception:
             self.ready.emit(None)
@@ -155,6 +166,8 @@ class MainWindow(QMainWindow):
         self._link_index = LinkIndex()
         self._link_thread: LinkIndexThread | None = None
         self._link_roots_key: tuple[str, ...] | None = None
+        self._link_refresh_pending = False
+        self._graph_window: GraphWindow | None = None
 
         self._tag_index = TagIndex()
         self._doc_annotations = DocumentAnnotations()
@@ -187,6 +200,7 @@ class MainWindow(QMainWindow):
         self._pen_mode = False
 
         self._current_front_tags: list[str] = []
+        self._current_body_tags: list[str] = []
 
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
@@ -195,8 +209,15 @@ class MainWindow(QMainWindow):
             pdf_note_callbacks=pdf_note_callbacks,
             pdf_highlight_callbacks=pdf_highlight_callbacks,
             on_tag_selected=self._on_tag_selected,
+            search_roots_provider=self._link_roots,
+            on_search_result=self._open_global_search_result,
             theme=self._theme,
         )
+        # File tree CRUD hooks: keep tabs / recents / watcher in sync when the
+        # browser creates, renames, moves, or deletes files on disk.
+        self._panel.file_browser.on_note_created = self._on_browser_note_created
+        self._panel.file_browser.on_paths_migrated = self._on_browser_paths_migrated
+        self._panel.file_browser.on_paths_deleted = self._on_browser_paths_deleted
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings
         )
@@ -216,14 +237,17 @@ class MainWindow(QMainWindow):
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
 
-        self._edit_mode = False
+        # View mode for Markdown documents: preview / edit / split (editor +
+        # live preview). ``_edit_mode`` (bool) is derived from it below.
+        self._view_mode = view_mode.PREVIEW
         self._editing_encoding = "utf-8"
         self._editing_newline = "\n"
         self._editor = EditorView()
         self._editor.modified_changed.connect(self._on_editor_modified)
 
-        # Edit mode is a split pane: editor on the left, a live preview on the
-        # right, kept in sync as you type (debounced) and scroll.
+        # Split mode is a split pane: editor on the left, a live preview on
+        # the right, kept in sync as you type (debounced) and scroll. Edit
+        # mode reuses the same splitter with the preview pane hidden.
         self._edit_preview = RendererView()
         self._edit_preview.set_zoom(self._content_zoom)
         self._edit_preview.wikilink_clicked.connect(self._on_wikilink_clicked)
@@ -244,11 +268,14 @@ class MainWindow(QMainWindow):
         self._editor_split.setStretchFactor(0, 1)
         self._editor_split.setStretchFactor(1, 1)
         self._editor_split.setSizes([480, 480])
+        self._edit_preview.setVisible(False)
 
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(400)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.timeout.connect(self._update_preview)
+        self._scroll_guard = view_mode.ScrollSyncGuard()
+        self._preview_scroll_ratio = 0.0
         self._editor.textChanged.connect(self._on_editor_text_changed)
         self._editor.verticalScrollBar().valueChanged.connect(
             self._sync_preview_scroll
@@ -321,14 +348,23 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(
             self._panel_open_file
         )
+        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
+            self._open_daily_note
+        )
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
             self._toggle_search
+        )
+        QShortcut(QKeySequence("Ctrl+Shift+F"), self).activated.connect(
+            self._open_global_search
         )
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             self._close_search
         )
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(
             self._toggle_edit_mode
+        )
+        QShortcut(QKeySequence("Ctrl+Shift+E"), self).activated.connect(
+            self._toggle_split_mode
         )
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
             self._save_edits
@@ -343,6 +379,9 @@ class MainWindow(QMainWindow):
         )
         QShortcut(QKeySequence("Ctrl+Shift+M"), self).activated.connect(
             self._open_mermaid_workspace
+        )
+        QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(
+            self._open_graph_view
         )
         QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self._zoom_in)
         QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self._zoom_in)
@@ -376,6 +415,7 @@ class MainWindow(QMainWindow):
         file_menu = bar.addMenu("檔案(&F)")
         file_menu.addAction(act("開啟…\tCtrl+O", self._panel_open_file))
         file_menu.addAction(act("快速開啟…\tCtrl+P", self._quick_open))
+        file_menu.addAction(act("開啟今日筆記\tCtrl+D", self._open_daily_note))
         file_menu.addAction(act("重新載入", self._reload_current))
         file_menu.addSeparator()
         file_menu.addAction(act("匯出 PDF…\tCtrl+Shift+P", self._export_pdf))
@@ -386,11 +426,17 @@ class MainWindow(QMainWindow):
 
         edit_menu = bar.addMenu("編輯(&E)")
         edit_menu.addAction(act("切換編輯 / 預覽\tCtrl+E", self._toggle_edit_mode))
+        edit_menu.addAction(
+            act("並排編輯（即時預覽）\tCtrl+Shift+E", self._toggle_split_mode)
+        )
         edit_menu.addAction(act("儲存\tCtrl+S", self._save_edits))
+        edit_menu.addAction(act("插入範本…", self._insert_template))
         edit_menu.addAction(act("尋找 / 取代\tCtrl+F", self._toggle_search))
+        edit_menu.addAction(act("搜尋所有文件庫\tCtrl+Shift+F", self._open_global_search))
 
         view_menu = bar.addMenu("檢視(&V)")
         view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
+        view_menu.addAction(act("筆記關聯圖\tCtrl+G", self._open_graph_view))
         view_menu.addSeparator()
         view_menu.addAction(act("放大\tCtrl++", self._zoom_in))
         view_menu.addAction(act("縮小\tCtrl+-", self._zoom_out))
@@ -431,6 +477,7 @@ class MainWindow(QMainWindow):
             ("檔案", [
                 ("Ctrl+O", "開啟文件"),
                 ("Ctrl+P", "快速開啟（模糊搜尋檔名）"),
+                ("Ctrl+D", "開啟今日筆記"),
                 ("Ctrl+Shift+P", "匯出 PDF"),
             ]),
             ("分頁", [
@@ -440,10 +487,13 @@ class MainWindow(QMainWindow):
             ]),
             ("編輯", [
                 ("Ctrl+E", "切換編輯 / 預覽"),
+                ("Ctrl+Shift+E", "並排編輯（左編輯、右即時預覽）"),
                 ("Ctrl+S", "儲存"),
                 ("Ctrl+F", "在文件 / PDF 中搜尋"),
+                ("Ctrl+Shift+F", "搜尋所有文件庫內容"),
             ]),
             ("檢視", [
+                ("Ctrl+G", "開啟筆記關聯圖"),
                 ("Ctrl++ / Ctrl+- / Ctrl+0", "放大 / 縮小 / 重設縮放"),
             ]),
             ("PDF", [
@@ -498,7 +548,7 @@ class MainWindow(QMainWindow):
             "refresh", "重新載入文件", self._reload_current
         )
         self._edit_btn = self._toolbar_button(
-            "pencil", "編輯文件 (Ctrl+E)", self._toggle_edit_mode
+            "pencil", "編輯文件 (Ctrl+E)", self._cycle_view_mode
         )
         self._mermaid_btn = self._toolbar_button(
             "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
@@ -626,6 +676,8 @@ QSplitter::handle:hover {{
         self._editor.apply_theme(self._theme)
         self._editor_search_bar.setStyleSheet(self._editor_search_style())
         self._pdf_view.apply_theme(self._theme)
+        if self._graph_window is not None:
+            self._graph_window.apply_theme(self._theme)
         self._refresh_icons()
         self._renderer.set_theme(self._theme_name)
         # The preview holds a throwaway HTML string (no _current_path), so the
@@ -672,8 +724,13 @@ QSplitter::handle:hover {{
         self._highlight_btn.setChecked(self._pen_mode)
         self._highlight_btn.setIcon(svg_icon("highlighter", highlight_color, 20))
 
-        edit_icon = "eye" if self._edit_mode else "pencil"
-        edit_tip = "回到預覽 (Ctrl+E)" if self._edit_mode else "編輯文件 (Ctrl+E)"
+        # Three-state cycle button: preview -> edit -> split -> preview.
+        if self._view_mode == view_mode.SPLIT:
+            edit_icon, edit_tip = "eye", "回到預覽 (Ctrl+E)"
+        elif self._view_mode == view_mode.EDIT:
+            edit_icon, edit_tip = "columns", "並排即時預覽 (Ctrl+Shift+E)"
+        else:
+            edit_icon, edit_tip = "pencil", "編輯文件 (Ctrl+E)"
         edit_color = icon_color if self._edit_btn.isEnabled() else disabled_color
         self._edit_btn.setProperty("iconName", edit_icon)
         self._edit_btn.setToolTip(edit_tip)
@@ -819,6 +876,28 @@ QWidget#searchBar QLabel {{
         else:
             self._close_search()
 
+    def _open_global_search(self):
+        if not self._sidebar_open:
+            self._do_toggle(0)
+        self._panel.show_search()
+
+    def _open_global_search_result(
+        self, filepath: str, query: str, line_number: int
+    ):
+        target = str(Path(filepath))
+        self._open_file(target)
+        if self._active_path != target or self._current_kind != "markdown":
+            return
+        self._search_bar.show()
+        changed = self._search_input.text() != query
+        self._search_input.setText(query)
+        if not changed:
+            self._on_search_text_changed(query)
+        self._renderer.find_text_after_load(query)
+        self._search_input.setFocus()
+        self._search_input.selectAll()
+        self.statusBar().showMessage(f"已開啟第 {line_number} 行的搜尋結果", 3000)
+
     def _close_search(self):
         self._search_bar.hide()
         self._search_input.clear()
@@ -831,6 +910,8 @@ QWidget#searchBar QLabel {{
             current.setFocus()
 
     def _on_search_text_changed(self, text: str):
+        if self._current_kind == "markdown":
+            self._renderer.cancel_pending_find()
         if not text:
             self._search_count.setText("")
             self._renderer.find_text("")
@@ -1078,13 +1159,66 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 ),
             )
 
-    def _toggle_edit_mode(self):
-        if not self._current_file or not is_markdown(self._current_file):
-            return
-        if self._edit_mode:
-            self._exit_edit_mode()
+    # ``_edit_mode`` (bool: the editor owns the buffer) stays as the compat
+    # surface for export_actions / session_state; the source of truth is the
+    # three-state ``_view_mode`` (preview / edit / split).
+    @property
+    def _edit_mode(self) -> bool:
+        return view_mode.is_editing(self._view_mode)
+
+    @_edit_mode.setter
+    def _edit_mode(self, value: bool):
+        if bool(value):
+            if not view_mode.is_editing(self._view_mode):
+                self._view_mode = view_mode.EDIT
         else:
-            self._enter_edit_mode()
+            self._view_mode = view_mode.PREVIEW
+
+    def _toggle_edit_mode(self):
+        """Ctrl+E: toggle between preview and the plain editor."""
+        self._request_view_mode(view_mode.toggle_edit(self._view_mode))
+
+    def _toggle_split_mode(self):
+        """Ctrl+Shift+E: jump straight into split (editor + live preview)."""
+        self._request_view_mode(view_mode.toggle_split(self._view_mode))
+
+    def _cycle_view_mode(self):
+        """Toolbar button: preview -> edit -> split -> preview."""
+        self._request_view_mode(view_mode.cycle_mode(self._view_mode))
+
+    def _request_view_mode(self, mode: str):
+        if not self._current_file or not is_markdown(self._current_file):
+            return  # PDFs (and no document) stay in plain preview
+        self._set_view_mode(mode)
+
+    def _set_view_mode(self, mode: str):
+        mode = view_mode.normalize(mode)
+        if mode == self._view_mode:
+            return
+        if not view_mode.is_editing(mode):
+            self._exit_edit_mode()  # confirms unsaved changes first
+            return
+        if not view_mode.is_editing(self._view_mode):
+            self._enter_edit_mode(mode)
+            return
+        # edit <-> split: the editor keeps its buffer, only the preview pane
+        # is shown / hidden.
+        self._view_mode = mode
+        self._apply_split_visibility()
+        if mode == view_mode.SPLIT:
+            self._update_preview()
+        else:
+            self._preview_timer.stop()
+        self._refresh_icons()
+
+    def _apply_split_visibility(self):
+        split = self._view_mode == view_mode.SPLIT
+        self._edit_preview.setVisible(split)
+        if split:
+            sizes = self._editor_split.sizes()
+            if len(sizes) == 2 and sizes[1] == 0:
+                total = max(sum(sizes), 2)
+                self._editor_split.setSizes([total // 2, total - total // 2])
 
     def _open_mermaid_workspace(self):
         dialog = MermaidWorkspaceDialog(theme_name=self._theme_name, parent=self)
@@ -1189,7 +1323,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._update_preview()
         self._update_dirty_ui()
 
-    def _enter_edit_mode(self):
+    def _enter_edit_mode(self, mode: str = view_mode.EDIT):
+        if not view_mode.is_editing(mode):
+            mode = view_mode.EDIT
         try:
             raw = self._current_file.read_bytes()
             result = read_text(self._current_file)
@@ -1208,14 +1344,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editing_encoding = encoding
         self._editing_newline = "\r\n" if b"\r\n" in raw else "\n"
         self._editor.set_content(text)
+        self._editor.set_wikilink_candidates(
+            self._link_index.completion_candidates
+        )
 
-        self._edit_mode = True
+        self._view_mode = mode
+        self._preview_scroll_ratio = 0.0
+        self._apply_split_visibility()
         self._close_search()
         self._search_btn.setEnabled(False)
         self._reload_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
         self._stack.setCurrentWidget(self._editor_split)
-        self._update_preview()
+        if mode == view_mode.SPLIT:
+            self._update_preview()
         self._editor.setFocus()
         self._refresh_icons()
         self._update_dirty_ui()
@@ -1226,7 +1368,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._leave_edit_ui()
 
     def _leave_edit_ui(self):
-        self._edit_mode = False
+        self._view_mode = view_mode.PREVIEW
+        self._preview_timer.stop()
         self._editor_search_bar.hide()
         is_md = bool(self._current_file and is_markdown(self._current_file))
         self._search_btn.setEnabled(is_md)
@@ -1295,11 +1438,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._update_dirty_ui()
 
     def _on_editor_text_changed(self):
-        if self._edit_mode:
+        # Debounced live re-render; only the split mode shows the preview.
+        if self._view_mode == view_mode.SPLIT:
             self._preview_timer.start()
 
     def _update_preview(self):
-        if not self._edit_mode or not self._current_file:
+        if self._view_mode != view_mode.SPLIT or not self._current_file:
             return
         text = self._editor.toPlainText()
         base = QUrl.fromLocalFile(str(self._current_file.parent) + "/")
@@ -1308,14 +1452,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._theme_name,
             title=self._current_file.stem,
             base_url=base,
+            scroll_ratio=self._preview_scroll_ratio,
         )
 
     def _sync_preview_scroll(self):
-        if not self._edit_mode:
+        if self._view_mode != view_mode.SPLIT:
+            return
+        # Direction lock: while the editor drives the preview, scroll events
+        # attributed to the preview side are suppressed (no echo loops).
+        if not self._scroll_guard.try_acquire("editor"):
             return
         bar = self._editor.verticalScrollBar()
-        maximum = bar.maximum()
-        ratio = (bar.value() / maximum) if maximum > 0 else 0.0
+        ratio = view_mode.editor_scroll_ratio(bar.value(), bar.maximum())
+        self._preview_scroll_ratio = ratio
         self._edit_preview.scroll_to_ratio(ratio)
 
     def _update_dirty_ui(self):
@@ -1514,6 +1663,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _show_empty_state(self):
         self._current_file = None
         self._current_kind = ""
+        self._current_front_tags = []
+        self._current_body_tags = []
         self._active_path = None
         self.setWindowTitle("Markdown Viewer")
         self._toolbar_title.setText("Markdown Viewer")
@@ -1543,6 +1694,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._toolbar_subtitle.setText(str(path.parent))
         self._close_search()
         self._current_front_tags = []
+        self._current_body_tags = []
         if kind == "markdown":
             self._doc_annotations = AnnotationStore.load(path)
             self._sync_renderer_annotations()
@@ -1573,6 +1725,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._refresh_link_index()
         else:
             self._panel.backlinks.clear()
+        if self._graph_window is not None and self._graph_window.isVisible():
+            current = str(path) if kind == "markdown" else None
+            self._graph_window.set_current_path(current)
         self._refresh_icons()
 
     def _open_pdf(self, path: Path):
@@ -1765,17 +1920,52 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._link_roots_key = key
         if self._link_thread is not None and self._link_thread.isRunning():
+            if force:
+                self._link_refresh_pending = True
             self._refresh_backlinks()
             return
         self._link_thread = LinkIndexThread(roots, self)
         self._link_thread.ready.connect(self._on_link_index_ready)
+        self._link_thread.finished.connect(self._on_link_index_finished)
         self._link_thread.start()
         self._refresh_backlinks()
 
     def _on_link_index_ready(self, index):
         if index is not None:
             self._link_index = index
+            self._editor.set_wikilink_candidates(index.completion_candidates)
+            if self._graph_window is not None and self._graph_window.isVisible():
+                current = (
+                    str(self._current_file)
+                    if self._current_file and self._current_kind == "markdown"
+                    else None
+                )
+                self._graph_window.set_index(index, current)
         self._refresh_backlinks()
+
+    def _on_link_index_finished(self):
+        thread = self._link_thread
+        self._link_thread = None
+        if thread is not None:
+            thread.deleteLater()
+        if self._link_refresh_pending:
+            self._link_refresh_pending = False
+            self._refresh_link_index(force=True)
+
+    def _open_graph_view(self):
+        if self._graph_window is None:
+            self._graph_window = GraphWindow(self.open_path, self)
+        current = (
+            str(self._current_file)
+            if self._current_file and self._current_kind == "markdown"
+            else None
+        )
+        self._graph_window.apply_theme(self._theme)
+        self._graph_window.set_index(self._link_index, current)
+        self._graph_window.show()
+        self._graph_window.raise_()
+        self._graph_window.activateWindow()
+        self._refresh_link_index(force=True)
 
     def _refresh_backlinks(self):
         if self._current_file and self._current_kind == "markdown":
@@ -1849,6 +2039,187 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 QMessageBox.warning(self, "建立失敗", f"無法建立檔案：\n{exc}")
                 return
         self._open_file(str(new_path))
+        self._refresh_link_index(force=True)
+
+    # --- file tree CRUD follow-ups (called by the file browser) ---
+    def _on_browser_note_created(self, path: str):
+        """A note was created in the file tree: open it in edit mode."""
+        self._open_file(path)
+        if (
+            self._current_file
+            and str(self._current_file) == str(Path(path))
+            and self._current_kind == "markdown"
+            and not self._edit_mode
+        ):
+            self._enter_edit_mode()
+        self._refresh_link_index(force=True)
+
+    def _configured_note_folder(self, key: str, default_name: str) -> Path | None:
+        configured = str(QSettings(_ORG, _APP).value(key, "") or "").strip()
+        if configured:
+            return Path(configured)
+        try:
+            return default_subfolder(DocumentLibraryStore().load(), default_name)
+        except OSError:
+            return None
+
+    def _open_daily_note(self, now: datetime | None = None):
+        """Create or reopen today's configured daily note, then edit it."""
+        if not isinstance(now, datetime):
+            now = None
+        folder = self._configured_note_folder("daily_notes_folder", "Daily Notes")
+        if folder is None:
+            QMessageBox.information(
+                self,
+                "Daily notes",
+                "尚未設定 Daily notes 資料夾，且目前沒有文件庫。",
+            )
+            return
+
+        template = str(
+            QSettings(_ORG, _APP).value("daily_note_template", "") or ""
+        ).strip()
+        try:
+            path, created = open_or_create_daily_note(
+                folder,
+                template or None,
+                now,
+            )
+        except (OSError, UnicodeError) as exc:
+            QMessageBox.warning(
+                self,
+                "Daily notes",
+                f"無法建立今日筆記：\n{exc}",
+            )
+            return
+
+        if not (
+            self._current_file
+            and str(self._current_file) == str(path)
+            and self._edit_mode
+        ):
+            self.open_path(str(path))
+            if (
+                self._current_file
+                and str(self._current_file) == str(path)
+                and self._current_kind == "markdown"
+                and not self._edit_mode
+            ):
+                self._enter_edit_mode()
+        else:
+            self._editor.setFocus()
+
+        if created:
+            self._panel.file_browser.refresh_libraries()
+            self._refresh_link_index(force=True)
+        self.statusBar().showMessage(f"今日筆記：{path.name}", 3000)
+
+    def _insert_template(
+        self,
+        template_path: str | Path | None = None,
+        now: datetime | None = None,
+    ):
+        """Insert a rendered Markdown template at the editor cursor."""
+        if isinstance(template_path, bool):
+            template_path = None
+        if not isinstance(now, datetime):
+            now = None
+        if not (
+            self._current_file
+            and self._current_kind == "markdown"
+            and self._edit_mode
+        ):
+            QMessageBox.information(
+                self,
+                "插入範本",
+                "請先開啟 Markdown 筆記並進入編輯模式。",
+            )
+            return
+
+        if template_path is None:
+            folder = self._configured_note_folder("templates_folder", "Templates")
+            templates = find_templates(folder) if folder is not None else []
+            if not templates:
+                QMessageBox.information(
+                    self,
+                    "插入範本",
+                    "範本資料夾不存在，或資料夾內沒有 Markdown 範本。",
+                )
+                return
+            labels = [
+                path.relative_to(folder).as_posix() for path in templates
+            ]
+            choice, ok = QInputDialog.getItem(
+                self,
+                "插入範本",
+                "選擇範本：",
+                labels,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            template_path = templates[labels.index(choice)]
+
+        try:
+            rendered = render_template_file(
+                template_path,
+                self._current_file.stem,
+                now,
+            )
+        except (OSError, UnicodeError) as exc:
+            QMessageBox.warning(
+                self,
+                "插入範本",
+                f"無法讀取範本：\n{exc}",
+            )
+            return
+
+        cursor = self._editor.textCursor()
+        cursor.insertText(rendered)
+        self._editor.setTextCursor(cursor)
+        self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
+
+    def _on_browser_paths_migrated(self, mapping: dict):
+        """Files were renamed/moved on disk: re-point tabs, recents, state."""
+        if not mapping:
+            return
+        for i in range(self._tab_bar.count()):
+            key = self._tab_bar.tabData(i)
+            new = mapping.get(key)
+            if not new:
+                continue
+            self._tab_guard = True
+            self._tab_bar.setTabData(i, new)
+            self._tab_bar.setTabText(i, Path(new).name)
+            self._tab_bar.setTabToolTip(i, new)
+            self._tab_guard = False
+            if key in self._tab_state:
+                self._tab_state[new] = self._tab_state.pop(key)
+        if self._active_path in mapping:
+            self._active_path = mapping[self._active_path]
+        if self._current_file and str(self._current_file) in mapping:
+            self._current_file = Path(mapping[str(self._current_file)])
+            self.setWindowTitle(f"{self._current_file.name} - Markdown Viewer")
+            self._toolbar_title.setText(self._current_file.name)
+            self._toolbar_subtitle.setText(str(self._current_file.parent))
+            self._watch_current_file()
+        self._panel.recent.migrate_paths(mapping)
+        self._refresh_tags_panel()
+        self._refresh_link_index(force=True)
+
+    def _on_browser_paths_deleted(self, paths: list):
+        """Files were deleted on disk: close their tabs and drop recents."""
+        for path in paths:
+            key = str(path)
+            idx = self._index_of_path(key)
+            if idx >= 0:
+                if self._edit_mode and key == self._active_path:
+                    # The file is gone; don't offer to "save" it back.
+                    self._editor.mark_saved()
+                self._on_tab_close(idx)
+        self._panel.recent.remove_paths(list(paths))
+        self._refresh_tags_panel()
         self._refresh_link_index(force=True)
 
     def open_path(self, filepath: str):
@@ -1997,23 +2368,31 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         AnnotationStore.save(self._current_file, self._doc_annotations)
         self._tag_index.update(
-            self._current_file, self._doc_annotations, self._current_front_tags
+            self._current_file,
+            self._doc_annotations,
+            front_tags=self._current_front_tags,
+            body_tags=self._current_body_tags,
         )
         self._panel.annotations.set_document(self._doc_annotations)
         self._sync_renderer_annotations()
         self._refresh_tags_panel()
 
     def _update_front_tags(self):
-        """Read the current file's front-matter tags and feed the tag index."""
+        """Read front-matter/body tags from the current Markdown file."""
         self._current_front_tags = []
+        self._current_body_tags = []
         if not self._current_file or not is_markdown(self._current_file):
             return
         result = read_text(self._current_file)
         if result:
-            front, _ = parse_front_matter(result[0])
+            front, body = parse_front_matter(result[0])
             self._current_front_tags = front_matter_tags(front)
+            self._current_body_tags = body_hashtags(body)
         self._tag_index.update(
-            self._current_file, self._doc_annotations, self._current_front_tags
+            self._current_file,
+            self._doc_annotations,
+            front_tags=self._current_front_tags,
+            body_tags=self._current_body_tags,
         )
         self._refresh_tags_panel()
 
@@ -2022,8 +2401,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _on_tag_selected(self, tag: str):
         self._panel.recent.set_tag_filter(tag)
+        self._panel.file_browser.set_tag_filter(tag)
         self._panel.tags.set_active(tag)
-        self._panel.switch_to(1)  # jump to the Recent tab to show filtered files
+        target_tab = 0 if self._panel.file_browser.has_open_folder() else 1
+        self._panel.switch_to(target_tab)
 
     def _sync_renderer_annotations(self):
         self._renderer.set_annotations(

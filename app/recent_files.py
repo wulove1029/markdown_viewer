@@ -44,6 +44,30 @@ class RecentFilesView(QListWidget):
         self._save([])
         self._refresh()
 
+    def migrate_paths(self, mapping: dict):
+        """Re-point entries after files were renamed/moved on disk."""
+        resolved = {
+            str(Path(old).resolve()): str(Path(new).resolve())
+            for old, new in mapping.items()
+        }
+        paths = self._load()
+        updated = [resolved.get(p, p) for p in paths]
+        if updated != paths:
+            deduped = []
+            for p in updated:
+                if p not in deduped:
+                    deduped.append(p)
+            self._save(deduped)
+            self._refresh()
+
+    def remove_paths(self, targets):
+        keys = {str(Path(p).resolve()) for p in targets}
+        paths = self._load()
+        remaining = [p for p in paths if p not in keys]
+        if remaining != paths:
+            self._save(remaining)
+        self._refresh()
+
     def _refresh(self):
         self.clear()
         allowed = None

@@ -12,9 +12,12 @@ import re
 from pathlib import Path
 
 from .file_types import MARKDOWN_EXTENSIONS
-from .md_converter import read_text
+from .md_converter import mask_markdown_code, read_text
 
-WIKILINK_RE = re.compile(r"\[\[\s*([^\[\]|]+?)\s*(?:\|\s*([^\[\]]+?)\s*)?\]\]")
+WIKILINK_RE = re.compile(
+    r"\[\[[^\S\r\n]*([^\[\]|\r\n]+?)[^\S\r\n]*"
+    r"(?:\|[^\S\r\n]*([^\[\]\r\n]+?)[^\S\r\n]*)?\]\]"
+)
 
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", "node_modules",
@@ -27,7 +30,7 @@ _MAX_BYTES = 2 * 1024 * 1024
 def extract_wikilinks(text: str) -> list[tuple[str, str | None]]:
     """Return [(target, alias_or_None), ...] for each wiki-link in *text*."""
     out: list[tuple[str, str | None]] = []
-    for match in WIKILINK_RE.finditer(text or ""):
+    for match in WIKILINK_RE.finditer(mask_markdown_code(text)):
         target = match.group(1).strip()
         alias = match.group(2).strip() if match.group(2) is not None else None
         if target:
@@ -94,6 +97,11 @@ class LinkIndex:
         self._by_name: dict[str, list[Path]] = {}
         self.forward: dict[str, set[str]] = {}
         self.backward: dict[str, set[str]] = {}
+        # Raw targets are retained for consumers such as Graph view.  The
+        # existing forward/backward maps intentionally contain only resolved
+        # files, while this map also preserves links to not-yet-created notes.
+        self.raw_targets: dict[str, tuple[str, ...]] = {}
+        self.completion_candidates: list[str] = []
 
     def build(self, docs) -> None:
         """Build the index from an iterable of (path, text)."""
@@ -104,9 +112,12 @@ class LinkIndex:
 
         self.forward = {}
         self.backward = {}
+        self.raw_targets = {}
         for path, text in docs:
             targets: set[str] = set()
-            for target, _alias in extract_wikilinks(text):
+            raw_targets = [target for target, _alias in extract_wikilinks(text)]
+            self.raw_targets[str(path)] = tuple(raw_targets)
+            for target in raw_targets:
                 resolved = self.resolve(target, path)
                 if resolved and str(resolved) != str(path):
                     targets.add(str(resolved))

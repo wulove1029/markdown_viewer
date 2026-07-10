@@ -44,3 +44,23 @@ def test_counts_sorted_by_frequency(tmp_path):
     idx.update(tmp_path / "b.md", _Doc(doc_tags=["common", "rare"]))
     counts = idx.tag_counts()
     assert counts[0][0] == "common"  # most frequent first
+
+
+def test_body_tags_join_all_existing_sources(tmp_path):
+    idx = TagIndex(tmp_path / "idx.json")
+    md = tmp_path / "a.md"
+    idx.update(
+        md,
+        _Doc(doc_tags=["document"], annotations=[_Annot(tags=["annotation"])]),
+        front_tags=["front"],
+        body_tags=["body", "front"],
+    )
+
+    assert set(idx.all_tags()) == {"document", "annotation", "front", "body"}
+    assert dict(idx.tag_counts()) == {
+        "annotation": 1,
+        "body": 1,
+        "document": 1,
+        "front": 1,
+    }
+    assert idx.files_with_tag("body") == [str(md.resolve())]
