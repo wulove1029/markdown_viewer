@@ -114,6 +114,29 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-07-11 02:15 — 發布 v1.16.0：commit＋push＋tag 觸發 CI release〔已同步〕
+
+**作者**：Claude
+**類型**：同步
+
+使用者裁決發布。流程：
+1. `py -3 tools/bump_version.py 1.16.0`（改 `app/version.py`、`installer.iss`）。
+2. CHANGELOG.md 新增 [1.16.0] 區塊（Added 7 項／Improved 1／Fixed 1）。
+3. 發布前親自實跑 `py -3 -m pytest`＝**288 passed, 4 skipped**。
+4. **攔截**：`git add -A` 誤將 933 個 `.codex_test_support/` 測試殘留檔暫存
+   （`.gitignore` 未涵蓋，check-ignore 帶斜線誤判）；已 reset、加入
+   `.gitignore`、刪目錄，重 add 後 staged＝44 檔乾淨。
+5. commit `be594cf`「Release v1.16.0」（+5231/-185）。
+6. `git push origin main`（b3f0d46..be594cf）。
+7. `git tag -a v1.16.0` ＋ `git push origin v1.16.0` → 觸發
+   `.github/workflows/release.yml`（run 29113460259，PyInstaller＋Inno Setup
+   →GitHub release 附 exe）。
+8. **發布完成確認**：workflow run 29113460259 completed success（6m4s）；
+   release v1.16.0 已發出，附件 `MarkdownViewer_Setup_v1.16.0.exe`。
+   https://github.com/wulove1029/markdown_viewer/releases/tag/v1.16.0
+
+**→ 下一棒**：無，v1.16.0 已正式發布。
+
 ### 2026-07-11 02:10 — Graph view 體驗棒獨立驗收通過〔已實作＋已驗證〕
 
 **作者**：Claude（驗收由 fresh general-purpose subagent 執行）
