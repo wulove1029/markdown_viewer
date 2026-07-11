@@ -30,7 +30,8 @@ from . import file_ops
 from .document_libraries import (
     DocumentLibrary,
     DocumentLibraryStore,
-    _should_skip_directory,
+    load_excluded_folders,
+    should_skip_directory,
     discover_cloud_library_paths,
 )
 from .file_types import SUPPORTED_EXTENSIONS
@@ -43,6 +44,14 @@ _IS_DIR_ROLE = Qt.ItemDataRole.UserRole.value + 2
 
 def _path_key(path) -> str:
     return str(Path(path)).casefold()
+
+
+def _is_same_or_descendant(path: str | Path, folder: str | Path) -> bool:
+    path_obj = Path(path)
+    folder_key = _path_key(folder)
+    return _path_key(path_obj) == folder_key or any(
+        _path_key(parent) == folder_key for parent in path_obj.parents
+    )
 
 
 class FileBrowserView(QWidget):
@@ -60,6 +69,9 @@ class FileBrowserView(QWidget):
         self._expanded: set[str] | None = None
         self._last_filtering = False
         self._built = False
+        # Empty folders created from this view stay reachable for the current
+        # session, so users can immediately create a note inside them.
+        self._transient_folders: set[str] = set()
         # Optional hooks the main window installs so tabs / recents / session
         # state follow filesystem changes made here.
         self.on_note_created = None    # callable(path_str)
@@ -205,6 +217,10 @@ QTreeWidget::item {
     # ---------------- tree building ----------------
     def _refresh_list(self):
         self._sync_expanded_from_tree()
+        self._excluded_folders = load_excluded_folders()
+        self._transient_folders = {
+            path for path in self._transient_folders if Path(path).is_dir()
+        }
         self._tree.clear()
         query = self._filter.text().strip().casefold()
         filtering = self._is_filtering()
@@ -290,7 +306,9 @@ QTreeWidget::item {
         query: str,
         allowed: set[str] | None,
         ancestor_match: bool = False,
+        library_root: Path | None = None,
     ) -> int:
+        library_root = library_root or folder
         try:
             entries = sorted(
                 folder.iterdir(), key=lambda p: p.name.casefold()
@@ -302,7 +320,11 @@ QTreeWidget::item {
         for entry in entries:
             if not entry.is_dir():
                 continue
-            if _should_skip_directory(entry.name):
+            try:
+                relative = entry.relative_to(library_root)
+            except ValueError:
+                relative = entry.name
+            if should_skip_directory(relative, self._excluded_folders):
                 continue
             child = QTreeWidgetItem([entry.name])
             child.setToolTip(0, str(entry))
@@ -312,9 +334,13 @@ QTreeWidget::item {
                 query and query in entry.name.casefold()
             )
             sub_count = self._populate_folder(
-                child, entry, query, allowed, child_match
+                child, entry, query, allowed, child_match, library_root
             )
-            if filtering and sub_count == 0:
+            keep_transient = not filtering and any(
+                _is_same_or_descendant(path, entry)
+                for path in self._transient_folders
+            )
+            if sub_count == 0 and not keep_transient:
                 continue
             parent_item.addChild(child)
             count += sub_count
@@ -491,6 +517,7 @@ QTreeWidget::item {
             QMessageBox.warning(self, "新增資料夾失敗", f"無法建立資料夾：\n{exc}")
             return
         self._remember_expanded(parent_path)
+        self._transient_folders.add(str(path))
         self.refresh_libraries()
         self.navigate_to(path)
 

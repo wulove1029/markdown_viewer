@@ -50,6 +50,24 @@ def test_search_skips_invalid_utf8_file(tmp_path):
     assert search_markdown_files([tmp_path], "needle") == []
 
 
+def test_search_applies_user_directory_exclusions(tmp_path, monkeypatch):
+    included = tmp_path / "docs"
+    excluded = tmp_path / "app_flutter" / "ios"
+    included.mkdir()
+    excluded.mkdir(parents=True)
+    keep = included / "keep.md"
+    keep.write_text("needle", encoding="utf-8")
+    (excluded / "hidden.md").write_text("needle", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.global_search.load_excluded_folders",
+        lambda: ["app_flutter/ios"],
+    )
+
+    assert _result_paths(search_markdown_files([tmp_path], "needle")) == {
+        keep.resolve()
+    }
+
+
 def test_overlapping_roots_do_not_duplicate_results(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()

@@ -21,24 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .document_libraries import load_excluded_folders, should_skip_directory
 from .theme import LIGHT, Theme, collection_stylesheet
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _QUERY_ROLE = Qt.ItemDataRole.UserRole.value + 1
 _LINE_ROLE = Qt.ItemDataRole.UserRole.value + 2
 _HEADER_ROLE = Qt.ItemDataRole.UserRole.value + 3
-
-_SKIP_DIRS = {
-    ".git",
-    ".hg",
-    ".svn",
-    "__pycache__",
-    "node_modules",
-    ".venv",
-    "venv",
-    ".obsidian",
-}
-
 
 @dataclass(frozen=True)
 class SearchHit:
@@ -79,6 +68,7 @@ def search_markdown_files(
     pattern = re.compile(re.escape(needle), re.IGNORECASE)
     results: list[FileSearchResult] = []
     seen_files: set[str] = set()
+    excluded_folders = load_excluded_folders()
 
     for root in _unique_roots(roots):
         if cancelled():
@@ -95,10 +85,13 @@ def search_markdown_files(
         ):
             if cancelled():
                 return []
+            relative_parent = Path(dirpath).relative_to(root)
             dirnames[:] = [
                 name
                 for name in dirnames
-                if not name.startswith(".") and name not in _SKIP_DIRS
+                if not should_skip_directory(
+                    relative_parent / name, excluded_folders
+                )
             ]
             for filename in filenames:
                 if cancelled():

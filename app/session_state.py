@@ -141,6 +141,8 @@ def open_preferences(window):
         window._theme_name = new_theme
         window._apply_theme()
     load_user_css(window, reload=True)
+    window._panel.file_browser.refresh_libraries()
+    window._refresh_link_index(force=True)
 
 
 def toggle_theme(window):

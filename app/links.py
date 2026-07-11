@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 
+from .document_libraries import load_excluded_folders, should_skip_directory
 from .file_types import MARKDOWN_EXTENSIONS
 from .md_converter import mask_markdown_code, read_text
 
@@ -19,10 +20,6 @@ WIKILINK_RE = re.compile(
     r"(?:\|[^\S\r\n]*([^\[\]\r\n]+?)[^\S\r\n]*)?\]\]"
 )
 
-_SKIP_DIRS = {
-    ".git", ".hg", ".svn", "__pycache__", "node_modules",
-    ".venv", "venv", ".obsidian",
-}
 _MAX_FILES = 8000
 _MAX_BYTES = 2 * 1024 * 1024
 
@@ -54,13 +51,19 @@ def collect_markdown_files(roots) -> list[Path]:
     """Walk *roots*, returning Markdown files (skipping VCS/build dirs)."""
     seen: set[str] = set()
     files: list[Path] = []
+    excluded_folders = load_excluded_folders()
     for root in roots:
         root = Path(root)
         if not root.exists() or not root.is_dir():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            relative_parent = Path(dirpath).relative_to(root)
             dirnames[:] = [
-                d for d in dirnames if not d.startswith(".") and d not in _SKIP_DIRS
+                d
+                for d in dirnames
+                if not should_skip_directory(
+                    relative_parent / d, excluded_folders
+                )
             ]
             for filename in filenames:
                 if Path(filename).suffix.lower() not in MARKDOWN_EXTENSIONS:

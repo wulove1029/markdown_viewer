@@ -151,10 +151,17 @@ class TestSettingsDialogAccept:
     def test_accept_persists_to_qsettings(self, qapp):
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
         dlg._theme_combo.setCurrentIndex(1)  # dark
+        dlg._excluded_folders_edit.setPlainText("ios\napp_flutter/generated\n")
         dlg.accept()
 
         s = settings_dialog_mod.QSettings(_ORG, _APP)
         assert s.value("theme") == "dark"
+        assert s.value("excluded_folders") == "ios\napp_flutter/generated"
+
+        reopened = SettingsDialog(None)
+        assert reopened._excluded_folders_edit.toPlainText() == (
+            "ios\napp_flutter/generated"
+        )
 
     def test_results_empty_before_accept(self, qapp):
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)

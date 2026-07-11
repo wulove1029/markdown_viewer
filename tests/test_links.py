@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from app.links import LinkIndex, extract_wikilinks
+from app.links import LinkIndex, collect_markdown_files, extract_wikilinks
 
 
 def test_extract_plain_and_aliased():
@@ -80,3 +80,16 @@ def test_self_links_excluded_from_forward():
 def test_heading_link_resolves_to_file():
     idx = _index([("/v/guide.md", ""), ("/v/x.md", "[[guide#install]]")])
     assert idx.resolve("guide#install", Path("/v/x.md")) == Path("/v/guide.md")
+
+
+def test_link_scan_applies_user_exclusions(tmp_path, monkeypatch):
+    included = tmp_path / "notes"
+    excluded = tmp_path / "ios"
+    included.mkdir()
+    excluded.mkdir()
+    keep = included / "keep.md"
+    keep.write_text("keep", encoding="utf-8")
+    (excluded / "hidden.md").write_text("hidden", encoding="utf-8")
+    monkeypatch.setattr("app.links.load_excluded_folders", lambda: ["ios"])
+
+    assert collect_markdown_files([tmp_path]) == [keep]

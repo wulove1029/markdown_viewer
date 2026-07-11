@@ -114,6 +114,95 @@ def test_tree_shows_folders_and_files_nested(qapp, tmp_path, monkeypatch):
         view.close()
 
 
+def test_tree_prunes_empty_folders_but_keeps_deep_supported_files(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    empty = root / "backend" / "db"
+    docs = root / "firmware" / "docs"
+    empty.mkdir(parents=True)
+    docs.mkdir(parents=True)
+    (docs / "guide.md").write_text("# guide", encoding="utf-8")
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        assert view._find_item(root) is not None
+        assert view._find_item(root / "backend") is None
+        assert view._find_item(empty) is None
+        assert view._find_item(root / "firmware") is not None
+        assert view._find_item(docs / "guide.md") is not None
+    finally:
+        view.close()
+
+
+def test_tree_applies_user_directory_exclusions(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    visible = root / "docs"
+    excluded = root / "app_flutter" / "ios"
+    visible.mkdir(parents=True)
+    excluded.mkdir(parents=True)
+    (visible / "keep.md").write_text("keep", encoding="utf-8")
+    (excluded / "hidden.md").write_text("hidden", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.file_browser.load_excluded_folders",
+        lambda: ["app_flutter/ios"],
+    )
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        assert view._find_item(visible / "keep.md") is not None
+        assert view._find_item(excluded) is None
+    finally:
+        view.close()
+
+
+def test_empty_library_root_remains_visible(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        root_item = view._find_item(root)
+        assert root_item is not None
+        assert root_item.data(0, _IS_DIR_ROLE) is True
+        assert root_item.text(0) == "Vault（0）"
+    finally:
+        view.close()
+
+
+def test_new_empty_folder_stays_reachable_for_current_session(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    root.mkdir()
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    monkeypatch.setattr(
+        "app.file_browser.QInputDialog.getText",
+        staticmethod(lambda *args, **kwargs: ("drafts", True)),
+    )
+    try:
+        view._create_folder_action(str(root))
+        created = root / "drafts"
+        item = view._find_item(created)
+        assert created.is_dir()
+        assert item is not None
+        assert item.data(0, _IS_DIR_ROLE) is True
+
+        (created / "note.md").write_text("# note", encoding="utf-8")
+        view.refresh_libraries()
+        assert view._find_item(created / "note.md") is not None
+    finally:
+        view.close()
+
+
 def test_tree_state_round_trip_restores_expansion_and_selection(
     qapp, tmp_path, monkeypatch
 ):

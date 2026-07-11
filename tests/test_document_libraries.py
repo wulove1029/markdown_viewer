@@ -4,6 +4,7 @@ from app.document_libraries import (
     DocumentLibrary,
     DocumentLibraryStore,
     scan_library_documents,
+    should_skip_directory,
 )
 from app.file_types import document_kind, is_supported_document
 
@@ -68,3 +69,12 @@ def test_file_type_helpers_support_markdown_and_pdf():
     assert document_kind("datasheet.PDF") == "pdf"
     assert is_supported_document("datasheet.pdf")
     assert not is_supported_document("image.png")
+
+
+def test_directory_exclusions_match_name_path_and_case_insensitively():
+    custom = ["ios", "app_flutter/generated"]
+
+    assert should_skip_directory("nested/IOS", custom)
+    assert should_skip_directory("repo/App_Flutter/Generated", custom)
+    assert not should_skip_directory("other/generated", custom)
+    assert should_skip_directory("frontend/BUILD", [])

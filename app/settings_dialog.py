@@ -25,11 +25,15 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from .document_libraries import DocumentLibraryStore
+from .document_libraries import (
+    EXCLUDED_FOLDERS_KEY,
+    DocumentLibraryStore,
+)
 from .note_templates import default_subfolder
 from .version import VERSION
 
@@ -291,6 +295,25 @@ class SettingsDialog(QDialog):
         templates_form.addRow("資料夾", templates_row)
         form.addRow(templates_group)
 
+        excluded_group = QGroupBox("排除資料夾")
+        excluded_layout = QVBoxLayout(excluded_group)
+        excluded_help = QLabel(
+            "每行一項；可填資料夾名稱（任何層級）或相對路徑（例如 app_flutter/ios）。\n"
+            "內建已排除 .git、node_modules 等常見版本控制與生成物資料夾。"
+        )
+        excluded_help.setWordWrap(True)
+        excluded_layout.addWidget(excluded_help)
+        self._excluded_folders_edit = QTextEdit()
+        self._excluded_folders_edit.setAcceptRichText(False)
+        raw_excluded = settings.value(EXCLUDED_FOLDERS_KEY, "") or ""
+        if isinstance(raw_excluded, (list, tuple)):
+            raw_excluded = "\n".join(str(value) for value in raw_excluded)
+        self._excluded_folders_edit.setPlainText(str(raw_excluded))
+        self._excluded_folders_edit.setPlaceholderText("ios\napp_flutter/generated")
+        self._excluded_folders_edit.setFixedHeight(100)
+        excluded_layout.addWidget(self._excluded_folders_edit)
+        form.addRow(excluded_group)
+
         return page
 
     def _build_about_tab(self) -> QWidget:
@@ -341,15 +364,22 @@ class SettingsDialog(QDialog):
         daily_notes_folder = self._daily_notes_edit.text().strip()
         daily_note_template = self._daily_template_edit.text().strip()
         templates_folder = self._templates_folder_edit.text().strip()
+        excluded_folders = "\n".join(
+            line.strip()
+            for line in self._excluded_folders_edit.toPlainText().splitlines()
+            if line.strip()
+        )
         self.results["update_check_enabled"] = update_check
         self.results["custom_css_path"] = css_path
         self.results["daily_notes_folder"] = daily_notes_folder
         self.results["daily_note_template"] = daily_note_template
         self.results["templates_folder"] = templates_folder
+        self.results[EXCLUDED_FOLDERS_KEY] = excluded_folders
         settings.setValue("update_check_enabled", update_check)
         settings.setValue("custom_css_path", css_path)
         settings.setValue("daily_notes_folder", daily_notes_folder)
         settings.setValue("daily_note_template", daily_note_template)
         settings.setValue("templates_folder", templates_folder)
+        settings.setValue(EXCLUDED_FOLDERS_KEY, excluded_folders)
 
         super().accept()

@@ -102,6 +102,12 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
       2026-07-11 00:40 分析節與 00:50 派工節（Claude/07-11 00:50）
 - [x] @Codex：Graph view 體驗棒（防重疊＋資料夾分群著色＋圖例＋hover 高亮＋
       零邊引導），詳見進度紀錄 2026-07-11 01:21 派工節（Claude/07-11 01:21）
+- [x] @Codex：檔案樹永遠隱藏無可開檔案的資料夾，詳見進度紀錄 2026-07-11
+      09:59 派工節（Claude/07-11 09:59）
+- [x] @Codex：使用者自訂排除資料夾清單（Excluded folders），詳見進度紀錄
+      2026-07-11 10:55 派工節（Claude/07-11 10:55）
+- [x] @Codex：診斷並修復間歇性 pytest 掛住（堆疊定位 _save_edits），詳見
+      進度紀錄 2026-07-11 11:45 節與派工 prompt（Claude/07-11 11:50）
 
 ---
 
@@ -113,6 +119,191 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 ---
 
 ## 進度紀錄
+
+### 2026-07-11 13:00 — 掛住修復：退回→Claude 修 teardown 缺陷→複驗通過〔已實作＋已驗證〕
+
+**作者**：Claude（驗收/複驗由同一 fresh subagent 執行）
+**類型**：驗證＋實作
+
+**第一輪驗收：退回**。根因診斷正確（`window.py:1414-1418` 寫檔 OSError →
+`QMessageBox.warning` 同步 modal，headless 無人關閉即死等；觸發源＝本機
+temp 間歇性 PermissionError(13)），但 Codex 新增的回歸測試留下 dirty editor，
+teardown 關窗觸發另一個未 stub 的 `QMessageBox.question`
+（`window.py:1387 _confirm_discard_edits`）→ 間歇掛變必掛（faulthandler
+100% 重現堆疊）。
+
+**Claude 修正**：`tests/test_window_integration.py:291-295` autouse fixture
+補 stub `question` 回傳 Discard（僅測試檔，產品碼零改動）；per-test 自帶
+question stub 的 Discard/Cancel 測試不受影響（覆蓋順序正確）。
+
+**複驗結果：通過**。
+- 掛住：**140 輪壓測 0 掛住**（最長單輪 3.5 秒 vs 原本無限等待）。
+- 整套 4 跑：3 次 296 passed / 4 skipped；1 次 1 failed（見下）。
+- 驗收方加做取證：3 個間歇 fail 全記錄到 `WRITE_EXC PermissionError(13)`
+  ——**直接實證觸發源**；停用沙箱仍 30% fail 率排除沙箱因素；純
+  atomic_write_bytes 迴圈 3000 次零錯，鎖檔僅在 Qt 測試情境出現
+  （疑 AV/索引器碰 os.replace，確切來源未確認）。
+
+**殘留問題（另案追蹤）**：本機環境 PermissionError(13) 使 window
+integration 測試約 25% 機率快速紅燈（非本修引入；修法把「掛死」變
+「快速失敗」）。候選解：atomic_write_bytes 加短重試（兼益實際使用者存檔
+強健性），或查明鎖檔來源。
+
+**→ 下一棒**：無，待使用者裁決 v1.17.0 發布與殘留問題處理。
+
+### 2026-07-11 12:15 — pytest offscreen 儲存失敗 modal 掛住修復〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：分析＋實作
+
+**根因與證據鏈**：三次事故都停在同一存檔測試；第三次 faulthandler 定位的
+`app/window.py:1417` 現況是 `_save_edits()` 捕捉 `atomic_write_bytes()` 的 `OSError`
+後同步呼叫 `QMessageBox.warning()`。在 `QT_QPA_PLATFORM=offscreen` 無人可關閉 modal，
+故 CPU idle 且無期限等待。該檔 autouse fixture 已把 link index refresh stub 掉
+（`tests/test_window_integration.py:284`），因此 LinkIndexThread 不是這次直接等待點。
+本沙箱也實際重現 pytest 暫存路徑在 setup／session cleanup 遭 `WinError 5`；這能證明
+寫入環境確有間歇 ACL 失敗條件，但三次事故底層 `OSError` 的精確 errno **未確認**。
+
+**修復**：`tests/test_window_integration.py:286` 在 window integration 的 offscreen
+fixture stub `QMessageBox.warning`，讓偶發寫入錯誤回到 `_save_edits() == False` 並由
+既有斷言立即報錯，不再變成無界 modal 等待；不改產品存檔、備份、link index 更新
+時機或一般 GUI 的警告行為。`tests/test_window_integration.py:447` 新增強制
+`atomic_write_bytes` 丟 `OSError` 的回歸測試，驗證立即回傳 False、警告路徑被呼叫、
+編輯器維持 dirty、原檔不變。
+
+**驗證**：`py -3 -m py_compile tests\test_window_integration.py` 通過。指定兩測試與
+30 輪循環均因本沙箱 ACL 在 `tmp_path` setup 或 basetemp cleanup 先遭 `WinError 5`，
+測試本體未執行，故整套 **未驗證**。驗收方請先跑
+`py -3 -m pytest`，再於 offscreen 連跑該整合測試 100 次；預期基準因新增一測試為
+`296 passed, 4 skipped`，且任何寫入錯誤應立即 fail、不得掛住。未改 `pytest.ini`。
+
+**→ 下一棒**：@Claude 在無 ACL 限制環境第一手跑整套與循環驗收
+
+### 2026-07-11 11:45 — 排除資料夾清單驗收通過；掛住問題首次取得堆疊線索〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行，第一手測試）
+**類型**：驗證
+
+**驗收結果：7/7 全過**，推進下方 10:25 節為已驗證。
+1. `should_skip_directory` 單一共用函式（`document_libraries.py:260-281`），
+   名稱/路徑片段/大小寫不敏感 10 組案例實測；預設補 build/dist/pods/
+   deriveddata/target/out。
+2. 設定 UI＋QSettings round-trip＋儲存即時 refresh；內建預設不可清除。
+3. 四處一致：檔案樹 `file_browser.py:327`、搜尋 `global_search.py:71,92`、
+   補全/關聯圖同源 `links.py:54,64-67`（經 `window.py:108-112`）。
+4. 空清單行為一致。5. 剪枝與 _transient_folders 迴歸全過。
+6. `py -3 -m pytest`＝**295 passed, 4 skipped, exit 0**。
+7. 測試品質可（小疵：三份測試未 stub QSettings，登錄檔有設定時環境相依）。
+
+**⚠ 掛住追蹤項重大進展**：驗收第一輪再次掛住
+`test_body_tags_update_when_markdown_is_opened_and_saved`，faulthandler
+首次 dump 出堆疊：**卡在 `window.py:1417 _save_edits`**。非本次改動引入，
+但已從「無堆疊」進到「有定位」——下一棒可據此診斷根因
+（懷疑 _save_edits 內某個同步等待在特定時序下死鎖）。
+
+**未 commit 清單（v1.16.0 後累計）**：檔案樹剪枝棒＋排除資料夾清單棒。
+
+**→ 下一棒**：無，待使用者實機試用與裁決（可選：派掛住根因診斷棒）。
+
+### 2026-07-11 10:25 — 使用者自訂排除資料夾清單〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+**改動**：`app/document_libraries.py:16-34,250-289` 新增共用排除判斷、
+QSettings `excluded_folders` 讀取，內建補 `build/dist/Pods/DerivedData/target/out`，
+支援任意層名稱與相對路徑片段、大小寫不敏感。`app/file_browser.py:220,306-338`、
+`app/global_search.py:71,85-95`、`app/links.py:51-67` 分別讓檔案樹、全文搜尋、
+`[[` 補全與 Graph 共用建圖掃描吃同一函式與清單。
+`app/settings_dialog.py:295-315,364-383` 新增「排除資料夾」多行 UI 與儲存；
+`app/session_state.py:130-145` 儲存後即時 refresh 檔案樹並重建 link index。
+
+**測試**：`tests/test_document_libraries.py:74-80`、`tests/test_file_browser.py:140-163`、
+`tests/test_global_search.py:53-70`、`tests/test_links.py:85-97`、
+`tests/test_settings_dialog.py:151-165` 新增名稱／路徑／大小寫、檔案樹、
+全文搜尋、link/Graph 掃描與設定 round-trip 覆蓋。`py -3 -m py_compile`
+通過；無 `tmp_path` 的指定 pytest 為 `2 passed`。整套／針對性 pytest 兩次均在
+fixture setup 因既知 Windows 沙箱 ACL `WinError 5` 無法存取 pytest basetemp
+（其他無需 tmp fixture 的測試當次 14 passed），故依規範標記待獨立驗證。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-11 10:55 — 派工：使用者自訂排除清單（Excluded folders）〔提案→派工〕
+
+**作者**：Claude
+**類型**：提案＋派工
+
+**背景**：剪枝後樹已忠實，但仍有「規則上正確、對使用者無價值」的節點
+（如 Flutter 生成的 `app_flutter/ios/.../LaunchImage.imageset/README.md`
+整條深鏈）。查證：`_SKIP_DIRS`（`document_libraries.py:16`，.git/node_modules/
+__pycache__/.venv 等）已存在且生效；缺的是使用者自訂能力與生成物目錄預設。
+
+**規格**：(1) 設定對話框新增「排除資料夾」清單（比照 Obsidian Excluded
+files）；(2) 預設清單補 build/dist/Pods 等；(3) 排除套用到檔案樹、全文搜尋、
+[[ 補全來源、關聯圖（單一共用判斷函式）；(4) 附測試、整套全綠
+（基準 291 passed / 4 skipped）。
+
+**→ 下一棒**：@Codex 實作（規格見派工 prompt 與收件匣）。
+
+### 2026-07-11 10:35 — 檔案樹剪枝獨立驗收通過〔已實作＋已驗證〕
+
+**作者**：Claude（驗收由 fresh general-purpose subagent 執行；實作方因沙箱
+ACL 未能跑測試，本驗收為第一手測試）
+**類型**：驗證
+
+**驗收結果：6/6 全過**，推進下方 10:03 節為已驗證。
+1. 無支援檔案的資料夾一律剪除（`file_browser.py:335`），深層含 .md 鏈保留（有測試）。
+2. 文件庫根永遠顯示（`file_browser.py:280`），右鍵新增照常。
+3. 新建空資料夾以 session 內 `_transient_folders` 集合保持可見
+   （`file_browser.py:73,512`），重啟後仍空才剪，無死路。
+4. 搜尋/標籤篩選語意零改動。
+5. `py -3 -m pytest`＝**291 passed, 4 skipped, exit 0**（288＋實際新增 3 測試，
+   實作方自報 4 個為誤計，帳目吻合）。
+6. 測試品質良好。
+
+**註**：此修在 v1.16.0 之後，尚未 commit；待使用者實機確認後可併入下個版本
+（v1.16.1 或 v1.17.0）。
+
+**→ 下一棒**：無，待使用者實機試用。
+
+### 2026-07-11 10:03 — 檔案樹剪除無可開檔案資料夾〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+**改動**：`app/file_browser.py:48,219-221,331-335` 預設瀏覽改為剪除遞迴無
+支援檔案的資料夾，搜尋／標籤篩選繼續剪空；文件庫根節點仍由
+`_refresh_list` 無條件加入。`app/file_browser.py:73,502-513` 採「本次 session
+暫時顯示」：從介面新建的空資料夾及必要祖先鏈保持可及，可繼續在其中
+新增筆記。`tests/test_file_browser.py:117,140,156` 新增空資料夾剪枝、深層
+`.md` 保留、空庫根保留、新建空資料夾可用性測試。
+
+**驗證**：`py -3 -m py_compile app/file_browser.py tests/test_file_browser.py` 與
+`git diff --check` 通過。`py -3 -m pytest` 未能執行測試本體：pytest 在
+fixture setup 前對預設及三個替代 `--basetemp` 均遭 Windows `WinError 5`
+沙箱 ACL 拒絕（局部重跑仍 7 errors，全為同一暫存目錄權限）；整套結果
+待正常權限環境獨立驗收。
+
+**→ 下一棒**：@Claude 派獨立驗收
+
+### 2026-07-11 09:59 — 使用者回饋：檔案樹不應顯示無可開檔案的資料夾〔分析→派工〕
+
+**作者**：Claude
+**類型**：分析＋派工
+
+**回饋**：加入文件庫（如 PurityGo 整個 repo）後，左側檔案樹把 backend/db/
+firmware 等零可開檔案的程式碼目錄全部列出，雜訊過多。
+
+**查證（屬實）**：檔案已按 `SUPPORTED_EXTENSIONS`（.md/.markdown/.pdf，
+`app/file_types.py`）過濾（`file_browser.py:324`）；但空資料夾剪枝只在
+搜尋/標籤篩選時生效（`file_browser.py:317` `if filtering and sub_count == 0`），
+預設瀏覽 `filtering=False` → 空資料夾全列。
+
+**修法**：空資料夾剪枝改為永遠生效（`sub_count==0` 一律不加入樹），
+並確認右鍵「新增筆記/資料夾」在被剪枝資料夾的可及性——根節點（文件庫
+本身）永遠顯示，右鍵仍可在庫根新增；子資料夾建立筆記後重掃即出現。
+
+**→ 下一棒**：@Codex 實作（小修，規格見派工 prompt 與收件匣）。
 
 ### 2026-07-11 02:15 — 發布 v1.16.0：commit＋push＋tag 觸發 CI release〔已同步〕
 

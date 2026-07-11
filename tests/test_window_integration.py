@@ -282,6 +282,17 @@ def _window_fakes(monkeypatch):
     monkeypatch.setattr(window_mod.QTimer, "singleShot", staticmethod(lambda *a: None))
     monkeypatch.setattr(window_mod.MainWindow, "_refresh_tags_panel", lambda self: None)
     monkeypatch.setattr(window_mod.MainWindow, "_refresh_link_index", lambda self, force=False: None)
+    # A modal warning can never be dismissed on the offscreen test platform.
+    # Stub it so an unexpected save failure is reported by assertions instead
+    # of turning the test run into an unbounded wait.
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", lambda *args: None)
+    # Same for the discard-edits confirmation: closing a window with a dirty
+    # editor during fixture teardown must not block on a modal question.
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "question",
+        lambda *args, **kwargs: window_mod.QMessageBox.StandardButton.Discard,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -438,6 +449,34 @@ def test_body_tags_update_when_markdown_is_opened_and_saved(make_window, tmp_pat
     win._editor.insertPlainText("saved #updated")
     assert win._save_edits() is True
     assert win._tag_index.updates[-1][1]["body_tags"] == ["updated"]
+
+
+def test_save_failure_returns_without_blocking_on_modal_warning(
+    make_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "save-error.md"
+    note.write_text("before", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    win._toggle_edit_mode()
+    win._editor.selectAll()
+    win._editor.insertPlainText("after")
+    warnings = []
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "warning",
+        lambda *args: warnings.append(args),
+    )
+    monkeypatch.setattr(
+        window_mod,
+        "atomic_write_bytes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("write failed")),
+    )
+
+    assert win._save_edits() is False
+    assert len(warnings) == 1
+    assert win._editor.is_modified() is True
+    assert note.read_text(encoding="utf-8") == "before"
 
 
 def test_global_search_opens_sidebar_and_focuses_search_panel(make_window):

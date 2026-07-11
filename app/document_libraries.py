@@ -9,7 +9,7 @@ from pathlib import Path
 import string
 from uuid import uuid4
 
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QSettings, QStandardPaths
 
 from .file_types import SUPPORTED_EXTENSIONS, document_kind
 
@@ -21,7 +21,17 @@ _SKIP_DIRS = {
     "node_modules",
     ".venv",
     "venv",
+    "build",
+    "dist",
+    "pods",
+    "deriveddata",
+    "target",
+    "out",
 }
+
+_ORG = "markdown-viewer"
+_APP = "MarkdownViewer"
+EXCLUDED_FOLDERS_KEY = "excluded_folders"
 
 
 def _default_store_path() -> Path:
@@ -127,7 +137,10 @@ class DocumentLibraryStore:
         )
 
 
-def scan_library_documents(libraries: list[DocumentLibrary]) -> list[LibraryDocument]:
+def scan_library_documents(
+    libraries: list[DocumentLibrary],
+    excluded_folders: list[str] | None = None,
+) -> list[LibraryDocument]:
     documents: list[LibraryDocument] = []
     for lib in libraries:
         root = Path(lib.path)
@@ -135,8 +148,13 @@ def scan_library_documents(libraries: list[DocumentLibrary]) -> list[LibraryDocu
             continue
 
         for dirpath, dirnames, filenames in os.walk(root):
+            relative_parent = Path(dirpath).relative_to(root)
             dirnames[:] = [
-                name for name in dirnames if not _should_skip_directory(name)
+                name
+                for name in dirnames
+                if not should_skip_directory(
+                    relative_parent / name, excluded_folders
+                )
             ]
             for filename in filenames:
                 if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -229,5 +247,43 @@ def _find_by_path(
     return None
 
 
-def _should_skip_directory(name: str) -> bool:
-    return name.startswith(".") or name in _SKIP_DIRS
+def load_excluded_folders() -> list[str]:
+    """Return normalized user exclusions stored as one entry per line."""
+    raw = QSettings(_ORG, _APP).value(EXCLUDED_FOLDERS_KEY, "") or ""
+    if isinstance(raw, (list, tuple)):
+        values = raw
+    else:
+        values = str(raw).splitlines()
+    return [value for value in (_normalize_exclusion(v) for v in values) if value]
+
+
+def should_skip_directory(
+    directory: str | Path,
+    excluded_folders: list[str] | None = None,
+) -> bool:
+    """Match built-ins, user directory names, or relative path fragments."""
+    normalized = str(directory).replace("\\", "/").strip("/")
+    name = normalized.rsplit("/", 1)[-1]
+    if name.startswith(".") or name.casefold() in _SKIP_DIRS:
+        return True
+
+    custom = load_excluded_folders() if excluded_folders is None else excluded_folders
+    path_key = f"/{normalized.casefold()}/"
+    for value in custom:
+        entry = _normalize_exclusion(value)
+        if not entry:
+            continue
+        if "/" not in entry:
+            if name.casefold() == entry.casefold():
+                return True
+        elif f"/{entry.casefold()}/" in path_key:
+            return True
+    return False
+
+
+def _normalize_exclusion(value) -> str:
+    return str(value).strip().replace("\\", "/").strip("/")
+
+
+# Backward-compatible private name for existing callers.
+_should_skip_directory = should_skip_directory
