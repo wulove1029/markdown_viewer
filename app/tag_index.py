@@ -66,6 +66,18 @@ class TagIndex:
             | set(entry.get("body_tags", []))
         )
 
+    def tags_for(self, path) -> set[str]:
+        """Return the set of tags currently recorded for a resolved path.
+
+        Type-neutral: works for markdown and PDF entries alike. Returns an
+        empty set when the path has no index entry.
+        """
+        key = str(Path(path).resolve())
+        entry = self._data.get(key)
+        if not entry:
+            return set()
+        return self._entry_tags(entry)
+
     def all_tags(self) -> list[str]:
         tags: set[str] = set()
         for entry in self._data.values():

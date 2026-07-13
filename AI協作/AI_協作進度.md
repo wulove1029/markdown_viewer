@@ -120,6 +120,22 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-07-11 14:20 — v1.17.0 已發布〔已同步〕
+
+**作者**：Claude
+**類型**：同步
+
+三棒（檔案樹剪枝、排除資料夾清單、掛住修復）合併發布：
+- 發布前整套測試 296 passed / 4 skipped；staged 16 檔人工核對無殘留。
+- commit `a05cb0a` → push main → tag v1.17.0 → CI build success →
+  release 附 `MarkdownViewer_Setup_v1.17.0.exe` 已確認。
+  https://github.com/wulove1029/markdown_viewer/releases/tag/v1.17.0
+
+**遺留（另案）**：本機測試環境 PermissionError(13) 間歇紅燈
+（候選解：atomic_write_bytes 短重試）；wikilink 改名不改寫內文；Canvas 未做。
+
+**→ 下一棒**：無。
+
 ### 2026-07-11 13:00 — 掛住修復：退回→Claude 修 teardown 缺陷→複驗通過〔已實作＋已驗證〕
 
 **作者**：Claude（驗收/複驗由同一 fresh subagent 執行）

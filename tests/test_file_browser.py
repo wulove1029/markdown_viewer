@@ -242,6 +242,46 @@ def test_tree_state_round_trip_restores_expansion_and_selection(
         fresh.close()
 
 
+def test_tree_items_have_type_distinguishing_icons(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    md_file = root / "notes.md"
+    pdf_file = root / "report.pdf"
+    nested_md = sub / "deep.md"
+    md_file.write_text("# notes", encoding="utf-8")
+    pdf_file.write_bytes(b"%PDF-1.4 minimal")
+    nested_md.write_text("# deep", encoding="utf-8")
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        root_item = view._find_item(root)
+        folder_item = view._find_item(sub)
+        md_item = view._find_item(md_file)
+        pdf_item = view._find_item(pdf_file)
+        for item in (root_item, folder_item, md_item, pdf_item):
+            assert item is not None
+            # Every row is icon-tagged so folders and files read differently.
+            assert item.icon(0).isNull() is False
+    finally:
+        view.close()
+
+
+def test_missing_library_root_still_shows_icon(qapp, tmp_path, monkeypatch):
+    missing = tmp_path / "gone"  # never created on disk
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Gone", str(missing))]
+    )
+    try:
+        root_item = view._find_item(missing)
+        assert root_item is not None
+        assert root_item.icon(0).isNull() is False
+    finally:
+        view.close()
+
+
 def test_delete_action_removes_file_and_notifies(qapp, tmp_path, monkeypatch):
     root = tmp_path / "vault"
     root.mkdir()

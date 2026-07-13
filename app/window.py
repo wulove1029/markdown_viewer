@@ -27,6 +27,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -48,7 +49,9 @@ from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .editor import EditorView
 from . import export_actions, session_state, update_flow, view_mode
-from .file_types import document_kind, is_markdown, is_supported_document
+from . import doc_tags as doc_tags_facade
+from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
+from .manage_tags_dialog import ManageTagsDialog
 from .graph_view import GraphWindow
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
@@ -86,6 +89,7 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
+from .tag_colors import TagColorStore
 from .tag_index import TagIndex
 from .wikilink_completion import completion_candidates
 from .version import VERSION
@@ -93,6 +97,23 @@ from .version import VERSION
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
+
+
+def merged_tag_rows(
+    tag_counts: list[tuple[str, int]],
+    known_tags: list[str],
+) -> list[tuple[str, int]]:
+    """Merge indexed tag counts with user-created (known) tags for the panel.
+
+    *known_tags* not present in *tag_counts* are merged in with count 0 so
+    freshly created-but-unassigned tags still appear. The result keeps the
+    ordering of TagIndex.tag_counts(): descending count, then tag name, so
+    count-0 tags sort last, alphabetically.
+    """
+    counts: dict[str, int] = dict(tag_counts)
+    for tag in known_tags:
+        counts.setdefault(tag, 0)
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 class LinkIndexThread(QThread):
@@ -170,6 +191,8 @@ class MainWindow(QMainWindow):
         self._graph_window: GraphWindow | None = None
 
         self._tag_index = TagIndex()
+        self._tag_color_store = TagColorStore.load()
+        self._active_tag = ""
         self._doc_annotations = DocumentAnnotations()
         annotation_callbacks = {
             "note_changed": self._annot_note_changed,
@@ -211,6 +234,25 @@ class MainWindow(QMainWindow):
             on_tag_selected=self._on_tag_selected,
             search_roots_provider=self._link_roots,
             on_search_result=self._open_global_search_result,
+            on_manage_tags=self._open_manage_tags,
+            tag_color_for=self._tag_color_store.color_for,
+            on_create_tag=self._create_tag,
+            on_delete_tag=self._delete_tag,
+            on_assign_tag_to_paths=self._assign_tag_to_paths,
+            on_open_file=self._open_file,
+            # File-child context menu in the 標籤 tab reuses the file browser's
+            # operations so the tag index and every view stay consistent.
+            on_rename_file=self._rename_path,
+            on_move_file=self._move_path,
+            on_delete_file=self._delete_path,
+            on_reveal_file=self._reveal_path,
+            # Lazily supply the files carrying a tag as its tree children when
+            # the user expands that tag node in the 標籤 tab.
+            files_for_tag=lambda tag: sorted(
+                (Path(p) for p in self._tag_index.files_with_tag(tag)),
+                key=lambda p: p.name.lower(),
+            ),
+            on_doc_tags_changed=self._on_doc_tags_changed,
             theme=self._theme,
         )
         # File tree CRUD hooks: keep tabs / recents / watcher in sync when the
@@ -1699,6 +1741,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._doc_annotations = AnnotationStore.load(path)
             self._sync_renderer_annotations()
             self._panel.annotations.set_document(self._doc_annotations)
+            self._set_pdf_panel_document(None)
             self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
             self._update_front_tags()
@@ -1750,6 +1793,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._pdf_view.set_highlights(self._pdf_highlights)
         self._panel.show_pdf_notes(True)
         self._panel.set_annotations_enabled(True)
+        # Point the 文件標籤 field at this PDF and surface any tags it already
+        # carries so they show up (with a count) in the 標籤 side panel/filters.
+        self._set_pdf_panel_document(path)
+        self._index_doc_tags(path)
+        self._refresh_tags_panel()
         self._refresh_pdf_notes_panel()
         self._refresh_pdf_highlights_panel()
         # Resume where the reader left off.
@@ -2222,6 +2270,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
 
+    # --- file operations reused from other panels (e.g. the 標籤 tab) ---
+    # These delegate to the file browser's public wrappers so a file acted on
+    # from the tag tree runs the identical rename/move/delete/reveal flow --
+    # same dialogs, file_ops, tag-index migration, and refresh. The browser's
+    # on_paths_migrated / on_paths_deleted callbacks (wired above to
+    # _on_browser_paths_migrated / _on_browser_paths_deleted) already refresh
+    # the tag panel, so these must NOT call _refresh_tags_panel() again --
+    # doing so would refresh twice; relying on the callbacks keeps every view
+    # (file tree, 最近, 標籤 tree) and the tag index consistent.
+    def _rename_path(self, path):
+        self._panel.file_browser.rename_file(Path(path))
+
+    def _move_path(self, path):
+        self._panel.file_browser.move_file(Path(path))
+
+    def _delete_path(self, path):
+        self._panel.file_browser.delete_file(Path(path))
+
+    def _reveal_path(self, path):
+        self._panel.file_browser.reveal_file(Path(path))
+
     def open_path(self, filepath: str):
         self._open_file(filepath)
 
@@ -2363,48 +2432,270 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         finally:
             self._reload_prompt_open = False
 
+    def _index_doc_tags(self, path):
+        """Push a file's document-level tags into the shared tag index.
+
+        Type-neutral entry point. For PDF the index entry carries only
+        doc_tags (front/body/annotation tags are markdown-only); the tags
+        are read through the app.doc_tags facade which dispatches by file
+        type. Markdown uses the richer update path elsewhere.
+        """
+        tags = doc_tags_facade.read_doc_tags(Path(path))
+        doc = DocumentAnnotations(doc_tags=list(tags))
+        self._tag_index.update(path, doc, front_tags=[], body_tags=[])
+
     def _persist_annotations(self):
-        if not self._current_file or not is_markdown(self._current_file):
+        if not self._current_file:
             return
-        AnnotationStore.save(self._current_file, self._doc_annotations)
-        self._tag_index.update(
-            self._current_file,
-            self._doc_annotations,
-            front_tags=self._current_front_tags,
-            body_tags=self._current_body_tags,
-        )
-        self._panel.annotations.set_document(self._doc_annotations)
-        self._sync_renderer_annotations()
+        # Front/body/annotation tags are markdown-only; keep that computation
+        # guarded internally, but let document-level tags flow for PDF too so
+        # tagged PDFs still enter the shared index.
+        if is_markdown(self._current_file):
+            AnnotationStore.save(self._current_file, self._doc_annotations)
+            self._tag_index.update(
+                self._current_file,
+                self._doc_annotations,
+                front_tags=self._current_front_tags,
+                body_tags=self._current_body_tags,
+            )
+            self._panel.annotations.set_document(self._doc_annotations)
+            self._sync_renderer_annotations()
+        elif is_pdf(self._current_file):
+            self._index_doc_tags(self._current_file)
         self._refresh_tags_panel()
 
     def _update_front_tags(self):
         """Read front-matter/body tags from the current Markdown file."""
         self._current_front_tags = []
         self._current_body_tags = []
-        if not self._current_file or not is_markdown(self._current_file):
+        if not self._current_file:
             return
-        result = read_text(self._current_file)
-        if result:
-            front, body = parse_front_matter(result[0])
-            self._current_front_tags = front_matter_tags(front)
-            self._current_body_tags = body_hashtags(body)
-        self._tag_index.update(
-            self._current_file,
-            self._doc_annotations,
-            front_tags=self._current_front_tags,
-            body_tags=self._current_body_tags,
-        )
+        if is_markdown(self._current_file):
+            result = read_text(self._current_file)
+            if result:
+                front, body = parse_front_matter(result[0])
+                self._current_front_tags = front_matter_tags(front)
+                self._current_body_tags = body_hashtags(body)
+            self._tag_index.update(
+                self._current_file,
+                self._doc_annotations,
+                front_tags=self._current_front_tags,
+                body_tags=self._current_body_tags,
+            )
+        elif is_pdf(self._current_file):
+            self._index_doc_tags(self._current_file)
         self._refresh_tags_panel()
 
     def _refresh_tags_panel(self):
-        self._panel.tags.set_tags(self._tag_index.tag_counts())
+        """Single entry point for pushing tag rows into the tag panel.
+
+        The panel data is the union of indexed tag counts (tags actually
+        assigned to files) and the color store's known tags (tags the user
+        created but may not have assigned yet). Known-but-unassigned tags are
+        merged in with count 0 so they appear immediately, EndNote-style.
+        """
+        merged = merged_tag_rows(
+            self._tag_index.tag_counts(),
+            self._tag_color_store.known_tags(),
+        )
+        self._panel.tags.set_tags(merged)
+
+    def _refresh_file_views(self):
+        """Re-render the file browser so its per-file tag dots stay current.
+
+        The 最近 tab is intentionally left untouched: tags must never filter or
+        hide files in the 檔案 / 最近 tabs — tag browsing lives only in the 標籤
+        tab's tree (see _on_tag_selected).
+        """
+        self._panel.file_browser.refresh_libraries()
+
+    def _set_pdf_panel_document(self, path):
+        """Point the PDF markup panel's 文件標籤 field at *path* (or None).
+
+        Accessed defensively so the injected test panel double (which omits
+        the PDF markup sub-panel) stays compatible.
+        """
+        panel = getattr(self._panel, "pdf_markup", None)
+        if panel is not None:
+            panel.set_pdf_document(path)
+
+    # --- document-level tag management (MD + PDF) ---
+    def _open_manage_tags(self, paths):
+        """Open the EndNote-style 管理標籤 popup for one or more files."""
+        paths = [Path(p) for p in paths]
+        if not paths:
+            return
+        ManageTagsDialog(
+            paths,
+            self._tag_index,
+            self._tag_color_store,
+            on_changed=self._on_doc_tags_changed,
+            parent=self,
+        ).exec()
+
+    def _on_doc_tags_changed(self, paths):
+        """Re-index each edited file's doc_tags and refresh the tag views.
+
+        Persistence has already happened (via app.doc_tags) before this is
+        called; here we only sync the shared index and the UI.
+        """
+        for path in paths:
+            path = Path(path)
+            if is_markdown(path):
+                if (
+                    self._current_file
+                    and Path(self._current_file).resolve() == path.resolve()
+                ):
+                    # Keep the in-memory markdown model authoritative for the
+                    # open file, then persist through the normal markdown path.
+                    self._doc_annotations.doc_tags = (
+                        doc_tags_facade.read_doc_tags(path)
+                    )
+                    self._persist_annotations()
+                    continue
+                doc = AnnotationStore.load(path)
+                self._tag_index.update(path, doc, front_tags=[], body_tags=[])
+            else:
+                self._index_doc_tags(path)
+                # If the manage-tags dialog edited the open PDF, refresh its
+                # 文件標籤 field so the panel mirrors the new state.
+                if (
+                    self._current_file
+                    and is_pdf(self._current_file)
+                    and Path(self._current_file).resolve() == path.resolve()
+                ):
+                    self._set_pdf_panel_document(self._current_file)
+        self._refresh_tags_panel()
+        self._refresh_file_views()
+
+    def _create_tag(self):
+        """Prompt for a new tag name + palette color and persist the color."""
+        name, color = self._prompt_new_tag()
+        if not name:
+            return
+        self._tag_color_store.set_color(name, color)
+        self.statusBar().showMessage(f"已建立標籤「{name}」", 2500)
+        self._refresh_tags_panel()
+
+    def _delete_tag(self, tag: str) -> None:
+        """Delete a tag from the panel: drop its doc-level assignments + color.
+
+        Note: tags can also be *content-derived* (from MD front-matter, body
+        #hashtags, or annotations). Deleting only strips the document-level
+        assignment and the color registration; it deliberately does NOT edit
+        file contents, so a content-derived tag may reappear on the next
+        re-index. That is expected behavior.
+        """
+        answer = QMessageBox.question(
+            self,
+            "刪除標籤",
+            f"確定要刪除標籤「{tag}」嗎？（僅移除標籤，不會刪除檔案）",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        affected = [Path(p) for p in self._tag_index.files_with_tag(tag)]
+        for path in affected:
+            new = [x for x in doc_tags_facade.read_doc_tags(path) if x != tag]
+            doc_tags_facade.write_doc_tags(path, new)
+        # Re-index the touched files and refresh the file views.
+        self._on_doc_tags_changed(affected)
+        # Drop the color registration so the tag stops appearing at count 0.
+        self._tag_color_store.remove(tag)
+        self._refresh_tags_panel()
+
+    def _prompt_new_tag(self, default_name: str = ""):
+        """Small modal: tag name input + 7-swatch palette picker.
+
+        Returns (name, hex_color) on accept, or ("", "") on cancel.
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle("新增標籤")
+        dialog.setMinimumWidth(340)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 12)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("標籤名稱："))
+        name_edit = QLineEdit(default_name)
+        # Normalize the field height: the app-wide theme QSS adds large padding /
+        # min-height to QLineEdit, which otherwise makes this box look oversized.
+        name_edit.setFixedHeight(32)
+        name_edit.setStyleSheet("QLineEdit { padding: 4px 8px; min-height: 0; }")
+        layout.addWidget(name_edit)
+
+        layout.addWidget(QLabel("顏色："))
+
+        swatch_row = QHBoxLayout()
+        swatch_row.setSpacing(8)
+        hexes = TagColorStore.palette_hexes()
+        selected = {"hex": hexes[0]}
+        buttons: list[QPushButton] = []
+
+        def _select(idx: int):
+            selected["hex"] = hexes[idx]
+            for j, btn in enumerate(buttons):
+                btn.setText("✓" if j == idx else "")
+
+        for i, hex_color in enumerate(hexes):
+            btn = QPushButton()
+            btn.setFixedSize(30, 30)
+            # Reset the theme's button box-model (min-width/height, padding, margin)
+            # so the fixed 30x30 swatch is honored instead of inheriting the large
+            # metrics the app-wide QSS applies to every QPushButton.
+            btn.setStyleSheet(
+                "QPushButton {"
+                f" background-color: {hex_color};"
+                " border: 2px solid rgba(0, 0, 0, 0.28); border-radius: 6px;"
+                " min-width: 0; min-height: 0; padding: 0; margin: 0;"
+                " color: white; font-weight: bold; }"
+                " QPushButton:hover { border: 2px solid #444; }"
+            )
+            btn.clicked.connect(lambda _=False, idx=i: _select(idx))
+            buttons.append(btn)
+            swatch_row.addWidget(btn)
+        swatch_row.addStretch()
+        layout.addLayout(swatch_row)
+        _select(0)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(dialog.accept)
+        box.rejected.connect(dialog.reject)
+        layout.addWidget(box)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return "", ""
+        return name_edit.text().strip(), selected["hex"]
+
+    def _assign_tag_to_paths(self, tag: str, paths):
+        """Add *tag* to each of *paths* (drag-onto-tag / quick assign)."""
+        tag = (tag or "").strip()
+        if not tag:
+            return
+        changed = []
+        for path in paths:
+            path = Path(path)
+            if not is_supported_document(path):
+                continue
+            existing = doc_tags_facade.read_doc_tags(path)
+            if tag in existing:
+                changed.append(path)
+                continue
+            doc_tags_facade.write_doc_tags(path, existing + [tag])
+            changed.append(path)
+        if changed:
+            self._on_doc_tags_changed(changed)
 
     def _on_tag_selected(self, tag: str):
-        self._panel.recent.set_tag_filter(tag)
-        self._panel.file_browser.set_tag_filter(tag)
+        self._active_tag = tag or ""
         self._panel.tags.set_active(tag)
-        target_tab = 0 if self._panel.file_browser.has_open_folder() else 1
-        self._panel.switch_to(target_tab)
+        # Tag selection is scoped to the 標籤 tab ONLY. The matching files
+        # (MD + PDF) appear as the tag node's own children in the tree, loaded
+        # lazily when the tag expands (see files_for_tag). We intentionally do
+        # NOT filter the 檔案 / 最近 tabs and do NOT switch tabs — selecting a
+        # tag must never hide files in the other views.
 
     def _sync_renderer_annotations(self):
         self._renderer.set_annotations(

@@ -415,25 +415,25 @@ def test_save_refreshes_an_open_graph_view(make_window, tmp_path, monkeypatch):
     win._graph_window.close()
 
 
-def test_tag_selection_filters_recent_and_files_and_chooses_target_tab(make_window):
+def test_tag_selection_is_scoped_to_tags_tab_only(make_window):
     win = make_window()
-    win._panel.file_browser.open_folder = True
 
     win._on_tag_selected("focus")
 
-    assert win._panel.recent.active_tag == "focus"
-    assert win._panel.file_browser.active_tag == "focus"
+    # The tag node is highlighted in the 標籤 tree (set_active)...
     assert win._panel.tags.active_tag == "focus"
-    assert win._panel.current_tab == 0
+    # ...but selecting a tag must NOT filter the 檔案 / 最近 tabs: those keep
+    # showing every file, so tags never hide files in the other views.
+    assert win._panel.recent.active_tag is None
+    assert win._panel.file_browser.active_tag is None
+    # ...and it must not switch tabs either.
+    assert win._panel.current_tab is None
 
     win._on_tag_selected("")
-    assert win._panel.recent.active_tag == ""
-    assert win._panel.file_browser.active_tag == ""
-    assert win._panel.current_tab == 0
-
-    win._panel.file_browser.open_folder = False
-    win._on_tag_selected("focus")
-    assert win._panel.current_tab == 1
+    assert win._panel.tags.active_tag == ""
+    assert win._panel.recent.active_tag is None
+    assert win._panel.file_browser.active_tag is None
+    assert win._panel.current_tab is None
 
 
 def test_body_tags_update_when_markdown_is_opened_and_saved(make_window, tmp_path):

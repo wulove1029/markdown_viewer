@@ -28,7 +28,18 @@ class LeftPanel(QWidget):
                  annotation_callbacks, pdf_note_callbacks=None,
                  pdf_highlight_callbacks=None,
                  on_tag_selected=None, search_roots_provider=None,
-                 on_search_result=None, theme: Theme = LIGHT, parent=None):
+                 on_search_result=None,
+                 on_manage_tags=None, tag_color_for=None,
+                 on_create_tag=None, on_delete_tag=None,
+                 on_assign_tag_to_paths=None,
+                 on_open_file=None,
+                 on_rename_file=None,
+                 on_move_file=None,
+                 on_delete_file=None,
+                 on_reveal_file=None,
+                 files_for_tag=None,
+                 on_doc_tags_changed=None,
+                 theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self.setObjectName("leftPanel")
         self.setMinimumWidth(180)
@@ -66,6 +77,8 @@ class LeftPanel(QWidget):
         self._file_browser = FileBrowserView(
             on_file_selected=on_file_selected,
             tag_index=tag_index,
+            on_manage_tags=on_manage_tags,
+            tag_color_for=tag_color_for,
         )
         self._recent = RecentFilesView(
             on_file_selected=on_file_selected,
@@ -74,7 +87,8 @@ class LeftPanel(QWidget):
         self._toc = TocView(on_anchor_clicked=on_anchor_clicked)
         self._annotations = AnnotationsPanel(annotation_callbacks)
         self._pdf_markup = PdfMarkupPanel(
-            pdf_note_callbacks or {}, pdf_highlight_callbacks or {}
+            pdf_note_callbacks or {}, pdf_highlight_callbacks or {},
+            on_doc_tags_changed=on_doc_tags_changed,
         )
         # The "標註" tab swaps between Markdown annotations and PDF markup
         # (highlights + page notes).
@@ -82,7 +96,26 @@ class LeftPanel(QWidget):
         self._annot_stack.addWidget(self._annotations)  # index 0 (markdown)
         self._annot_stack.addWidget(self._pdf_markup)   # index 1 (pdf)
         self._backlinks = BacklinksPanel(on_file_selected=on_file_selected)
-        self._tags = TagsPanel(on_tag_selected=on_tag_selected or (lambda _t: None))
+        self._tags = TagsPanel(
+            on_tag_selected=on_tag_selected or (lambda _t: None),
+            tag_color_for=tag_color_for,
+            on_create_tag=on_create_tag,
+            on_delete_tag=on_delete_tag,
+            on_assign_tag_to_paths=on_assign_tag_to_paths,
+            # Reuse the same open-file callback the file browser uses, so
+            # clicking a file under a tag opens it exactly like elsewhere.
+            on_open_file=on_open_file or on_file_selected,
+            # File-child context menu actions in the 標籤 tab. These reuse the
+            # window's shared file operations (same as the 檔案 tab) so the tag
+            # index and every view stay in sync; all default to None.
+            on_manage_tags=on_manage_tags,
+            on_rename_file=on_rename_file,
+            on_move_file=on_move_file,
+            on_delete_file=on_delete_file,
+            on_reveal_file=on_reveal_file,
+            # Lazily list a tag's files as its tree children when expanded.
+            files_for_tag=files_for_tag,
+        )
         self._search = GlobalSearchView(
             roots_provider=search_roots_provider or (lambda: []),
             on_result_selected=on_search_result or (
@@ -122,6 +155,10 @@ class LeftPanel(QWidget):
     @property
     def backlinks(self) -> BacklinksPanel:
         return self._backlinks
+
+    @property
+    def pdf_markup(self) -> PdfMarkupPanel:
+        return self._pdf_markup
 
     @property
     def pdf_notes(self):

@@ -63,29 +63,50 @@ class PdfNoteStore:
         return p.with_name(p.name + ".notes.json")
 
     @classmethod
-    def load(cls, pdf_path) -> list[PdfNote]:
+    def _read_sidecar(cls, pdf_path) -> dict:
+        """Load the raw sidecar dict, quarantining a corrupt file to ``.bak``."""
         path = cls.sidecar_path(pdf_path)
         if not path.exists():
-            return []
+            return {}
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             try:
                 path.replace(path.with_suffix(path.suffix + ".bak"))
             except OSError:
                 pass
-            return []
+            return {}
+
+    @classmethod
+    def load(cls, pdf_path) -> list[PdfNote]:
+        data = cls._read_sidecar(pdf_path)
         notes = [PdfNote.from_dict(n) for n in data.get("notes", [])]
         notes.sort(key=lambda n: (n.page, n.created))
         return notes
 
     @classmethod
-    def save(cls, pdf_path, notes: list[PdfNote]) -> None:
+    def load_doc_tags(cls, pdf_path) -> list[str]:
+        """Document-level tags for this PDF (missing key -> empty list)."""
+        data = cls._read_sidecar(pdf_path)
+        return list(data.get("doc_tags", []))
+
+    @classmethod
+    def save(cls, pdf_path, notes: list[PdfNote], doc_tags: list[str] | None = None) -> None:
         path = cls.sidecar_path(pdf_path)
+        # Preserve any existing document-level tags when only notes are written.
+        if doc_tags is None:
+            doc_tags = cls.load_doc_tags(pdf_path)
         payload = {
             "schema": SCHEMA_VERSION,
+            "doc_tags": list(doc_tags),
             "notes": [n.to_dict() for n in notes],
         }
         atomic_write_text(
             path, json.dumps(payload, ensure_ascii=False, indent=2), backup=False
         )
+
+    @classmethod
+    def save_doc_tags(cls, pdf_path, doc_tags: list[str]) -> None:
+        """Persist document-level tags without disturbing existing notes."""
+        notes = cls.load(pdf_path)
+        cls.save(pdf_path, notes, doc_tags=list(doc_tags))

@@ -5,9 +5,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont
+from PySide6.QtCore import QByteArray, QMimeData, QRect, QRectF, QSize, Qt, QUrl
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QDesktopServices,
+    QFont,
+    QFontMetrics,
+    QIcon,
+    QPainter,
+)
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -19,6 +29,9 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QTreeWidgetItemIterator,
@@ -34,16 +47,246 @@ from .document_libraries import (
     should_skip_directory,
     discover_cloud_library_paths,
 )
-from .file_types import SUPPORTED_EXTENSIONS
+from .file_types import SUPPORTED_EXTENSIONS, is_pdf
 from .theme import LIGHT, Theme, collection_stylesheet, svg_icon
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _LIBRARY_ROLE = Qt.ItemDataRole.UserRole.value + 1
 _IS_DIR_ROLE = Qt.ItemDataRole.UserRole.value + 2
+# Sorted list[str] of the tags assigned to a file row; drives the tag pills.
+_TAGS_ROLE = Qt.ItemDataRole.UserRole.value + 3
+
+# Second-line tag-pill geometry (px). English comments per project rules.
+_PILL_HEIGHT = 16       # pill badge height
+_PILL_HPAD = 6          # horizontal padding inside a pill (each side)
+_PILL_HGAP = 4          # horizontal gap between adjacent pills
+_PILL_LINE_GAP = 3      # vertical gap between the filename line and the pills
+_ITEM_HMARGIN = 3       # left/right content margin inside the item rect
+
+
+def _relative_luminance(color: QColor) -> float:
+    """WCAG relative luminance of a color, in [0, 1]."""
+
+    def _lin(channel: int) -> float:
+        c = channel / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _lin(color.red())
+        + 0.7152 * _lin(color.green())
+        + 0.0722 * _lin(color.blue())
+    )
+
+
+def _pill_text_color(fill) -> QColor:
+    """Dark text on light fills, white text on dark fills (contrast-aware).
+
+    ``fill`` may be a hex string or a ``QColor``. Yellow-ish pills such as
+    ``#F5B70A`` land above the threshold and therefore get dark text.
+    """
+    color = fill if isinstance(fill, QColor) else QColor(fill)
+    if not color.isValid():
+        color = QColor("#888888")
+    return QColor("#1a1a1a") if _relative_luminance(color) > 0.5 else QColor("#ffffff")
+
+# Custom drag mime carrying newline-joined absolute file paths.
+_MIME_PATHS = "application/x-mdv-paths"
 
 
 def _path_key(path) -> str:
     return str(Path(path)).casefold()
+
+
+def _resolve_key(path) -> str:
+    """Resolved, case-folded key matching TagIndex's storage keys."""
+    try:
+        return str(Path(path).resolve()).casefold()
+    except OSError:
+        return _path_key(path)
+
+
+class _LibraryTree(QTreeWidget):
+    """Tree that exports selected file rows as draggable paths."""
+
+    def mimeData(self, items):  # noqa: N802 (Qt override)
+        paths: list[str] = []
+        for item in items:
+            if item is None or item.data(0, _IS_DIR_ROLE):
+                continue
+            raw = item.data(0, _PATH_ROLE)
+            if raw:
+                paths.append(str(Path(raw).resolve()))
+        data = QMimeData()
+        if paths:
+            joined = "\n".join(paths)
+            data.setData(_MIME_PATHS, QByteArray(joined.encode("utf-8")))
+            data.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        return data
+
+
+class _TagPillDelegate(QStyledItemDelegate):
+    """Renders a tagged file row as a two-line card.
+
+    Line 1 is the icon + filename (top-aligned); line 2 is a single row of
+    rounded, named pill badges (one per tag) indented under the filename text,
+    with contrast-aware text and a ``+N`` overflow badge when they don't fit.
+    Untagged rows fall back to the default painting so they look unchanged.
+    """
+
+    def __init__(self, color_for=None, parent=None):
+        super().__init__(parent)
+        self._color_for = color_for
+
+    # ---- helpers -----------------------------------------------------
+    def _tags(self, index) -> list[str]:
+        """Return the tag list for a file row that should show pills.
+
+        Returns ``[]`` (i.e. "render as a plain row") for folders, for rows
+        without tags, or when no color callback was supplied.
+        """
+        if self._color_for is None or index.data(_IS_DIR_ROLE):
+            return []
+        tags = index.data(_TAGS_ROLE)
+        return list(tags) if tags else []
+
+    def _pill_font(self, base_font: QFont) -> QFont:
+        pill_font = QFont(base_font)
+        point = pill_font.pointSize()
+        if point > 0:
+            pill_font.setPointSize(max(6, point - 1))
+        else:
+            pixel = pill_font.pixelSize()
+            if pixel > 0:
+                pill_font.setPixelSize(max(8, pixel - 2))
+        return pill_font
+
+    # ---- Qt overrides ------------------------------------------------
+    def sizeHint(self, option, index):  # noqa: N802 (Qt override)
+        base = super().sizeHint(option, index)
+        if not self._tags(index):
+            return base
+        # Single pill line => constant extra height regardless of width, so
+        # sizeHint and paint never disagree on row height.
+        extra = _PILL_HEIGHT + _PILL_LINE_GAP * 2
+        return QSize(base.width(), base.height() + extra)
+
+    def paint(self, painter, option, index):  # noqa: N802 (Qt override)
+        tags = self._tags(index)
+        if not tags:
+            # Untagged rows / folders: exactly the default look.
+            super().paint(painter, option, index)
+            return
+
+        style = option.widget.style() if option.widget else QApplication.style()
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        filename = opt.text
+
+        # 1) Draw background / selection / hover over the FULL (tall) rect,
+        #    suppressing the style's own text + icon so we can top-align them.
+        opt.text = ""
+        opt.icon = QIcon()
+        opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasDecoration
+        style.drawControl(
+            QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget
+        )
+
+        rect = option.rect
+        row1_h = super().sizeHint(option, index).height()
+        fm = option.fontMetrics
+
+        # 2) Optional decoration icon, vertically centered within line 1.
+        deco_w = 0
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        if isinstance(icon, QIcon) and not icon.isNull():
+            isz = option.decorationSize
+            iy = rect.top() + max(0, (row1_h - isz.height()) // 2)
+            icon.paint(
+                painter,
+                QRect(rect.left() + _ITEM_HMARGIN, iy, isz.width(), isz.height()),
+                Qt.AlignmentFlag.AlignCenter,
+            )
+            deco_w = isz.width() + 4
+
+        text_x = rect.left() + _ITEM_HMARGIN + deco_w
+
+        # 3) Filename on line 1 (top-aligned, not centered in the taller rect).
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        pen_color = (
+            opt.palette.highlightedText().color()
+            if selected
+            else opt.palette.text().color()
+        )
+        painter.save()
+        painter.setPen(pen_color)
+        painter.setFont(option.font)
+        text_rect = QRect(
+            text_x, rect.top(), rect.right() - text_x - _ITEM_HMARGIN, row1_h
+        )
+        elided = fm.elidedText(
+            filename, Qt.TextElideMode.ElideRight, max(0, text_rect.width())
+        )
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            elided,
+        )
+        painter.restore()
+
+        # 4) Pills on line 2, indented under the filename text.
+        self._paint_pills(painter, rect, text_x, row1_h, tags, option.font)
+
+    # ---- pill row ----------------------------------------------------
+    def _paint_pills(self, painter, rect, x0, row1_h, tags, base_font):
+        pill_font = self._pill_font(base_font)
+        pill_fm = QFontMetrics(pill_font)
+        y = rect.top() + row1_h + _PILL_LINE_GAP
+        x = x0
+        right_limit = rect.right() - _ITEM_HMARGIN
+        radius = _PILL_HEIGHT / 2
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setFont(pill_font)
+
+        total = len(tags)
+        drawn = 0
+        for tag in tags:
+            label = tag.lstrip("#")
+            pill_w = pill_fm.horizontalAdvance(label) + _PILL_HPAD * 2
+            # Stop before overflowing the right edge (nothing clipped mid-pill).
+            if x + pill_w > right_limit and drawn > 0:
+                break
+            if x + pill_w > right_limit and drawn == 0:
+                # Even the first pill can't fit: fall through to "+N" only.
+                break
+            try:
+                fill = QColor(self._color_for(tag))
+            except (TypeError, ValueError):
+                fill = QColor("#888888")
+            if not fill.isValid():
+                fill = QColor("#888888")
+            pill_rect = QRectF(x, y, pill_w, _PILL_HEIGHT)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(pill_rect, radius, radius)
+            painter.setPen(_pill_text_color(fill))
+            painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, label)
+            x += pill_w + _PILL_HGAP
+            drawn += 1
+
+        if drawn < total:
+            hidden = total - drawn
+            plus = f"+{hidden}"
+            plus_w = pill_fm.horizontalAdvance(plus) + _PILL_HPAD * 2
+            plus_rect = QRectF(x, y, plus_w, _PILL_HEIGHT)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#888888"))
+            painter.drawRoundedRect(plus_rect, radius, radius)
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(plus_rect, Qt.AlignmentFlag.AlignCenter, plus)
+
+        painter.restore()
 
 
 def _is_same_or_descendant(path: str | Path, folder: str | Path) -> bool:
@@ -55,11 +298,24 @@ def _is_same_or_descendant(path: str | Path, folder: str | Path) -> bool:
 
 
 class FileBrowserView(QWidget):
-    def __init__(self, on_file_selected, tag_index=None, parent=None):
+    def __init__(
+        self,
+        on_file_selected,
+        tag_index=None,
+        on_manage_tags=None,
+        tag_color_for=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setObjectName("fileBrowser")
         self._on_file_selected = on_file_selected
         self._tag_index = tag_index
+        # on_manage_tags(paths: list[Path]) opens the manage-tags dialog.
+        self._on_manage_tags = on_manage_tags
+        # tag_color_for(tag: str) -> hex color for the tag pills.
+        self._tag_color_for = tag_color_for
+        # Cache of resolved-path-key -> sorted tags, rebuilt on each refresh.
+        self._path_tags: dict[str, list[str]] = {}
         self._active_tag = ""
         self._theme = LIGHT
         self._store = DocumentLibraryStore()
@@ -114,12 +370,25 @@ class FileBrowserView(QWidget):
         self._filter.textChanged.connect(self._refresh_list)
         layout.addWidget(self._filter)
 
-        self._tree = QTreeWidget()
+        self._tree = _LibraryTree()
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(14)
+        # Fixed decoration size so folder/file icons render crisply and the
+        # tag-pill delegate can rely on a deterministic option.decorationSize.
+        self._tree.setIconSize(QSize(16, 16))
         self._tree.itemClicked.connect(self._on_clicked)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
+        # Drag source: file rows export their paths as a custom mime.
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self._tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        # Variable row heights: tagged rows are taller (they gain a pill line),
+        # so uniform row heights must stay off for the pills to fit.
+        self._tree.setUniformRowHeights(False)
+        self._tree.setItemDelegate(_TagPillDelegate(self._tag_color_for, self._tree))
         layout.addWidget(self._tree, stretch=1)
 
         self._status = QLabel()
@@ -142,6 +411,26 @@ QTreeWidget::item {
 }
 """
         )
+        # svg_icon() bakes the theme color into each pixmap, so the tree rows
+        # must be rebuilt to recolor their folder/file icons. Skip during the
+        # initial construction (the __init__ refresh_libraries() call builds it)
+        # and preserve the current selection across the rebuild.
+        if self._built:
+            current = self._tree.currentItem()
+            selected = current.data(0, _PATH_ROLE) if current else None
+            self.refresh_libraries()
+            if selected:
+                self._select_path(Path(selected))
+
+    # ---------------- row icons ----------------
+    def _folder_icon(self) -> QIcon:
+        """Accent-colored folder glyph shared by library roots and folders."""
+        return svg_icon("folder-open", self._theme.accent, 16)
+
+    def _file_icon(self, path) -> QIcon:
+        """Document glyph: neutral for Markdown, red for PDF (color-coded)."""
+        color = self._theme.danger if is_pdf(path) else self._theme.text_muted
+        return svg_icon("file-text", color, 16)
 
     def navigate_to(self, folder: str | Path):
         item = self._find_item(folder)
@@ -215,8 +504,39 @@ QTreeWidget::item {
             iterator += 1
 
     # ---------------- tree building ----------------
+    def _rebuild_tag_map(self):
+        """Reverse-index resolved path -> tags for lightweight pill painting.
+
+        Prefers a native ``tag_index.tags_for`` accessor when present; otherwise
+        derives the mapping once per refresh from the public tag API.
+        """
+        self._path_tags = {}
+        if self._tag_index is None or hasattr(self._tag_index, "tags_for"):
+            return
+        try:
+            for tag in self._tag_index.all_tags():
+                for path in self._tag_index.files_with_tag(tag):
+                    self._path_tags.setdefault(str(path).casefold(), []).append(tag)
+        except (OSError, AttributeError):
+            self._path_tags = {}
+            return
+        for tags in self._path_tags.values():
+            tags.sort()
+
+    def _tags_for_path(self, path) -> list[str]:
+        if self._tag_index is None:
+            return []
+        accessor = getattr(self._tag_index, "tags_for", None)
+        if accessor is not None:
+            try:
+                return sorted(accessor(path))
+            except (OSError, AttributeError):
+                return []
+        return self._path_tags.get(_resolve_key(path), [])
+
     def _refresh_list(self):
         self._sync_expanded_from_tree()
+        self._rebuild_tag_map()
         self._excluded_folders = load_excluded_folders()
         self._transient_folders = {
             path for path in self._transient_folders if Path(path).is_dir()
@@ -256,6 +576,7 @@ QTreeWidget::item {
             font = QFont()
             font.setBold(True)
             root_item.setFont(0, font)
+            root_item.setIcon(0, self._folder_icon())
             root_item.setToolTip(0, lib.path)
             root_item.setData(0, _PATH_ROLE, lib.path)
             root_item.setData(0, _LIBRARY_ROLE, lib.id)
@@ -267,6 +588,7 @@ QTreeWidget::item {
                     root_item.setText(0, f"{lib.name}（找不到資料夾）")
                     root_item.setForeground(0, QColor(self._theme.text_muted))
                     missing = QTreeWidgetItem([lib.path])
+                    missing.setIcon(0, self._folder_icon())
                     missing.setFlags(
                         missing.flags() & ~Qt.ItemFlag.ItemIsEnabled
                     )
@@ -327,6 +649,7 @@ QTreeWidget::item {
             if should_skip_directory(relative, self._excluded_folders):
                 continue
             child = QTreeWidgetItem([entry.name])
+            child.setIcon(0, self._folder_icon())
             child.setToolTip(0, str(entry))
             child.setData(0, _PATH_ROLE, str(entry))
             child.setData(0, _IS_DIR_ROLE, True)
@@ -359,9 +682,11 @@ QTreeWidget::item {
             ):
                 continue
             child = QTreeWidgetItem([entry.name])
+            child.setIcon(0, self._file_icon(entry))
             child.setToolTip(0, str(entry))
             child.setData(0, _PATH_ROLE, str(entry))
             child.setData(0, _IS_DIR_ROLE, False)
+            child.setData(0, _TAGS_ROLE, self._tags_for_path(entry))
             parent_item.addChild(child)
             count += 1
         return count
@@ -451,6 +776,13 @@ QTreeWidget::item {
                 lambda _=False, p=path: self._on_file_selected(p)
             )
             menu.addAction(open_act)
+
+            if self._on_manage_tags is not None:
+                manage_tags_act = QAction("管理標籤…", self)
+                manage_tags_act.triggered.connect(
+                    lambda _=False, p=path: self._on_manage_tags([Path(p)])
+                )
+                menu.addAction(manage_tags_act)
 
             rename_act = QAction("重新命名", self)
             rename_act.triggered.connect(
@@ -688,6 +1020,22 @@ QTreeWidget::item {
 
     def _open_location(self, path: str):
         subprocess.run(["explorer", "/select,", str(Path(path))])
+
+    # ---------------- public wrappers ----------------
+    # Thin pass-throughs so other panels (e.g. the 標籤 tab) can reuse the exact
+    # same file operations -- same dialogs, file_ops, tag-index migration and
+    # refresh/callbacks -- instead of re-implementing filesystem + tag logic.
+    def rename_file(self, path: str | Path) -> None:
+        self._rename_file_action(str(path))
+
+    def move_file(self, path: str | Path) -> None:
+        self._move_file_action(str(path))
+
+    def delete_file(self, path: str | Path) -> None:
+        self._delete_file_action(str(path))
+
+    def reveal_file(self, path: str | Path) -> None:
+        self._open_location(str(path))
 
     def _stylesheet(self, theme: Theme) -> str:
         return f"""
