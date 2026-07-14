@@ -96,13 +96,25 @@ class PdfNoteStore:
         # Preserve any existing document-level tags when only notes are written.
         if doc_tags is None:
             doc_tags = cls.load_doc_tags(pdf_path)
+        # Don't leave an empty sidecar behind: with no notes and no doc-tags
+        # there is nothing to persist, so drop the file (and its .bak).
+        if not notes and not doc_tags:
+            for target in (path, path.with_name(path.name + ".bak")):
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+            return
         payload = {
             "schema": SCHEMA_VERSION,
             "doc_tags": list(doc_tags),
             "notes": [n.to_dict() for n in notes],
         }
         atomic_write_text(
-            path, json.dumps(payload, ensure_ascii=False, indent=2), backup=False
+            path,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            backup=False,
+            hidden=True,
         )
 
     @classmethod

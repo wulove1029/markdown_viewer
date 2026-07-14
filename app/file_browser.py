@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import QByteArray, QMimeData, QRect, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import (
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_ops
+from .atomic_io import set_hidden
 from .document_libraries import (
     DocumentLibrary,
     DocumentLibraryStore,
@@ -55,6 +57,11 @@ _LIBRARY_ROLE = Qt.ItemDataRole.UserRole.value + 1
 _IS_DIR_ROLE = Qt.ItemDataRole.UserRole.value + 2
 # Sorted list[str] of the tags assigned to a file row; drives the tag pills.
 _TAGS_ROLE = Qt.ItemDataRole.UserRole.value + 3
+
+# Sidecar files the app maintains next to documents. They never appear in the
+# tree (their suffix isn't in SUPPORTED_EXTENSIONS); we just tag them hidden on
+# Windows so Explorer's default view stays clean.
+_HIDDEN_SIDECAR_SUFFIXES = (".notes.json", ".highlights.json", ".bak")
 
 # Second-line tag-pill geometry (px). English comments per project rules.
 _PILL_HEIGHT = 16       # pill badge height
@@ -308,6 +315,7 @@ class FileBrowserView(QWidget):
         on_file_selected,
         tag_index=None,
         on_manage_tags=None,
+        on_add_tag: Callable[[list[Path]], None] | None = None,
         tag_color_for=None,
         parent=None,
     ):
@@ -317,6 +325,8 @@ class FileBrowserView(QWidget):
         self._tag_index = tag_index
         # on_manage_tags(paths: list[Path]) opens the manage-tags dialog.
         self._on_manage_tags = on_manage_tags
+        # on_add_tag(paths: list[Path]) quick-assigns one tag to the files.
+        self._on_add_tag = on_add_tag
         # tag_color_for(tag: str) -> hex color for the tag pills.
         self._tag_color_for = tag_color_for
         # Cache of resolved-path-key -> sorted tags, rebuilt on each refresh.
@@ -459,6 +469,27 @@ QTreeWidget::item {
     def refresh_libraries(self):
         self._libraries = self._store.load()
         self._refresh_list()
+
+    def update_file_tags(self, paths) -> None:
+        """Incrementally refresh the tag pills of the given file rows.
+
+        A tag change never alters the folder structure, so we skip the full,
+        disk-rescanning ``refresh_libraries`` and only re-read each affected
+        row's tags. Rows not currently in the tree (filtered out, or inside a
+        collapsed/unbuilt subtree) are simply skipped -- they render correctly
+        the next time they are built. Gaining or losing tags flips a row
+        between one and two lines, so a layout pass is scheduled to let the
+        pill delegate re-measure the row heights and repaint.
+        """
+        touched = False
+        for path in paths:
+            item = self._find_item(path)
+            if item is None or item.data(0, _IS_DIR_ROLE):
+                continue
+            item.setData(0, _TAGS_ROLE, self._tags_for_path(Path(path)))
+            touched = True
+        if touched:
+            self._tree.scheduleDelayedItemsLayout()
 
     # ---------------- expanded / selected state ----------------
     def tree_state(self) -> dict:
@@ -678,6 +709,11 @@ QTreeWidget::item {
         for entry in entries:
             if not entry.is_file():
                 continue
+            if entry.name.lower().endswith(_HIDDEN_SIDECAR_SUFFIXES):
+                # Keep pre-existing sidecars out of Explorer's default view.
+                # Windows-only, best-effort; these never enter the tree.
+                set_hidden(entry)
+                continue
             if entry.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
             if allowed is not None:
@@ -735,8 +771,35 @@ QTreeWidget::item {
             self._on_file_selected(path)
 
     # ---------------- context menu ----------------
+    def _selected_file_paths(self, fallback=None) -> list[Path]:
+        """Absolute paths of the selected file rows (folders excluded).
+
+        Falls back to ``[fallback]`` when the selection holds no file rows, so
+        a right-click on a row that isn't part of the current selection still
+        targets that row.
+        """
+        paths: list[Path] = []
+        for item in self._tree.selectedItems():
+            if item is None or item.data(0, _IS_DIR_ROLE):
+                continue
+            raw = item.data(0, _PATH_ROLE)
+            if raw:
+                paths.append(Path(raw))
+        if not paths and fallback is not None:
+            return [fallback]
+        return paths
+
     def _show_context_menu(self, pos):
         item = self._tree.itemAt(pos)
+        menu = self._build_context_menu(item)
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _build_context_menu(self, item) -> QMenu:
+        """Build the right-click menu for *item* (None -> the empty-area menu).
+
+        Split out from ``_show_context_menu`` so tests can inspect the menu
+        without driving the modal popup; the actions themselves are unchanged.
+        """
         menu = QMenu(self)
         menu.setStyleSheet(self._menu_stylesheet())
 
@@ -785,6 +848,15 @@ QTreeWidget::item {
             )
             menu.addAction(open_act)
 
+            if self._on_add_tag is not None:
+                add_tag_act = QAction("加入標籤…", self)
+                add_tag_act.triggered.connect(
+                    lambda _=False, p=path: self._on_add_tag(
+                        self._selected_file_paths(fallback=Path(p))
+                    )
+                )
+                menu.addAction(add_tag_act)
+
             if self._on_manage_tags is not None:
                 manage_tags_act = QAction("管理標籤…", self)
                 manage_tags_act.triggered.connect(
@@ -828,8 +900,7 @@ QTreeWidget::item {
         manage_act = QAction("管理文件庫", self)
         manage_act.triggered.connect(self._manage_libraries)
         menu.addAction(manage_act)
-
-        menu.exec(self._tree.viewport().mapToGlobal(pos))
+        return menu
 
     # ---------------- CRUD actions ----------------
     def _create_note_action(self, folder: str):

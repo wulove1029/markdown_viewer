@@ -140,3 +140,44 @@ def test_view_uses_pill_delegate_and_non_uniform_rows(qapp, tmp_path, monkeypatc
         assert not plain_item.data(0, _TAGS_ROLE)
     finally:
         view.close()
+
+
+def test_update_file_tags_refreshes_only_affected_rows(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    root.mkdir()
+    a = root / "a.md"
+    b = root / "b.md"
+    a.write_text("# a", encoding="utf-8")
+    b.write_text("# b", encoding="utf-8")
+
+    tag_index = TagIndex(tmp_path / "tags.json")
+    view = _make_view(
+        tmp_path,
+        monkeypatch,
+        [DocumentLibrary("lib", "Vault", str(root))],
+        tag_index=tag_index,
+    )
+    try:
+        a_item = view._find_item(a)
+        b_item = view._find_item(b)
+        assert a_item is not None and b_item is not None
+        assert not a_item.data(0, _TAGS_ROLE)
+
+        # Assign a tag out-of-band, then incrementally update just that row.
+        tag_index.update(a, DocumentAnnotations(doc_tags=["focus"]))
+        view.update_file_tags([a])
+        assert a_item.data(0, _TAGS_ROLE) == ["focus"]
+        # The untouched row keeps its (empty) tags.
+        assert not b_item.data(0, _TAGS_ROLE)
+
+        # Removing the tag clears the pill role again.
+        tag_index.update(a, DocumentAnnotations(doc_tags=[]))
+        view.update_file_tags([a])
+        assert not a_item.data(0, _TAGS_ROLE)
+
+        # A path not in the tree is silently skipped (no raise, no-op).
+        view.update_file_tags([root / "ghost.md"])
+    finally:
+        view.close()

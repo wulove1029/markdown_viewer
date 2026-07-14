@@ -1,7 +1,15 @@
 import json
+import os
 from pathlib import Path
 
+import pytest
+
 from app.annotations import Annotation, AnnotationStore, DocumentAnnotations
+
+_FILE_ATTRIBUTE_HIDDEN = 0x2
+_windows_only = pytest.mark.skipif(
+    os.name != "nt", reason="hidden attribute is Windows-only"
+)
 
 
 def test_sidecar_path_appends_notes_json():
@@ -45,3 +53,31 @@ def test_save_is_atomic_and_utf8(tmp_path):
     raw = json.loads(AnnotationStore.sidecar_path(md).read_text(encoding="utf-8"))
     assert raw["schema"] == 1
     assert raw["doc_tags"] == ["中文"]
+
+
+def test_empty_save_creates_no_sidecar(tmp_path):
+    md = tmp_path / "doc.md"
+    AnnotationStore.save(md, DocumentAnnotations())
+    assert not AnnotationStore.sidecar_path(md).exists()
+
+
+def test_empty_save_removes_existing_sidecar_and_bak(tmp_path):
+    md = tmp_path / "doc.md"
+    side = AnnotationStore.sidecar_path(md)
+    AnnotationStore.save(md, DocumentAnnotations(doc_tags=["x"]))
+    assert side.exists()
+    # Simulate a leftover .bak (as load() leaves when it quarantines a corrupt
+    # sidecar). An empty save must clean up both the sidecar and its .bak.
+    bak = side.with_name(side.name + ".bak")
+    bak.write_text("{}", encoding="utf-8")
+    AnnotationStore.save(md, DocumentAnnotations())
+    assert not side.exists()
+    assert not bak.exists()
+
+
+@_windows_only
+def test_saved_sidecar_is_hidden(tmp_path):
+    md = tmp_path / "doc.md"
+    AnnotationStore.save(md, DocumentAnnotations(doc_tags=["x"]))
+    side = AnnotationStore.sidecar_path(md)
+    assert os.stat(side).st_file_attributes & _FILE_ATTRIBUTE_HIDDEN

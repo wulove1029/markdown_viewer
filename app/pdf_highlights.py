@@ -138,5 +138,8 @@ class PdfHighlightStore:
             "highlights": [h.to_dict() for h in highlights],
         }
         atomic_write_text(
-            path, json.dumps(payload, ensure_ascii=False, indent=2), backup=False
+            path,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            backup=False,
+            hidden=True,
         )

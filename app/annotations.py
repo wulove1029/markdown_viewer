@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+from .atomic_io import atomic_write_text
 
 SCHEMA_VERSION = 1
 DEFAULT_COLOR = "#ffd54f"
@@ -85,15 +86,28 @@ class AnnotationStore:
             doc_tags=list(data.get("doc_tags", [])), annotations=anns
         )
 
+    @staticmethod
+    def _remove_sidecar(path: Path) -> None:
+        """Delete the sidecar and any quarantined ``.bak`` (best-effort)."""
+        for target in (path, path.with_name(path.name + ".bak")):
+            try:
+                target.unlink()
+            except OSError:
+                pass
+
     @classmethod
     def save(cls, md_path, doc: DocumentAnnotations) -> None:
         path = cls.sidecar_path(md_path)
+        # Don't leave an empty sidecar behind: with no doc-tags and no
+        # annotations there is nothing worth persisting, so drop the file
+        # (and its .bak) if present rather than writing an empty shell.
+        if not doc.doc_tags and not doc.annotations:
+            cls._remove_sidecar(path)
+            return
         payload = {
             "schema": SCHEMA_VERSION,
             "doc_tags": list(doc.doc_tags),
             "annotations": [a.to_dict() for a in doc.annotations],
         }
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write_text(path, text, backup=False, hidden=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
@@ -14,6 +15,23 @@ ThemeName = Literal["light", "dark"]
 TOOLBAR_HEIGHT = 48
 HIT_TARGET = 44
 PANEL_WIDTH = 280
+
+# Static chevron assets used for the QComboBox drop-down arrow. Qt 6.11 QSS does
+# not render ``data:`` URIs for the ``image`` property, so we reference bundled
+# SVG files by path instead (the ``assets`` folder is shipped via the PyInstaller
+# spec, resolving to ``<_MEIPASS>/assets`` in frozen builds). The stroke colour of
+# each SVG mirrors the matching theme's ``text_muted`` so it stays visible on both
+# light and dark surfaces.
+_ASSETS_DIR = Path(__file__).parent.parent / "assets"
+
+
+def _combo_arrow_url(theme: Theme) -> str:
+    """Return a QSS-safe ``url()`` argument for the theme's chevron SVG.
+
+    Uses forward slashes (required by Qt QSS on Windows) and an absolute path so
+    the arrow resolves regardless of the process working directory.
+    """
+    return (_ASSETS_DIR / f"chevron-down-{theme.name}.svg").as_posix()
 
 
 @dataclass(frozen=True)
@@ -224,6 +242,7 @@ def svg_icon(name: str, color: str, size: int = 20) -> QIcon:
 
 
 def app_stylesheet(theme: Theme) -> str:
+    combo_arrow = _combo_arrow_url(theme)
     return f"""
 QMainWindow {{
     background: {theme.window};
@@ -316,6 +335,12 @@ QComboBox:hover {{
 QComboBox::drop-down {{
     border: none;
     width: 22px;
+}}
+QComboBox::down-arrow {{
+    image: url('{combo_arrow}');
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
 }}
 QComboBox QAbstractItemView {{
     background: {theme.surface};

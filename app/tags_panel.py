@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -274,12 +273,12 @@ class TagsPanel(QWidget):
         self,
         on_tag_selected,
         tag_color_for=None,
-        on_create_tag=None,
         on_delete_tag: Callable[[str], None] | None = None,
         on_rename_tag: Callable[[str], None] | None = None,
         on_assign_tag_to_paths=None,
         on_open_file: Callable[[Path], None] | None = None,
         on_manage_tags: Callable[[list[Path]], None] | None = None,
+        on_add_tag: Callable[[list[Path]], None] | None = None,
         on_rename_file: Callable[[Path], None] | None = None,
         on_move_file: Callable[[Path], None] | None = None,
         on_delete_file: Callable[[Path], None] | None = None,
@@ -298,6 +297,8 @@ class TagsPanel(QWidget):
         # every view stay consistent. Any left as None is simply omitted from
         # the menu. on_manage_tags(paths: list[Path]); the rest take one Path.
         self._on_manage_tags = on_manage_tags
+        # on_add_tag(paths: list[Path]) quick-assigns one tag to the file(s).
+        self._on_add_tag = on_add_tag
         self._on_rename_file = on_rename_file
         self._on_move_file = on_move_file
         self._on_delete_file = on_delete_file
@@ -308,8 +309,6 @@ class TagsPanel(QWidget):
         self._files_for_tag = files_for_tag
         # tag_color_for(tag: str) -> hex color for the row swatch.
         self._tag_color_for = tag_color_for
-        # on_create_tag() opens the create-tag dialog.
-        self._on_create_tag = on_create_tag
         # on_delete_tag(tag: str) removes the tag (right-click menu).
         self._on_delete_tag = on_delete_tag
         # on_rename_tag(tag: str) renames the tag globally (right-click menu).
@@ -327,13 +326,6 @@ class TagsPanel(QWidget):
         title.setProperty("heading", True)
         header.addWidget(title)
         header.addStretch()
-        self._add_btn = QPushButton("＋")
-        self._add_btn.setObjectName("addTagButton")
-        self._add_btn.setToolTip("新增標籤")
-        self._add_btn.setAccessibleName("新增標籤")
-        self._add_btn.setFixedSize(28, 28)
-        self._add_btn.clicked.connect(self._on_add_clicked)
-        header.addWidget(self._add_btn)
         layout.addLayout(header)
 
         # Single tree: each tag is an expandable node whose children are the
@@ -372,19 +364,6 @@ QWidget {{ background: {theme.surface}; color: {theme.text}; }}
 QLabel[heading="true"] {{
     color: {theme.text_muted};
     font-weight: 600;
-}}
-QPushButton#addTagButton {{
-    background: transparent;
-    border: 1px solid {theme.border};
-    border-radius: 6px;
-    color: {theme.accent};
-    font-size: 16px;
-    padding: 0;
-}}
-QPushButton#addTagButton:hover {{
-    background: {theme.accent_soft};
-    border-color: {theme.accent};
-    color: {theme.text};
 }}
 """
         )
@@ -519,10 +498,6 @@ QPushButton#addTagButton:hover {{
         if self._needs_load(item):
             self._load_children(item, data.get("tag", ""))
 
-    def _on_add_clicked(self):
-        if self._on_create_tag is not None:
-            self._on_create_tag()
-
     def _on_tree_clicked(self, item: QTreeWidgetItem, _column: int = 0):
         data = item.data(0, Qt.ItemDataRole.UserRole) or {}
         kind = data.get("kind")
@@ -601,6 +576,7 @@ QPushButton#addTagButton:hover {{
             action.triggered.connect(lambda _=False: handler(arg))
 
         add("開啟文件", self._on_open_file)
+        add("加入標籤…", self._on_add_tag, arg=[path])
         add("管理標籤…", self._on_manage_tags, arg=[path])
         add("重新命名", self._on_rename_file)
         add("移動到…", self._on_move_file)

@@ -1,9 +1,14 @@
+import os
+
+import pytest
 from PySide6.QtWidgets import QMessageBox, QTreeWidgetItemIterator
 
 from app.annotations import DocumentAnnotations
 from app.document_libraries import DocumentLibrary, DocumentLibraryStore
 from app.file_browser import _IS_DIR_ROLE, _PATH_ROLE, FileBrowserView
 from app.tag_index import TagIndex
+
+_FILE_ATTRIBUTE_HIDDEN = 0x2
 
 
 def _iter_items(view: FileBrowserView):
@@ -316,5 +321,28 @@ def test_delete_action_removes_file_and_notifies(qapp, tmp_path, monkeypatch):
         assert deleted == [[str(target)]]
         assert tag_index.files_with_tag("x") == []
         assert str(target) not in _visible_file_paths(view)
+    finally:
+        view.close()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="hidden attribute is Windows-only")
+def test_scan_hides_existing_sidecars(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text("# n", encoding="utf-8")
+    side = root / "note.md.notes.json"
+    side.write_text("{}", encoding="utf-8")
+    hl = root / "note.pdf.highlights.json"
+    hl.write_text("{}", encoding="utf-8")
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        # The scan tags sidecars hidden even though they never enter the tree.
+        assert os.stat(side).st_file_attributes & _FILE_ATTRIBUTE_HIDDEN
+        assert os.stat(hl).st_file_attributes & _FILE_ATTRIBUTE_HIDDEN
+        assert view._find_item(side) is None
+        assert view._find_item(hl) is None
     finally:
         view.close()

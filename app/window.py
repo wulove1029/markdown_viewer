@@ -27,7 +27,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -236,7 +235,7 @@ class MainWindow(QMainWindow):
             on_search_result=self._open_global_search_result,
             on_manage_tags=self._open_manage_tags,
             tag_color_for=self._tag_color_store.color_for,
-            on_create_tag=self._create_tag,
+            on_add_tag=self._add_tag_to_paths,
             on_delete_tag=self._delete_tag,
             on_rename_tag=self._rename_tag,
             on_assign_tag_to_paths=self._assign_tag_to_paths,
@@ -2501,15 +2500,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         self._panel.tags.set_tags(merged)
 
-    def _refresh_file_views(self):
-        """Re-render the file browser so its per-file tag dots stay current.
-
-        The 最近 tab is intentionally left untouched: tags must never filter or
-        hide files in the 檔案 / 最近 tabs — tag browsing lives only in the 標籤
-        tab's tree (see _on_tag_selected).
-        """
-        self._panel.file_browser.refresh_libraries()
-
     def _set_pdf_panel_document(self, path):
         """Point the PDF markup panel's 文件標籤 field at *path* (or None).
 
@@ -2570,16 +2560,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 ):
                     self._set_pdf_panel_document(self._current_file)
         self._refresh_tags_panel()
-        self._refresh_file_views()
-
-    def _create_tag(self):
-        """Prompt for a new tag name + palette color and persist the color."""
-        name, color = self._prompt_new_tag()
-        if not name:
-            return
-        self._tag_color_store.set_color(name, color)
-        self.statusBar().showMessage(f"已建立標籤「{name}」", 2500)
-        self._refresh_tags_panel()
+        # Tags never change the folder structure, so update only the affected
+        # file rows' pills incrementally instead of a full disk rescan (which
+        # scaled with library size and caused the tag-edit stutter).
+        self._panel.file_browser.update_file_tags(paths)
 
     def _delete_tag(self, tag: str) -> None:
         """Delete a tag from the panel: drop its doc-level assignments + color.
@@ -2658,71 +2642,30 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # a rename of a colored-but-unused tag is still reflected in the panel.
         self._on_doc_tags_changed(affected)
 
-    def _prompt_new_tag(self, default_name: str = ""):
-        """Small modal: tag name input + 7-swatch palette picker.
+    def _add_tag_to_paths(self, paths):
+        """Quick-assign one tag to files from the 檔案 tab's "加入標籤…".
 
-        Returns (name, hex_color) on accept, or ("", "") on cancel.
+        Filters to supported documents, then shows a small editable combo that
+        lists every known tag (indexed + colored-but-unassigned) yet still lets
+        the user type a brand-new tag. A new tag auto-gets a deterministic color
+        via the color store. The write itself reuses ``_assign_tag_to_paths`` so
+        the tag index and every view refresh exactly as elsewhere.
         """
-        dialog = QDialog(self)
-        dialog.setWindowTitle("新增標籤")
-        dialog.setMinimumWidth(340)
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(16, 16, 16, 12)
-        layout.setSpacing(8)
-
-        layout.addWidget(QLabel("標籤名稱："))
-        name_edit = QLineEdit(default_name)
-        # Normalize the field height: the app-wide theme QSS adds large padding /
-        # min-height to QLineEdit, which otherwise makes this box look oversized.
-        name_edit.setFixedHeight(32)
-        name_edit.setStyleSheet("QLineEdit { padding: 4px 8px; min-height: 0; }")
-        layout.addWidget(name_edit)
-
-        layout.addWidget(QLabel("顏色："))
-
-        swatch_row = QHBoxLayout()
-        swatch_row.setSpacing(8)
-        hexes = TagColorStore.palette_hexes()
-        selected = {"hex": hexes[0]}
-        buttons: list[QPushButton] = []
-
-        def _select(idx: int):
-            selected["hex"] = hexes[idx]
-            for j, btn in enumerate(buttons):
-                btn.setText("✓" if j == idx else "")
-
-        for i, hex_color in enumerate(hexes):
-            btn = QPushButton()
-            btn.setFixedSize(30, 30)
-            # Reset the theme's button box-model (min-width/height, padding, margin)
-            # so the fixed 30x30 swatch is honored instead of inheriting the large
-            # metrics the app-wide QSS applies to every QPushButton.
-            btn.setStyleSheet(
-                "QPushButton {"
-                f" background-color: {hex_color};"
-                " border: 2px solid rgba(0, 0, 0, 0.28); border-radius: 6px;"
-                " min-width: 0; min-height: 0; padding: 0; margin: 0;"
-                " color: white; font-weight: bold; }"
-                " QPushButton:hover { border: 2px solid #444; }"
-            )
-            btn.clicked.connect(lambda _=False, idx=i: _select(idx))
-            buttons.append(btn)
-            swatch_row.addWidget(btn)
-        swatch_row.addStretch()
-        layout.addLayout(swatch_row)
-        _select(0)
-
-        box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
+        paths = [Path(p) for p in paths if is_supported_document(Path(p))]
+        if not paths:
+            return
+        items = sorted(
+            set(self._tag_index.all_tags()) | set(self._tag_color_store.known_tags())
         )
-        box.accepted.connect(dialog.accept)
-        box.rejected.connect(dialog.reject)
-        layout.addWidget(box)
-
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return "", ""
-        return name_edit.text().strip(), selected["hex"]
+        tag, ok = QInputDialog.getItem(
+            self, "加入標籤", "選擇或輸入標籤：", items, 0, True
+        )
+        if not ok:
+            return
+        tag = tag.strip()
+        if not tag:
+            return
+        self._assign_tag_to_paths(tag, paths)
 
     def _assign_tag_to_paths(self, tag: str, paths):
         """Add *tag* to each of *paths* (drag-onto-tag / quick assign)."""

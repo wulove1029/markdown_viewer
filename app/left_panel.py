@@ -30,7 +30,8 @@ class LeftPanel(QWidget):
                  on_tag_selected=None, search_roots_provider=None,
                  on_search_result=None,
                  on_manage_tags=None, tag_color_for=None,
-                 on_create_tag=None, on_delete_tag=None,
+                 on_add_tag=None,
+                 on_delete_tag=None,
                  on_rename_tag=None,
                  on_assign_tag_to_paths=None,
                  on_open_file=None,
@@ -79,6 +80,7 @@ class LeftPanel(QWidget):
             on_file_selected=on_file_selected,
             tag_index=tag_index,
             on_manage_tags=on_manage_tags,
+            on_add_tag=on_add_tag,
             tag_color_for=tag_color_for,
         )
         self._recent = RecentFilesView(
@@ -100,7 +102,6 @@ class LeftPanel(QWidget):
         self._tags = TagsPanel(
             on_tag_selected=on_tag_selected or (lambda _t: None),
             tag_color_for=tag_color_for,
-            on_create_tag=on_create_tag,
             on_delete_tag=on_delete_tag,
             on_rename_tag=on_rename_tag,
             on_assign_tag_to_paths=on_assign_tag_to_paths,
@@ -111,6 +112,7 @@ class LeftPanel(QWidget):
             # window's shared file operations (same as the 檔案 tab) so the tag
             # index and every view stay in sync; all default to None.
             on_manage_tags=on_manage_tags,
+            on_add_tag=on_add_tag,
             on_rename_file=on_rename_file,
             on_move_file=on_move_file,
             on_delete_file=on_delete_file,

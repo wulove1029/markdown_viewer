@@ -436,6 +436,29 @@ def test_tag_selection_is_scoped_to_tags_tab_only(make_window):
     assert win._panel.current_tab is None
 
 
+def test_doc_tag_change_updates_rows_incrementally_not_full_rescan(
+    make_window, tmp_path
+):
+    note = tmp_path / "note.md"
+    note.write_text("# note", encoding="utf-8")
+    win = make_window()
+
+    calls = {"refresh": 0, "update": []}
+    win._panel.file_browser.refresh_libraries = lambda: calls.__setitem__(
+        "refresh", calls["refresh"] + 1
+    )
+    win._panel.file_browser.update_file_tags = lambda paths: calls[
+        "update"
+    ].append(list(paths))
+
+    win._on_doc_tags_changed([note])
+
+    # A tag edit must take the cheap incremental path: only the affected file
+    # rows are refreshed, never a full disk-rescanning refresh_libraries().
+    assert calls["refresh"] == 0
+    assert calls["update"] == [[note]]
+
+
 def test_body_tags_update_when_markdown_is_opened_and_saved(make_window, tmp_path):
     note = tmp_path / "tags.md"
     note.write_text("# Heading\ntext #opened and `#hidden`", encoding="utf-8")
@@ -922,3 +945,82 @@ def test_editor_scroll_sync_only_drives_preview_in_split(make_window, md_files):
     # The synced ratio is what the next debounced render restores.
     win._update_preview()
     assert win._edit_preview.text_renders[-1]["scroll_ratio"] == 0.0
+
+
+# --- 加入標籤… quick-tag (檔案 tab file menu backing method) ---
+def _use_real_tag_stores(monkeypatch, tmp_path):
+    """Swap the faked TagIndex for a real one, isolated to *tmp_path*, so
+    ``_add_tag_to_paths`` can be asserted end-to-end. Call before make_window().
+    """
+    from app.tag_colors import TagColorStore as _ColorStore
+    from app.tag_index import TagIndex as _TagIndex
+
+    monkeypatch.setattr(
+        window_mod, "TagIndex", lambda: _TagIndex(tmp_path / "tags.json")
+    )
+    store = _ColorStore(path=tmp_path / "colors.json")
+    monkeypatch.setattr(window_mod.TagColorStore, "load", lambda *a, **k: store)
+
+
+def test_add_tag_to_paths_assigns_typed_tag_to_multiple_files(
+    make_window, md_files, monkeypatch, tmp_path
+):
+    from app import doc_tags as doc_tags_facade
+
+    first, second = md_files
+    _use_real_tag_stores(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        window_mod.QInputDialog,
+        "getItem",
+        staticmethod(lambda *a, **k: ("quick", True)),
+    )
+    win = make_window()
+
+    win._add_tag_to_paths([first, second])
+
+    assert "quick" in doc_tags_facade.read_doc_tags(first)
+    assert "quick" in doc_tags_facade.read_doc_tags(second)
+    keys = win._tag_index.files_with_tag("quick")
+    assert str(first.resolve()) in keys
+    assert str(second.resolve()) in keys
+
+
+def test_add_tag_to_paths_accepts_existing_tag(
+    make_window, md_files, monkeypatch, tmp_path
+):
+    from app import doc_tags as doc_tags_facade
+
+    first, second = md_files
+    _use_real_tag_stores(monkeypatch, tmp_path)
+    doc_tags_facade.write_doc_tags(first, ["focus"])  # 'focus' already exists
+    monkeypatch.setattr(
+        window_mod.QInputDialog,
+        "getItem",
+        staticmethod(lambda *a, **k: ("focus", True)),
+    )
+    win = make_window()
+
+    win._add_tag_to_paths([second])
+
+    assert "focus" in doc_tags_facade.read_doc_tags(second)
+    assert str(second.resolve()) in win._tag_index.files_with_tag("focus")
+
+
+def test_add_tag_to_paths_cancel_makes_no_change(
+    make_window, md_files, monkeypatch, tmp_path
+):
+    from app import doc_tags as doc_tags_facade
+
+    first, _second = md_files
+    _use_real_tag_stores(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        window_mod.QInputDialog,
+        "getItem",
+        staticmethod(lambda *a, **k: ("ignored", False)),  # ok=False -> no-op
+    )
+    win = make_window()
+
+    win._add_tag_to_paths([first])
+
+    assert doc_tags_facade.read_doc_tags(first) == []
+    assert win._tag_index.files_with_tag("ignored") == []
