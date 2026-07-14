@@ -136,6 +136,12 @@ class _TagPillDelegate(QStyledItemDelegate):
     def __init__(self, color_for=None, parent=None):
         super().__init__(parent)
         self._color_for = color_for
+        self._text_color = None
+
+    def set_text_color(self, color):
+        """Set the filename text color (theme.text). Paired with the theme's
+        subtle selection tint so selected tagged rows stay readable."""
+        self._text_color = QColor(color) if color else None
 
     # ---- helpers -----------------------------------------------------
     def _tags(self, index) -> list[str]:
@@ -211,12 +217,11 @@ class _TagPillDelegate(QStyledItemDelegate):
         text_x = rect.left() + _ITEM_HMARGIN + deco_w
 
         # 3) Filename on line 1 (top-aligned, not centered in the taller rect).
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        pen_color = (
-            opt.palette.highlightedText().color()
-            if selected
-            else opt.palette.text().color()
-        )
+        # Filename uses the theme's normal text color even when selected. The
+        # theme pairs its subtle selection tint (surface_active) with normal
+        # text (see collection_stylesheet); forcing palette.highlightedText()
+        # (often white) made selected tagged rows unreadable in the light theme.
+        pen_color = self._text_color or opt.palette.text().color()
         painter.save()
         painter.setPen(pen_color)
         painter.setFont(option.font)
@@ -388,7 +393,8 @@ class FileBrowserView(QWidget):
         # Variable row heights: tagged rows are taller (they gain a pill line),
         # so uniform row heights must stay off for the pills to fit.
         self._tree.setUniformRowHeights(False)
-        self._tree.setItemDelegate(_TagPillDelegate(self._tag_color_for, self._tree))
+        self._tag_delegate = _TagPillDelegate(self._tag_color_for, parent=self._tree)
+        self._tree.setItemDelegate(self._tag_delegate)
         layout.addWidget(self._tree, stretch=1)
 
         self._status = QLabel()
@@ -400,6 +406,8 @@ class FileBrowserView(QWidget):
 
     def apply_theme(self, theme: Theme):
         self._theme = theme
+        if hasattr(self, "_tag_delegate"):
+            self._tag_delegate.set_text_color(theme.text)
         self._add_btn.setIcon(svg_icon("folder-plus", theme.accent, 18))
         self._refresh_btn.setIcon(svg_icon("refresh", theme.text_muted, 18))
         self.setStyleSheet(self._stylesheet(theme))

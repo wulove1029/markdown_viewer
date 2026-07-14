@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
             tag_color_for=self._tag_color_store.color_for,
             on_create_tag=self._create_tag,
             on_delete_tag=self._delete_tag,
+            on_rename_tag=self._rename_tag,
             on_assign_tag_to_paths=self._assign_tag_to_paths,
             on_open_file=self._open_file,
             # File-child context menu in the 標籤 tab reuses the file browser's
@@ -2530,6 +2531,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._tag_index,
             self._tag_color_store,
             on_changed=self._on_doc_tags_changed,
+            theme=self._theme,
+            on_delete_tag=self._delete_tag,
+            on_rename_tag=self._rename_tag,
             parent=self,
         ).exec()
 
@@ -2602,6 +2606,57 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # Drop the color registration so the tag stops appearing at count 0.
         self._tag_color_store.remove(tag)
         self._refresh_tags_panel()
+
+    def _rename_tag(self, old: str, new: str | None = None) -> None:
+        """Rename a document-level tag everywhere it is assigned.
+
+        Prompts for *new* when not given. Rewrites every affected file's
+        doc-level tags (old -> new, deduped, order preserved), migrates the
+        explicit color registration from *old* to *new*, then re-indexes and
+        refreshes the tag views via ``_on_doc_tags_changed`` (which already
+        refreshes the panel + file views, so we do not refresh again here).
+
+        Merge semantics: if *new* already exists, *old*'s files simply gain
+        *new* (deduped) -- i.e. *old* is folded into *new*, which is acceptable.
+
+        Note (same caveat as ``_delete_tag``): only document-level tags are
+        touched. Content-derived tags (MD front-matter, body #hashtags,
+        annotations) are not rewritten, so such a tag may reappear on re-index.
+        """
+        old = (old or "").strip()
+        if not old:
+            return
+        if new is None:
+            new, ok = QInputDialog.getText(
+                self, "重新命名標籤", "新標籤名稱：", text=old
+            )
+            if not ok:
+                return
+        new = (new or "").strip()
+        if not new or new == old:
+            return
+
+        affected = [Path(p) for p in self._tag_index.files_with_tag(old)]
+        for path in affected:
+            renamed: list[str] = []
+            for t in doc_tags_facade.read_doc_tags(path):
+                repl = new if t == old else t
+                if repl not in renamed:  # dedupe (folds old into an existing new)
+                    renamed.append(repl)
+            doc_tags_facade.write_doc_tags(path, renamed)
+
+        # Migrate the explicit color old -> new (keep new's own color if it
+        # already has one), then drop old's registration. Done before the
+        # refresh below so the single _on_doc_tags_changed pass reflects it.
+        col = self._tag_color_store.explicit_color(old)
+        if col and not self._tag_color_store.explicit_color(new):
+            self._tag_color_store.set_color(new, col)
+        self._tag_color_store.remove(old)
+
+        # Re-index touched files + refresh the tag panel and file views. This
+        # runs even when *affected* is empty (old was known-but-unassigned), so
+        # a rename of a colored-but-unused tag is still reflected in the panel.
+        self._on_doc_tags_changed(affected)
 
     def _prompt_new_tag(self, default_name: str = ""):
         """Small modal: tag name input + 7-swatch palette picker.

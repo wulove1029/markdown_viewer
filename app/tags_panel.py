@@ -154,7 +154,6 @@ class _TagNodeDelegate(QStyledItemDelegate):
 
         rect = option.rect
         fm = option.fontMetrics
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
 
         pill_h = min(rect.height() - _PILL_VMARGIN * 2, _PILL_HEIGHT)
         if pill_h <= 0:
@@ -187,12 +186,11 @@ class _TagNodeDelegate(QStyledItemDelegate):
         painter.setPen(_pill_text_color(fill))
         painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, label)
 
-        # "· N" count to the right of the pill. Keep it readable on a selected
-        # row by borrowing the highlighted-text color; muted otherwise.
-        count_pen = (
-            opt.palette.highlightedText().color() if selected else self._muted
-        )
-        painter.setPen(count_pen)
+        # "· N" count in the muted color. The theme pairs its subtle selection
+        # tint with normal text, so the muted color stays readable when selected
+        # too (borrowing highlightedText/white made it vanish on the light
+        # theme's pale selection).
+        painter.setPen(self._muted)
         count_x = int(x + pill_w + _PILL_COUNT_GAP)
         count_rect = QRect(
             count_x, rect.top(), max(0, right_limit - count_x), rect.height()
@@ -278,6 +276,7 @@ class TagsPanel(QWidget):
         tag_color_for=None,
         on_create_tag=None,
         on_delete_tag: Callable[[str], None] | None = None,
+        on_rename_tag: Callable[[str], None] | None = None,
         on_assign_tag_to_paths=None,
         on_open_file: Callable[[Path], None] | None = None,
         on_manage_tags: Callable[[list[Path]], None] | None = None,
@@ -313,6 +312,8 @@ class TagsPanel(QWidget):
         self._on_create_tag = on_create_tag
         # on_delete_tag(tag: str) removes the tag (right-click menu).
         self._on_delete_tag = on_delete_tag
+        # on_rename_tag(tag: str) renames the tag globally (right-click menu).
+        self._on_rename_tag = on_rename_tag
         self._theme = LIGHT
 
         layout = QVBoxLayout(self)
@@ -561,9 +562,20 @@ QPushButton#addTagButton:hover {{
         return None
 
     def _build_tag_menu(self, tag) -> QMenu:
-        """Right-click menu for a tag node: delete the tag (if supported)."""
+        """Right-click menu for a tag node: rename / delete the tag.
+
+        Each entry appears only when its callback is wired. Kept split from
+        exec so tests can inspect the menu without driving the modal popup.
+        """
         menu = QMenu(self)
-        if self._on_delete_tag is not None and tag:
+        if not tag:
+            return menu
+        if self._on_rename_tag is not None:
+            action = menu.addAction("重新命名標籤")
+            action.triggered.connect(
+                lambda _=False, t=tag: self._on_rename_tag(t)
+            )
+        if self._on_delete_tag is not None:
             action = menu.addAction("刪除標籤")
             action.triggered.connect(
                 lambda _=False, t=tag: self._on_delete_tag(t)

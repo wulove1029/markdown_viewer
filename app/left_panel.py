@@ -31,6 +31,7 @@ class LeftPanel(QWidget):
                  on_search_result=None,
                  on_manage_tags=None, tag_color_for=None,
                  on_create_tag=None, on_delete_tag=None,
+                 on_rename_tag=None,
                  on_assign_tag_to_paths=None,
                  on_open_file=None,
                  on_rename_file=None,
@@ -101,6 +102,7 @@ class LeftPanel(QWidget):
             tag_color_for=tag_color_for,
             on_create_tag=on_create_tag,
             on_delete_tag=on_delete_tag,
+            on_rename_tag=on_rename_tag,
             on_assign_tag_to_paths=on_assign_tag_to_paths,
             # Reuse the same open-file callback the file browser uses, so
             # clicking a file under a tag opens it exactly like elsewhere.

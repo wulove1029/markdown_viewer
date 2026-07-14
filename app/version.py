@@ -1,5 +1,5 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 
 GITHUB_OWNER = "wulove1029"
 GITHUB_REPO = "markdown_viewer"
