@@ -120,6 +120,17 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-07-28 14:15 — v1.20.0 發布準備〔已實作＋待驗證〕
+
+**作者**：Codex
+**類型**：實作
+
+依 `DEVELOPMENT.md` 第 6 節執行 `py -3 -X utf8 tools/bump_version.py 1.20.0`，已同步 `app/version.py:2` 與 `installer.iss:2`；`CHANGELOG.md:3` 新增 v1.20.0 的編輯/閱讀模式貼圖、閱讀模式原地編輯及 Windows 暫時鎖檔短重試說明。已 `git fetch origin --tags --prune`，目前 main 僅領先 origin/main 一個 A/B 功能 commit；GitHub CLI 已登入具 `repo`/`workflow` 權限的 `wulove1029`，release workflow 確認由推送 `v*.*.*` tag 觸發。
+
+發布前驗證：`RUN_WEBENGINE_TESTS=1 py -3 -X utf8 -m pytest tests -q` → `486 passed in 49.15s`；`py -3 -X utf8 -m PyInstaller --noconfirm markdown_viewer.spec` → exit 0，產生 11,139,631-byte EXE，`app.image_paste`/`app.inline_edit` 均在 Analysis，`dist/MarkdownViewer/_internal/assets/inline_edit.js` 存在且 8,089 bytes；`VERSION=1.20.0` read-back、`git diff --check` 皆通過，遠端 `v1.20.0` tag 尚不存在。啟動 smoke 因使用者正開著安裝版 v1.19.0，依單一實例契約將 README 轉送給既有程序後 exit 0；未中斷使用者程序，乾淨主程序啟動改由 GitHub Actions runner 的正式建置結果確認。
+
+**→ 下一棒**：Codex 跑發布前完整測試與 PyInstaller 打包 smoke，通過後建立 release commit、push main 與 v1.20.0 tag，監看 GitHub Actions 至 Release/安裝檔可下載。
+
 ### 2026-07-28 14:12 — 實機無作用已釐清＋既有隨機存檔失敗收尾〔已實作＋已驗證〕
 
 **作者**：Codex
