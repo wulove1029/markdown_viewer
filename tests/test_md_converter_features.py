@@ -67,7 +67,8 @@ def test_callout_blockquote_becomes_callout_div():
 
 def test_plain_blockquote_stays_blockquote():
     html, _ = convert_text("> just a quote\n")
-    assert "<blockquote>" in html
+    # "<blockquote" not "<blockquote>": top-level blocks carry data-src-* now.
+    assert "<blockquote" in html
     assert 'class="callout' not in html  # the CSS mentions callout; the body must not
 
 

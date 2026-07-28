@@ -12,7 +12,30 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import time
 from pathlib import Path
+
+
+# QFileSystemWatcher, antivirus scanners, and sync clients can briefly hold a
+# just-written file on Windows.  os.replace() then raises PermissionError even
+# though the same operation succeeds a few milliseconds later.  Keep the total
+# pause below 200 ms and retry only that transient class of failure; disk/full,
+# bad-path, and other OSErrors still reach the caller immediately.
+_WINDOWS_REPLACE_RETRY_DELAYS = (0.01, 0.025, 0.05, 0.1)
+
+
+def _replace_file(source: Path, target: Path) -> None:
+    """Replace *target*, tolerating a short-lived Windows sharing lock."""
+    if os.name != "nt":
+        os.replace(source, target)
+        return
+    for delay in _WINDOWS_REPLACE_RETRY_DELAYS:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    os.replace(source, target)
 
 
 def set_hidden(path: str | Path) -> None:
@@ -74,7 +97,7 @@ def atomic_write_bytes(
                 set_hidden(bak)
         except OSError:
             pass
-    os.replace(tmp, path)
+    _replace_file(tmp, path)
 
 
 def atomic_write_text(

@@ -19,7 +19,7 @@ def test_markdown_file_worker_returns_generation_and_headings(qapp, tmp_path):
     generation, source, html, headings = results[0]
     assert generation == 42
     assert Path(source) == path
-    assert "<h1 id=\"async\">Async</h1>" in html
+    assert "<h1 id=\"async\"" in html and ">Async</h1>" in html
     assert headings == [(1, "Async", "async")]
 
 

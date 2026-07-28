@@ -328,6 +328,91 @@ def _tasklist_line_plugin(md: MarkdownIt) -> None:
     md.core.ruler.push("tasklist_line", add_lines)
 
 
+# Token types whose renderer emits raw markup and therefore ignores the
+# attributes set on the token; they need the source range spliced into the
+# rendered string instead (see ``_src_range_rule``).
+_RAW_OUTPUT_TOKENS = ("fence", "html_block", "math_block")
+_OPEN_TAG_RE = re.compile(r"<([a-zA-Z][\w:-]*)")
+# An html_block that opens an element it does not close (``<details>``) renders
+# as a wrapper around blocks it does not own, so editing "it" would offer one
+# line while hiding many. Only self-contained fragments get a source range.
+_BALANCED_HTML_RE = re.compile(
+    r"^<([a-zA-Z][\w:-]*)(?:\s[^>]*)?>.*</\1>$", re.DOTALL
+)
+
+
+def _inject_src_attrs(html: str, start: int, end: int) -> str:
+    """Splice ``data-src-*`` into the first opening tag of *html*.
+
+    Returns *html* unchanged when it does not begin with an opening tag (a
+    lone ``</details>`` html_block, for instance).
+    """
+    match = _OPEN_TAG_RE.match(html)
+    if not match:
+        return html
+    attrs = f' data-src-start="{start}" data-src-end="{end}"'
+    return html[: match.end()] + attrs + html[match.end() :]
+
+
+def _src_range_rule(inner):
+    """Wrap a renderer rule so the token's source range lands in the output."""
+
+    def rule(tokens, idx, options, env):
+        out = inner(tokens, idx, options, env)
+        src_range = (tokens[idx].meta or {}).get("srcRange")
+        if not src_range:
+            return out
+        return _inject_src_attrs(out, src_range[0], src_range[1])
+
+    return rule
+
+
+def _source_line_plugin(md: MarkdownIt) -> None:
+    """Tag every top-level block with the source lines it was built from.
+
+    Emits ``data-src-start`` / ``data-src-end`` as **0-based, inclusive** line
+    indices into the original Markdown (front matter included in the count, so
+    the numbers match ``text.split("\\n")`` exactly). The preview uses them to
+    ask Python for the raw Markdown behind a block and to write an inline edit
+    back to the right lines. Front matter itself is deliberately untagged, and
+    nested blocks are skipped so a double-click always resolves to the
+    outermost block.
+    """
+
+    def add_ranges(state):
+        lines = state.src.split("\n")
+        for token in state.tokens:
+            if token.level != 0 or token.hidden or not token.map:
+                continue
+            # Closing tokens carry no map; front matter must stay uneditable.
+            if token.nesting < 0 or token.type == "front_matter":
+                continue
+            if token.type == "html_block" and not _BALANCED_HTML_RE.match(
+                token.content.strip()
+            ):
+                continue
+            start, stop = token.map[0], token.map[1]
+            end = stop - 1
+            # Some block maps swallow the blank separator lines that follow
+            # (list blocks notably do); keep the range on real content.
+            while end > start and 0 <= end < len(lines) and not lines[end].strip():
+                end -= 1
+            if start < 0 or end < start:
+                continue
+            token.meta = dict(token.meta or {})
+            token.meta["srcRange"] = (start, end)
+            if token.type not in _RAW_OUTPUT_TOKENS:
+                token.attrSet("data-src-start", str(start))
+                token.attrSet("data-src-end", str(end))
+
+    md.core.ruler.push("source_line", add_ranges)
+
+    for name in _RAW_OUTPUT_TOKENS:
+        inner = md.renderer.rules.get(name)
+        if inner is not None:
+            md.renderer.rules[name] = _src_range_rule(inner)
+
+
 def _wikilink_plugin(md: MarkdownIt) -> None:
     """Parse ``[[target]]`` / ``[[target|alias]]`` into wiki-link anchors.
 
@@ -385,6 +470,9 @@ def _build_parser() -> MarkdownIt:
     md = md.use(_wikilink_plugin)   # [[note]] wiki-links
     md = md.use(_callout_plugin)    # > [!note] callouts
     md = md.use(_safe_html_plugin)  # small safe-HTML allowlist
+    # Last: it stamps the final tags, so it must see every other plugin's
+    # rewrites (callouts turn blockquotes into divs, for example).
+    md = md.use(_source_line_plugin)  # data-src-start/end for inline editing
     return md
 
 
@@ -404,16 +492,17 @@ def _inject_anchors(html: str) -> tuple[str, list[tuple[int, str, str]]]:
 
     def replace_heading(match: re.Match) -> str:
         level = int(match.group(1))
-        inner = match.group(2)
+        existing = match.group(2)  # attributes already on the tag (data-src-*)
+        inner = match.group(3)
         text = re.sub(r"<[^>]+>", "", inner).strip()
         base = _slugify(text) or f"heading-{len(headings)}"
         slug_count[base] = slug_count.get(base, 0) + 1
         anchor = base if slug_count[base] == 1 else f"{base}-{slug_count[base]}"
         headings.append((level, text, anchor))
-        return f'<h{level} id="{anchor}">{inner}</h{level}>'
+        return f'<h{level} id="{anchor}"{existing}>{inner}</h{level}>'
 
     result = re.sub(
-        r"<h([1-6])>(.*?)</h\1>",
+        r"<h([1-6])((?:\s[^>]*)?)>(.*?)</h\1>",
         replace_heading,
         html,
         flags=re.DOTALL,

@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from app import atomic_io as atomic_io_module
 from app.atomic_io import (
     atomic_write_bytes,
     atomic_write_text,
@@ -61,6 +62,51 @@ def test_sha256_hex():
     assert sha256_hex(b"") == (
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     )
+
+
+@_windows_only
+def test_atomic_write_retries_a_transient_replace_permission_error(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "retry.md"
+    target.write_bytes(b"before")
+    real_replace = atomic_io_module.os.replace
+    calls = []
+    sleeps = []
+
+    def transient_replace(source, destination):
+        calls.append((source, destination))
+        if len(calls) < 3:
+            raise PermissionError(13, "temporarily locked", str(destination))
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(atomic_io_module.os, "replace", transient_replace)
+    monkeypatch.setattr(atomic_io_module.time, "sleep", sleeps.append)
+
+    atomic_write_bytes(target, b"after", backup=False)
+
+    assert target.read_bytes() == b"after"
+    assert len(calls) == 3
+    assert sleeps == list(atomic_io_module._WINDOWS_REPLACE_RETRY_DELAYS[:2])
+
+
+@_windows_only
+def test_atomic_write_does_not_retry_a_non_permission_replace_error(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "fatal.md"
+    sleeps = []
+
+    def fatal_replace(_source, _destination):
+        raise OSError(28, "disk full")
+
+    monkeypatch.setattr(atomic_io_module.os, "replace", fatal_replace)
+    monkeypatch.setattr(atomic_io_module.time, "sleep", sleeps.append)
+
+    with pytest.raises(OSError, match="disk full"):
+        atomic_write_bytes(target, b"data", backup=False)
+
+    assert sleeps == []
 
 
 def test_set_hidden_never_raises_on_missing(tmp_path):

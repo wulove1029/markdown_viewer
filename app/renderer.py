@@ -196,6 +196,12 @@ class RendererView(QWebEngineView):
         self._annotations_js = (
             Path(__file__).parent.parent / "assets" / "annotations.js"
         ).read_text(encoding="utf-8")
+        self._inline_edit_js = (
+            Path(__file__).parent.parent / "assets" / "inline_edit.js"
+        ).read_text(encoding="utf-8")
+        # Inline block editing is a preview-mode affordance; the window turns it
+        # off whenever the text editor takes over the buffer.
+        self._inline_edit_enabled = True
         self.page().loadFinished.connect(self._inject_annotations)
 
         self.show_empty()
@@ -470,12 +476,31 @@ class RendererView(QWebEngineView):
     def _inject_annotations(self, ok):
         if not ok or not self._current_path or not is_markdown(self._current_path):
             return
-        boot = "window.__annotBoot(%s, %s);" % (
+        boot = "window.__annotBoot(%s, %s, %s);" % (
             json.dumps(self._annot_json),
             json.dumps(self._side_notes_visible),
+            json.dumps(self._inline_edit_enabled),
         )
         self.page().runJavaScript(
-            self._qwebchannel_js + "\n" + self._annotations_js + "\n" + boot
+            self._qwebchannel_js
+            + "\n"
+            + self._annotations_js
+            + "\n"
+            + self._inline_edit_js
+            + "\n"
+            + boot
+        )
+
+    def set_inline_edit_enabled(self, enabled: bool):
+        """Allow or forbid double-click-to-edit in the rendered preview.
+
+        Stored as well as pushed, so a page loaded later boots with the right
+        state rather than defaulting back to enabled.
+        """
+        self._inline_edit_enabled = bool(enabled)
+        self.page().runJavaScript(
+            "window.__inlineEdit && window.__inlineEdit.setEnabled(%s)"
+            % json.dumps(self._inline_edit_enabled)
         )
 
     def set_annotations(self, annotations: list[dict]):

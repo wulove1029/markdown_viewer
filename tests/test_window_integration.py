@@ -22,6 +22,17 @@ class _Bridge(QObject):
     orphansReported = Signal(object)
     taskToggled = Signal(object)
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.inline_edit_handlers = {}
+
+    def set_inline_edit_handlers(self, fetch=None, commit=None, paste_image=None):
+        self.inline_edit_handlers = {
+            "fetch": fetch,
+            "commit": commit,
+            "paste_image": paste_image,
+        }
+
 
 class _FakeRenderer(QWidget):
     active_anchor_changed = Signal(str)
@@ -41,9 +52,14 @@ class _FakeRenderer(QWidget):
         self.queued_find = None
         self.text_renders = []
         self.ratio_calls = []
+        self.reload_calls = 0
+        self.inline_edit_enabled = True
 
     def set_annotation_side_notes_visible(self, visible):
         self._side_notes_visible = bool(visible)
+
+    def set_inline_edit_enabled(self, enabled):
+        self.inline_edit_enabled = bool(enabled)
 
     def set_zoom(self, factor):
         self._zoom = float(factor)
@@ -65,7 +81,7 @@ class _FakeRenderer(QWidget):
         pass
 
     def reload_current(self):
-        pass
+        self.reload_calls += 1
 
     def scroll_y(self):
         return self._scroll_y
@@ -1024,3 +1040,212 @@ def test_add_tag_to_paths_cancel_makes_no_change(
 
     assert doc_tags_facade.read_doc_tags(first) == []
     assert win._tag_index.files_with_tag("ignored") == []
+
+
+# --- inline editing of a preview block (assets/inline_edit.js <-> window) ---
+def _inline_handlers(win):
+    return win._renderer.bridge.inline_edit_handlers
+
+
+def test_inline_edit_handlers_are_registered_on_the_preview_bridge(make_window):
+    win = make_window()
+
+    handlers = _inline_handlers(win)
+
+    assert set(handlers) == {"fetch", "commit", "paste_image"}
+    assert all(callable(h) for h in handlers.values())
+
+
+def test_inline_edit_fetch_returns_the_exact_source_lines(make_window, tmp_path):
+    note = tmp_path / "inline.md"
+    note.write_text("# Title\n\nalpha\nbeta\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+
+    assert _inline_handlers(win)["fetch"](2, 3) == {"ok": True, "text": "alpha\nbeta"}
+
+
+def test_inline_edit_fetch_rejects_a_range_past_the_end(make_window, tmp_path):
+    note = tmp_path / "short.md"
+    note.write_text("only line\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+
+    assert _inline_handlers(win)["fetch"](40, 41)["ok"] is False
+
+
+def test_inline_edit_commit_rewrites_the_file_and_rerenders(make_window, tmp_path):
+    note = tmp_path / "commit.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    before = win._renderer.reload_calls
+
+    result = _inline_handlers(win)["commit"](2, 2, "alpha", "alpha edited\nplus a line")
+
+    assert result == {"ok": True}
+    assert note.read_text(encoding="utf-8") == "# Title\n\nalpha edited\nplus a line\n"
+    assert win._renderer.reload_calls == before + 1
+
+
+def test_inline_edit_commit_preserves_crlf_line_endings(make_window, tmp_path):
+    note = tmp_path / "crlf.md"
+    note.write_bytes(b"# Title\r\n\r\nalpha\r\n")
+    win = make_window()
+    win.open_path(str(note))
+
+    assert _inline_handlers(win)["commit"](2, 2, "alpha", "beta")["ok"] is True
+
+    assert note.read_bytes() == b"# Title\r\n\r\nbeta\r\n"
+
+
+def test_inline_edit_commit_preserves_the_original_encoding(make_window, tmp_path):
+    note = tmp_path / "big5.md"
+    note.write_bytes("# 標題\n\n段落\n".encode("cp950"))
+    win = make_window()
+    win.open_path(str(note))
+
+    assert _inline_handlers(win)["commit"](2, 2, "段落", "改過的段落")["ok"] is True
+
+    assert note.read_bytes().decode("cp950") == "# 標題\n\n改過的段落\n"
+
+
+def test_inline_edit_commit_refuses_when_the_file_changed_underneath(
+    make_window, tmp_path
+):
+    note = tmp_path / "stale.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    note.write_text("# Title\n\nsomeone else wrote this\n", encoding="utf-8")
+    before = win._renderer.reload_calls
+
+    result = _inline_handlers(win)["commit"](2, 2, "alpha", "my edit")
+
+    assert result["ok"] is False
+    # Untouched on disk, and the stale preview is forced to re-render.
+    assert note.read_text(encoding="utf-8") == "# Title\n\nsomeone else wrote this\n"
+    assert win._renderer.reload_calls == before + 1
+
+
+def test_inline_edit_is_refused_while_the_editor_owns_the_buffer(
+    make_window, tmp_path
+):
+    note = tmp_path / "editing.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    win._toggle_edit_mode()
+    assert win._edit_mode is True
+
+    handlers = _inline_handlers(win)
+    assert handlers["fetch"](2, 2)["ok"] is False
+    assert handlers["commit"](2, 2, "alpha", "beta")["ok"] is False
+    assert handlers["paste_image"]()["ok"] is False
+    assert note.read_text(encoding="utf-8") == "# Title\n\nalpha\n"
+
+
+def test_inline_edit_flag_follows_the_view_mode(make_window, tmp_path):
+    note = tmp_path / "modes.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    assert win._renderer.inline_edit_enabled is True
+
+    win._toggle_edit_mode()
+    assert win._renderer.inline_edit_enabled is False
+
+    win._toggle_edit_mode()  # back to preview
+    assert win._renderer.inline_edit_enabled is True
+
+
+def test_inline_edit_paste_image_saves_next_to_the_document(
+    make_window, tmp_path, monkeypatch
+):
+    from PySide6.QtGui import QImage
+
+    note = tmp_path / "paste.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+
+    image = QImage(4, 4, QImage.Format.Format_RGB32)
+    image.fill(0x336699)
+    monkeypatch.setattr(
+        window_mod.QGuiApplication,
+        "clipboard",
+        staticmethod(lambda: type("_Clip", (), {"image": lambda self: image})()),
+    )
+
+    result = _inline_handlers(win)["paste_image"]()
+
+    assert result["ok"] is True
+    assert result["link"].startswith("![](assets/image-")
+    saved = list((tmp_path / "assets").glob("*.png"))
+    assert len(saved) == 1
+
+
+def test_inline_edit_paste_image_reports_an_empty_clipboard(
+    make_window, tmp_path, monkeypatch
+):
+    from PySide6.QtGui import QImage
+
+    note = tmp_path / "noimage.md"
+    note.write_text("# Title\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    monkeypatch.setattr(
+        window_mod.QGuiApplication,
+        "clipboard",
+        staticmethod(lambda: type("_Clip", (), {"image": lambda self: QImage()})()),
+    )
+
+    assert _inline_handlers(win)["paste_image"]() == {"ok": False, "error": "no-image"}
+    assert not (tmp_path / "assets").exists()
+
+
+def test_inline_edit_is_unavailable_without_an_open_document(make_window):
+    win = make_window()
+
+    handlers = _inline_handlers(win)
+    assert handlers["fetch"](0, 0)["ok"] is False
+    assert handlers["paste_image"]()["ok"] is False
+
+
+def test_task_checkbox_write_back_still_works(make_window, tmp_path):
+    note = tmp_path / "tasks.md"
+    note.write_text("# Title\n\n- [ ] one\n- [ ] two\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+
+    win._on_task_toggled(2, True)
+
+    assert note.read_text(encoding="utf-8") == "# Title\n\n- [x] one\n- [ ] two\n", (
+        win.statusBar().currentMessage()
+    )
+
+
+def test_inline_edit_commit_refreshes_the_tag_index(make_window, tmp_path):
+    note = tmp_path / "indexed.md"
+    note.write_text("# Heading\n\ntext #before\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    assert win._tag_index.updates[-1][1]["body_tags"] == ["before"]
+
+    _inline_handlers(win)["commit"](2, 2, "text #before", "text #after")
+
+    assert win._tag_index.updates[-1][1]["body_tags"] == ["after"]
+
+
+def test_inline_edit_commit_falls_back_to_utf8_when_the_encoding_cannot_hold_it(
+    make_window, tmp_path
+):
+    note = tmp_path / "downgrade.md"
+    note.write_bytes("# 標題\n\n段落\n".encode("cp950"))
+    win = make_window()
+    win.open_path(str(note))
+
+    result = _inline_handlers(win)["commit"](2, 2, "段落", "段落 ✅")
+    assert result["ok"] is True, (result, win.statusBar().currentMessage())
+
+    assert note.read_bytes().decode("utf-8") == "# 標題\n\n段落 ✅\n"

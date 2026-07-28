@@ -19,6 +19,8 @@ from PySide6.QtGui import (
     QAction,
     QDragEnterEvent,
     QDropEvent,
+    QGuiApplication,
+    QImage,
     QKeySequence,
     QShortcut,
     QTextCursor,
@@ -52,6 +54,8 @@ from . import doc_tags as doc_tags_facade
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
 from .manage_tags_dialog import ManageTagsDialog
 from .graph_view import GraphWindow
+from .image_paste import markdown_image_link, save_clipboard_image
+from .inline_edit import extract_source_lines, replace_source_lines
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
 from .md_converter import (
@@ -275,6 +279,13 @@ class MainWindow(QMainWindow):
         self._renderer.bridge.clicked.connect(self._on_bridge_clicked)
         self._renderer.bridge.orphansReported.connect(self._on_bridge_orphans)
         self._renderer.bridge.taskToggled.connect(self._on_task_toggled)
+        # Inline preview editing answers the page synchronously, so it is wired
+        # as handlers rather than signals (see AnnotationBridge).
+        self._renderer.bridge.set_inline_edit_handlers(
+            fetch=self._inline_edit_fetch,
+            commit=self._inline_edit_commit,
+            paste_image=self._inline_edit_paste_image,
+        )
         self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
@@ -286,6 +297,9 @@ class MainWindow(QMainWindow):
         self._editing_newline = "\n"
         self._editor = EditorView()
         self._editor.modified_changed.connect(self._on_editor_modified)
+        self._editor.image_status.connect(
+            lambda msg: self.statusBar().showMessage(msg, 4000)
+        )
 
         # Split mode is a split pane: editor on the left, a live preview on
         # the right, kept in sync as you type (debounced) and scroll. Edit
@@ -1385,12 +1399,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         text, encoding = result
         self._editing_encoding = encoding
         self._editing_newline = "\r\n" if b"\r\n" in raw else "\n"
+        self._editor.set_document_path(self._current_file)
         self._editor.set_content(text)
         self._editor.set_wikilink_candidates(
             self._link_index.completion_candidates
         )
 
         self._view_mode = mode
+        self._renderer.set_inline_edit_enabled(False)  # the editor owns the buffer
         self._preview_scroll_ratio = 0.0
         self._apply_split_visibility()
         self._close_search()
@@ -1411,6 +1427,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _leave_edit_ui(self):
         self._view_mode = view_mode.PREVIEW
+        self._renderer.set_inline_edit_enabled(True)
         self._preview_timer.stop()
         self._editor_search_bar.hide()
         is_md = bool(self._current_file and is_markdown(self._current_file))
@@ -1703,6 +1720,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.save_active_view_state(self)
 
     def _show_empty_state(self):
+        self._editor.set_document_path(None)
         self._current_file = None
         self._current_kind = ""
         self._current_front_tags = []
@@ -2778,6 +2796,95 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._loaded_signature = self._file_signature(self._current_file)
         self._rearm_watch()
         self.statusBar().showMessage("已更新待辦狀態", 1500)
+
+    # --- inline editing of a block in the preview (see assets/inline_edit.js) ---
+    def _inline_edit_context(self):
+        """Return (text, encoding, newline) for the file, or None if off-limits.
+
+        Off-limits means: no Markdown document open, or the text editor owns the
+        buffer -- the same guard the task-checkbox write-back uses, so the
+        preview can never write behind the editor's back.
+        """
+        if not self._current_file or not is_markdown(self._current_file):
+            return None
+        if view_mode.is_editing(self._view_mode):
+            return None
+        try:
+            raw = self._current_file.read_bytes()
+        except OSError:
+            return None
+        result = read_text(self._current_file)
+        if result is None:
+            return None
+        text, encoding = result
+        return text, encoding, "\r\n" if b"\r\n" in raw else "\n"
+
+    def _inline_edit_fetch(self, start: int, end: int) -> dict:
+        """Hand the preview the raw Markdown behind one rendered block."""
+        context = self._inline_edit_context()
+        if context is None:
+            return {"ok": False, "error": "unavailable"}
+        source = extract_source_lines(context[0], start, end)
+        if source is None:
+            return {"ok": False, "error": "out-of-range"}
+        return {"ok": True, "text": source}
+
+    def _inline_edit_commit(self, start: int, end: int, original: str, new: str) -> dict:
+        """Write an inline preview edit back to the file it came from."""
+        context = self._inline_edit_context()
+        if context is None:
+            # The page keeps the textarea open on a failure, so say why rather
+            # than letting the typed text sit there unexplained.
+            self.statusBar().showMessage("目前無法從預覽編輯這份文件", 6000)
+            return {"ok": False, "error": "unavailable"}
+        text, encoding, newline = context
+        out = replace_source_lines(text, start, end, original, new, newline)
+        if out is None:
+            # The file moved under the preview, so its line numbers are fiction
+            # now; re-render rather than write to the wrong place.
+            self.statusBar().showMessage("檔案已在外部變更，已重新載入預覽", 6000)
+            self._renderer.reload_current()
+            return {"ok": False, "error": "stale"}
+        downgraded = False
+        try:
+            data = out.encode(encoding)
+        except UnicodeEncodeError:
+            downgraded = True
+            data = out.encode("utf-8")
+        try:
+            atomic_write_bytes(self._current_file, data)
+        except OSError as exc:
+            self.statusBar().showMessage(f"無法儲存編輯：{exc}", 6000)
+            return {"ok": False, "error": str(exc)}
+        self._loaded_signature = self._file_signature(self._current_file)
+        self._rearm_watch()
+        self._renderer.reload_current()  # keeps the scroll position
+        if downgraded:
+            self._editing_encoding = "utf-8"
+            self.statusBar().showMessage(
+                "內容含原編碼無法表示的字元，已改用 UTF-8 儲存", 6000
+            )
+        else:
+            self.statusBar().showMessage("已更新段落", 3000)
+        # An inline edit can add a wiki-link or a #tag just as a full save can,
+        # so the same indexes have to catch up (see _save_file).
+        self._refresh_link_index(force=True)
+        self._update_front_tags()
+        return {"ok": True}
+
+    def _inline_edit_paste_image(self) -> dict:
+        """Save the clipboard image next to the document, return its link."""
+        if self._inline_edit_context() is None:
+            self.statusBar().showMessage("請先儲存文件才能貼入圖片", 4000)
+            return {"ok": False, "error": "unavailable"}
+        image = QGuiApplication.clipboard().image()
+        if not isinstance(image, QImage) or image.isNull():
+            return {"ok": False, "error": "no-image"}
+        rel = save_clipboard_image(image, self._current_file)
+        if rel is None:
+            self.statusBar().showMessage("圖片儲存失敗，請重試", 4000)
+            return {"ok": False, "error": "save-failed"}
+        return {"ok": True, "link": markdown_image_link(rel)}
 
     # --- callbacks from the annotations panel ---
     def _annot_note_changed(self, ann_id, text):

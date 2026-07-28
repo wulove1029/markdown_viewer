@@ -1,9 +1,17 @@
 """Plain-text Markdown editor shown when edit mode is active."""
 
+from pathlib import Path
+
 from PySide6.QtCore import QStringListModel, Qt, Signal
-from PySide6.QtGui import QFont, QFontMetricsF, QTextCursor
+from PySide6.QtGui import QFont, QFontMetricsF, QImage, QTextCursor
 from PySide6.QtWidgets import QCompleter, QPlainTextEdit
 
+from .image_paste import (
+    import_image_file,
+    is_image_file,
+    markdown_image_link,
+    save_clipboard_image,
+)
 from .md_highlighter import MarkdownHighlighter
 from .theme import LIGHT, Theme
 from .wikilink_completion import active_query, filter_completions
@@ -11,6 +19,7 @@ from .wikilink_completion import active_query, filter_completions
 
 class EditorView(QPlainTextEdit):
     modified_changed = Signal(bool)
+    image_status = Signal(str)  # user-facing status bar message
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -22,6 +31,7 @@ class EditorView(QPlainTextEdit):
         self.document().modificationChanged.connect(self.modified_changed)
         self._highlighter = MarkdownHighlighter(self.document(), LIGHT)
         self._wikilink_candidates: list[str] = []
+        self._document_path: str | None = None
         self._completion_model = QStringListModel(self)
         self._completer = QCompleter(self._completion_model, self)
         self._completer.setWidget(self)
@@ -33,6 +43,76 @@ class EditorView(QPlainTextEdit):
         self._completer.popup().hide()
         self.setPlainText(text)
         self.document().setModified(False)
+
+    def set_document_path(self, path: str | Path | None) -> None:
+        """Tell the editor which file it is editing (for asset placement)."""
+        self._document_path = str(path) if path else None
+
+    # ---------------- image paste / drag-and-drop ----------------
+    @staticmethod
+    def _mime_has_image(mime) -> bool:
+        """True when *mime* holds raster image data or all-image file URLs."""
+        if mime.hasImage():
+            return True
+        if mime.hasUrls():
+            urls = mime.urls()
+            return bool(urls) and all(
+                u.isLocalFile() and is_image_file(u.toLocalFile()) for u in urls
+            )
+        return False
+
+    def _insert_image_mime(self, mime) -> None:
+        if not self._document_path:
+            self.image_status.emit("請先儲存文件才能貼入圖片")
+            return
+        links: list[str] = []
+        if mime.hasImage():
+            qimage = mime.imageData()
+            if not isinstance(qimage, QImage):
+                qimage = QImage(qimage)
+            rel = save_clipboard_image(qimage, self._document_path)
+            if rel is None:
+                self.image_status.emit("圖片儲存失敗，請重試")
+                return
+            links.append(markdown_image_link(rel))
+        elif mime.hasUrls():
+            for url in mime.urls():
+                rel = import_image_file(url.toLocalFile(), self._document_path)
+                links.append(markdown_image_link(rel))
+        if links:
+            self.insertPlainText("\n".join(links))
+
+    def canInsertFromMimeData(self, source) -> bool:  # noqa: N802 (Qt override)
+        if self._mime_has_image(source):
+            return True
+        return super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source) -> None:  # noqa: N802 (Qt override)
+        if self._mime_has_image(source):
+            self._insert_image_mime(source)
+            return
+        super().insertFromMimeData(source)
+
+    def dragEnterEvent(self, event):  # noqa: N802 (Qt override)
+        if self._mime_has_image(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):  # noqa: N802 (Qt override)
+        if self._mime_has_image(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):  # noqa: N802 (Qt override)
+        mime = event.mimeData()
+        if self._mime_has_image(mime):
+            self.setTextCursor(self.cursorForPosition(event.position().toPoint()))
+            self._insert_image_mime(mime)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     def set_wikilink_candidates(self, candidates) -> None:
         self._wikilink_candidates = list(candidates)

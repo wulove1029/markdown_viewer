@@ -120,6 +120,58 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-07-28 14:12 — 實機無作用已釐清＋既有隨機存檔失敗收尾〔已實作＋已驗證〕
+
+**作者**：Codex
+**類型**：分析＋驗證
+
+已確認本機安裝版是 `C:\Program Files\Markdown Viewer\MarkdownViewer.exe` v1.19.0（安裝時間 2026-07-14）；目前原始碼版本同為 `app/version.py:2` 的 1.19.0，但 A/B 功能是 2026-07-28 才加入且仍全部未 commit（`app/editor.py:47`、`app/window.py:2801`、`assets/inline_edit.js:1`）。因此從 Windows 檔案關聯、開始功能表或已安裝的 EXE 開啟文件，載入的是兩週前的 binary，A/B 必然都完全無作用。先前 475 passed 只驗證工作目錄原始碼，沒有驗證使用者實際啟動的安裝版；原回報漏了「必須用 `py -3 main.py <file.md>` 測未發布原始碼」這項前提。
+
+改用工作目錄原始碼後，A/B 相關測試（含 real Chromium）`92 passed in 37.06s`；使用者 14:05 實機回覆「可以了」，確認正確啟動來源下功能有效。第一次在 E: 專案內指定 `--basetemp` 因該目錄既有 ACL 拒絕而出現 setup errors，改用 `%TEMP%` 重跑全數通過，與產品程式無關。
+
+收尾全套測試時重現討論版 7/11 已記錄、原本仍列「另案」的 Windows/Qt 暫時鎖檔：連續兩輪分別在不同 `_save_edits()`/task/inline commit 測試隨機失敗，單跑皆通過，符合既有 `PermissionError(13)` 證據。現於 `app/atomic_io.py:_replace_file` 對 Windows `PermissionError` 加總計低於 200 ms 的有限短重試；非 Windows 與其他 `OSError` 不重試，仍立即交回 UI 報錯。`tests/test_atomic_io.py` 新增「前兩次暫鎖後成功」及「disk full 不重試」回歸測試；`tests/test_window_integration.py` 的回寫斷言補上狀態列診斷內容。
+
+最終驗證：不含 opt-in Chromium 的全套連跑 5 次，每次皆 `477 passed, 9 skipped, 0 failed`；含 real Chromium 的全套 `486 passed in 49.22s`；`git diff --check` exit 0。使用者已確認實機功能有效。
+
+**→ 下一棒**：無；已依使用者確認建立本機 commit，未 push、未發版。
+
+### 2026-07-28 13:15 — 閱讀模式行內編輯＋貼圖（筆記強化 選項B）〔已實作＋已驗證〕
+
+**作者**：Claude（派工 opus subagent 實作＋另派 fresh sonnet subagent 獨立驗收）
+**類型**：實作＋驗證
+
+PREVIEW 模式雙擊頂層區塊 → 原地 textarea 載入原始 Markdown → Ctrl+Enter 提交回寫檔案（保留編碼/CRLF、比對 originalText 防外部改檔漂移，不符則拒絕＋提示＋重渲染）、Esc 取消；textarea 內 Ctrl+V 貼剪貼簿圖片經 bridge 由 Python 用 `image_paste` 存到 assets/ 並回傳連結插入游標處（圖片資料不過 bridge）。
+
+改動：
+- `app/md_converter.py`：`_source_line_plugin`（頂層 block 注入 `data-src-start/end`，front matter/巢狀跳過；fence/html_block/math_block 由 `_src_range_rule` 補注入）；`_inject_anchors` 修為保留既有屬性。
+- 新 `app/inline_edit.py`：`extract_source_lines`/`replace_source_lines` 純函式（mismatch 回 None 拒絕）。
+- `app/annotation_bridge.py:84-95` 三個 slot；`app/window.py`：`_inline_edit_context:2801`（模式/編碼/CRLF guard）、fetch/commit/paste handlers、tag/link 索引同步刷新、cp950→UTF-8 降級提示。
+- 新 `assets/inline_edit.js`（與 annotations.js 共用同一 QWebChannel bridge）。
+
+驗證證據（獨立驗收 agent 實跑）：全套 475 passed, 9 skipped（含既有 E: 磁碟 atomic-write 偶發 flake，已證實與本改動無關）；`RUN_WEBENGINE_TESTS=1` real-Chromium 端對端 7 passed；`replace_source_lines` CRLF/行數增減/越界拒絕實測；task checkbox、標註、SPLIT 回歸測試全過；EDIT/SPLIT 拒絕行內編輯、拒絕提交不遺失輸入均確認。
+
+已知限制（驗收列出，暫不處理）：mermaid 圖雙擊可能因 mermaid.js 替換節點而靜默無反應；textarea 開啟中若外部改檔觸發整頁重繪，編輯框會失效且輸入無提示消失；連結/註腳定義行不產生 token 故不可行內編輯。
+需使用者手動確認：真實截圖 Ctrl+V 貼圖、提交後捲動位置、mermaid/KaTeX 視覺無異常。
+
+**→ 下一棒**：無，待使用者實際使用回饋（手動確認清單見上）
+
+### 2026-07-28 11:15 — 編輯器貼上/拖放圖片（筆記強化 選項A）〔已實作＋已驗證〕
+
+**作者**：Claude（派工 sonnet subagent 實作＋另派 fresh subagent 獨立驗收）
+**類型**：實作＋驗證
+
+使用者需求：寫筆記時無法貼圖（原本連編輯模式都不支援）。本輪完成「選項A：編輯器貼圖」，為後續「選項B：閱讀模式行內編輯＋貼圖」的地基。
+
+改動：
+- 新模組 `app/image_paste.py`：`save_clipboard_image`（剪貼簿圖→`<doc_dir>/assets/image-YYYYMMDD-HHMMSS.png`，同秒碰撞加 `-1/-2`）、`import_image_file`（文件夾外複製進 assets/，夾內直接相對連結）、`markdown_image_link`（含空格路徑用 `<...>`）。純邏輯可 headless 測試。
+- `app/editor.py`：`set_document_path`（:47）、`image_status` signal（:22）、`canInsertFromMimeData`/`insertFromMimeData`（:82-91）、drag/drop（:93-112）。無文件路徑→不寫檔不插入，statusbar 提示「請先儲存文件才能貼入圖片」。
+- `app/window.py`：:289-291 statusbar 接線、:1391/:1710 文件路徑同步。
+
+驗證證據（獨立驗收 agent 實跑）：新測試 `tests/test_image_paste.py`（9）＋編輯器整合測試（6）全過；全套 `py -3 -X utf8 -m pytest tests -q` → 421 passed, 2 skipped。跨磁碟機拖圖、中文路徑實測正常。
+已知待收尾：新測試疑似造成間歇性 flaky（7 次全套 2 次無關測試隨機失敗，斷在 `_save_edits()`），已派原實作者加測試隔離＋`qimage.isNull()`/`save()` 失敗防禦，要求連跑 5 次全套 0 failed。
+
+**→ 下一棒**：Claude 收 flaky 修正驗證後，派工選項B（閱讀模式行內編輯＋貼圖，重用 image_paste 模組）
+
 ### 2026-07-11 14:20 — v1.17.0 已發布〔已同步〕
 
 **作者**：Claude

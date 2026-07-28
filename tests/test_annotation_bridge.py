@@ -27,6 +27,54 @@ def test_report_orphans_parses_json(qapp):
     assert got == [["a", "b"]]
 
 
+def test_inline_edit_slots_report_unavailable_without_handlers(qapp):
+    bridge = AnnotationBridge()
+
+    assert json.loads(bridge.inlineEditFetch(0, 1)) == {
+        "ok": False, "error": "unavailable"
+    }
+    assert json.loads(bridge.inlineEditCommit(0, 1, "a", "b"))["ok"] is False
+    assert json.loads(bridge.inlineEditPasteImage())["ok"] is False
+
+
+def test_inline_edit_slots_forward_arguments_and_serialize_the_reply(qapp):
+    calls = []
+    bridge = AnnotationBridge()
+    bridge.set_inline_edit_handlers(
+        fetch=lambda start, end: calls.append(("fetch", start, end))
+        or {"ok": True, "text": "line"},
+        commit=lambda start, end, original, new: calls.append(
+            ("commit", start, end, original, new)
+        )
+        or {"ok": True},
+        paste_image=lambda: {"ok": True, "link": "![](assets/a.png)"},
+    )
+
+    assert json.loads(bridge.inlineEditFetch(2, 5)) == {"ok": True, "text": "line"}
+    assert json.loads(bridge.inlineEditCommit(2, 5, "old", "new")) == {"ok": True}
+    assert json.loads(bridge.inlineEditPasteImage())["link"] == "![](assets/a.png)"
+    assert calls == [("fetch", 2, 5), ("commit", 2, 5, "old", "new")]
+
+
+def test_inline_edit_reply_keeps_non_ascii_text_readable(qapp):
+    bridge = AnnotationBridge()
+    bridge.set_inline_edit_handlers(fetch=lambda s, e: {"ok": True, "text": "中文"})
+
+    assert json.loads(bridge.inlineEditFetch(0, 0))["text"] == "中文"
+
+
+def test_inline_edit_handler_exception_answers_instead_of_hanging_the_page(qapp):
+    def boom(start, end):
+        raise RuntimeError("disk on fire")
+
+    bridge = AnnotationBridge()
+    bridge.set_inline_edit_handlers(fetch=boom)
+
+    reply = json.loads(bridge.inlineEditFetch(0, 0))
+    assert reply["ok"] is False
+    assert "disk on fire" in reply["error"]
+
+
 import os
 import tempfile
 from pathlib import Path

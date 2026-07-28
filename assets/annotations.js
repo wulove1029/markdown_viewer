@@ -599,9 +599,14 @@
     }
   };
 
-  window.__annotBoot = function (jsonStr, sideNotes) {
+  window.__annotBoot = function (jsonStr, sideNotes, inlineEdit) {
     sideNotesVisible = !!sideNotes;
-    function afterChannel() { window.__annot.render(jsonStr); }
+    function afterChannel() {
+      window.__annot.render(jsonStr);
+      // One QWebChannel for the page: hand the same bridge to the inline
+      // block editor instead of letting it open a second transport.
+      if (window.__inlineEditBoot) window.__inlineEditBoot(bridge, inlineEdit);
+    }
     if (typeof QWebChannel !== "undefined" && window.qt &&
         qt.webChannelTransport) {
       new QWebChannel(qt.webChannelTransport, function (channel) {
@@ -615,6 +620,9 @@
 
   document.addEventListener("mouseup", function (e) {
     if (e.target.closest && e.target.closest(".annot-toolbar")) return;
+    // Selecting inside an inline block editor is plain text editing, not a
+    // highlight gesture.
+    if (e.target.closest && e.target.closest(".inline-edit")) return;
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) {
       hideToolbar();
