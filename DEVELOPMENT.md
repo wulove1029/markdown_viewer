@@ -120,6 +120,13 @@ py -3 tools/bump_version.py 1.2.3
 - `app/version.py` 的 `VERSION`
 - `installer.iss` 的 `MyAppVersion`
 
+> **⚠️ 腳本不會自動更新的兩處，每次發版務必手動同步：**
+>
+> 1. `CHANGELOG.md`：在最上方新增本版條目（Added / Changed / Fixed）。
+> 2. `app/version.py` 的 `RELEASE_NOTES`：改成本版的重點修正摘要（1～3 條）。
+>    這個清單會顯示在「說明 → 關於 Markdown Viewer」對話框的「本版更新」區塊，
+>    忘記改的話，關於視窗會一直顯示上一版的內容。
+
 ### 6-2. 提交並推送
 
 ```bash
