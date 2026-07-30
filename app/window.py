@@ -95,7 +95,7 @@ from .theme import (
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
 from .wikilink_completion import completion_candidates
-from .version import VERSION
+from .version import RELEASE_NOTES, VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
@@ -521,11 +521,13 @@ class MainWindow(QMainWindow):
         help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
 
     def _show_about(self):
+        notes = "".join(f"<li>{item}</li>" for item in RELEASE_NOTES)
         QMessageBox.about(
             self,
             "關於 Markdown Viewer",
             f"<b>Markdown Viewer</b><br>版本 {VERSION}<br><br>"
-            "Markdown 筆記閱讀 / 編輯與 PDF 閱讀工具。",
+            "Markdown 筆記閱讀 / 編輯與 PDF 閱讀工具。<br><br>"
+            f"<b>本版更新</b><ul>{notes}</ul>",
         )
 
     def _show_shortcuts(self):

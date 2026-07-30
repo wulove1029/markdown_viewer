@@ -38,6 +38,18 @@ def _html_with_render_generation(html: str, generation: int) -> str:
     return marker + html
 
 
+def _html_with_early_scroll(html: str, scroll_y: int) -> str:
+    """Scroll before first paint so a reload never flashes the top of the page.
+
+    The loadFinished restore in _on_markdown_load_checked still runs afterwards
+    (idempotent); this only removes the visible jump while it is pending.
+    """
+    script = f"<script>window.scrollTo(0, {int(scroll_y)});</script>"
+    if "</body>" in html:
+        return html.replace("</body>", script + "\n</body>", 1)
+    return html + script
+
+
 def _pending_scroll_target(
     pending_scroll: int | None,
     pending_generation: int | None,
@@ -335,18 +347,29 @@ class RendererView(QWebEngineView):
             )
         )
 
-    def load_file(self, filepath: str | Path, scroll_y: int | None = None):
+    def load_file(
+        self,
+        filepath: str | Path,
+        scroll_y: int | None = None,
+        show_loading: bool = True,
+    ):
         path = Path(filepath)
         generation = self._next_render_generation()
         self._pending_find = None
         self._pending_ratio = None
         self._pending_text_base_url = None
         self._current_path = path
-        self._scroll_y = 0
+        self._scroll_y = int(scroll_y) if scroll_y else 0
         # Restore a remembered scroll position once the page finishes loading.
         self._pending_scroll = int(scroll_y) if scroll_y else None
         self._pending_scroll_generation = generation if self._pending_scroll else None
-        self.show_loading(path)
+        if show_loading:
+            self.show_loading(path)
+        else:
+            # In-place reload: keep the current page on screen until the new
+            # render is ready instead of flashing the loading placeholder.
+            self._current_anchor = ""
+            self._spy_timer.stop()
         self._finish_load_file(path, generation)
 
     def _finish_load_file(self, path: Path, generation: int):
@@ -374,6 +397,11 @@ class RendererView(QWebEngineView):
             return
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
         html = _html_with_render_generation(html, generation)
+        if (
+            self._pending_scroll is not None
+            and self._pending_scroll_generation == generation
+        ):
+            html = _html_with_early_scroll(html, self._pending_scroll)
         self.page().setHtml(html, base_url)
         if self._on_headings_ready:
             self._on_headings_ready(headings)
@@ -390,7 +418,11 @@ class RendererView(QWebEngineView):
 
     def _reload_at_scroll(self, scroll_y):
         if self._current_path:
-            self.load_file(self._current_path, scroll_y=int(scroll_y or 0))
+            self.load_file(
+                self._current_path,
+                scroll_y=int(scroll_y or 0),
+                show_loading=False,
+            )
 
     def render_html(self, html: str, base_url: QUrl | None = None):
         """Render a self-contained HTML string (used by the live edit preview).
@@ -492,7 +524,7 @@ class RendererView(QWebEngineView):
         )
 
     def set_inline_edit_enabled(self, enabled: bool):
-        """Allow or forbid double-click-to-edit in the rendered preview.
+        """Allow or forbid triple-click-to-edit in the rendered preview.
 
         Stored as well as pushed, so a page loaded later boots with the right
         state rather than defaulting back to enabled.

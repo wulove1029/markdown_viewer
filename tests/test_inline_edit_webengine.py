@@ -99,13 +99,13 @@ def test_rendered_blocks_carry_their_source_ranges(qapp, tmp_path):
 
 
 @_skip_webengine
-def test_double_click_opens_a_textarea_holding_the_raw_markdown(qapp, tmp_path):
+def test_triple_click_opens_a_textarea_holding_the_raw_markdown(qapp, tmp_path):
     _md, view, _ = _open_preview(tmp_path, _DOC)
 
     _eval(
         view,
         "document.querySelector('p[data-src-start=\"2\"]')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
 
@@ -126,7 +126,7 @@ def test_ctrl_enter_writes_the_edit_back_to_the_file(qapp, tmp_path):
     _eval(
         view,
         "document.querySelector('p[data-src-start=\"2\"]')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
     _eval(
@@ -148,7 +148,7 @@ def test_escape_cancels_without_touching_the_file(qapp, tmp_path):
     _eval(
         view,
         "document.querySelector('p[data-src-start=\"2\"]')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
     _eval(
@@ -174,7 +174,7 @@ def test_stale_commit_is_refused_and_the_file_keeps_the_other_write(qapp, tmp_pa
     _eval(
         view,
         "document.querySelector('p[data-src-start=\"2\"]')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
     external = "# Title\n\nsomeone else\n\n- a\n- b\n"
@@ -192,7 +192,7 @@ def test_stale_commit_is_refused_and_the_file_keeps_the_other_write(qapp, tmp_pa
 
 
 @_skip_webengine
-def test_disabled_preview_ignores_double_clicks(qapp, tmp_path):
+def test_disabled_preview_ignores_triple_clicks(qapp, tmp_path):
     _md, view, _ = _open_preview(tmp_path, _DOC)
     view.set_inline_edit_enabled(False)
     _wait(200)
@@ -200,7 +200,7 @@ def test_disabled_preview_ignores_double_clicks(qapp, tmp_path):
     _eval(
         view,
         "document.querySelector('p[data-src-start=\"2\"]')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
 
@@ -208,13 +208,13 @@ def test_disabled_preview_ignores_double_clicks(qapp, tmp_path):
 
 
 @_skip_webengine
-def test_double_click_on_a_task_checkbox_does_not_open_an_editor(qapp, tmp_path):
+def test_triple_click_on_a_task_checkbox_does_not_open_an_editor(qapp, tmp_path):
     _md, view, _ = _open_preview(tmp_path, "# T\n\n- [ ] todo\n")
 
     _eval(
         view,
         "document.querySelector('input.task-list-item-checkbox')"
-        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))",
+        ".dispatchEvent(new MouseEvent('click', {bubbles: true, detail: 3}))",
     )
     _wait(600)
 

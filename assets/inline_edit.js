@@ -1,6 +1,6 @@
 /* In-place editing of a rendered block.
  *
- * Double-clicking a top-level block in the preview swaps it for a textarea
+ * Triple-clicking a top-level block in the preview swaps it for a textarea
  * holding the raw Markdown behind it (located through the data-src-start /
  * data-src-end attributes md_converter stamps on every block). Ctrl+Enter or a
  * click outside commits; Esc restores the rendering and touches nothing.
@@ -170,7 +170,11 @@
     return tag === "input" || tag === "textarea" || tag === "select";
   }
 
-  document.addEventListener("dblclick", function (e) {
+  // Triple-click, not double: a double-click stays free for the browser's
+  // native word-select, so quickly selecting text to copy never opens the
+  // editor by accident.
+  document.addEventListener("click", function (e) {
+    if (e.detail !== 3) return;
     if (!enabled || active || !bridge || !bridge.inlineEditFetch) return;
     if (blocked(e.target)) return;
     var block = e.target.closest("[data-src-start]");
@@ -179,6 +183,11 @@
     var end = parseInt(block.getAttribute("data-src-end"), 10);
     if (isNaN(start) || isNaN(end)) return;
     e.preventDefault();
+    // The browser already paragraph-selected on the third mousedown; drop
+    // that selection so the editor does not open over a highlighted block.
+    if (window.getSelection) {
+      try { window.getSelection().removeAllRanges(); } catch (err) {}
+    }
     bridge.inlineEditFetch(start, end, function (raw) {
       var res = parseReply(raw);
       if (active || !res || !res.ok || typeof res.text !== "string") return;

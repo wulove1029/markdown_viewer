@@ -175,25 +175,30 @@ function textareaOf(block) {
     : null;
 }
 
-// Disabled: a double-click must do nothing at all.
+// Disabled: a triple-click must do nothing at all.
 sandbox.window.__inlineEditBoot(bridge, false);
 let block = makeBlock(2, 3);
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 check("disabled: no bridge call", calls.length === 0);
 check("disabled: no textarea", textareaOf(block) === null);
 
-// Enabled: the block is hidden and replaced by a textarea holding the source.
+// Enabled but only double-clicked: selection-for-copy must stay untouched.
 sandbox.window.__inlineEdit.setEnabled(true);
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 2 });
+check("double-click: no bridge call", calls.length === 0);
+check("double-click: no textarea", textareaOf(block) === null);
+
+// Enabled: the block is hidden and replaced by a textarea holding the source.
+fire("click", { target: block, detail: 3 });
 let ta = textareaOf(block);
 check("open: fetch called with the block range",
   JSON.stringify(calls[0]) === JSON.stringify(["fetch", 2, 3]));
 check("open: textarea holds the raw source", ta && ta.value === "alpha\nbeta");
 check("open: block hidden", block.style.display === "none");
 
-// A second double-click while editing must not stack editors.
+// A second triple-click while editing must not stack editors.
 const callsBefore = calls.length;
-fire("dblclick", { target: makeBlock(9, 9) });
+fire("click", { target: makeBlock(9, 9), detail: 3 });
 check("open: no re-entry while editing", calls.length === callsBefore);
 
 // Esc restores the rendering and never reaches the bridge.
@@ -203,7 +208,7 @@ check("cancel: textarea gone", textareaOf(block) === null);
 check("cancel: nothing committed", calls.length === callsBefore);
 
 // Ctrl+Enter commits the edited text.
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 ta = textareaOf(block);
 ta.value = "alpha edited";
 fire("keydown", { target: ta, key: "Enter", ctrlKey: true });
@@ -214,7 +219,7 @@ check("commit: bridge got the range, original and new text",
 check("commit: editor closed", textareaOf(block) === null);
 
 // An unchanged commit is a no-op, not a write.
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 ta = textareaOf(block);
 const beforeNoop = calls.length;
 fire("keydown", { target: ta, key: "Enter", ctrlKey: true });
@@ -222,7 +227,7 @@ check("commit: unchanged text is not written", calls.length === beforeNoop);
 check("commit: unchanged still closes", textareaOf(block) === null);
 
 // Clicking outside commits; clicking inside does not.
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 ta = textareaOf(block);
 ta.value = "changed by click-away";
 const insideBefore = calls.length;
@@ -234,7 +239,7 @@ check("click outside: committed",
   calls[calls.length - 1][4] === "changed by click-away");
 
 // Pasting an image goes through Python and lands at the cursor.
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 ta = textareaOf(block);
 ta.value = "before after";
 ta.selectionStart = ta.selectionEnd = 7;
@@ -262,23 +267,23 @@ const guarded = calls.length;
 const annotated = makeBlock(20, 20);
 const mark = El("mark", { className: "annot" });
 annotated.appendChild(mark);
-fire("dblclick", { target: mark });
-check("guard: annotation double-click not hijacked", calls.length === guarded);
+fire("click", { target: mark, detail: 3 });
+check("guard: annotation triple-click not hijacked", calls.length === guarded);
 check("guard: no editor over an annotation", textareaOf(annotated) === null);
 
 const taskList = makeBlock(30, 31);
 const checkbox = El("input", { className: "task-list-item-checkbox" });
 taskList.appendChild(checkbox);
-fire("dblclick", { target: checkbox });
+fire("click", { target: checkbox, detail: 3 });
 check("guard: task checkbox not hijacked", calls.length === guarded);
 
 const untagged = El("p");
 body.appendChild(untagged);
-fire("dblclick", { target: untagged });
+fire("click", { target: untagged, detail: 3 });
 check("guard: block without a source range ignored", calls.length === guarded);
 
 // Disabling mid-edit tears the editor down.
-fire("dblclick", { target: block });
+fire("click", { target: block, detail: 3 });
 check("disable: editor open before disabling", textareaOf(block) !== null);
 sandbox.window.__inlineEdit.setEnabled(false);
 check("disable: editor torn down", textareaOf(block) === null);
