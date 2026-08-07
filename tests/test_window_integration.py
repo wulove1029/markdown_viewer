@@ -140,20 +140,33 @@ class _FakePdfView(QWidget):
     search_count_changed = Signal(int)
     highlight_requested = Signal(object)
     highlight_delete_requested = Signal(str)
+    outline_ready = Signal(int, object, object)
+    zoom_changed = Signal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.loaded = []
+        self.outline_calls = 0
+        self._load_generation = 0
+        self.zoom_calls = []
+        self.pending_wheel_zoom = None
+        self.flush_wheel_zoom_calls = 0
+        self.flush_wheel_zoom_contexts = []
 
     def load(self, path):
         self.loaded.append(Path(path))
+        self._load_generation += 1
         return True
 
     def is_locked(self):
         return False
 
     def outline(self):
+        self.outline_calls += 1
         return []
+
+    def load_generation(self):
+        return self._load_generation
 
     def set_highlights(self, _highlights):
         pass
@@ -164,8 +177,26 @@ class _FakePdfView(QWidget):
     def current_page(self):
         return 0
 
-    def set_zoom_factor(self, _factor):
-        pass
+    def set_zoom_factor(self, factor, anchor=None):
+        # Match PdfView: an explicit programmatic zoom supersedes a queued
+        # wheel frame, even when the factor itself is unchanged.
+        self.pending_wheel_zoom = None
+        self.zoom_calls.append((float(factor), anchor))
+
+    def flush_pending_wheel_zoom(self):
+        self.flush_wheel_zoom_calls += 1
+        owner = self.window()
+        self.flush_wheel_zoom_contexts.append(
+            (
+                getattr(owner, "_current_file", None),
+                getattr(owner, "_current_kind", None),
+            )
+        )
+        factor = self.pending_wheel_zoom
+        self.pending_wheel_zoom = None
+        if factor is not None:
+            self.set_zoom_factor(factor)
+            self.zoom_changed.emit(factor)
 
     def apply_theme(self, _theme):
         pass
@@ -375,6 +406,207 @@ def test_open_path_adds_tab_and_reuses_existing(make_window, md_files):
     assert win._tab_bar.count() == 2
     assert win._tab_bar.currentIndex() == 0
     assert win._renderer.loaded_paths[-1] == first
+
+
+def test_pdf_outline_is_async_and_stale_results_do_not_replace_current_toc(
+    make_window, md_files, tmp_path
+):
+    markdown, _second = md_files
+    first_pdf = tmp_path / "first.pdf"
+    second_pdf = tmp_path / "second.pdf"
+    first_pdf.write_bytes(b"%PDF-1.4\n")
+    second_pdf.write_bytes(b"%PDF-1.4\n")
+    win = make_window()
+    updates = []
+    win._panel.toc.update_outline = lambda entries: updates.append(list(entries))
+
+    win.open_path(str(first_pdf))
+    first_generation = win._pdf_view.load_generation()
+    assert win._pdf_view.outline_calls == 0
+    assert updates == [[]]
+
+    first_entries = [(1, "First", 0)]
+    win._pdf_view.outline_ready.emit(
+        first_generation, first_pdf, first_entries
+    )
+    assert updates[-1] == first_entries
+
+    win.open_path(str(second_pdf))
+    second_generation = win._pdf_view.load_generation()
+    assert second_generation > first_generation
+    assert updates[-1] == []
+    before = len(updates)
+
+    win._pdf_view.outline_ready.emit(
+        first_generation, first_pdf, [(1, "Stale generation", 0)]
+    )
+    win._pdf_view.outline_ready.emit(
+        second_generation, first_pdf, [(1, "Wrong path", 0)]
+    )
+    assert len(updates) == before
+
+    second_entries = [(1, "Second", 0)]
+    win._pdf_view.outline_ready.emit(
+        second_generation, second_pdf, second_entries
+    )
+    assert updates[-1] == second_entries
+
+    win._reload_current()
+    reloaded_generation = win._pdf_view.load_generation()
+    assert reloaded_generation > second_generation
+    assert updates[-1] == []
+    before = len(updates)
+    win._pdf_view.outline_ready.emit(
+        second_generation, second_pdf, [(1, "Stale same path", 0)]
+    )
+    assert len(updates) == before
+    win._pdf_view.outline_ready.emit(
+        reloaded_generation, second_pdf, [(1, "Reloaded", 0)]
+    )
+    assert updates[-1] == [(1, "Reloaded", 0)]
+
+    win.open_path(str(markdown))
+    before = len(updates)
+    win._pdf_view.outline_ready.emit(
+        reloaded_generation, second_pdf, [(1, "PDF after Markdown", 0)]
+    )
+    assert len(updates) == before
+    assert win._pdf_view.outline_calls == 0
+
+
+def test_pdf_wheel_zoom_syncs_shared_zoom_and_saved_preference(
+    make_window, tmp_path
+):
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.setValue("content_zoom", 1.4)
+    pdf = tmp_path / "zoom.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+
+    win = make_window()
+    assert win._pdf_view.zoom_calls[-1] == (1.4, None)
+    win.open_path(str(pdf))
+
+    # Real PdfView applies the anchored zoom locally before emitting the signal.
+    win._pdf_view.set_zoom_factor(1.6)
+    win._pdf_view.zoom_changed.emit(1.6)
+
+    assert win._content_zoom == pytest.approx(1.6)
+    assert win._renderer._zoom == pytest.approx(1.4)
+    assert win._edit_preview._zoom == pytest.approx(1.4)
+    assert win._pdf_view.zoom_calls[-1] == (1.6, None)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.4)
+    assert win.statusBar().currentMessage() == "縮放：160%"
+    assert win._pdf_zoom_sync_timer.isActive()
+
+    win._commit_pdf_wheel_zoom()
+
+    assert win._renderer._zoom == pytest.approx(1.6)
+    assert win._edit_preview._zoom == pytest.approx(1.6)
+    assert win._pdf_view.zoom_calls[-1] == (1.6, None)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
+    assert win._pdf_zoom_sync_timer.isActive() is False
+
+
+def test_idle_zoom_commit_does_not_cancel_a_new_pdf_wheel_frame(
+    make_window, tmp_path
+):
+    pdf = tmp_path / "zoom-race.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    settings = window_mod.QSettings(_ORG, _APP)
+    win = make_window()
+    win.open_path(str(pdf))
+
+    win._pdf_view.set_zoom_factor(1.1)
+    win._pdf_view.zoom_changed.emit(1.1)
+    # A new PdfView frame arrives just before the older 120 ms sync fires.
+    win._pdf_view.pending_wheel_zoom = 1.2
+    win._commit_pdf_wheel_zoom()
+
+    assert win._pdf_view.pending_wheel_zoom == pytest.approx(1.2)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.1)
+
+    win._pdf_view.flush_pending_wheel_zoom()
+    win._commit_pdf_wheel_zoom()
+    assert win._pdf_view.pending_wheel_zoom is None
+    assert win._content_zoom == pytest.approx(1.2)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.2)
+
+
+def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
+    make_window, md_files, tmp_path
+):
+    markdown, _second_markdown = md_files
+    first_pdf = tmp_path / "first.pdf"
+    second_pdf = tmp_path / "second.pdf"
+    first_pdf.write_bytes(b"%PDF-1.4\n")
+    second_pdf.write_bytes(b"%PDF-1.4\n")
+    settings = window_mod.QSettings(_ORG, _APP)
+    win = make_window()
+    win.open_path(str(first_pdf))
+
+    win._pdf_view.pending_wheel_zoom = 1.6
+    win.open_path(str(second_pdf))
+    assert win._pdf_view.flush_wheel_zoom_calls == 1
+    assert win._pdf_view.flush_wheel_zoom_contexts[-1] == (
+        first_pdf,
+        "pdf",
+    )
+    assert win._content_zoom == pytest.approx(1.6)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
+    assert win._pending_pdf_wheel_zoom is None
+    assert win._pdf_zoom_sync_timer.isActive() is False
+
+    win._pdf_view.pending_wheel_zoom = 1.7
+    win._reload_current()
+    assert win._pdf_view.flush_wheel_zoom_calls == 2
+    assert win._pdf_view.flush_wheel_zoom_contexts[-1] == (
+        second_pdf,
+        "pdf",
+    )
+    assert win._content_zoom == pytest.approx(1.7)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.7)
+
+    win._pdf_view.pending_wheel_zoom = 1.8
+    win.open_path(str(markdown))
+    assert win._pdf_view.flush_wheel_zoom_calls == 3
+    assert win._pdf_view.flush_wheel_zoom_contexts[-1] == (
+        second_pdf,
+        "pdf",
+    )
+    assert win._current_kind == "markdown"
+    assert win._content_zoom == pytest.approx(1.8)
+    assert win._renderer._zoom == pytest.approx(1.8)
+    assert win._edit_preview._zoom == pytest.approx(1.8)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.8)
+    assert win._pending_pdf_wheel_zoom is None
+    assert win._pdf_zoom_sync_timer.isActive() is False
+
+
+def test_pending_pdf_wheel_zoom_flushes_before_empty_state_and_close(
+    make_window, tmp_path
+):
+    pdf = tmp_path / "zoom.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    settings = window_mod.QSettings(_ORG, _APP)
+
+    emptied = make_window()
+    emptied.open_path(str(pdf))
+    emptied._pdf_view.pending_wheel_zoom = 1.6
+    emptied._on_tab_close(0)
+    assert emptied._current_kind == ""
+    assert emptied._pdf_view.flush_wheel_zoom_calls == 1
+    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
+    assert emptied._pending_pdf_wheel_zoom is None
+    assert emptied._pdf_zoom_sync_timer.isActive() is False
+
+    closed = make_window()
+    closed.open_path(str(pdf))
+    closed._pdf_view.pending_wheel_zoom = 1.7
+    closed.close()
+    assert closed._pdf_view.flush_wheel_zoom_calls == 1
+    assert float(settings.value("content_zoom")) == pytest.approx(1.7)
+    assert closed._pending_pdf_wheel_zoom is None
+    assert closed._pdf_zoom_sync_timer.isActive() is False
 
 
 def test_graph_view_is_modeless_and_does_not_change_document_tabs(
@@ -593,6 +825,33 @@ def test_detach_moves_tab_to_new_window(make_window, md_files):
 
     for detached_win in detached:
         detached_win.close()
+
+
+def test_detaching_active_pdf_carries_the_last_pending_wheel_zoom(
+    make_window, md_files, tmp_path
+):
+    markdown, _second_markdown = md_files
+    pdf = tmp_path / "detached.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    win = make_window()
+    win.open_path(str(markdown))
+    win.open_path(str(pdf))
+    win._pdf_view.pending_wheel_zoom = 1.6
+    existing_detached = set(window_mod._DETACHED_WINDOWS)
+
+    win._detach_tab(1)
+
+    detached = [
+        w for w in window_mod._DETACHED_WINDOWS
+        if w not in existing_detached and w is not win
+    ]
+    assert len(detached) == 1
+    detached_win = detached[0]
+    assert win._pdf_view.flush_wheel_zoom_calls >= 1
+    assert detached_win._current_kind == "pdf"
+    assert detached_win._content_zoom == pytest.approx(1.6)
+    assert detached_win._pdf_view.zoom_calls[0] == (1.6, None)
+    detached_win.close()
 
 
 def test_session_persists_and_restores_tabs(make_window, md_files):

@@ -57,6 +57,10 @@ _LIBRARY_ROLE = Qt.ItemDataRole.UserRole.value + 1
 _IS_DIR_ROLE = Qt.ItemDataRole.UserRole.value + 2
 # Sorted list[str] of the tags assigned to a file row; drives the tag pills.
 _TAGS_ROLE = Qt.ItemDataRole.UserRole.value + 3
+# Theme-dependent explicit text tone used by placeholder/missing-source rows.
+_TEXT_TONE_ROLE = Qt.ItemDataRole.UserRole.value + 4
+_TEXT_TONE_MUTED = "muted"
+_TEXT_TONE_SUBTLE = "subtle"
 
 # Sidecar files the app maintains next to documents. They never appear in the
 # tree (their suffix isn't in SUPPORTED_EXTENSIONS); we just tag them hidden on
@@ -415,6 +419,7 @@ class FileBrowserView(QWidget):
         self.refresh_libraries()
 
     def apply_theme(self, theme: Theme):
+        theme_changed = theme != self._theme
         self._theme = theme
         if hasattr(self, "_tag_delegate"):
             self._tag_delegate.set_text_color(theme.text)
@@ -429,18 +434,38 @@ QTreeWidget::item {
 }
 """
         )
-        # svg_icon() bakes the theme color into each pixmap, so the tree rows
-        # must be rebuilt to recolor their folder/file icons. Skip during the
-        # initial construction (the __init__ refresh_libraries() call builds it)
-        # and preserve the current selection across the rebuild.
-        if self._built:
-            current = self._tree.currentItem()
-            selected = current.data(0, _PATH_ROLE) if current else None
-            self.refresh_libraries()
-            if selected:
-                self._select_path(Path(selected))
+        # Icons and a few placeholder brushes bake in theme colors. Recolor
+        # existing rows in place so applying a theme never rescans the document
+        # folders or replaces items (preserving selection and expansion).
+        if theme_changed:
+            self._update_tree_item_theme()
 
-    # ---------------- row icons ----------------
+    # ---------------- row theme ----------------
+    def _update_tree_item_theme(self) -> None:
+        """Refresh baked-in row colors without rebuilding the folder tree."""
+        folder_icon = self._folder_icon()
+        markdown_icon = svg_icon("file-text", self._theme.text_muted, 16)
+        pdf_icon = svg_icon("file-text", self._theme.danger, 16)
+
+        iterator = QTreeWidgetItemIterator(self._tree)
+        while iterator.value():
+            item = iterator.value()
+            path = item.data(0, _PATH_ROLE)
+            if item.data(0, _IS_DIR_ROLE):
+                item.setIcon(0, folder_icon)
+            elif path:
+                item.setIcon(0, pdf_icon if is_pdf(path) else markdown_icon)
+            elif not item.icon(0).isNull():
+                # The disabled child of a missing library has a folder icon but
+                # intentionally carries no path or directory role.
+                item.setIcon(0, folder_icon)
+            tone = item.data(0, _TEXT_TONE_ROLE)
+            if tone == _TEXT_TONE_MUTED:
+                item.setForeground(0, QColor(self._theme.text_muted))
+            elif tone == _TEXT_TONE_SUBTLE:
+                item.setForeground(0, QColor(self._theme.text_subtle))
+            iterator += 1
+
     def _folder_icon(self) -> QIcon:
         """Accent-colored folder glyph shared by library roots and folders."""
         return svg_icon("folder-open", self._theme.accent, 16)
@@ -626,6 +651,7 @@ QTreeWidget::item {
                 if not filtering:
                     root_item.setText(0, f"{lib.name}（找不到資料夾）")
                     root_item.setForeground(0, QColor(self._theme.text_muted))
+                    root_item.setData(0, _TEXT_TONE_ROLE, _TEXT_TONE_MUTED)
                     missing = QTreeWidgetItem([lib.path])
                     missing.setIcon(0, self._folder_icon())
                     missing.setFlags(
@@ -738,6 +764,7 @@ QTreeWidget::item {
     def _add_empty_item(self, text: str):
         item = QTreeWidgetItem([text])
         item.setForeground(0, QColor(self._theme.text_subtle))
+        item.setData(0, _TEXT_TONE_ROLE, _TEXT_TONE_SUBTLE)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
         self._tree.addTopLevelItem(item)
 

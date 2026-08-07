@@ -342,10 +342,22 @@ class MainWindow(QMainWindow):
 
         # Native PDF viewer (outline + search + remembered page).
         self._pdf_view = PdfView()
+        # PdfView is constructed after the shared content zoom is restored.
+        # Apply it now so the first PDF does not incorrectly start at 100%.
+        self._pdf_view.set_zoom_factor(self._content_zoom)
         self._pdf_view.page_changed.connect(self._on_pdf_page_changed)
         self._pdf_view.search_count_changed.connect(self._on_pdf_search_count)
         self._pdf_view.highlight_requested.connect(self._on_pdf_highlight_requested)
         self._pdf_view.highlight_delete_requested.connect(self._pdf_highlight_delete)
+        self._pdf_view.outline_ready.connect(self._on_pdf_outline_ready)
+        self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
+        # Wheel zoom is already applied locally by PdfView. Defer the heavier
+        # hidden-renderer/QSettings synchronization until the gesture settles.
+        self._pending_pdf_wheel_zoom: float | None = None
+        self._pdf_zoom_sync_timer = QTimer(self)
+        self._pdf_zoom_sync_timer.setSingleShot(True)
+        self._pdf_zoom_sync_timer.setInterval(120)
+        self._pdf_zoom_sync_timer.timeout.connect(self._commit_pdf_wheel_zoom)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._renderer)
@@ -555,6 +567,7 @@ class MainWindow(QMainWindow):
                 ("Ctrl++ / Ctrl+- / Ctrl+0", "放大 / 縮小 / 重設縮放"),
             ]),
             ("PDF", [
+                ("Ctrl+滾輪", "以游標位置放大 / 縮小 PDF"),
                 ("Ctrl+C", "複製選取的 PDF 文字"),
                 ("H", "螢光標記目前 PDF 選取"),
                 ("Ctrl+Z", "螢光筆模式下撤銷上一筆標記"),
@@ -1181,6 +1194,45 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         else:
             self._search_count.setText("" if count > 0 else "找不到結果")
 
+    def _on_pdf_outline_ready(self, generation: int, path, entries):
+        if (
+            self._current_kind != "pdf"
+            or self._current_file is None
+            or generation != self._pdf_view.load_generation()
+            or Path(path) != Path(self._current_file)
+        ):
+            return
+        self._panel.toc.update_outline(entries)
+
+    def _on_pdf_wheel_zoom_changed(self, factor: float):
+        if self._current_kind != "pdf":
+            return
+        self._content_zoom = max(0.5, min(3.0, float(factor)))
+        self.statusBar().showMessage(
+            f"縮放：{round(self._content_zoom * 100)}%", 2000
+        )
+        self._pending_pdf_wheel_zoom = self._content_zoom
+        self._pdf_zoom_sync_timer.start()
+
+    def _commit_pdf_wheel_zoom(self):
+        self._pdf_zoom_sync_timer.stop()
+        factor = self._pending_pdf_wheel_zoom
+        self._pending_pdf_wheel_zoom = None
+        if factor is not None:
+            # PdfView already owns the live wheel zoom. Do not send the same
+            # value back into it: a newly-arrived frame may be pending while
+            # this older idle timer fires, and set_zoom_factor would cancel it.
+            session_state.apply_zoom(self, factor, sync_pdf=False)
+
+    def _flush_pdf_zoom_pipeline(self):
+        """Persist the last PDF wheel frame before leaving its document."""
+        if self._current_kind == "pdf":
+            # This emits zoom_changed while the current document is still the
+            # PDF, so the guarded handler can retain the final factor.
+            self._pdf_view.flush_pending_wheel_zoom()
+        if self._pending_pdf_wheel_zoom is not None:
+            self._commit_pdf_wheel_zoom()
+
     def _pdf_pages_map(self) -> dict:
         return session_state.pdf_pages_map()
 
@@ -1667,6 +1719,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     return
                 self._leave_edit_ui()
             self._save_active_view_state()
+            # The detached window restores shared zoom from QSettings during
+            # construction, so commit the active PDF's last wheel frame first.
+            self._flush_pdf_zoom_pipeline()
         state = dict(self._tab_state.get(key) or {})
         kind = state.get("kind") or document_kind(path)
         if not kind:
@@ -1722,6 +1777,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.save_active_view_state(self)
 
     def _show_empty_state(self):
+        self._flush_pdf_zoom_pipeline()
         self._editor.set_document_path(None)
         self._current_file = None
         self._current_kind = ""
@@ -1749,6 +1805,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _load_document(self, path: Path, kind: str):
         """Load *path* into the shared viewer, restoring its saved view state."""
+        self._flush_pdf_zoom_pipeline()
         self._current_file = path
         self._current_kind = kind
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
@@ -1796,6 +1853,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _open_pdf(self, path: Path):
         # Switch first so the password prompt (if any) appears over the PDF view.
         self._stack.setCurrentWidget(self._pdf_view)
+        # Drop the previous file's bookmarks immediately. PdfView starts the
+        # current outline in the background only after visible content paints.
+        self._panel.toc.update_outline([])
         if not self._pdf_view.load(path):
             if self._pdf_view.is_locked():
                 self.statusBar().showMessage(
@@ -1805,8 +1865,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self.statusBar().showMessage(
                     "無法開啟此 PDF：檔案可能已損毀或無法讀取。", 6000
                 )
-        # Outline -> sidebar TOC; clicking an entry jumps to its page.
-        self._panel.toc.update_outline(self._pdf_view.outline())
         # Page-anchored notes + text highlights live in the "標註" tab.
         self._pdf_notes = PdfNoteStore.load(path)
         self._pdf_highlights = PdfHighlightStore.load(path)
@@ -2354,6 +2412,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self._open_file(path)
 
     def _apply_zoom(self, factor: float):
+        self._pdf_zoom_sync_timer.stop()
+        self._pending_pdf_wheel_zoom = None
         session_state.apply_zoom(self, factor)
 
     def _zoom_in(self):
@@ -2372,11 +2432,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not self._current_file:
             return
         if self._current_kind == "pdf":
+            self._flush_pdf_zoom_pipeline()
             page = self._pdf_view.current_page()
+            self._panel.toc.update_outline([])
             if not self._pdf_view.load(self._current_file):
                 self.statusBar().showMessage("已取消或無法重新載入此 PDF。", 4000)
                 return
-            self._panel.toc.update_outline(self._pdf_view.outline())
             self._pdf_view.set_highlights(self._pdf_highlights)
             self._pdf_view.restore_page(page)
         else:
@@ -2970,5 +3031,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.restore_geometry(self)
 
     def closeEvent(self, event):
+        self._flush_pdf_zoom_pipeline()
         if session_state.close_event(self, event):
             super().closeEvent(event)

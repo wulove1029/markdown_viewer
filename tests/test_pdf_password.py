@@ -7,6 +7,9 @@ path runs head-lessly.
 """
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage
+from PySide6.QtPdf import QPdfDocument
 
 pymupdf = pytest.importorskip("pymupdf")
 
@@ -14,6 +17,25 @@ from app.pdf_view import PdfView, extract_outline
 
 PWD = "secret"
 TOC0 = [(1, "Chapter One", 0), (2, "Section 1.1", 0)]
+
+
+def _paint_one_completed_raster(view: PdfView) -> None:
+    """Deliver one deterministic async result, then synchronously paint it."""
+    view._render_dispatch_timer.stop()
+    view._render_idle_timer.stop()
+    spec = view._visible_render_specs()[0]
+    view._wanted_render_keys = {spec.key}
+    view._wanted_render_specs = []
+    width, height = (
+        spec.content_rect[2:]
+        if spec.content_rect is not None
+        else spec.page_px
+    )
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.white)
+    view._on_rendered_image(spec, image)
+    view.viewport().grab()
+    view._submit_painted_outline()
 
 
 def _make_encrypted_pdf(path, pwd=PWD, with_toc=True):
@@ -74,6 +96,7 @@ def test_load_prompts_once_and_unlocks(qapp, tmp_path):
     assert view._locked is False
     assert view._password == PWD
     assert view.page_count() == 1
+    assert view._render_backend_ready is True
     # The accepted password also unlocks the pymupdf-backed outline.
     assert view.outline() == TOC0
 
@@ -228,3 +251,54 @@ def test_reopen_after_cancel_can_unlock(qapp, tmp_path):
     assert view.load(pdf) is True
     assert view._locked is False
     assert view.page_count() == 1
+
+
+def test_plain_to_encrypted_does_not_consume_first_paint_during_prompt(
+    qapp, tmp_path
+):
+    plain = tmp_path / "plain.pdf"
+    encrypted = tmp_path / "encrypted.pdf"
+    _make_plain_pdf(plain)
+    _make_encrypted_pdf(encrypted)
+    view = PdfView()
+    started = []
+
+    class _Pool:
+        def start(self, task):
+            started.append(task)
+
+    view._outline_pool = _Pool()
+    view.resize(800, 600)
+    view.show()
+    try:
+        assert view.load(plain) is True
+        _paint_one_completed_raster(view)
+        assert [task.generation for task in started] == [1]
+
+        during_prompt = []
+
+        def prompt(_name, _attempt):
+            # Loading an encrypted file first enters Error/IncorrectPassword.
+            # A real modal prompt runs a nested event loop, where the previous
+            # document's retained page layout can receive a paint event.
+            view.viewport().update()
+            qapp.processEvents()
+            during_prompt.append(
+                (
+                    view._doc.status(),
+                    view.load_generation(),
+                    view._first_painted_generation,
+                )
+            )
+            return PWD
+
+        view._password_prompt = prompt
+        assert view.load(encrypted) is True
+        assert during_prompt == [(QPdfDocument.Status.Error, 2, 1)]
+
+        _paint_one_completed_raster(view)
+        assert [task.generation for task in started] == [1, 2]
+        assert started[-1].password == PWD
+    finally:
+        view._outline_tasks.clear()
+        view.close()

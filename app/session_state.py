@@ -162,10 +162,10 @@ def toggle_annotation_side_notes(window, checked=None):
     window._refresh_icons()
 
 
-def apply_zoom(window, factor: float):
+def apply_zoom(window, factor: float, *, sync_pdf: bool = True):
     window._content_zoom = window._renderer.set_zoom(factor)
     window._edit_preview.set_zoom(window._content_zoom)
-    if window._current_kind == "pdf":
+    if sync_pdf and window._current_kind == "pdf":
         window._pdf_view.set_zoom_factor(window._content_zoom)
     QSettings(_ORG, _APP).setValue("content_zoom", window._content_zoom)
     window.statusBar().showMessage(

@@ -1,12 +1,14 @@
 import os
 
 import pytest
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QMessageBox, QTreeWidgetItemIterator
 
 from app.annotations import DocumentAnnotations
 from app.document_libraries import DocumentLibrary, DocumentLibraryStore
 from app.file_browser import _IS_DIR_ROLE, _PATH_ROLE, FileBrowserView
 from app.tag_index import TagIndex
+from app.theme import DARK, LIGHT
 
 _FILE_ATTRIBUTE_HIDDEN = 0x2
 
@@ -270,6 +272,117 @@ def test_tree_items_have_type_distinguishing_icons(qapp, tmp_path, monkeypatch):
             assert item is not None
             # Every row is icon-tagged so folders and files read differently.
             assert item.icon(0).isNull() is False
+    finally:
+        view.close()
+
+
+def test_apply_theme_updates_existing_icons_without_refreshing_tree(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    sub = root / "sub"
+    sub.mkdir(parents=True)
+    md_file = root / "notes.md"
+    pdf_file = sub / "report.pdf"
+    md_file.write_text("# notes", encoding="utf-8")
+    pdf_file.write_bytes(b"%PDF-1.4 minimal")
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        root_item = view._find_item(root)
+        folder_item = view._find_item(sub)
+        md_item = view._find_item(md_file)
+        pdf_item = view._find_item(pdf_file)
+        for item in (root_item, folder_item, md_item, pdf_item):
+            assert item is not None
+
+        view.navigate_to(sub)
+        view.select_path(pdf_file)
+        icon_keys = {
+            "root": root_item.icon(0).cacheKey(),
+            "folder": folder_item.icon(0).cacheKey(),
+            "markdown": md_item.icon(0).cacheKey(),
+            "pdf": pdf_item.icon(0).cacheKey(),
+        }
+        refresh_calls = []
+        monkeypatch.setattr(
+            view, "refresh_libraries", lambda: refresh_calls.append(True)
+        )
+
+        view.apply_theme(DARK)
+
+        assert refresh_calls == []
+        assert root_item.icon(0).cacheKey() != icon_keys["root"]
+        assert folder_item.icon(0).cacheKey() != icon_keys["folder"]
+        assert md_item.icon(0).cacheKey() != icon_keys["markdown"]
+        assert pdf_item.icon(0).cacheKey() != icon_keys["pdf"]
+        assert folder_item.isExpanded() is True
+        assert view._tree.currentItem().data(0, _PATH_ROLE) == str(pdf_file)
+        assert view._tag_delegate._text_color == QColor(DARK.text)
+    finally:
+        view.close()
+
+
+def test_apply_theme_updates_explicit_tree_text_colors_without_refreshing(
+    qapp, tmp_path, monkeypatch
+):
+    missing_root = tmp_path / "missing"
+    view = _make_view(
+        tmp_path,
+        monkeypatch,
+        [DocumentLibrary("missing", "Missing", str(missing_root))],
+    )
+    try:
+        root_item = view._tree.topLevelItem(0)
+        assert root_item.foreground(0).color() == QColor(LIGHT.text_muted)
+        refresh_calls = []
+        monkeypatch.setattr(
+            view, "refresh_libraries", lambda: refresh_calls.append(True)
+        )
+
+        view.apply_theme(DARK)
+
+        assert refresh_calls == []
+        assert view._tree.topLevelItem(0) is root_item
+        assert root_item.foreground(0).color() == QColor(DARK.text_muted)
+
+        view._filter.setText("no-match")
+        empty_item = view._tree.topLevelItem(0)
+        assert empty_item.foreground(0).color() == QColor(DARK.text_subtle)
+
+        view.apply_theme(LIGHT)
+
+        assert refresh_calls == []
+        assert view._tree.topLevelItem(0) is empty_item
+        assert empty_item.foreground(0).color() == QColor(LIGHT.text_subtle)
+    finally:
+        view.close()
+
+
+def test_construction_and_theme_changes_scan_document_library_once(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text("# note", encoding="utf-8")
+    scans = []
+    original_refresh = FileBrowserView._refresh_list
+
+    def counted_refresh(view):
+        scans.append(view)
+        return original_refresh(view)
+
+    monkeypatch.setattr(FileBrowserView, "_refresh_list", counted_refresh)
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        assert scans == [view]
+        view.apply_theme(DARK)
+        view.apply_theme(LIGHT)
+        assert scans == [view]
     finally:
         view.close()
 
