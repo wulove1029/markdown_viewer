@@ -123,8 +123,8 @@ Claude，不自行主導整體方向、不自行決定要不要動下一棒。
 
 | 任務類型 | Codex（`codex exec`） | Gemini（`agy`） |
 |---|---|---|
-| 輕任務：同步、抄寫、格式、小修 | `-c model_reasoning_effort=medium` | 預設 `Gemini 3.5 Flash (Medium)` |
-| 一般實作、除錯 | **預設即可**（gpt-5.6-sol / high） | `--model "Gemini 3.5 Flash (High)"` |
+| 輕任務：同步、抄寫、格式、小修 | `-c model_reasoning_effort=medium` | 預設 `Gemini 3.6 Flash (Medium)` |
+| 一般實作、除錯 | **預設即可**（gpt-5.6-sol / high） | `--model "Gemini 3.6 Flash (High)"` |
 | 深度分析、架構、難題 | `-c model_reasoning_effort=xhigh` | `--model "Gemini 3.1 Pro (High)"` |
 
 - Codex 全域預設在 `~/.codex/config.toml`；單次覆蓋用 `-m ＜模型＞` 與
@@ -154,3 +154,29 @@ Claude，不自行主導整體方向、不自行決定要不要動下一棒。
   反駁對事不對人，有證據就推翻，被推翻不需辯護。
 - **接棒明確**：每節結尾的「→ 下一棒」讓下一個被叫起的 AI 不用猜要做什麼。
 - 新紀錄在上、舊在下；過時共識由後續紀錄明確標記「推翻 YYYY-MM-DD 某節」。
+
+---
+
+## ⚔️ A/B 雙案對決與交叉審查規範
+
+當面臨重大架構重構、技術選型或高風險難題時，應採取 **A/B 雙案對決與交叉審查**：
+1. **分別派工**：Claude 派工 Gemini (Variant A / Pro High 檔) 與 Codex (Variant B / xhigh 檔) 分別提出獨立設計提案〔提案〕。
+2. **產出對照矩陣**：主導者 (Claude) 收攏兩方產出，寫入一節「類型：分析＋對比」，包含：
+   - 方案 A (Gemini) vs 方案 B (Codex) 的核心差異。
+   - 複雜度、維護成本與潛在 Side-effects。
+   - 風險等級與 Trade-off 推薦。
+3. **裁決**：由使用者或主導者選擇最終採納之方案。
+
+---
+
+## 📦 進度紀錄歸檔與歷史維護
+
+- 主討論版 `AI_協作進度.md` 僅保持最新的 **10 節進度紀錄**，以確保 Token 上下文與讀寫效能。
+- 超過 10 節的舊紀錄，點擊檢視器標頭的「📦 歸檔」按鈕（或 `POST /api/archive-logs`），將自動移至 `AI_協作進度_archive.md` 保存。
+
+---
+
+## ⏱️ 任務超時警報
+
+- 派工者寫入 `status.json` 後，檢視器頂部橫幅每 3 秒自動計算已執行分鐘數。
+- 當單一任務執行時間超過 **30 分鐘**，橫幅自動切換為黃色警示背景 (`⚠️ 提醒：有任務已執行逾 30 分鐘`)，提醒使用者檢查 Console 或 Terminal 是否卡死或在等待手動輸入。

@@ -120,6 +120,25 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-07-30 10:30 — v1.20.1：行內編輯改三連擊＋修重載閃頂〔已實作＋已驗證＋已發布〕
+
+**作者**：Claude（主線實作＋另派 fresh subagent 獨立驗收）
+**類型**：實作＋驗證＋發布
+
+使用者回報兩項：(1) 雙擊進編輯模式會搶走「點兩下快速選字複製」；(2) 行內編輯儲存後畫面先跳回頂端、下一步才回到原位置。
+
+改動：
+- `assets/inline_edit.js`：開啟編輯改監聽 `click` 且 `e.detail === 3`（三連擊），移除 `dblclick`；開啟時清掉瀏覽器三擊產生的整段選取。
+- `app/renderer.py`：reload 路徑（`reload_current → _reload_at_scroll → load_file(show_loading=False)`）不再顯示「載入中」佔位頁，舊頁保留到新內容 ready；新增 `_html_with_early_scroll` 在 `</body>` 前注入 `window.scrollTo`，首繪前即還原捲動位置（僅在 `_pending_scroll_generation == generation` 時注入；loadFinished 的既有還原保留為冪等後備）。閃頂根因＝佔位頁＋新頁從頂端載入、loadFinished 後才捲回。
+- `app/window.py` + `app/version.py`：關於對話框新增「本版更新」清單（`RELEASE_NOTES`，每次發版與 CHANGELOG 一起更新）。
+- 測試同步：harness 改 `click detail:3` 並新增「detail 2 不觸發」斷言；webengine 測試改派發三連擊、函式名 `test_double_click_*` → `test_triple_click_*`。
+
+驗證：全套 `477 passed, 9 skipped`；`RUN_WEBENGINE_TESTS=1` real-Chromium `7 passed`；fresh subagent 逐條驗收兩項均 PASS。已知取捨：可編輯區塊上「三連擊選整段複製」原生手勢被編輯模式取代（雙擊選字保留）。
+
+發布：`bump_version.py 1.20.1`、CHANGELOG 新增 1.20.1、commit `f175d3c` 已 push（gh 需先 `gh auth switch -u wulove1029`，push 完已切回 jerrywu-voltraware）、tag `v1.20.1` 已推送。GitHub Actions run `30508623288` 建置 success，正式 Release（非 draft/prerelease）已於 2026-07-30 02:36 UTC 發布，資產 `MarkdownViewer_Setup_v1.20.1.exe` uploaded：https://github.com/wulove1029/markdown_viewer/releases/tag/v1.20.1
+
+**→ 下一棒**：無；v1.20.1 已完成提交、push、tag、CI 建置與 Release 發布。使用者可自行更新安裝版驗證三連擊與捲動修正。
+
 ### 2026-07-28 14:29 — v1.20.0 已發布〔已同步〕
 
 **作者**：Codex
