@@ -73,7 +73,7 @@ class TestSettingsDialogConstruction:
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
         assert dlg.windowTitle() == "偏好設定"
 
-    def test_four_tabs(self, qapp):
+    def test_tabs(self, qapp):
         dlg = SettingsDialog(None, current_theme="dark", current_zoom=1.25)
         # Find the QTabWidget
         tab_widget = None
@@ -82,11 +82,8 @@ class TestSettingsDialogConstruction:
                 tab_widget = child
                 break
         assert tab_widget is not None
-        assert tab_widget.count() == 4
-        assert tab_widget.tabText(0) == "外觀"
-        assert tab_widget.tabText(1) == "匯出"
-        assert tab_widget.tabText(2) == "行為"
-        assert tab_widget.tabText(3) == "關於"
+        labels = [tab_widget.tabText(i) for i in range(tab_widget.count())]
+        assert labels == ["外觀", "匯出", "行為", "翻譯", "關於"]
 
     def test_theme_dark_selected(self, qapp):
         dlg = SettingsDialog(None, current_theme="dark", current_zoom=1.0)
@@ -195,3 +192,50 @@ class TestSettingsDialogPdfOrientation:
         )
         dlg._pdf_size_combo.setCurrentIndex(a4_idx)
         assert dlg._pdf_orient_combo.isEnabled()
+
+
+class TestSettingsDialogTranslateTab:
+    """Translation settings round-trip and gate the DeepL key field."""
+
+    def test_defaults_when_nothing_stored(self, qapp):
+        dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
+        assert dlg._translate_provider_combo.currentData() == "mymemory"
+        assert dlg._translate_target_combo.currentData() == "zh-TW"
+
+    def test_key_field_disabled_for_keyless_providers(self, qapp):
+        dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
+        assert not dlg._deepl_key_edit.isEnabled()
+
+    def test_key_field_enabled_for_deepl(self, qapp):
+        dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
+        deepl_idx = next(
+            i for i in range(dlg._translate_provider_combo.count())
+            if dlg._translate_provider_combo.itemData(i) == "deepl"
+        )
+        dlg._translate_provider_combo.setCurrentIndex(deepl_idx)
+        assert dlg._deepl_key_edit.isEnabled()
+
+    def test_settings_round_trip(self, qapp):
+        dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
+        google_idx = next(
+            i for i in range(dlg._translate_provider_combo.count())
+            if dlg._translate_provider_combo.itemData(i) == "google"
+        )
+        dlg._translate_provider_combo.setCurrentIndex(google_idx)
+        en_idx = next(
+            i for i in range(dlg._translate_target_combo.count())
+            if dlg._translate_target_combo.itemData(i) == "en"
+        )
+        dlg._translate_target_combo.setCurrentIndex(en_idx)
+        dlg._deepl_key_edit.setText("  secret:fx  ")
+        dlg.accept()
+
+        s = settings_dialog_mod.QSettings(_ORG, _APP)
+        assert s.value("translate_provider") == "google"
+        assert s.value("translate_target_lang") == "en"
+        assert s.value("translate_deepl_key") == "secret:fx"
+
+        reopened = SettingsDialog(None)
+        assert reopened._translate_provider_combo.currentData() == "google"
+        assert reopened._translate_target_combo.currentData() == "en"
+        assert reopened._deepl_key_edit.text() == "secret:fx"

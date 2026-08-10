@@ -35,6 +35,16 @@ from .document_libraries import (
     DocumentLibraryStore,
 )
 from .note_templates import default_subfolder
+from .translate import (
+    DEEPL_KEY,
+    PROVIDER_KEY,
+    PROVIDERS,
+    TARGET_KEY,
+    TARGETS,
+    normalize_provider,
+    normalize_target,
+    provider_info,
+)
 from .version import VERSION
 
 # ── constants (must match window.py originals) ──────────────────────────
@@ -95,6 +105,7 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._build_appearance_tab(settings), "外觀")
         tabs.addTab(self._build_export_tab(settings), "匯出")
         tabs.addTab(self._build_behavior_tab(settings), "行為")
+        tabs.addTab(self._build_translate_tab(settings), "翻譯")
         tabs.addTab(self._build_about_tab(), "關於")
         root.addWidget(tabs)
 
@@ -316,6 +327,66 @@ class SettingsDialog(QDialog):
 
         return page
 
+    def _build_translate_tab(self, settings: QSettings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(16, 16, 16, 16)
+
+        current_provider = normalize_provider(settings.value(PROVIDER_KEY))
+        self._translate_provider_combo = QComboBox()
+        for info in PROVIDERS:
+            self._translate_provider_combo.addItem(info.label, info.key)
+        provider_idx = next(
+            (
+                i
+                for i, info in enumerate(PROVIDERS)
+                if info.key == current_provider
+            ),
+            0,
+        )
+        self._translate_provider_combo.setCurrentIndex(provider_idx)
+        form.addRow("翻譯服務", self._translate_provider_combo)
+
+        note = QLabel()
+        note.setWordWrap(True)
+        form.addRow("", note)
+
+        current_target = normalize_target(settings.value(TARGET_KEY))
+        self._translate_target_combo = QComboBox()
+        for code, label in TARGETS:
+            self._translate_target_combo.addItem(label, code)
+        target_idx = next(
+            (i for i, (code, _) in enumerate(TARGETS) if code == current_target),
+            0,
+        )
+        self._translate_target_combo.setCurrentIndex(target_idx)
+        form.addRow("翻譯成", self._translate_target_combo)
+
+        self._deepl_key_edit = QLineEdit(str(settings.value(DEEPL_KEY, "") or ""))
+        self._deepl_key_edit.setPlaceholderText("僅 DeepL 需要，例如 xxxxxxxx:fx")
+        self._deepl_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        key_label = QLabel("DeepL 金鑰")
+        form.addRow(key_label, self._deepl_key_edit)
+
+        def _sync_provider():
+            info = provider_info(self._translate_provider_combo.currentData())
+            note.setText(info.note)
+            # The key row stays visible but inert so the layout does not jump.
+            key_label.setEnabled(info.needs_api_key)
+            self._deepl_key_edit.setEnabled(info.needs_api_key)
+
+        self._translate_provider_combo.currentIndexChanged.connect(_sync_provider)
+        _sync_provider()
+
+        hint = QLabel(
+            "在預覽、PDF 或編輯器中選取文字後按右鍵，選擇「翻譯選取內容」。\n"
+            "單次翻譯上限 3000 字元；免費服務有每日額度，請避免整章翻譯。"
+        )
+        hint.setWordWrap(True)
+        form.addRow("", hint)
+
+        return page
+
     def _build_about_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -381,5 +452,16 @@ class SettingsDialog(QDialog):
         settings.setValue("daily_note_template", daily_note_template)
         settings.setValue("templates_folder", templates_folder)
         settings.setValue(EXCLUDED_FOLDERS_KEY, excluded_folders)
+
+        # Translation
+        provider = self._translate_provider_combo.currentData()
+        target = self._translate_target_combo.currentData()
+        deepl_key = self._deepl_key_edit.text().strip()
+        self.results[PROVIDER_KEY] = provider
+        self.results[TARGET_KEY] = target
+        self.results[DEEPL_KEY] = deepl_key
+        settings.setValue(PROVIDER_KEY, provider)
+        settings.setValue(TARGET_KEY, target)
+        settings.setValue(DEEPL_KEY, deepl_key)
 
         super().accept()

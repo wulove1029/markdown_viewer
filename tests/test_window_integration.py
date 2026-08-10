@@ -38,6 +38,7 @@ class _FakeRenderer(QWidget):
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
+    translate_requested = Signal(str)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -142,6 +143,7 @@ class _FakePdfView(QWidget):
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)
     zoom_changed = Signal(float)
+    translate_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)

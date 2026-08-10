@@ -17,9 +17,14 @@ from .theme import LIGHT, Theme
 from .wikilink_completion import active_query, filter_completions
 
 
+# QTextCursor.selectedText() encodes line breaks as U+2029, not a newline.
+_PARAGRAPH_SEP = chr(0x2029)
+
+
 class EditorView(QPlainTextEdit):
     modified_changed = Signal(bool)
     image_status = Signal(str)  # user-facing status bar message
+    translate_requested = Signal(str)  # selected text to translate
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +43,23 @@ class EditorView(QPlainTextEdit):
         self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self._completer.activated[str].connect(self._insert_wikilink_completion)
+
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        # selectedText() joins wrapped lines with U+2029; restore real newlines
+        # so the provider sees the paragraph the user actually highlighted.
+        selection = (
+            self.textCursor().selectedText().replace(_PARAGRAPH_SEP, "\n").strip()
+        )
+        if selection:
+            menu.addSeparator()
+            action = menu.addAction("翻譯選取內容")
+            action.triggered.connect(
+                lambda _checked=False, text=selection: (
+                    self.translate_requested.emit(text)
+                )
+            )
+        menu.exec(event.globalPos())
 
     def set_content(self, text: str):
         self._completer.popup().hide()

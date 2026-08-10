@@ -23,6 +23,7 @@ from PySide6.QtWebEngineCore import (
     QWebEngineUrlScheme,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWidgets import QMenu
 
 from .annotation_bridge import AnnotationBridge
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
@@ -162,6 +163,7 @@ class RendererView(QWebEngineView):
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
+    translate_requested = Signal(str)  # selected text to translate
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -221,6 +223,38 @@ class RendererView(QWebEngineView):
     def _next_render_generation(self) -> int:
         self._render_generation += 1
         return self._render_generation
+
+    def contextMenuEvent(self, event):
+        # annotations.js consumes the event itself when the click lands on an
+        # existing highlight, so reaching here means a plain page selection.
+        selection = (self.page().selectedText() or "").strip()
+        menu = self._build_context_menu()
+        if selection:
+            menu.addSeparator()
+            action = menu.addAction("翻譯選取內容")
+            action.triggered.connect(
+                lambda _checked=False, text=selection: (
+                    self.translate_requested.emit(text)
+                )
+            )
+        if not menu.actions():
+            return
+        menu.exec(event.globalPos())
+
+    def _build_context_menu(self) -> QMenu:
+        """The page's own menu when Qt has a request for it, else a minimal one.
+
+        createStandardContextMenu() dereferences the pending context-menu
+        request and segfaults when there is none (verified), which can happen
+        if the event reaches us without the render process having filed one.
+        """
+        if self.lastContextMenuRequest() is not None:
+            return self.createStandardContextMenu()
+        menu = QMenu(self)
+        copy_action = self.pageAction(QWebEnginePage.WebAction.Copy)
+        if copy_action is not None:
+            menu.addAction(copy_action)
+        return menu
 
     def _on_page_load_finished(self, ok):
         if ok:

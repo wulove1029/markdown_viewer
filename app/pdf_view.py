@@ -28,7 +28,9 @@ from math import ceil, floor
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QElapsedTimer,
     QObject,
+    QPoint,
     QPointF,
     QRectF,
     QRunnable,
@@ -65,6 +67,19 @@ PALETTE: list[tuple[str, str]] = [
     ("#f48fb1", "粉"),
     ("#ce93d8", "紫"),
 ]
+
+
+# QPdfDocument reports page text with CRLF between lines.
+_LINE_BREAKS = "\r\n"
+
+
+def _is_word_char(ch: str) -> bool:
+    """Whether *ch* continues a word for double-click selection.
+
+    ``str.isalnum()`` is True for CJK, so a run of Chinese characters selects
+    as one unit rather than a single glyph — which is what readers expect.
+    """
+    return ch.isalnum() or ch == "_"
 
 
 def extract_outline(path, password: str = "") -> list[tuple[int, str, int]]:
@@ -118,6 +133,7 @@ class PdfView(QAbstractScrollArea):
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)  # generation, path, entries
     zoom_changed = Signal(float)  # user-initiated wheel zoom
+    translate_requested = Signal(str)  # selected text to translate
 
     PAGE_MARGIN = 12   # gutter around the page column (px)
     PAGE_SPACING = 12  # gap between pages (px)
@@ -195,6 +211,15 @@ class PdfView(QAbstractScrollArea):
         self._sel_start: QPointF | None = None
         self._selection = None  # QPdfSelection
         self._text_bounds: dict[int, QRectF | None] = {}
+        # Page text, indexed the same way QPdfSelection reports its indices
+        # (verified), so word/line expansion can be done on the string.
+        self._page_texts: dict[int, str] = {}
+        # Qt has no triple-click event; remember the last double-click so the
+        # press that follows it can be recognised as one.
+        self._click_clock = QElapsedTimer()
+        self._click_clock.start()
+        self._last_dbl_ms: int | None = None
+        self._last_dbl_pos = QPoint()
 
         # --- highlighter ---
         self._highlights: list = []  # PdfHighlight (drawing copy; window owns truth)
@@ -265,6 +290,7 @@ class PdfView(QAbstractScrollArea):
         self._highlights = []
         self._cache.clear()
         self._text_bounds.clear()
+        self._page_texts.clear()
         self._password = ""
         self._locked = False
         self._load_failed = False
@@ -353,6 +379,7 @@ class PdfView(QAbstractScrollArea):
         self._page_sizes = [self._doc.pagePointSize(i) for i in range(count)]
         self._cache.clear()
         self._text_bounds.clear()
+        self._page_texts.clear()
         self._relayout()
         if self._pending_page is not None:
             page = self._pending_page
@@ -1143,13 +1170,110 @@ class PdfView(QAbstractScrollArea):
             return QPointF(x, y)
         return pt
 
+    # ================= word / line selection =================
+    def _page_text(self, page: int) -> str:
+        """Full text of *page*; indices line up with QPdfSelection indices."""
+        if page in self._page_texts:
+            return self._page_texts[page]
+        try:
+            text = self._doc.getAllText(page).text()
+        except Exception:
+            text = ""
+        self._page_texts[page] = text
+        return text
+
+    def _index_at(self, page: int, pt: QPointF) -> int | None:
+        """Index into :meth:`_page_text` of the glyph under *pt*, or None.
+
+        A zero-width selection yields nothing, so probe a widening span until
+        one of them lands on a character.
+        """
+        for dx in (1.0, 2.5, 5.0):
+            sel = self._doc.getSelection(
+                page,
+                QPointF(pt.x() - dx, pt.y()),
+                QPointF(pt.x() + dx, pt.y()),
+            )
+            if sel.isValid() and sel.text():
+                index = sel.startIndex()
+                if index >= 0:
+                    return index
+        return None
+
+    def _select_range(self, page: int, start: int, end: int) -> bool:
+        """Select the half-open range [start, end) of the page text."""
+        if end <= start:
+            return False
+        sel = self._doc.getSelectionAtIndex(page, start, end - start)
+        if not sel.isValid() or not sel.text().strip():
+            return False
+        self._sel_page = page
+        self._selection = sel
+        # Drop the drag anchor so the mouse-move that follows the click cannot
+        # collapse this selection back to a caret.
+        self._sel_start = None
+        self._dragging = False
+        return True
+
+    def select_word_at(self, page: int, pt: QPointF) -> bool:
+        """Grow the click into the surrounding word. Returns True if it took."""
+        text = self._page_text(page)
+        index = self._index_at(page, pt)
+        if not text or index is None or index >= len(text):
+            return False
+        if not _is_word_char(text[index]):
+            return False
+        start = index
+        while start > 0 and _is_word_char(text[start - 1]):
+            start -= 1
+        end = index + 1
+        while end < len(text) and _is_word_char(text[end]):
+            end += 1
+        return self._select_range(page, start, end)
+
+    def select_line_at(self, page: int, pt: QPointF) -> bool:
+        """Grow the click into the whole line it sits on."""
+        text = self._page_text(page)
+        index = self._index_at(page, pt)
+        if not text or index is None or index >= len(text):
+            return False
+        if text[index] in _LINE_BREAKS:
+            return False
+        start = index
+        while start > 0 and text[start - 1] not in _LINE_BREAKS:
+            start -= 1
+        end = index
+        while end < len(text) and text[end] not in _LINE_BREAKS:
+            end += 1
+        return self._select_range(page, start, end)
+
+    def _is_triple_click(self, pos: QPoint) -> bool:
+        """A press shortly after (and on top of) a double-click is a triple."""
+        if self._last_dbl_ms is None:
+            return False
+        elapsed = self._click_clock.elapsed() - self._last_dbl_ms
+        if elapsed > QApplication.doubleClickInterval():
+            return False
+        return (pos - self._last_dbl_pos).manhattanLength() <= 6
+
     # ================= mouse / selection =================
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
         self.setFocus()
-        page, pt = self._pos_to_page(event.position().toPoint())
+        pos = event.position().toPoint()
+        if self._is_triple_click(pos):
+            page, pt = self._pos_to_page(pos)
+            if page is not None and self.select_line_at(
+                page, self._clamp_point(page, pt)
+            ):
+                # Consume it, so a fourth click starts a fresh drag.
+                self._last_dbl_ms = None
+                self.selection_changed.emit(True)
+                self.viewport().update()
+                return
+        page, pt = self._pos_to_page(pos)
         if page is None:
             self._clear_selection()
             self.selection_changed.emit(False)
@@ -1171,6 +1295,21 @@ class PdfView(QAbstractScrollArea):
             self._selection = sel
         self.viewport().update()
 
+    def mouseDoubleClickEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mouseDoubleClickEvent(event)
+            return
+        pos = event.position().toPoint()
+        page, pt = self._pos_to_page(pos)
+        if page is not None and self.select_word_at(page, self._clamp_point(page, pt)):
+            self._last_dbl_ms = self._click_clock.elapsed()
+            self._last_dbl_pos = pos
+            self.selection_changed.emit(True)
+            self.viewport().update()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseReleaseEvent(event)
@@ -1191,6 +1330,9 @@ class PdfView(QAbstractScrollArea):
             and self._selection.isValid()
             and bool(self._selection.text().strip())
         )
+
+    def selected_text(self) -> str:
+        return self._selection.text() if self.has_selection() else ""
 
     def copy_selection(self) -> bool:
         if self.has_selection():
@@ -1307,6 +1449,12 @@ class PdfView(QAbstractScrollArea):
         if self.has_selection():
             copy = menu.addAction("複製")
             copy.triggered.connect(self.copy_selection)
+            translate = menu.addAction("翻譯選取內容")
+            translate.triggered.connect(
+                lambda _checked=False: self.translate_requested.emit(
+                    self.selected_text()
+                )
+            )
             sub = menu.addMenu("螢光標記")
             for hex_color, label in PALETTE:
                 act = sub.addAction(label)

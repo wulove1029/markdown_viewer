@@ -94,6 +94,16 @@ from .theme import (
 )
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
+from .translate import (
+    DEEPL_KEY,
+    PROVIDER_KEY,
+    TARGET_KEY,
+    cached_translation,
+    normalize_provider,
+    normalize_target,
+    start_translation,
+)
+from .translate_dialog import TranslationDialog
 from .wikilink_completion import completion_candidates
 from .version import RELEASE_NOTES, VERSION
 
@@ -288,7 +298,13 @@ class MainWindow(QMainWindow):
         )
         self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
+        self._renderer.translate_requested.connect(self._translate_selection)
         self._panel.close_btn.clicked.connect(self._toggle_sidebar)
+
+        # Selection translation: one reused window, and a request counter so a
+        # slow reply for an earlier selection cannot overwrite a newer one.
+        self._translate_dialog: TranslationDialog | None = None
+        self._translate_request_id = 0
 
         # View mode for Markdown documents: preview / edit / split (editor +
         # live preview). ``_edit_mode`` (bool) is derived from it below.
@@ -296,6 +312,7 @@ class MainWindow(QMainWindow):
         self._editing_encoding = "utf-8"
         self._editing_newline = "\n"
         self._editor = EditorView()
+        self._editor.translate_requested.connect(self._translate_selection)
         self._editor.modified_changed.connect(self._on_editor_modified)
         self._editor.image_status.connect(
             lambda msg: self.statusBar().showMessage(msg, 4000)
@@ -308,6 +325,7 @@ class MainWindow(QMainWindow):
         self._edit_preview.set_zoom(self._content_zoom)
         self._edit_preview.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._edit_preview.local_doc_clicked.connect(self._on_local_doc_clicked)
+        self._edit_preview.translate_requested.connect(self._translate_selection)
 
         self._editor_search_bar = self._build_editor_search_bar()
         self._editor_search_bar.hide()
@@ -351,6 +369,7 @@ class MainWindow(QMainWindow):
         self._pdf_view.highlight_delete_requested.connect(self._pdf_highlight_delete)
         self._pdf_view.outline_ready.connect(self._on_pdf_outline_ready)
         self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
+        self._pdf_view.translate_requested.connect(self._translate_selection)
         # Wheel zoom is already applied locally by PdfView. Defer the heavier
         # hidden-renderer/QSettings synchronization until the gesture settles.
         self._pending_pdf_wheel_zoom: float | None = None
@@ -749,12 +768,92 @@ QSplitter::handle:hover {{
         self._pdf_view.apply_theme(self._theme)
         if self._graph_window is not None:
             self._graph_window.apply_theme(self._theme)
+        if getattr(self, "_translate_dialog", None) is not None:
+            self._translate_dialog.apply_theme(self._theme)
         self._refresh_icons()
         self._renderer.set_theme(self._theme_name)
         # The preview holds a throwaway HTML string (no _current_path), so the
         # renderer's in-place theme swap can't recolor it — re-render instead.
         if getattr(self, "_edit_mode", False):
             self._update_preview()
+
+    # ── selection translation ───────────────────────────────────────────
+
+    def _translate_selection(self, text: str):
+        """Translate a right-click selection from any of the content views."""
+        selection = (text or "").strip()
+        if not selection:
+            self.statusBar().showMessage("沒有選取任何文字", 3000)
+            return
+        settings = QSettings(_ORG, _APP)
+        self._run_translation(
+            selection,
+            normalize_provider(settings.value(PROVIDER_KEY)),
+            normalize_target(settings.value(TARGET_KEY)),
+        )
+
+    def _ensure_translate_dialog(self) -> TranslationDialog:
+        if self._translate_dialog is None:
+            dialog = TranslationDialog(self, theme=self._theme)
+            dialog.retranslate_requested.connect(self._on_retranslate_requested)
+            self._translate_dialog = dialog
+        return self._translate_dialog
+
+    def _run_translation(
+        self, selection: str, provider: str, target: str, force: bool = False
+    ):
+        dialog = self._ensure_translate_dialog()
+        dialog.start(selection, provider, target)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+        # A repeat of the same request costs nothing and returns instantly.
+        if not force:
+            cached = cached_translation(selection, provider, target)
+            if cached is not None:
+                self._translate_request_id += 1  # invalidate anything in flight
+                dialog.show_result(cached, provider, target, from_cache=True)
+                return
+
+        self._translate_request_id += 1
+        request_id = self._translate_request_id
+        start_translation(
+            request_id,
+            selection,
+            provider=provider,
+            target=target,
+            api_key=str(QSettings(_ORG, _APP).value(DEEPL_KEY, "") or ""),
+            on_finished=lambda rid, result: self._on_translation_done(
+                rid, result, provider, target
+            ),
+            on_failed=self._on_translation_failed,
+        )
+
+    def _on_retranslate_requested(self, provider: str, target: str, force: bool):
+        """The translation window's own service / language pickers."""
+        dialog = self._translate_dialog
+        if dialog is None or not dialog.source_text():
+            return
+        # Remember the choice so the next right-click uses it too.
+        settings = QSettings(_ORG, _APP)
+        settings.setValue(PROVIDER_KEY, provider)
+        settings.setValue(TARGET_KEY, target)
+        self._run_translation(dialog.source_text(), provider, target, force=force)
+
+    def _on_translation_done(
+        self, request_id: int, result: str, provider: str, target: str
+    ):
+        if request_id != self._translate_request_id:
+            return  # superseded by a newer selection
+        if self._translate_dialog is not None:
+            self._translate_dialog.show_result(result, provider, target)
+
+    def _on_translation_failed(self, request_id: int, message: str):
+        if request_id != self._translate_request_id:
+            return
+        if self._translate_dialog is not None:
+            self._translate_dialog.show_error(message)
 
     def _refresh_icons(self):
         icon_color = self._theme.text_muted
