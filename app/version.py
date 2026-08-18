@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.22.0"
+VERSION = "1.23.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "選取文字後按右鍵可直接翻譯，閱讀模式、PDF 與編輯器皆支援，預設使用免註冊的免費服務。",
-    "譯文視窗可即時切換翻譯服務與目標語言，並快取結果，重看同一段不再重複耗用額度。",
-    "PDF 支援點兩下選取字詞、點三下選取整行，與閱讀模式操作一致。",
+    "啟動更快：文件庫檔案樹改在背景掃描，主視窗與文件內容不再等整個文件庫掃完才出現。",
+    "大型文件庫（數千個資料夾、USB 或冷快取磁碟）掃描時間縮短一個數量級，掃描中會顯示進度提示。",
+    "PDF 元件改為第一次開啟 PDF 時才載入，縮短冷啟動時間。",
 ]
 
 GITHUB_OWNER = "wulove1029"

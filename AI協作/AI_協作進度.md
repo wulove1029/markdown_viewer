@@ -120,6 +120,80 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-08-18 — v1.23.0：啟動慢（第一次開啟等很久才出現內容）根因定案＋修正〔已實作＋已驗證＋已發布〕
+
+**作者**：Claude
+**類型**：效能分析＋實作
+
+**現象證據**：`%APPDATA%\markdown-viewer\Markdown Viewer\logs\markdown-viewer.log`
+的「starting」→「IPC server listening」（= `MainWindow()` 建構＋`show()`）在打包版
+實測 2.5–9.1 秒（08-17 兩次分別 9.1s／8.4s）。開發模式以 cProfile 量測
+（scratchpad `profile_startup.py`）：冷啟 `MainWindow()` 7.4s，暖啟 3.0s。
+
+**根因（依耗時排序）**：
+1. `app/file_browser.py:689 _populate_folder`（由建構子 `:419 refresh_libraries()`
+   同步呼叫）在 UI 執行緒**遞迴掃完整個文件庫**（使用者的 `E:\outputs` 是 USB 碟，
+   6349 個資料夾／52990 個檔案）。用 pathlib `iterdir()+is_dir()+is_file()` 每個
+   entry 各 stat 一次（31730×2 次 syscall ≈ 2.3s 暖、冷更慢），`relative_to` 每
+   entry 一次（0.36s），`svg_icon` 每個資料夾重新 render SVG 4451 次無快取
+   （0.5s）。合計暖 2.5s、冷 4.1s，視窗要等它掃完才會出現。
+2. `app/renderer.py:86 _DocumentPage.__init__`：QtWebEngine（Chromium）首次
+   初始化，冷 2.8s／暖 0.12s，無法省但可與掃描並行。
+3. 冷 import：`app.window` 冷 3.3s／暖 0.42s；其中 `pymupdf`（`app/pdf_view.py:53`
+   模組層 import）冷 585ms、`urllib.request`（`app/translate.py:14`）冷 190ms
+   可延後到用到時才 import。
+
+**修法**：(a) 掃描改 `os.scandir`（DirEntry 型別免 stat）＋圖示快取＋相對路徑用
+字串累加；(b) 掃描與建樹分離，掃描丟到背景執行緒（`QThreadPool`），視窗與內容
+先出現，樹掃完再填；`restore_tree_state`／`select_path`／`navigate_to` 在掃描中
+先暫存、掃完套用；(c) `pymupdf`／`urllib.request` 延後 import。
+
+**已落地**（未 commit）：
+- `app/file_browser.py`：新增純函式掃描 `_scan_folder`／`_scan_libraries`
+  （`os.scandir`，DirEntry 型別免 stat）＋ `_ScanJob(QRunnable)` 背景執行、
+  `_ScanToken` 取消（含 widget `destroyed` 連動的 lifetime token）；
+  `_refresh_list` 只負責建 request 與派工，`_apply_scan`／`_build_items` 在 UI
+  執行緒建樹；世代號 `_scan_generation` 讓較新的 refresh 蓋掉在跑的舊掃描；
+  `restore_tree_state`／`navigate_to`／`_select_path` 掃描中先暫存、
+  `_replay_pending` 掃完套用；`_cached_icon` 快取資料夾／檔案圖示。
+  建構子新增 `background_scan=False`（測試沿用同步路徑）。
+- `app/left_panel.py`：`FileBrowserView(..., background_scan=True)`。
+- `app/pdf_view.py`：`pymupdf` 改為 `_pymupdf()` 首次使用才 import。
+- `tests/test_file_browser.py`：新增 5 個背景掃描測試（樹內容與同步版一致、
+  掃描中 restore/select 事後套用、較新 refresh 蓋舊掃描、純函式掃描與取消）。
+
+**證據**：`py -3 -m pytest tests -q`（排除 webengine 檔）622 passed／3 skipped；
+`test_inline_edit_webengine.py`＋`test_pdf_view.py`＋`test_pdf_doc_tags.py`
+16 passed／7 skipped。scratchpad `profile_startup.py` 暖啟：`MainWindow()`
+3.0s → 0.45s；內容出現（renderer loadFinished）4.4s → 1.65s（自程序啟動起算）。
+真實文件庫 `E:\outputs` 全掃描 2.5s（舊 pathlib 版）→ 0.12s（scandir，且在
+worker thread；`t_thread.py` 驗證執行緒 id 不同）。
+
+**fresh 驗收（獨立 subagent，opus）**：8 條驗收條件全 PASS（語意對等逐點對照舊版
+`_populate_folder`、執行緒安全＋中途 `shiboken6.delete` 不 crash 0.002s、掃描中請求事後
+套用、檔案操作流程、全套測試、效能、pdf_view 延遲 import、spec hiddenimports）。
+挑錯 6 項，已修 3 項：(1) worker 內 `tags_for` 改包 `try/except Exception → []`
+（`app/file_browser.py` `_scan_folder` 檔案節點處）；(2) `_on_scan_finished` 收到
+`results=None` 不再於 UI 執行緒同步重掃（會把卡頓搬回來），改顯示「掃描文件庫失敗，
+請按「重新掃描」再試」並 replay pending，新增測試
+`test_failed_background_scan_reports_instead_of_blocking`；(6) `pdf_view` 模組層哨兵
+改私有名 `_pymupdf_module`，不再佔用公開名 `pymupdf`。未修（低）：背景模式下舊樹保留到
+掃完（不再閃空白，但篩選框打字改為掃完才換）→ 建議日後加 debounce；`_ScanSignals`
+由 job 持有於 pool 執行緒解構（常見 idiom，實測無警告）。
+
+**最終證據**：`py -3 -X utf8 -m pytest tests -q` → 623 passed／10 skipped；
+真跑 `py -3 main.py`：log「starting」→「IPC server listening」0.45s
+（2026-08-18 13:48:04.795 → 05.248；前一日打包版同段 8.4s）。
+
+**發布**：使用者指示依 DEVELOPMENT.md §6 發版 → `bump_version.py 1.23.0`、CHANGELOG
+`[1.23.0] - 2026-08-18`、`app/version.py` RELEASE_NOTES 更新 → commit
+「Release v1.23.0: background library scan for faster startup」→ push → tag `v1.23.0`
+觸發 GitHub Actions 建置安裝檔。
+
+**→ 下一棒**：打包版裝好後於 USB 文件庫實機再量一次冷啟（log「starting」→
+「IPC server listening」應遠低於先前的 2.5–9s）。
+
+
 ### 2026-07-30 10:30 — v1.20.1：行內編輯改三連擊＋修重載閃頂〔已實作＋已驗證＋已發布〕
 
 **作者**：Claude（主線實作＋另派 fresh subagent 獨立驗收）
@@ -1865,6 +1939,7 @@ single-instance/IPC 機制，故多開檔案＝多開視窗。
 
 ## 待辦與未決
 
+- [ ] （低）檔案樹篩選框 `textChanged` 直接觸發背景重掃，無 debounce；大文件庫上連續打字時舊樹要等最新一次掃完才換（app/file_browser.py 建構子 `self._filter.textChanged.connect(self._refresh_list)`）——可加 150ms QTimer 合併
 - [ ] （低-中）主視窗關閉、detached 視窗留存時 IPC server 消失，之後雙擊 .md
       會開出第二個 primary（main.py:110）——可考慮 server 移交或 app 級管理
 - [ ] （低）`_open_file` 分頁 key 未 `resolve()`，與 IPC 端 resolve 路徑可能

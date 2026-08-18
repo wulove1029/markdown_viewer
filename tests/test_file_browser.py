@@ -459,3 +459,197 @@ def test_scan_hides_existing_sidecars(qapp, tmp_path, monkeypatch):
         assert view._find_item(hl) is None
     finally:
         view.close()
+
+
+# ---------------- background (threaded) scanning ----------------
+
+def _make_bg_view(tmp_path, monkeypatch, libraries, tag_index=None):
+    store = DocumentLibraryStore(tmp_path / "libraries.json")
+    store.save(libraries)
+    monkeypatch.setattr("app.file_browser.DocumentLibraryStore", lambda: store)
+    return FileBrowserView(
+        lambda _path: None, tag_index=tag_index, background_scan=True
+    )
+
+
+def _wait_scan(qapp, view: FileBrowserView, timeout_s: float = 10.0):
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while view.is_scanning():
+        qapp.processEvents()
+        assert time.monotonic() < deadline, "background scan never finished"
+        time.sleep(0.005)
+    qapp.processEvents()
+
+
+def test_background_scan_builds_tree_off_the_ui_thread(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    sub = root / "inbox"
+    sub.mkdir(parents=True)
+    (root / "top.md").write_text("# top", encoding="utf-8")
+    (sub / "nested.md").write_text("# nested", encoding="utf-8")
+    (sub / "ignored.txt").write_text("x", encoding="utf-8")
+
+    view = _make_bg_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        # Construction returns before the folder walk finishes.
+        assert view.is_scanning() is True
+        assert view._tree.topLevelItemCount() == 0
+        _wait_scan(qapp, view)
+        assert view.is_scanning() is False
+        texts = _visible_texts(view)
+        assert "Vault（2）" in texts
+        assert "inbox" in texts
+        assert "top.md" in texts
+        assert "nested.md" in texts
+        assert "ignored.txt" not in texts
+        # Library roots open by default on the first build.
+        assert view._tree.topLevelItem(0).isExpanded() is True
+        assert "2 份文件" in view._status.text()
+    finally:
+        view.close()
+
+
+def test_background_scan_matches_synchronous_scan(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    (root / "a" / "deep").mkdir(parents=True)
+    (root / "b").mkdir()
+    (root / ".git").mkdir()
+    (root / "empty").mkdir()
+    (root / "z.md").write_text("z", encoding="utf-8")
+    (root / "a" / "deep" / "d.md").write_text("d", encoding="utf-8")
+    (root / "a" / "deep" / "e.pdf").write_bytes(b"%PDF-1.4")
+    (root / "b" / "B.md").write_text("b", encoding="utf-8")
+    (root / ".git" / "hidden.md").write_text("h", encoding="utf-8")
+    libs = [DocumentLibrary("lib", "Vault", str(root))]
+
+    sync_view = _make_view(tmp_path, monkeypatch, libs)
+    bg_view = _make_bg_view(tmp_path, monkeypatch, libs)
+    try:
+        _wait_scan(qapp, bg_view)
+        assert _visible_texts(bg_view) == _visible_texts(sync_view)
+        assert _visible_file_paths(bg_view) == _visible_file_paths(sync_view)
+        assert bg_view._status.text() == sync_view._status.text()
+    finally:
+        sync_view.close()
+        bg_view.close()
+
+
+def test_restore_and_select_requested_during_scan_apply_after_it(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    sub = root / "projects"
+    sub.mkdir(parents=True)
+    (sub / "plan.md").write_text("# plan", encoding="utf-8")
+    (root / "top.md").write_text("# top", encoding="utf-8")
+
+    view = _make_bg_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        assert view.is_scanning() is True
+        # Session restore runs right after construction, before the walk lands.
+        view.restore_tree_state(
+            {"expanded": [str(root), str(sub)], "selected": str(sub / "plan.md")}
+        )
+        # Even before the tree exists the state is remembered for a save.
+        assert str(sub) in view.tree_state()["expanded"]
+        view.navigate_to(sub)
+        view.select_path(sub / "plan.md")
+        _wait_scan(qapp, view)
+        folder_item = view._find_item(sub)
+        assert folder_item is not None
+        assert folder_item.isExpanded() is True
+        current = view._tree.currentItem()
+        assert current is not None
+        assert current.data(0, _PATH_ROLE) == str(sub / "plan.md")
+        assert view.tree_state()["selected"] == str(sub / "plan.md")
+    finally:
+        view.close()
+
+
+def test_newer_refresh_supersedes_running_scan(qapp, tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "alpha.md").write_text("a", encoding="utf-8")
+    (root / "beta.md").write_text("b", encoding="utf-8")
+
+    view = _make_bg_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        # Type a filter while the first scan is still in flight: only the
+        # latest request may build the tree.
+        view._filter.setText("alp")
+        view._filter.setText("bet")
+        _wait_scan(qapp, view)
+        paths = _visible_file_paths(view)
+        assert paths == [str(root / "beta.md")]
+        assert not view.is_scanning()
+    finally:
+        view.close()
+
+
+def test_scan_folder_uses_directory_listing_types(tmp_path):
+    """The walker relies on scandir entry types (no per-file stat calls)."""
+    from app import file_browser as fb
+
+    root = tmp_path / "vault"
+    (root / "sub").mkdir(parents=True)
+    (root / "sub" / "n.md").write_text("n", encoding="utf-8")
+    (root / "top.pdf").write_bytes(b"%PDF-1.4")
+    (root / "skip.txt").write_text("x", encoding="utf-8")
+    request = fb._ScanRequest(
+        libraries=[DocumentLibrary("lib", "Vault", str(root))],
+        query="",
+        allowed=None,
+        excluded=[],
+        transient=set(),
+        tags_for=lambda _p: ["t"],
+        filtering=False,
+        active_tag="",
+    )
+    results = fb._scan_libraries(request)
+    assert len(results) == 1
+    scan = results[0]
+    assert scan.exists is True
+    assert scan.count == 2
+    names = [(n.name, n.is_dir) for n in scan.children]
+    assert names == [("sub", True), ("top.pdf", False)]
+    assert scan.children[0].children[0].name == "n.md"
+    assert scan.children[1].tags == ["t"]
+
+    # A cancelled token aborts the walk instead of finishing it.
+    token = fb._ScanToken()
+    token.cancel()
+    with pytest.raises(fb._ScanCancelled):
+        fb._scan_libraries(request, token)
+
+
+def test_failed_background_scan_reports_instead_of_blocking(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text("n", encoding="utf-8")
+
+    def boom(request, token=None):
+        raise RuntimeError("disk went away")
+
+    monkeypatch.setattr("app.file_browser._scan_libraries", boom)
+    view = _make_bg_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        view.select_path(root / "note.md")  # queued while "scanning"
+        _wait_scan(qapp, view)
+        # No synchronous rescan on the UI thread; the user is told instead.
+        assert "失敗" in view._status.text()
+        assert view._tree.topLevelItemCount() == 0
+        assert view._pending_select is None
+    finally:
+        view.close()

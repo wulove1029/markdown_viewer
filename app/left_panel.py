@@ -82,6 +82,9 @@ class LeftPanel(QWidget):
             on_manage_tags=on_manage_tags,
             on_add_tag=on_add_tag,
             tag_color_for=tag_color_for,
+            # Scan the library off the UI thread so a large or slow (USB,
+            # cold-cache) folder never delays the main window's first paint.
+            background_scan=True,
         )
         self._recent = RecentFilesView(
             on_file_selected=on_file_selected,

@@ -49,10 +49,23 @@ from PySide6.QtWidgets import (
     QMenu,
 )
 
-try:  # outline extraction (already a project dependency)
-    import pymupdf
-except Exception:  # pragma: no cover - import guard
-    pymupdf = None
+# PyMuPDF is only needed for outline extraction, yet importing it costs about
+# half a second on a cold start (native DLLs), so it is loaded on first use
+# instead of at startup: most sessions begin with a Markdown file, not a PDF.
+_PYMUPDF_UNSET = object()
+_pymupdf_module = _PYMUPDF_UNSET
+
+
+def _pymupdf():
+    """Return the pymupdf module, importing it lazily; None if unavailable."""
+    global _pymupdf_module
+    if _pymupdf_module is _PYMUPDF_UNSET:
+        try:
+            import pymupdf as _mod
+        except Exception:  # pragma: no cover - import guard
+            _mod = None
+        _pymupdf_module = _mod
+    return _pymupdf_module
 
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
@@ -91,10 +104,11 @@ def extract_outline(path, password: str = "") -> list[tuple[int, str, int]]:
     Encrypted PDFs raise from ``get_toc`` until authenticated, so an empty or
     wrong password degrades to an empty outline rather than crashing.
     """
-    if pymupdf is None or not path:
+    mupdf = _pymupdf()
+    if mupdf is None or not path:
         return []
     try:
-        with pymupdf.open(str(path)) as doc:
+        with mupdf.open(str(path)) as doc:
             if doc.needs_pass and not doc.authenticate(password or ""):
                 return []
             toc = doc.get_toc()  # [[level, title, page1based], ...]
