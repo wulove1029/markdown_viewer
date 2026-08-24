@@ -1,6 +1,7 @@
 """Right-side Markdown renderer (QWebEngineView wrapper)."""
 
 import json
+import math
 import urllib.parse
 from pathlib import Path
 
@@ -30,6 +31,31 @@ from .file_types import document_kind, is_markdown, is_pdf, is_supported_documen
 from .md_converter import convert, convert_text, state_page_html
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
+
+
+def _decode_content_size(value):
+    """Decode a WebEngine content-size result into positive finite pixels.
+
+    Qt WebEngine does not reliably convert JavaScript arrays to QVariant on
+    every Chromium/PySide combination.  The JavaScript caller therefore sends
+    JSON text, while accepting a native sequence here keeps the helper
+    compatible with engines that do support direct array conversion.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+    try:
+        width = float(value[0])
+        height = float(value[1])
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
+    if not math.isfinite(width) or not math.isfinite(height):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return [width, height]
 
 
 def _html_with_render_generation(html: str, generation: int) -> str:
@@ -630,13 +656,13 @@ class RendererView(QWebEngineView):
         js = (
             "(function() {"
             "  var d = document.documentElement, b = document.body;"
-            "  return ["
+            "  return JSON.stringify(["
             "    Math.max(d.scrollWidth, b.scrollWidth, d.clientWidth),"
             "    Math.max(d.scrollHeight, b.scrollHeight)"
-            "  ];"
+            "  ]);"
             "})()"
         )
-        self.page().runJavaScript(js, callback)
+        self.page().runJavaScript(js, lambda value: callback(_decode_content_size(value)))
 
     def _on_pdf_finished(self, path: str, ok: bool):
         callback = self._pdf_callback

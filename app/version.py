@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.23.0"
+VERSION = "1.24.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "啟動更快：文件庫檔案樹改在背景掃描，主視窗與文件內容不再等整個文件庫掃完才出現。",
-    "大型文件庫（數千個資料夾、USB 或冷快取磁碟）掃描時間縮短一個數量級，掃描中會顯示進度提示。",
-    "PDF 元件改為第一次開啟 PDF 時才載入，縮短冷啟動時間。",
+    "閱讀模式的表格可用網格編輯器直接修改、增刪列欄、設定對齊，並支援試算表資料整片貼入。",
+    "就地編輯遇到外部檔案變更、重新載入或模式切換時會先保留內容並確認，不再無聲丟失編輯。",
+    "修正 PDF 單一長頁匯出仍被切成多頁的問題，超長文件現在會依完整內容高度輸出成一頁。",
 ]
 
 GITHUB_OWNER = "wulove1029"

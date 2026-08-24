@@ -1,5 +1,6 @@
 """Export action handlers delegated from MainWindow."""
 
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QMarginsF, QSettings, QSizeF, Qt, QUrl
@@ -32,8 +33,6 @@ _PDF_SIZE_CHOICES = [
     ("Legal", "Legal（美規法律）"),
     ("single", "單一長頁（不分頁）"),
 ]
-# PDF pages cannot exceed ~200 inches; stay safely under that limit (points).
-_PDF_MAX_PT = 14000.0
 _PT_PER_PX = 72.0 / 96.0
 
 
@@ -251,7 +250,25 @@ def export_single_page(window, dims):
         measured_w = float(dims[0])
         h_px = float(dims[1])
     except (TypeError, ValueError, IndexError):
-        measured_w, h_px = 0.0, 1123.0
+        measured_w, h_px = 0.0, 0.0
+
+    if (
+        not math.isfinite(measured_w)
+        or not math.isfinite(h_px)
+        or measured_w <= 0
+        or h_px <= 0
+    ):
+        window._pending_pdf_path = None
+        window._export_btn.setEnabled(
+            bool(window._current_file) and not window._edit_mode
+        )
+        window._refresh_icons()
+        QMessageBox.warning(
+            window,
+            "匯出 PDF",
+            "無法取得完整頁面尺寸，請等待文件載入完成後再重試。",
+        )
+        return
 
     # Base the page width on the actual viewport so the PDF mirrors the
     # on-screen layout; widen if the content itself overflows (wide tables).
@@ -262,34 +279,17 @@ def export_single_page(window, dims):
     w_pt = w_px * _PT_PER_PX
     h_pt = (h_px + 4) * _PT_PER_PX
 
-    if h_pt > _PDF_MAX_PT:
-        reply = QMessageBox.question(
-            window,
-            "匯出 PDF",
-            "文件內容過長，無法放進單一頁面（PDF 頁面高度上限約 508 公分）。\n"
-            "要改用 A4 分頁匯出嗎？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            window._pending_pdf_path = None
-            window._export_btn.setEnabled(
-                bool(window._current_file) and not window._edit_mode
-            )
-            window._refresh_icons()
-            return
-        layout = pdf_layout("A4", "portrait")
-    else:
-        layout = QPageLayout(
-            QPageSize(
-                QSizeF(w_pt, h_pt),
-                QPageSize.Unit.Point,
-                "Continuous",
-                QPageSize.SizeMatchPolicy.ExactMatch,
-            ),
-            QPageLayout.Orientation.Portrait,
-            QMarginsF(0, 0, 0, 0),
-            QPageLayout.Unit.Point,
-        )
+    layout = QPageLayout(
+        QPageSize(
+            QSizeF(w_pt, h_pt),
+            QPageSize.Unit.Point,
+            "Continuous",
+            QPageSize.SizeMatchPolicy.ExactMatch,
+        ),
+        QPageLayout.Orientation.Portrait,
+        QMarginsF(0, 0, 0, 0),
+        QPageLayout.Unit.Point,
+    )
 
     show_pdf_progress(window)
     window._renderer.export_pdf(
