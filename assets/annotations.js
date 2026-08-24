@@ -554,6 +554,10 @@
 
   // ---- public API (called from Python) -----------------------------------
   window.__annot = {
+    // The inline editors call this as they open: the triple-click that opens
+    // them is a selection too, so the colour toolbar is already up and would
+    // sit floating over the editor.
+    hideToolbar: hideToolbar,
     render: function (jsonStr) {
       var list;
       try { list = JSON.parse(jsonStr || "[]"); } catch (e) { list = []; }

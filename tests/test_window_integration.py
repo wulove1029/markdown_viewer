@@ -8,6 +8,7 @@ from PySide6.QtGui import QCloseEvent, QShortcut, QTextCursor
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from app import export_actions
+from app import md_table
 from app import window as window_mod
 
 _ORG = "markdown-viewer"
@@ -21,16 +22,28 @@ class _Bridge(QObject):
     clicked = Signal(object)
     orphansReported = Signal(object)
     taskToggled = Signal(object)
+    inlineEditStateChanged = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.inline_edit_handlers = {}
 
-    def set_inline_edit_handlers(self, fetch=None, commit=None, paste_image=None):
+    def set_inline_edit_handlers(
+        self,
+        fetch=None,
+        commit=None,
+        paste_image=None,
+        commit_table=None,
+        serialize_table=None,
+        reload=None,
+    ):
         self.inline_edit_handlers = {
             "fetch": fetch,
             "commit": commit,
             "paste_image": paste_image,
+            "commit_table": commit_table,
+            "serialize_table": serialize_table,
+            "reload": reload,
         }
 
 
@@ -1313,7 +1326,10 @@ def test_inline_edit_handlers_are_registered_on_the_preview_bridge(make_window):
 
     handlers = _inline_handlers(win)
 
-    assert set(handlers) == {"fetch", "commit", "paste_image"}
+    assert set(handlers) == {
+        "fetch", "commit", "paste_image", "commit_table",
+        "serialize_table", "reload",
+    }
     assert all(callable(h) for h in handlers.values())
 
 
@@ -1323,7 +1339,13 @@ def test_inline_edit_fetch_returns_the_exact_source_lines(make_window, tmp_path)
     win = make_window()
     win.open_path(str(note))
 
-    assert _inline_handlers(win)["fetch"](2, 3) == {"ok": True, "text": "alpha\nbeta"}
+    reply = _inline_handlers(win)["fetch"](2, 3)
+
+    assert reply["ok"] is True
+    assert reply["text"] == "alpha\nbeta"
+    # The page hands this straight back on commit; see
+    # _inline_edit_signature for why the text check alone is not enough.
+    assert reply["sig"]
 
 
 def test_inline_edit_fetch_rejects_a_range_past_the_end(make_window, tmp_path):
@@ -1384,9 +1406,11 @@ def test_inline_edit_commit_refuses_when_the_file_changed_underneath(
     result = _inline_handlers(win)["commit"](2, 2, "alpha", "my edit")
 
     assert result["ok"] is False
-    # Untouched on disk, and the stale preview is forced to re-render.
+    # Untouched on disk, and deliberately *not* re-rendered: the page is
+    # the only place the text the user typed still exists, so reloading to
+    # "fix" the stale line numbers would destroy what needs saving.
     assert note.read_text(encoding="utf-8") == "# Title\n\nsomeone else wrote this\n"
-    assert win._renderer.reload_calls == before + 1
+    assert win._renderer.reload_calls == before
 
 
 def test_inline_edit_is_refused_while_the_editor_owns_the_buffer(
@@ -1510,3 +1534,411 @@ def test_inline_edit_commit_falls_back_to_utf8_when_the_encoding_cannot_hold_it(
     assert result["ok"] is True, (result, win.statusBar().currentMessage())
 
     assert note.read_bytes().decode("utf-8") == "# 標題\n\n段落 ✅\n"
+
+
+# --- the table grid editor on top of the same commit path ------------------
+_TABLE_DOC = (
+    "# Title\n"
+    "\n"
+    "| Name | Qty |\n"
+    "|---|--:|\n"
+    "| apple | 3 |\n"
+    "\n"
+    "tail paragraph\n"
+)
+_TABLE_SOURCE = "| Name | Qty |\n|---|--:|\n| apple | 3 |"
+
+
+def _table_note(tmp_path):
+    note = tmp_path / "table.md"
+    note.write_text(_TABLE_DOC, encoding="utf-8")
+    return note
+
+
+def test_inline_edit_fetch_hands_a_table_block_its_model(make_window, tmp_path):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+
+    reply = _inline_handlers(win)["fetch"](2, 4)
+
+    assert reply["ok"] is True
+    assert reply["text"] == _TABLE_SOURCE
+    assert reply["table"] == {
+        "headers": ["Name", "Qty"],
+        "aligns": ["", "right"],
+        "rows": [["apple", "3"]],
+        "indent": "",
+    }
+
+
+def test_inline_edit_fetch_leaves_a_plain_block_without_a_table(
+    make_window, tmp_path
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+
+    reply = _inline_handlers(win)["fetch"](6, 6)
+
+    # No "table" key at all, so the page keeps using the raw textarea.
+    assert reply["text"] == "tail paragraph"
+    assert "table" not in reply
+
+
+def test_inline_edit_commit_table_writes_the_normalized_table(
+    make_window, tmp_path
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    handlers = _inline_handlers(win)
+    model = handlers["fetch"](2, 4)["table"]
+    model["rows"].append(["banana", "12"])
+    before = win._renderer.reload_calls
+
+    result = handlers["commit_table"](2, 4, _TABLE_SOURCE, json.dumps(model))
+
+    assert result == {"ok": True}, win.statusBar().currentMessage()
+    # The table is rewritten in the normalized layout; every other line of the
+    # document is untouched.
+    assert note.read_text(encoding="utf-8") == (
+        "# Title\n"
+        "\n"
+        "| Name   | Qty  |\n"
+        "| ------ | ---: |\n"
+        "| apple  | 3    |\n"
+        "| banana | 12   |\n"
+        "\n"
+        "tail paragraph\n"
+    )
+    assert win._renderer.reload_calls == before + 1
+
+
+def test_inline_edit_commit_table_refuses_a_stale_block(make_window, tmp_path):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    handlers = _inline_handlers(win)
+    model = handlers["fetch"](2, 4)["table"]
+    model["rows"][0][0] = "edited in the grid"
+    note.write_text(
+        _TABLE_DOC.replace("apple", "someone else"), encoding="utf-8"
+    )
+    on_disk = note.read_text(encoding="utf-8")
+
+    result = handlers["commit_table"](2, 4, _TABLE_SOURCE, json.dumps(model))
+
+    assert result == {"ok": False, "error": "stale"}
+    assert note.read_text(encoding="utf-8") == on_disk
+
+
+def test_inline_edit_commit_table_rejects_a_model_it_cannot_use(
+    make_window, tmp_path
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    handlers = _inline_handlers(win)
+
+    for payload in (
+        "not json at all",
+        "[1, 2, 3]",
+        json.dumps({"rows": [["a"]]}),
+        json.dumps({"headers": "Name", "rows": []}),
+        # An empty header list is refused on purpose: it would serialize to ""
+        # and wipe the whole table off the page.
+        json.dumps({"headers": [], "aligns": [], "rows": [], "indent": ""}),
+    ):
+        assert handlers["commit_table"](2, 4, _TABLE_SOURCE, payload) == {
+            "ok": False,
+            "error": "bad-model",
+        }, payload
+
+    assert note.read_text(encoding="utf-8") == _TABLE_DOC
+
+
+def test_inline_edit_commit_table_is_refused_while_the_editor_owns_the_buffer(
+    make_window, tmp_path
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    handlers = _inline_handlers(win)
+    model = handlers["fetch"](2, 4)["table"]
+    win._toggle_edit_mode()
+
+    result = handlers["commit_table"](2, 4, _TABLE_SOURCE, json.dumps(model))
+
+    assert result == {"ok": False, "error": "unavailable"}
+    assert note.read_text(encoding="utf-8") == _TABLE_DOC
+
+
+# --- the document-revision half of the optimistic lock -----------------------
+# Two byte-identical tables: whatever the block text says, it says it about
+# either of them, so the text comparison alone cannot tell which one a write
+# was aimed at. Only the file revision can.
+_TWIN_TABLE = "| A | B |\n| --- | --- |\n| 1 | 2 |"
+_TWIN_DOC = _TWIN_TABLE + "\n\n" + _TWIN_TABLE + "\n"
+# Four lines: exactly the height of one table plus its blank separator, so the
+# insert lines the *first* table up with the second one's line numbers.
+_ONE_BLOCK = "pad\npad\npad\npad\n"
+_EDITED_MODEL = json.dumps(
+    {
+        "headers": ["A", "B"],
+        "aligns": ["", ""],
+        "rows": [["EDITED", "2"]],
+        "indent": "",
+    }
+)
+
+
+def _twin_note(tmp_path):
+    note = tmp_path / "twins.md"
+    note.write_text(_TWIN_DOC, encoding="utf-8")
+    return note
+
+
+def test_inline_edit_fetch_pins_the_revision_it_read_the_line_numbers_from(
+    make_window, tmp_path
+):
+    note = _twin_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+
+    second = _inline_handlers(win)["fetch"](4, 6)
+
+    assert second["text"] == _TWIN_TABLE
+    # Same text as the first table, so the signature is the only thing that
+    # distinguishes this reply from one about lines 0..2.
+    assert second["sig"] == _inline_handlers(win)["fetch"](0, 2)["sig"]
+    assert second["sig"]
+
+
+def test_inline_edit_commit_table_refuses_a_write_aimed_at_a_twin_table(
+    make_window, tmp_path
+):
+    note = _twin_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    reply = _inline_handlers(win)["fetch"](4, 6)
+    # Someone prepends exactly one block's worth of lines, so lines 4..6 now
+    # hold the *first* table -- byte-identical to what the page was shown.
+    note.write_text(_ONE_BLOCK + _TWIN_DOC, encoding="utf-8")
+    before = win._renderer.reload_calls
+
+    result = _inline_handlers(win)["commit_table"](
+        4, 6, reply["text"], _EDITED_MODEL, reply["sig"]
+    )
+
+    assert result == {"ok": False, "error": "stale"}
+    # Neither table touched, and the page left standing so the user can still
+    # copy what they built out of the grid.
+    assert note.read_text(encoding="utf-8") == _ONE_BLOCK + _TWIN_DOC
+    assert win._renderer.reload_calls == before
+
+
+def test_without_a_signature_a_twin_table_swallows_the_write(make_window, tmp_path):
+    """Documents the hole the signature closes -- not desired behaviour.
+
+    An empty signature is the backward-compatible path, and this is the price
+    of it: the text check passes against the wrong table and the edit lands
+    there. If this ever stops being true the signature plumbing has become
+    redundant; until then it is the only defence.
+    """
+    note = _twin_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    reply = _inline_handlers(win)["fetch"](4, 6)
+    note.write_text(_ONE_BLOCK + _TWIN_DOC, encoding="utf-8")
+
+    result = _inline_handlers(win)["commit_table"](
+        4, 6, reply["text"], _EDITED_MODEL, ""
+    )
+
+    assert result == {"ok": True}
+    lines = note.read_text(encoding="utf-8").split("\n")
+    # The write landed on the first table; the one the user was editing is
+    # still sitting there untouched.
+    assert "EDITED" in lines[6]
+    assert "\n".join(lines[8:11]) == _TWIN_TABLE
+
+
+def test_inline_edit_commit_refuses_a_stale_signature_even_when_the_text_matches(
+    make_window, tmp_path
+):
+    note = tmp_path / "sig.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    reply = _inline_handlers(win)["fetch"](2, 2)
+    # A foreign write that leaves line 2 alone: the text check would sail
+    # straight through, but the line numbers came from a different revision.
+    note.write_text("# Title\n\nalpha\nappended elsewhere\n", encoding="utf-8")
+
+    result = _inline_handlers(win)["commit"](
+        2, 2, reply["text"], "my edit", reply["sig"]
+    )
+
+    assert result == {"ok": False, "error": "stale"}
+    assert note.read_text(encoding="utf-8") == (
+        "# Title\n\nalpha\nappended elsewhere\n"
+    )
+
+
+def test_inline_edit_commit_skips_the_check_without_a_signature(
+    make_window, tmp_path
+):
+    note = tmp_path / "nosig.md"
+    note.write_text("# Title\n\nalpha\n", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+
+    # A page injected before the signature existed sends "", and must not be
+    # locked out of editing entirely.
+    result = _inline_handlers(win)["commit"](2, 2, "alpha", "my edit", "")
+
+    assert result == {"ok": True}
+    assert note.read_text(encoding="utf-8") == "# Title\n\nmy edit\n"
+
+
+# --- serialize-only, for the grid's "switch to source" button ----------------
+def test_inline_edit_serialize_table_renders_markdown_without_writing(
+    make_window, tmp_path
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    before = note.read_text(encoding="utf-8")
+
+    result = _inline_handlers(win)["serialize_table"](_EDITED_MODEL)
+
+    assert result["ok"] is True
+    assert md_table.parse_table(result["text"]) == json.loads(_EDITED_MODEL)
+    # The button only swaps the editor; nothing is saved until Ctrl+Enter.
+    assert note.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize(
+    "payload", ["{", "[]", '{"headers": []}', '{"headers": "A"}']
+)
+def test_inline_edit_serialize_table_rejects_a_model_it_cannot_use(
+    make_window, tmp_path, payload
+):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+
+    result = _inline_handlers(win)["serialize_table"](payload)
+
+    assert result == {"ok": False, "error": "bad-model"}
+
+
+def test_inline_edit_reload_rerenders_on_the_pages_request(make_window, tmp_path):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    win._preview_editing = True
+    before = win._renderer.reload_calls
+
+    result = _inline_handlers(win)["reload"]()
+
+    assert result == {"ok": True}
+    assert win._renderer.reload_calls == before + 1
+    # The page that set the flag is gone with the re-render.
+    assert win._preview_editing is False
+
+
+# --- guarding an open preview editor against a re-render --------------------
+def _answer_question(monkeypatch, button):
+    """Patch the confirmation dialog and record that it was put up."""
+    asked = []
+
+    def question(*args, **kwargs):
+        asked.append(args[1] if len(args) > 1 else "")
+        return button
+
+    monkeypatch.setattr(window_mod.QMessageBox, "question", question)
+    return asked
+
+
+def _window_with_an_open_grid(make_window, tmp_path):
+    note = _table_note(tmp_path)
+    win = make_window()
+    win.open_path(str(note))
+    # What assets/inline_edit.js reports when it opens an editor.
+    win._renderer.bridge.inlineEditStateChanged.emit(True)
+    assert win._preview_editing is True
+    return win
+
+
+def test_reloading_asks_before_discarding_an_open_preview_edit(
+    make_window, tmp_path, monkeypatch
+):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+    asked = _answer_question(monkeypatch, window_mod.QMessageBox.StandardButton.No)
+    before = win._renderer.reload_calls
+
+    win._reload_current()
+
+    assert asked
+    assert win._renderer.reload_calls == before
+
+
+def test_reloading_goes_ahead_once_the_preview_edit_is_given_up(
+    make_window, tmp_path, monkeypatch
+):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+    _answer_question(monkeypatch, window_mod.QMessageBox.StandardButton.Yes)
+    before = win._renderer.reload_calls
+
+    win._reload_current()
+
+    assert win._renderer.reload_calls == before + 1
+    assert win._preview_editing is False
+
+
+def test_entering_the_editor_asks_before_discarding_an_open_preview_edit(
+    make_window, tmp_path, monkeypatch
+):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+    asked = _answer_question(monkeypatch, window_mod.QMessageBox.StandardButton.No)
+
+    win._enter_edit_mode()
+
+    assert asked
+    assert win._edit_mode is False
+
+
+def test_external_change_asks_before_discarding_an_open_preview_edit(
+    make_window, tmp_path, monkeypatch
+):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+    asked = _answer_question(monkeypatch, window_mod.QMessageBox.StandardButton.No)
+    before = win._renderer.reload_calls
+
+    win._prompt_external_change()
+
+    assert asked
+    assert win._renderer.reload_calls == before
+
+
+def test_external_change_reloads_once_the_preview_edit_is_given_up(
+    make_window, tmp_path, monkeypatch
+):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+    _answer_question(monkeypatch, window_mod.QMessageBox.StandardButton.Yes)
+    before = win._renderer.reload_calls
+
+    win._prompt_external_change()
+
+    assert win._renderer.reload_calls == before + 1
+    assert win._preview_editing is False
+
+
+def test_closing_the_preview_editor_clears_the_flag(make_window, tmp_path):
+    win = _window_with_an_open_grid(make_window, tmp_path)
+
+    win._renderer.bridge.inlineEditStateChanged.emit(False)
+
+    assert win._preview_editing is False

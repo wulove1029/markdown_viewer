@@ -213,6 +213,9 @@ class RendererView(QWebEngineView):
         self._inline_edit_js = (
             Path(__file__).parent.parent / "assets" / "inline_edit.js"
         ).read_text(encoding="utf-8")
+        self._table_edit_js = (
+            Path(__file__).parent.parent / "assets" / "table_edit.js"
+        ).read_text(encoding="utf-8")
         # Inline block editing is a preview-mode affordance; the window turns it
         # off whenever the text editor takes over the buffer.
         self._inline_edit_enabled = True
@@ -551,6 +554,10 @@ class RendererView(QWebEngineView):
             self._qwebchannel_js
             + "\n"
             + self._annotations_js
+            + "\n"
+            # Injected before inline_edit.js on purpose: opening a table
+            # editor checks for window.__tableEdit as soon as it boots.
+            + self._table_edit_js
             + "\n"
             + self._inline_edit_js
             + "\n"

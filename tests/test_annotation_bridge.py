@@ -33,7 +33,16 @@ def test_inline_edit_slots_report_unavailable_without_handlers(qapp):
     assert json.loads(bridge.inlineEditFetch(0, 1)) == {
         "ok": False, "error": "unavailable"
     }
-    assert json.loads(bridge.inlineEditCommit(0, 1, "a", "b"))["ok"] is False
+    assert json.loads(bridge.inlineEditCommit(0, 1, "a", "b", "sig"))["ok"] is False
+    assert json.loads(bridge.inlineEditCommitTable(0, 1, "a", "{}", "sig")) == {
+        "ok": False, "error": "unavailable"
+    }
+    assert json.loads(bridge.inlineEditSerializeTable("{}")) == {
+        "ok": False, "error": "unavailable"
+    }
+    assert json.loads(bridge.inlineEditReload()) == {
+        "ok": False, "error": "unavailable"
+    }
     assert json.loads(bridge.inlineEditPasteImage())["ok"] is False
 
 
@@ -43,17 +52,37 @@ def test_inline_edit_slots_forward_arguments_and_serialize_the_reply(qapp):
     bridge.set_inline_edit_handlers(
         fetch=lambda start, end: calls.append(("fetch", start, end))
         or {"ok": True, "text": "line"},
-        commit=lambda start, end, original, new: calls.append(
-            ("commit", start, end, original, new)
+        commit=lambda start, end, original, new, sig: calls.append(
+            ("commit", start, end, original, new, sig)
         )
         or {"ok": True},
         paste_image=lambda: {"ok": True, "link": "![](assets/a.png)"},
+        commit_table=lambda start, end, original, model_json, sig: calls.append(
+            ("commit_table", start, end, original, model_json, sig)
+        )
+        or {"ok": True},
+        serialize_table=lambda model_json: calls.append(("serialize", model_json))
+        or {"ok": True, "text": "| a |"},
+        reload=lambda: calls.append(("reload",)) or {"ok": True},
     )
 
     assert json.loads(bridge.inlineEditFetch(2, 5)) == {"ok": True, "text": "line"}
-    assert json.loads(bridge.inlineEditCommit(2, 5, "old", "new")) == {"ok": True}
+    assert json.loads(bridge.inlineEditCommit(2, 5, "old", "new", "s1")) == {
+        "ok": True
+    }
     assert json.loads(bridge.inlineEditPasteImage())["link"] == "![](assets/a.png)"
-    assert calls == [("fetch", 2, 5), ("commit", 2, 5, "old", "new")]
+    assert json.loads(bridge.inlineEditCommitTable(2, 5, "old", "{}", "s1")) == {
+        "ok": True
+    }
+    assert json.loads(bridge.inlineEditSerializeTable("{}"))["text"] == "| a |"
+    assert json.loads(bridge.inlineEditReload()) == {"ok": True}
+    assert calls == [
+        ("fetch", 2, 5),
+        ("commit", 2, 5, "old", "new", "s1"),
+        ("commit_table", 2, 5, "old", "{}", "s1"),
+        ("serialize", "{}"),
+        ("reload",),
+    ]
 
 
 def test_inline_edit_reply_keeps_non_ascii_text_readable(qapp):

@@ -19,6 +19,11 @@ class AnnotationBridge(QObject):
     clicked = Signal(str)          # id
     orphansReported = Signal(list)  # list[str] of ids
     taskToggled = Signal(int, bool)  # source line (0-based), new checked state
+    # True while the preview holds an open inline editor with unsaved text.
+    # Pushed from the page rather than polled, because runJavaScript answers
+    # asynchronously and the window needs the answer *before* it puts up a
+    # modal reload prompt (see MainWindow._preview_editing).
+    inlineEditStateChanged = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,7 +32,15 @@ class AnnotationBridge(QObject):
         # can only return a value synchronously.
         self._inline_edit_handlers: dict = {}
 
-    def set_inline_edit_handlers(self, fetch=None, commit=None, paste_image=None):
+    def set_inline_edit_handlers(
+        self,
+        fetch=None,
+        commit=None,
+        paste_image=None,
+        commit_table=None,
+        serialize_table=None,
+        reload=None,
+    ):
         """Register the callables backing the inline preview editor.
 
         Each takes the slot's arguments and returns a JSON-serializable dict;
@@ -37,6 +50,9 @@ class AnnotationBridge(QObject):
             "fetch": fetch,
             "commit": commit,
             "paste_image": paste_image,
+            "commit_table": commit_table,
+            "serialize_table": serialize_table,
+            "reload": reload,
         }
 
     def _dispatch(self, name: str, *args) -> str:
@@ -79,16 +95,54 @@ class AnnotationBridge(QObject):
     def toggleTask(self, line, checked):
         self.taskToggled.emit(line, checked)
 
+    @Slot(bool)
+    def setInlineEditing(self, editing):
+        """The preview opened (True) or closed (False) an inline editor."""
+        self.inlineEditStateChanged.emit(bool(editing))
+
     # ---- inline preview editing (json in, json out) -------------------------
     @Slot(int, int, result=str)
     def inlineEditFetch(self, start, end):
         """Raw Markdown for source lines *start*..*end* (inclusive)."""
         return self._dispatch("fetch", int(start), int(end))
 
-    @Slot(int, int, str, str, result=str)
-    def inlineEditCommit(self, start, end, original, new):
-        """Write *new* over lines *start*..*end*, if they still hold *original*."""
-        return self._dispatch("commit", int(start), int(end), original, new)
+    @Slot(int, int, str, str, str, result=str)
+    def inlineEditCommit(self, start, end, original, new, sig):
+        """Write *new* over lines *start*..*end*, if they still hold *original*.
+
+        *sig* is the file signature ``inlineEditFetch`` handed out, echoed back
+        untouched. Comparing text alone is not enough: two byte-identical
+        blocks in one document make ``original`` match either of them, so a
+        drifted line range can pass the check and write over the wrong one.
+        """
+        return self._dispatch("commit", int(start), int(end), original, new, sig)
+
+    @Slot(int, int, str, str, str, result=str)
+    def inlineEditCommitTable(self, start, end, original, model_json, sig):
+        """Serialize *model_json* into a pipe table and write it over the block."""
+        return self._dispatch(
+            "commit_table", int(start), int(end), original, model_json, sig
+        )
+
+    @Slot(str, result=str)
+    def inlineEditSerializeTable(self, model_json):
+        """Render *model_json* as pipe-table Markdown, without writing it.
+
+        The grid's "switch to source" button needs the text the grid *would*
+        save, not the text the block was opened with, or everything typed
+        into the cells is lost on the way to the textarea.
+        """
+        return self._dispatch("serialize_table", model_json)
+
+    @Slot(result=str)
+    def inlineEditReload(self):
+        """Re-render the preview, on the page's own request.
+
+        A refused write leaves the page deliberately un-reloaded so the user
+        can rescue their text; this is the button that finishes the job once
+        they have.
+        """
+        return self._dispatch("reload")
 
     @Slot(result=str)
     def inlineEditPasteImage(self):

@@ -41,18 +41,33 @@ def _eval(view, js):
     return box.get("v")
 
 
+def _sig(path):
+    """Mirror MainWindow._inline_edit_signature: the revision, as a string."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return ""
+    return "%d:%d" % (stat.st_mtime_ns, stat.st_size)
+
+
 def _wire(view, path):
     """Back the bridge with the same pure functions the window uses."""
     committed = []
+    reloads = []
 
     def fetch(start, end):
         text = path.read_text(encoding="utf-8")
         source = extract_source_lines(text, start, end)
         if source is None:
             return {"ok": False, "error": "out-of-range"}
-        return {"ok": True, "text": source}
+        return {"ok": True, "text": source, "sig": _sig(path)}
 
-    def commit(start, end, original, new):
+    def commit(start, end, original, new, sig=""):
+        # Same order as MainWindow: the revision check comes first, because a
+        # signature from a different revision makes the line numbers -- and so
+        # anything the text comparison concludes about them -- meaningless.
+        if sig and sig != _sig(path):
+            return {"ok": False, "error": "stale"}
         text = path.read_text(encoding="utf-8")
         out = replace_source_lines(text, start, end, original, new)
         if out is None:
@@ -61,7 +76,13 @@ def _wire(view, path):
         committed.append((start, end, original, new))
         return {"ok": True}
 
-    view.bridge.set_inline_edit_handlers(fetch=fetch, commit=commit)
+    def reload():
+        reloads.append(True)
+        return {"ok": True}
+
+    view.bridge.set_inline_edit_handlers(
+        fetch=fetch, commit=commit, reload=reload
+    )
     return committed
 
 

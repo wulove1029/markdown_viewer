@@ -64,6 +64,7 @@ from .md_converter import (
     parse_front_matter,
     read_text,
 )
+from .md_table import parse_table, serialize_table
 from .mermaid_blocks import (
     find_mermaid_blocks,
     insert_mermaid_block,
@@ -295,6 +296,17 @@ class MainWindow(QMainWindow):
             fetch=self._inline_edit_fetch,
             commit=self._inline_edit_commit,
             paste_image=self._inline_edit_paste_image,
+            commit_table=self._inline_edit_commit_table,
+            serialize_table=self._inline_edit_serialize_table,
+            reload=self._inline_edit_reload,
+        )
+        # True while the preview holds an inline editor with unsaved text.
+        # The page pushes this (setInlineEditing) instead of the window asking
+        # for it: runJavaScript is asynchronous, and every caller here is
+        # about to open a modal dialog and needs the answer *now*.
+        self._preview_editing = False
+        self._renderer.bridge.inlineEditStateChanged.connect(
+            self._on_preview_editing_changed
         )
         self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
@@ -1535,6 +1547,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _enter_edit_mode(self, mode: str = view_mode.EDIT):
         if not view_mode.is_editing(mode):
             mode = view_mode.EDIT
+        # Entering the editor hides the preview page and turns inline editing
+        # off, which destroys any open inline editor along with it.
+        if not self._confirm_discard_preview_edit():
+            return
         try:
             raw = self._current_file.read_bytes()
             result = read_text(self._current_file)
@@ -1640,7 +1656,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editor.mark_saved()
         self._loaded_signature = self._file_signature(self._current_file)
         self._rearm_watch()
-        self._renderer.reload_current()  # keep scroll position across the save
+        self._reload_preview()  # keep scroll position across the save
         self._update_dirty_ui()
         self._refresh_link_index(force=True)
         self._update_front_tags()
@@ -1887,6 +1903,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._toolbar_title.setText("Markdown Viewer")
         self._toolbar_subtitle.setText("尚未載入文件")
         self._close_search()
+        self._preview_editing = False
         self._renderer.show_empty()
         self._stack.setCurrentWidget(self._renderer)
         self._panel.toc.update_outline([])
@@ -1922,6 +1939,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._panel.set_annotations_enabled(True)
             self._update_front_tags()
             scroll = (self._tab_state.get(str(path)) or {}).get("scroll")
+            # A fresh page boots with no inline editor, whatever the last one
+            # was doing when it was replaced.
+            self._preview_editing = False
             self._renderer.load_file(path, scroll_y=scroll)
             self._stack.setCurrentWidget(self._renderer)
         else:
@@ -2527,8 +2547,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def restore_last_session(self):
         session_state.restore_last_session(self)
 
+    def _reload_preview(self):
+        """Re-render the Markdown preview, dropping any inline editor with it.
+
+        Every reload replaces the page, so the flag that says "the preview is
+        holding unsaved text" has to fall with it; leaving it set would make
+        the app prompt about an editor that no longer exists.
+        """
+        self._preview_editing = False
+        self._renderer.reload_current()
+
     def _reload_current(self):
         if not self._current_file:
+            return
+        if not self._confirm_discard_preview_edit():
             return
         if self._current_kind == "pdf":
             self._flush_pdf_zoom_pipeline()
@@ -2540,7 +2572,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._pdf_view.set_highlights(self._pdf_highlights)
             self._pdf_view.restore_page(page)
         else:
-            self._renderer.reload_current()
+            self._reload_preview()
         self.statusBar().showMessage("已重新載入文件", 3000)
 
     # --- external file-change detection ---
@@ -2583,13 +2615,52 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._loaded_signature = current
         self._prompt_external_change()
 
+    def _on_preview_editing_changed(self, editing: bool):
+        self._preview_editing = bool(editing)
+
+    def _confirm_discard_preview_edit(self) -> bool:
+        """Ask before an action that would tear the preview's editor down.
+
+        The inline editor lives entirely inside the rendered page, so any
+        re-render throws away whatever is in it with no undo anywhere. The
+        text editor gets exactly this courtesy through
+        ``_confirm_discard_edits``; the preview used to get none.
+        """
+        if not self._preview_editing:
+            return True
+        answer = QMessageBox.question(
+            self,
+            "預覽中有未儲存的編輯",
+            "預覽中有尚未儲存的編輯，重新載入會捨棄它。\n要捨棄嗎？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        # Whatever the caller does next replaces the page, and with it the
+        # editor that set this flag.
+        self._preview_editing = False
+        return True
+
     def _prompt_external_change(self):
         if self._reload_prompt_open or not self._current_file:
             return
         self._reload_prompt_open = True
         try:
             name = self._current_file.name
-            if self._edit_mode and self._editor.is_modified():
+            if self._preview_editing:
+                # Same shape as the editor branch below, and for the same
+                # reason: a reload here silently eats an edit the user is
+                # still typing, and the preview editor has no undo at all.
+                answer = QMessageBox.question(
+                    self,
+                    "檔案已在外部變更",
+                    f"{name} 已被其他程式修改，但預覽中有尚未儲存的編輯。\n"
+                    "要捨棄預覽中的編輯並載入磁碟上的新版本嗎？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if answer == QMessageBox.StandardButton.Yes:
+                    self._reload_preview()
+            elif self._edit_mode and self._editor.is_modified():
                 answer = QMessageBox.question(
                     self,
                     "檔案已在外部變更",
@@ -2599,6 +2670,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 )
                 if answer == QMessageBox.StandardButton.Yes:
                     self._leave_edit_ui()
+                    self._preview_editing = False
                     self._renderer.load_file(self._current_file)
             else:
                 answer = QMessageBox.question(
@@ -2608,7 +2680,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if answer == QMessageBox.StandardButton.Yes:
-                    self._renderer.reload_current()
+                    self._reload_preview()
         finally:
             self._reload_prompt_open = False
 
@@ -2981,6 +3053,49 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         text, encoding = result
         return text, encoding, "\r\n" if b"\r\n" in raw else "\n"
 
+    def _inline_edit_signature(self) -> str:
+        """The open file's revision, as a string the page can hand back.
+
+        Comparing the block's text alone is not a sufficient optimistic lock:
+        a document with two byte-identical tables makes ``original`` match
+        either of them, so an external insert that shifts the line numbers by
+        exactly one block's height lets a write sail through the text check
+        and land on the *other* table. Pinning the file revision the line
+        numbers were read from closes that hole -- any foreign write at all
+        invalidates them, whatever it changed.
+
+        Empty means "no signature available"; the commit path then skips the
+        check rather than refusing everything.
+        """
+        if not self._current_file:
+            return ""
+        signature = self._file_signature(self._current_file)
+        if signature is None:
+            return ""
+        return f"{signature[0]}:{signature[1]}"
+
+    def _inline_edit_stale(self) -> dict:
+        """Refuse a write whose line numbers can no longer be trusted.
+
+        Deliberately does *not* reload the preview. The page is holding text
+        the user typed and nothing else has a copy of it, so re-rendering to
+        "fix" the stale line numbers destroys exactly what needs saving. The
+        page keeps its stale numbers, which is safe: every later write is
+        stopped by the signature check above before it can reach the file.
+        The page puts up a warning strip with a "reload preview" button, so
+        the user reloads once their text is somewhere safe.
+        """
+        self.statusBar().showMessage(
+            "檔案已在外部變更，這次編輯沒有存進去；請先複製內容再重新載入預覽",
+            8000,
+        )
+        return {"ok": False, "error": "stale"}
+
+    def _inline_edit_reload(self) -> dict:
+        """Re-render the preview, on the page's request (the stale strip)."""
+        self._reload_preview()
+        return {"ok": True}
+
     def _inline_edit_fetch(self, start: int, end: int) -> dict:
         """Hand the preview the raw Markdown behind one rendered block."""
         context = self._inline_edit_context()
@@ -2989,10 +3104,32 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         source = extract_source_lines(context[0], start, end)
         if source is None:
             return {"ok": False, "error": "out-of-range"}
-        return {"ok": True, "text": source}
+        reply = {"ok": True, "text": source, "sig": self._inline_edit_signature()}
+        # Only pipe tables carry a model; every other block keeps the plain
+        # reply the raw textarea path has always seen.
+        model = parse_table(source)
+        if model is not None:
+            reply["table"] = model
+        return reply
 
-    def _inline_edit_commit(self, start: int, end: int, original: str, new: str) -> dict:
+    def _inline_edit_commit(
+        self,
+        start: int,
+        end: int,
+        original: str,
+        new: str,
+        sig: str = "",
+        done_message: str = "已更新段落",
+    ) -> dict:
         """Write an inline preview edit back to the file it came from."""
+        # Before anything else, and before the text comparison in particular:
+        # a mismatched signature means the line numbers this write is aimed
+        # at were read from a different revision of the file, so what the
+        # text says about them proves nothing. An empty *sig* means the page
+        # never got one (an older page, or a document that vanished), and the
+        # check is skipped so injection-timing gaps cannot lock the user out.
+        if sig and sig != self._inline_edit_signature():
+            return self._inline_edit_stale()
         context = self._inline_edit_context()
         if context is None:
             # The page keeps the textarea open on a failure, so say why rather
@@ -3002,11 +3139,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         text, encoding, newline = context
         out = replace_source_lines(text, start, end, original, new, newline)
         if out is None:
-            # The file moved under the preview, so its line numbers are fiction
-            # now; re-render rather than write to the wrong place.
-            self.statusBar().showMessage("檔案已在外部變更，已重新載入預覽", 6000)
-            self._renderer.reload_current()
-            return {"ok": False, "error": "stale"}
+            # The file moved under the preview, so its line numbers are
+            # fiction now. Refuse the write and leave the page alone -- see
+            # _inline_edit_stale for why re-rendering here is the wrong move.
+            return self._inline_edit_stale()
         downgraded = False
         try:
             data = out.encode(encoding)
@@ -3020,19 +3156,89 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return {"ok": False, "error": str(exc)}
         self._loaded_signature = self._file_signature(self._current_file)
         self._rearm_watch()
-        self._renderer.reload_current()  # keeps the scroll position
+        self._reload_preview()  # keeps the scroll position
         if downgraded:
             self._editing_encoding = "utf-8"
             self.statusBar().showMessage(
                 "內容含原編碼無法表示的字元，已改用 UTF-8 儲存", 6000
             )
         else:
-            self.statusBar().showMessage("已更新段落", 3000)
+            self.statusBar().showMessage(done_message, 3000)
         # An inline edit can add a wiki-link or a #tag just as a full save can,
         # so the same indexes have to catch up (see _save_file).
         self._refresh_link_index(force=True)
         self._update_front_tags()
         return {"ok": True}
+
+    def _inline_edit_table_markdown(self, model_json: str) -> str | None:
+        """Validate a grid model and render it, or None with the reason shown.
+
+        Every rejection reaches the status bar. A silent ``bad-model`` leaves
+        the grid sitting there looking editable while nothing is ever saved,
+        which is the worst of both worlds -- the sibling ``stale`` and
+        ``unavailable`` refusals have always said something.
+        """
+        try:
+            model = json.loads(model_json)
+        except (TypeError, ValueError):
+            self.statusBar().showMessage(
+                "表格內容無法解析，這次編輯沒有存進去", 6000
+            )
+            return None
+        if not isinstance(model, dict) or not isinstance(model.get("headers"), list):
+            self.statusBar().showMessage(
+                "表格內容格式不正確，這次編輯沒有存進去", 6000
+            )
+            return None
+        # An empty header list is refused on purpose: serialize_table would
+        # return "", and replace_source_lines writing "" over the block would
+        # delete the whole table. Deleting every column in the grid must not
+        # silently mean "delete the table".
+        if not model["headers"]:
+            self.statusBar().showMessage(
+                "表格至少要保留一欄，這次編輯沒有存進去", 6000
+            )
+            return None
+        try:
+            return serialize_table(model)
+        except Exception:  # noqa: BLE001 - a malformed model must not reach the bridge
+            self.statusBar().showMessage(
+                "表格內容無法轉回 Markdown，這次編輯沒有存進去", 6000
+            )
+            return None
+
+    def _inline_edit_serialize_table(self, model_json: str) -> dict:
+        """Render the live grid model as Markdown without writing anything.
+
+        Backs the grid's "switch to source" button: the textarea has to open
+        on what the grid currently holds, not on the text the block was
+        opened with, or every cell edit made before the click is lost.
+        """
+        text = self._inline_edit_table_markdown(model_json)
+        if text is None:
+            return {"ok": False, "error": "bad-model"}
+        return {"ok": True, "text": text}
+
+    def _inline_edit_commit_table(
+        self,
+        start: int,
+        end: int,
+        original: str,
+        model_json: str,
+        sig: str = "",
+    ) -> dict:
+        """Write the grid editor's table model back as Markdown."""
+        new = self._inline_edit_table_markdown(model_json)
+        if new is None:
+            return {"ok": False, "error": "bad-model"}
+        # Reuse the raw path wholesale: optimistic lock, atomic write, reload
+        # and index refresh are all identical once we have text. Only the
+        # status line differs -- this path always rewrote a table, never a
+        # paragraph, and saying "段落" made the user look for a change that
+        # was never there.
+        return self._inline_edit_commit(
+            start, end, original, new, sig, done_message="已更新表格"
+        )
 
     def _inline_edit_paste_image(self) -> dict:
         """Save the clipboard image next to the document, return its link."""
