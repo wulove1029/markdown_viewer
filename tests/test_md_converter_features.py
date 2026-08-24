@@ -86,13 +86,29 @@ def test_unsafe_html_still_escaped():
     assert "onclick" not in html or "&lt;div" in html
 
 
-def test_convert_caches_by_mtime(tmp_path):
+def test_convert_caches_by_mtime(tmp_path, monkeypatch):
+    from app import md_converter
+
     p = tmp_path / "c.md"
     p.write_text("# Cached\n", encoding="utf-8")
     set_user_css("")  # ensure a clean cache
+
+    # The cache now holds the parsed body (not the wrapped document), so a hit
+    # is proved by the parser running once rather than by object identity --
+    # _wrap re-runs per call so the theme and user stylesheet stay live.
+    calls = []
+    real_render = md_converter._PARSER.render
+
+    def counting_render(text, env=None):
+        calls.append(text)
+        return real_render(text) if env is None else real_render(text, env)
+
+    monkeypatch.setattr(md_converter._PARSER, "render", counting_render)
+
     first = convert(p)
     second = convert(p)
-    assert first is second  # cache hit returns the same object
+    assert first == second
+    assert len(calls) == 1  # cache hit: parsed only once
 
 
 def test_user_css_injected_and_clears_cache(tmp_path):

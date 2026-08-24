@@ -1,5 +1,6 @@
 """Markdown to self-contained HTML converter."""
 
+from dataclasses import dataclass
 from html import escape
 import json
 import re
@@ -669,46 +670,122 @@ def read_text(path: Path) -> tuple[str, str] | None:
     return None
 
 
+@dataclass(frozen=True)
+class RenderedBody:
+    """The rendered document fragment plus everything ``_wrap`` needs around it.
+
+    ``body`` is the inner HTML of ``<body>`` only: no ``<!DOCTYPE>``, no
+    ``<head>``, no stylesheet, and none of the trailing mermaid / copy-button /
+    KaTeX loader scripts that ``_wrap`` appends.  The three flags say which of
+    those loaders the fragment requires.
+
+    The fragment is **independent of the preview theme** -- ``theme`` is only
+    consumed by ``_wrap`` (the ``theme-light`` / ``theme-dark`` class and the
+    mermaid colour scheme); the parser, the anchor injection and the front
+    matter block never see it.  That is why one cached ``RenderedBody`` serves
+    both themes, and why it can be patched into an already-loaded page.
+    """
+
+    body: str
+    headings: list  # list of (level, text, anchor_id)
+    mermaid: bool
+    code_copy: bool
+    math: bool
+
+
+def render_body(text: str) -> RenderedBody:
+    """Render raw Markdown *text* to the ``<body>`` fragment of a preview.
+
+    This is the theme-independent half of :func:`convert_text`: the returned
+    body fragment carries no document chrome and no loader scripts, so the same
+    result can be wrapped for light or dark, or spliced into a live page.
+    """
+    with _CONVERT_LOCK:
+        # Render the full text (front_matter_plugin strips the YAML from the output
+        # but the source line numbers stay intact, so task-list data-line is correct).
+        front, _body = parse_front_matter(text)
+        body = _PARSER.render(text)
+        body_with_anchors, headings = _inject_anchors(body)
+        body_with_anchors = _front_matter_html(front) + body_with_anchors
+        return RenderedBody(
+            body=body_with_anchors,
+            headings=headings,
+            mermaid='class="mermaid"' in body_with_anchors,
+            code_copy='class="highlight"' in body_with_anchors,
+            math='class="math' in body_with_anchors,
+        )
+
+
 # Small cache so reopening an unchanged file (common when switching tabs/notes)
-# skips the parse + Pygments + CSS work. Keyed by (path, mtime, theme); cleared
-# when the user stylesheet changes.
+# skips the parse + Pygments work. Holds RenderedBody keyed by (path, mtime) --
+# no theme in the key, because the body fragment is theme-independent; the
+# per-theme document chrome is re-applied by _wrap on every call. Cleared when
+# the user stylesheet changes.
 _CONVERT_CACHE: dict = {}
 _CONVERT_CACHE_MAX = 32
+
+
+def _cached_body(path: Path) -> tuple[RenderedBody | None, str | None]:
+    """Return (rendered_body, error_message) for *path*, using ``_CONVERT_CACHE``.
+
+    Exactly one of the two is ``None``. Shared by :func:`convert` and
+    :func:`convert_body` so both go through the same cache.
+    """
+    if not path.exists():
+        return None, f"找不到檔案：{path}"
+
+    try:
+        stat = path.stat()
+    except OSError:
+        return None, f"無法讀取檔案：{path.name}"
+    if stat.st_size > 10 * 1024 * 1024:
+        return None, f"檔案超過 10MB，無法預覽：{path.name}"
+
+    cache_key = (str(path), stat.st_mtime_ns)
+    with _CONVERT_LOCK:
+        cached = _CONVERT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached, None
+
+    result = read_text(path)
+    if result is None:
+        return None, f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}"
+    text, _ = result
+    rendered = render_body(text)
+    with _CONVERT_LOCK:
+        _CONVERT_CACHE[cache_key] = rendered
+        if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
+            _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
+    return rendered, None
 
 
 def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple[int, str, str]]]:
     """Return (html, headings). headings = list of (level, text, anchor_id)."""
     path = Path(filepath)
-
-    if not path.exists():
-        return _error_page(f"找不到檔案：{path}", theme), []
-
-    try:
-        stat = path.stat()
-    except OSError:
-        return _error_page(f"無法讀取檔案：{path.name}", theme), []
-    if stat.st_size > 10 * 1024 * 1024:
-        return _error_page(f"檔案超過 10MB，無法預覽：{path.name}", theme), []
-
-    cache_key = (str(path), stat.st_mtime_ns, theme)
+    rendered, error = _cached_body(path)
+    if rendered is None:
+        return _error_page(error or "", theme), []
     with _CONVERT_LOCK:
-        cached = _CONVERT_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
-    result = read_text(path)
-    if result is None:
-        return _error_page(
-            f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}",
+        html = _wrap(
+            rendered.body,
+            path.stem,
             theme,
-        ), []
-    text, _ = result
-    out = convert_text(text, theme, title=path.stem)
-    with _CONVERT_LOCK:
-        _CONVERT_CACHE[cache_key] = out
-        if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
-            _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
-    return out
+            mermaid=rendered.mermaid,
+            code_copy=rendered.code_copy,
+            math=rendered.math,
+        )
+    return html, rendered.headings
+
+
+def convert_body(filepath: str | Path) -> RenderedBody | None:
+    """Return the cached ``<body>`` fragment for *filepath*, or ``None``.
+
+    ``None`` means the file is missing, too large, or undecodable -- the cases
+    :func:`convert` turns into an error page. Shares ``_CONVERT_CACHE`` with
+    :func:`convert`, so opening a file and then patching it costs one parse.
+    """
+    rendered, _error = _cached_body(Path(filepath))
+    return rendered
 
 
 def convert_text(
@@ -720,25 +797,17 @@ def convert_text(
     which has unsaved buffer text rather than a file on disk.
     """
     with _CONVERT_LOCK:
-        # Render the full text (front_matter_plugin strips the YAML from the output
-        # but the source line numbers stay intact, so task-list data-line is correct).
-        front, _body = parse_front_matter(text)
-        body = _PARSER.render(text)
-        body_with_anchors, headings = _inject_anchors(body)
-        body_with_anchors = _front_matter_html(front) + body_with_anchors
-        needs_mermaid = 'class="mermaid"' in body_with_anchors
-        has_code = 'class="highlight"' in body_with_anchors
-        needs_math = 'class="math' in body_with_anchors
+        rendered = render_body(text)
         return (
             _wrap(
-                body_with_anchors,
+                rendered.body,
                 title,
                 theme,
-                mermaid=needs_mermaid,
-                code_copy=has_code,
-                math=needs_math,
+                mermaid=rendered.mermaid,
+                code_copy=rendered.code_copy,
+                math=rendered.math,
             ),
-            headings,
+            rendered.headings,
         )
 
 
