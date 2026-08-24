@@ -112,6 +112,14 @@ def get_theme(name: ThemeName) -> Theme:
 
 
 ICONS: dict[str, str] = {
+    "library": (
+        '<path d="M4 19.5V4.8A1.8 1.8 0 0 1 5.8 3H20v16H5.8A1.8 1.8 0 0 0 4 20.8"/>'
+        '<path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H20"/>'
+        '<path d="M8 7h8"/>'
+    ),
+    "folder": (
+        '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>'
+    ),
     "folder-open": (
         '<path d="M6 17h12.4a2 2 0 0 0 1.9-1.4l2.1-6.4A1.5 1.5 0 0 0 21 7H10l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h1.2a2 2 0 0 0 .8-2Z"/>'
         '<path d="M2 9h20"/>'

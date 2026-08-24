@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QByteArray,
     QMimeData,
     QObject,
+    QPointF,
     QRect,
     QRectF,
     QRunnable,
@@ -30,6 +31,7 @@ from PySide6.QtGui import (
     QFontMetrics,
     QIcon,
     QPainter,
+    QPen,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -89,6 +91,12 @@ _PILL_HGAP = 4          # horizontal gap between adjacent pills
 _PILL_LINE_GAP = 3      # vertical gap between the filename line and the pills
 _ITEM_HMARGIN = 3       # left/right content margin inside the item rect
 
+# File-tree geometry.  The branch lane is deliberately wider than the 16 px
+# glyphs, so several nested levels remain readable instead of collapsing into
+# a stack of nearly touching icons.
+_TREE_INDENTATION = 18
+_TREE_ROOT_HEIGHT = 34
+
 
 def _relative_luminance(color: QColor) -> float:
     """WCAG relative luminance of a color, in [0, 1]."""
@@ -132,7 +140,115 @@ def _resolve_key(path) -> str:
 
 
 class _LibraryTree(QTreeWidget):
-    """Tree that exports selected file rows as draggable paths."""
+    """Library tree with modern hierarchy guides and draggable file rows."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._branch_line_color = QColor(LIGHT.border)
+        self._branch_chevron_color = QColor(LIGHT.text_muted)
+        self._branch_active_color = QColor(LIGHT.accent)
+
+    def set_branch_theme(self, theme: Theme) -> None:
+        """Refresh guide and chevron colors without replacing tree items."""
+        self._branch_line_color = QColor(theme.border)
+        self._branch_chevron_color = QColor(theme.text_muted)
+        self._branch_active_color = QColor(theme.accent)
+        self.viewport().update()
+
+    def drawBranches(self, painter, rect, index):  # noqa: N802 (Qt override)
+        """Draw compact chevrons plus continuous ancestor guide lines.
+
+        Qt's platform branch primitive varies considerably and, on Windows,
+        can become almost invisible at the narrow indentation used by this
+        sidebar.  The view already supplies one indentation lane per ancestor;
+        painting those lanes directly keeps the hierarchy consistent across
+        themes and display scaling.
+        """
+        if not index.isValid() or rect.width() <= 0 or rect.height() <= 0:
+            return
+
+        indentation = max(1, self.indentation())
+        lane_count = max(1, int(round(rect.width() / indentation)))
+        depth = lane_count - 1
+        top = float(rect.top())
+        bottom = float(rect.bottom() + 1)
+        tagged_file = bool(index.data(_TAGS_ROLE)) and not index.data(_IS_DIR_ROLE)
+        pill_line_height = _PILL_HEIGHT + _PILL_LINE_GAP * 2
+        first_line_height = (
+            max(1, rect.height() - pill_line_height)
+            if tagged_file
+            else rect.height()
+        )
+        mid_y = float(rect.top() + first_line_height / 2)
+        right_to_left = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
+
+        def lane_x(level: int) -> float:
+            if right_to_left:
+                return float(rect.right() - level * indentation - indentation / 2)
+            return float(rect.left() + level * indentation + indentation / 2)
+
+        painter.save()
+        painter.setClipRect(rect)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # Every visible descendant continues its ancestors' vertical guides.
+        painter.setPen(QPen(self._branch_line_color, 1.0))
+        for level in range(depth):
+            x = lane_x(level)
+            painter.drawLine(QPointF(x, top), QPointF(x, bottom))
+
+        current_x = lane_x(depth)
+        if depth > 0:
+            parent_x = lane_x(depth - 1)
+            content_edge = float(rect.left() if right_to_left else rect.right())
+            painter.drawLine(
+                QPointF(parent_x, mid_y),
+                QPointF(content_edge, mid_y),
+            )
+
+        has_children = self.model().hasChildren(index)
+        is_open = has_children and self.isExpanded(index)
+        if is_open:
+            # Descendant rows pick this line up at their top edge.
+            painter.drawLine(
+                QPointF(current_x, mid_y), QPointF(current_x, bottom)
+            )
+
+        if has_children:
+            color = (
+                self._branch_active_color
+                if self.selectionModel().isSelected(index)
+                else self._branch_chevron_color
+            )
+            painter.setPen(
+                QPen(
+                    color,
+                    1.8,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                    Qt.PenJoinStyle.RoundJoin,
+                )
+            )
+            if is_open:
+                painter.drawLine(
+                    QPointF(current_x - 3.2, mid_y - 1.4),
+                    QPointF(current_x, mid_y + 1.8),
+                )
+                painter.drawLine(
+                    QPointF(current_x, mid_y + 1.8),
+                    QPointF(current_x + 3.2, mid_y - 1.4),
+                )
+            else:
+                painter.drawLine(
+                    QPointF(current_x - 1.4, mid_y - 3.2),
+                    QPointF(current_x + 1.8, mid_y),
+                )
+                painter.drawLine(
+                    QPointF(current_x + 1.8, mid_y),
+                    QPointF(current_x - 1.4, mid_y + 3.2),
+                )
+
+        painter.restore()
 
     def mimeData(self, items):  # noqa: N802 (Qt override)
         paths: list[str] = []
@@ -195,6 +311,8 @@ class _TagPillDelegate(QStyledItemDelegate):
     # ---- Qt overrides ------------------------------------------------
     def sizeHint(self, option, index):  # noqa: N802 (Qt override)
         base = super().sizeHint(option, index)
+        if index.data(_LIBRARY_ROLE):
+            base.setHeight(max(base.height(), _TREE_ROOT_HEIGHT))
         if not self._tags(index):
             return base
         # Single pill line => constant extra height regardless of width, so
@@ -632,12 +750,17 @@ class FileBrowserView(QWidget):
         layout.addWidget(self._filter)
 
         self._tree = _LibraryTree()
+        self._tree.setObjectName("libraryTree")
         self._tree.setHeaderHidden(True)
-        self._tree.setIndentation(14)
+        self._tree.setIndentation(_TREE_INDENTATION)
+        self._tree.setRootIsDecorated(True)
+        self._tree.setMouseTracking(True)
         # Fixed decoration size so folder/file icons render crisply and the
         # tag-pill delegate can rely on a deterministic option.decorationSize.
         self._tree.setIconSize(QSize(16, 16))
         self._tree.itemClicked.connect(self._on_clicked)
+        self._tree.itemExpanded.connect(self._on_folder_expansion_changed)
+        self._tree.itemCollapsed.connect(self._on_folder_expansion_changed)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         # Drag source: file rows export their paths as a custom mime.
@@ -668,14 +791,8 @@ class FileBrowserView(QWidget):
         self._add_btn.setIcon(svg_icon("folder-plus", theme.accent, 18))
         self._refresh_btn.setIcon(svg_icon("refresh", theme.text_muted, 18))
         self.setStyleSheet(self._stylesheet(theme))
-        self._tree.setStyleSheet(
-            collection_stylesheet(theme, "QTreeWidget")
-            + """
-QTreeWidget::item {
-    min-height: 28px;
-}
-"""
-        )
+        self._tree.set_branch_theme(theme)
+        self._tree.setStyleSheet(self._tree_stylesheet(theme))
         # Icons and a few placeholder brushes bake in theme colors. Recolor
         # existing rows in place so applying a theme never rescans the document
         # folders or replaces items (preserving selection and expansion).
@@ -685,7 +802,7 @@ QTreeWidget::item {
     # ---------------- row theme ----------------
     def _update_tree_item_theme(self) -> None:
         """Refresh baked-in row colors without rebuilding the folder tree."""
-        folder_icon = self._folder_icon()
+        library_icon = self._library_icon()
         markdown_icon = svg_icon("file-text", self._theme.text_muted, 16)
         pdf_icon = svg_icon("file-text", self._theme.danger, 16)
 
@@ -694,13 +811,16 @@ QTreeWidget::item {
             item = iterator.value()
             path = item.data(0, _PATH_ROLE)
             if item.data(0, _IS_DIR_ROLE):
-                item.setIcon(0, folder_icon)
+                if item.data(0, _LIBRARY_ROLE):
+                    item.setIcon(0, library_icon)
+                else:
+                    item.setIcon(0, self._folder_icon(item.isExpanded()))
             elif path:
                 item.setIcon(0, pdf_icon if is_pdf(path) else markdown_icon)
             elif not item.icon(0).isNull():
                 # The disabled child of a missing library has a folder icon but
                 # intentionally carries no path or directory role.
-                item.setIcon(0, folder_icon)
+                item.setIcon(0, self._folder_icon(False))
             tone = item.data(0, _TEXT_TONE_ROLE)
             if tone == _TEXT_TONE_MUTED:
                 item.setForeground(0, QColor(self._theme.text_muted))
@@ -716,9 +836,22 @@ QTreeWidget::item {
             self._icon_cache[key] = icon
         return icon
 
-    def _folder_icon(self) -> QIcon:
-        """Accent-colored folder glyph shared by library roots and folders."""
-        return self._cached_icon("folder-open", self._theme.accent)
+    def _library_icon(self) -> QIcon:
+        """Book-like root glyph that distinguishes a library from a folder."""
+        return self._cached_icon("library", self._theme.accent)
+
+    def _folder_icon(self, expanded: bool = False) -> QIcon:
+        """Accent folder glyph reflecting its current expansion state."""
+        name = "folder-open" if expanded else "folder"
+        return self._cached_icon(name, self._theme.accent)
+
+    def _on_folder_expansion_changed(self, item: QTreeWidgetItem) -> None:
+        if not item.data(0, _IS_DIR_ROLE):
+            return
+        if item.data(0, _LIBRARY_ROLE):
+            item.setIcon(0, self._library_icon())
+        else:
+            item.setIcon(0, self._folder_icon(item.isExpanded()))
 
     def _file_icon(self, path) -> QIcon:
         """Document glyph: neutral for Markdown, red for PDF (color-coded)."""
@@ -963,7 +1096,7 @@ QTreeWidget::item {
                 font = QFont()
                 font.setBold(True)
                 root_item.setFont(0, font)
-                root_item.setIcon(0, self._folder_icon())
+                root_item.setIcon(0, self._library_icon())
                 root_item.setToolTip(0, lib.path)
                 root_item.setData(0, _PATH_ROLE, lib.path)
                 root_item.setData(0, _LIBRARY_ROLE, lib.id)
@@ -976,7 +1109,7 @@ QTreeWidget::item {
                         root_item.setForeground(0, QColor(self._theme.text_muted))
                         root_item.setData(0, _TEXT_TONE_ROLE, _TEXT_TONE_MUTED)
                         missing = QTreeWidgetItem([lib.path])
-                        missing.setIcon(0, self._folder_icon())
+                        missing.setIcon(0, self._folder_icon(False))
                         missing.setFlags(
                             missing.flags() & ~Qt.ItemFlag.ItemIsEnabled
                         )
@@ -1015,7 +1148,9 @@ QTreeWidget::item {
 
     def _build_items(self, parent_item: QTreeWidgetItem, nodes) -> None:
         """Turn scan nodes into tree rows under *parent_item* (recursive)."""
-        folder_icon = self._folder_icon()
+        folder_icon = self._folder_icon(False)
+        folder_font = QFont()
+        folder_font.setWeight(QFont.Weight.DemiBold)
         for node in nodes:
             child = QTreeWidgetItem([node.name])
             child.setToolTip(0, node.path)
@@ -1023,6 +1158,7 @@ QTreeWidget::item {
             child.setData(0, _IS_DIR_ROLE, node.is_dir)
             if node.is_dir:
                 child.setIcon(0, folder_icon)
+                child.setFont(0, folder_font)
                 self._build_items(child, node.children)
             else:
                 child.setIcon(0, self._file_icon(node.path))
@@ -1429,6 +1565,50 @@ QTreeWidget::item {
 
     def reveal_file(self, path: str | Path) -> None:
         self._open_location(str(path))
+
+    @staticmethod
+    def _tree_stylesheet(theme: Theme) -> str:
+        """Compact, continuous row styling reserved for the library tree."""
+        return f"""
+QTreeWidget#libraryTree {{
+    background: {theme.surface};
+    border: none;
+    color: {theme.text};
+    outline: 0;
+    show-decoration-selected: 1;
+}}
+QTreeWidget#libraryTree:focus {{
+    border: none;
+}}
+QTreeWidget#libraryTree:disabled {{
+    background: {theme.surface_alt};
+    color: {theme.text_subtle};
+}}
+QTreeWidget#libraryTree::item {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: {theme.text};
+    min-height: 22px;
+    padding: 3px 6px;
+}}
+QTreeWidget#libraryTree::item:hover {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QTreeWidget#libraryTree::item:selected {{
+    background: {theme.surface_active};
+    border-color: {theme.accent_soft};
+    color: {theme.text};
+}}
+QTreeWidget#libraryTree::item:selected:active {{
+    border-color: {theme.accent};
+}}
+QTreeWidget#libraryTree::item:disabled {{
+    background: transparent;
+    color: {theme.text_subtle};
+}}
+"""
 
     def _stylesheet(self, theme: Theme) -> str:
         return f"""

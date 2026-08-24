@@ -138,6 +138,17 @@ def test_view_uses_pill_delegate_and_non_uniform_rows(qapp, tmp_path, monkeypatc
         # The tagged file row carries its tags on the role for pill painting.
         assert tagged_item.data(0, _TAGS_ROLE) == ["deep", "focus"]
         assert not plain_item.data(0, _TAGS_ROLE)
+
+        view.resize(360, 280)
+        view.show()
+        qapp.processEvents()
+        tagged_rect = view._tree.visualItemRect(tagged_item)
+        plain_rect = view._tree.visualItemRect(plain_item)
+        assert tagged_rect.x() == plain_rect.x()
+        assert tagged_rect.height() > plain_rect.height()
+        # Rendering a tall tagged row also exercises branch-guide alignment
+        # with the filename line rather than the center of the full card.
+        assert view._tree.viewport().grab().isNull() is False
     finally:
         view.close()
 

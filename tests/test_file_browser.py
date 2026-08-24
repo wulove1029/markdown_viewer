@@ -6,7 +6,13 @@ from PySide6.QtWidgets import QMessageBox, QTreeWidgetItemIterator
 
 from app.annotations import DocumentAnnotations
 from app.document_libraries import DocumentLibrary, DocumentLibraryStore
-from app.file_browser import _IS_DIR_ROLE, _PATH_ROLE, FileBrowserView
+from app.file_browser import (
+    _IS_DIR_ROLE,
+    _PATH_ROLE,
+    _TREE_INDENTATION,
+    _TREE_ROOT_HEIGHT,
+    FileBrowserView,
+)
 from app.tag_index import TagIndex
 from app.theme import DARK, LIGHT
 
@@ -117,6 +123,65 @@ def test_tree_shows_folders_and_files_nested(qapp, tmp_path, monkeypatch):
         file_item = view._find_item(sub / "nested.md")
         assert file_item is not None
         assert file_item.parent() is folder_item
+    finally:
+        view.close()
+
+
+def test_tree_hierarchy_has_guides_spacing_and_folder_state_icons(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    first = root / "projects"
+    second = first / "client"
+    second.mkdir(parents=True)
+    note = second / "plan.md"
+    note.write_text("# plan", encoding="utf-8")
+
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    try:
+        view.resize(360, 320)
+        view.show()
+        view._tree.expandAll()
+        qapp.processEvents()
+
+        items = [
+            view._find_item(root),
+            view._find_item(first),
+            view._find_item(second),
+            view._find_item(note),
+        ]
+        assert all(item is not None for item in items)
+        rects = [view._tree.visualItemRect(item) for item in items]
+
+        assert view._tree.indentation() == _TREE_INDENTATION
+        assert [rects[i + 1].x() - rects[i].x() for i in range(3)] == [
+            _TREE_INDENTATION,
+            _TREE_INDENTATION,
+            _TREE_INDENTATION,
+        ]
+        assert rects[0].height() >= _TREE_ROOT_HEIGHT
+        assert rects[0].height() > rects[1].height()
+        assert items[1].font(0).weight() > items[3].font(0).weight()
+
+        root_icon_key = items[0].icon(0).cacheKey()
+        open_folder_key = items[1].icon(0).cacheKey()
+        assert root_icon_key != open_folder_key
+
+        items[1].setExpanded(False)
+        qapp.processEvents()
+        closed_folder_key = items[1].icon(0).cacheKey()
+        assert closed_folder_key != open_folder_key
+
+        items[1].setExpanded(True)
+        qapp.processEvents()
+        assert items[1].icon(0).cacheKey() == open_folder_key
+
+        # Exercise the custom branch painter in the same offscreen Qt setup as
+        # the rest of the suite; geometry assertions above avoid brittle image
+        # snapshots while this smoke check catches painter-time regressions.
+        assert view._tree.viewport().grab().isNull() is False
     finally:
         view.close()
 
@@ -321,6 +386,9 @@ def test_apply_theme_updates_existing_icons_without_refreshing_tree(
         assert folder_item.isExpanded() is True
         assert view._tree.currentItem().data(0, _PATH_ROLE) == str(pdf_file)
         assert view._tag_delegate._text_color == QColor(DARK.text)
+        assert view._tree._branch_line_color == QColor(DARK.border)
+        assert view._tree._branch_chevron_color == QColor(DARK.text_muted)
+        assert view._tree._branch_active_color == QColor(DARK.accent)
     finally:
         view.close()
 
