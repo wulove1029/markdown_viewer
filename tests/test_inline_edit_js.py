@@ -65,6 +65,7 @@ def test_annotations_boot_hands_the_bridge_to_the_inline_editor():
     # rather than opening a second transport.
     assert "__inlineEditBoot(bridge, inlineEdit)" in annotations
     assert "function (jsonStr, sideNotes, inlineEdit)" in annotations
+    assert "bridge.reportUnhandledEscape" in annotations
 
 
 def test_inline_edit_script_exposes_the_boot_and_enable_hooks():

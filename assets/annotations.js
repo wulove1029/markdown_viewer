@@ -695,13 +695,29 @@
 
   document.addEventListener("keydown", function (e) {
     if (isTypingTarget(e.target)) return;
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && contextMenu) {
+      e.preventDefault();
       closeContextMenu();
       return;
     }
     if (e.key !== "Delete" || !activeId) return;
     e.preventDefault();
     requestDeleteAnnotation(activeId);
+  });
+
+  // QWebEngine consumes key events inside its internal focus widget, so an
+  // unhandled Escape does not bubble back to MainWindow.keyPressEvent.  Wait
+  // until the page's context handlers above (and inline/table editors) have
+  // run, then report only an Escape that remains genuinely unhandled.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" && e.key !== "Esc") return;
+    var generation = Number(window.__mdSearchEscapeGeneration || 0);
+    if (generation <= 0) return;
+    window.setTimeout(function () {
+      if (!e.defaultPrevented && bridge && bridge.reportUnhandledEscape) {
+        bridge.reportUnhandledEscape(generation);
+      }
+    }, 0);
   });
 
   window.addEventListener("resize", scheduleSideNoteLayout);

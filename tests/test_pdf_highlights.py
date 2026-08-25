@@ -229,6 +229,99 @@ def test_pen_mode_ctrl_z_ignores_empty_highlight_list(qapp):
     assert captured == []
 
 
+@pytest.mark.parametrize(
+    ("key", "modifiers"),
+    [
+        ("C", "ControlModifier"),
+        ("Insert", "ControlModifier"),
+        ("Copy", "NoModifier"),
+    ],
+)
+def test_pdf_standard_copy_keys_copy_current_selection(
+    qapp, monkeypatch, key, modifiers
+):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    copied = []
+    monkeypatch.setattr(view, "copy_selection", lambda: copied.append(True) or True)
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        getattr(Qt.Key, f"Key_{key}"),
+        getattr(Qt.KeyboardModifier, modifiers),
+    )
+
+    view.keyPressEvent(event)
+
+    assert copied == [True]
+    assert event.isAccepted()
+
+
+def test_pdf_h_key_highlights_current_selection(qapp, monkeypatch):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    highlighted = []
+    monkeypatch.setattr(
+        view,
+        "highlight_selection",
+        lambda: highlighted.append(True) or True,
+    )
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_H,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    view.keyPressEvent(event)
+
+    assert highlighted == [True]
+    assert event.isAccepted()
+
+
+@pytest.mark.parametrize(
+    ("key", "modifiers"),
+    [
+        ("Backspace", "AltModifier"),
+        ("Undo", "NoModifier"),
+    ],
+)
+def test_pen_mode_alternate_undo_keys_request_latest_highlight_delete(
+    qapp, key, modifiers
+):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    from app.pdf_view import PdfView
+
+    view = PdfView()
+    highlight = PdfHighlight.new(
+        page=0,
+        rects=[Rect(10, 10, 20, 8)],
+        text="latest",
+    )
+    view.set_highlights([highlight])
+    view.set_pen_mode(True)
+    captured = []
+    view.highlight_delete_requested.connect(captured.append)
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        getattr(Qt.Key, f"Key_{key}"),
+        getattr(Qt.KeyboardModifier, modifiers),
+    )
+
+    view.keyPressEvent(event)
+
+    assert captured == [highlight.id]
+    assert event.isAccepted()
+
+
 def test_highlights_panel_delete_button_calls_deleted_callback(qapp):
     from PySide6.QtCore import Qt
 

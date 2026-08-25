@@ -19,6 +19,16 @@ def test_remove_emits_removed(qapp):
     assert got == ["abc"]
 
 
+def test_unhandled_escape_slot_emits_signal(qapp):
+    bridge = AnnotationBridge()
+    got = []
+    bridge.unhandledEscape.connect(got.append)
+
+    bridge.reportUnhandledEscape(7)
+
+    assert got == [7]
+
+
 def test_report_orphans_parses_json(qapp):
     bridge = AnnotationBridge()
     got = []
@@ -169,3 +179,47 @@ def test_orphan_annotation_not_rendered(qapp, tmp_path):
     _wait(4000)
     count = _eval(view, "document.querySelectorAll('mark.annot').length")
     assert count == 0
+
+
+@_skip_webengine
+def test_rendered_page_reports_only_unhandled_escape(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    md = tmp_path / "escape.md"
+    md.write_text("# Escape bridge", encoding="utf-8")
+    view = RendererView()
+    view.resize(700, 500)
+    reported = []
+    view.bridge.unhandledEscape.connect(reported.append)
+    view.set_search_escape_generation(7)
+    try:
+        view.show()
+        view.load_file(md)
+        _wait(1500)
+        focus_target = view.focusProxy() or view
+        focus_target.setFocus()
+        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
+        _wait(200)
+        assert reported == [7]
+
+        reported.clear()
+        view.render_html("<html><body tabindex='0'>live preview</body></html>")
+        _wait(500)
+        focus_target = view.focusProxy() or view
+        focus_target.setFocus()
+        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
+        _wait(200)
+        assert reported == [7]
+
+        _eval(
+            view,
+            "document.addEventListener('keydown', function(e) {"
+            "if (e.key === 'Escape') e.preventDefault();"
+            "}, true); true;",
+        )
+        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
+        _wait(200)
+        assert reported == [7]
+    finally:
+        view.close()

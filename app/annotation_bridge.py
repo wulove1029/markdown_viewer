@@ -24,6 +24,11 @@ class AnnotationBridge(QObject):
     # asynchronously and the window needs the answer *before* it puts up a
     # modal reload prompt (see MainWindow._preview_editing).
     inlineEditStateChanged = Signal(bool)
+    # The rendered page reports Escape only after its context-specific
+    # handlers have had a chance to consume it.  MainWindow uses this as the
+    # WebEngine equivalent of an unhandled QWidget key event (for example, to
+    # close an open search bar without stealing Escape from inline editing).
+    unhandledEscape = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -99,6 +104,11 @@ class AnnotationBridge(QObject):
     def setInlineEditing(self, editing):
         """The preview opened (True) or closed (False) an inline editor."""
         self.inlineEditStateChanged.emit(bool(editing))
+
+    @Slot(int)
+    def reportUnhandledEscape(self, generation):
+        """Forward an Escape key that no page-level tool consumed."""
+        self.unhandledEscape.emit(int(generation))
 
     # ---- inline preview editing (json in, json out) -------------------------
     @Slot(int, int, result=str)

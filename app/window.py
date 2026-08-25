@@ -40,7 +40,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStackedWidget,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -48,6 +47,7 @@ from PySide6.QtWidgets import (
 from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
+from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
 from .editor import EditorView
 from . import export_actions, session_state, update_flow, view_mode
 from . import doc_tags as doc_tags_facade
@@ -83,6 +83,8 @@ from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
 from .renderer import RendererView
+from .shortcuts import WINDOW_SHORTCUTS, shortcut_by_id
+from .shortcuts_dialog import ShortcutDialog
 from .theme import (
     HIT_TARGET,
     PANEL_WIDTH,
@@ -95,6 +97,12 @@ from .theme import (
 )
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
+from .toolbar_utilities import (
+    ToolbarUtilities,
+    UPDATE_AVAILABLE,
+    UPDATE_CHECKING,
+    UPDATE_DOWNLOADING,
+)
 from .translate import (
     DEEPL_KEY,
     PROVIDER_KEY,
@@ -105,6 +113,7 @@ from .translate import (
     start_translation,
 )
 from .translate_dialog import TranslationDialog
+from .updater import is_newer_version
 from .wikilink_completion import completion_candidates
 from .version import RELEASE_NOTES, VERSION
 
@@ -151,6 +160,42 @@ class LinkIndexThread(QThread):
             self.ready.emit(None)
 
 
+class _SearchLineEdit(QLineEdit):
+    """Search input whose Shift+Enter binding is distinct from Enter."""
+
+    previous_requested = Signal()
+    cancel_requested = Signal()
+
+    def __init__(self, *, previous_enabled: bool = True, parent=None):
+        super().__init__(parent)
+        self._previous_enabled = previous_enabled
+
+    def keyPressEvent(self, event):
+        modifiers = event.modifiers()
+        if (
+            event.key() == Qt.Key.Key_Escape
+            and modifiers == Qt.KeyboardModifier.NoModifier
+        ):
+            self.cancel_requested.emit()
+            event.accept()
+            return
+        if (
+            self._previous_enabled
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and modifiers & Qt.KeyboardModifier.ShiftModifier
+            and not modifiers
+            & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            )
+        ):
+            self.previous_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -183,9 +228,26 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
         self._sidebar_open = True
+        self._search_escape_counter = 0
+        self._active_search_escape_generation = 0
         self._update_check_thread = None
         self._update_download_thread = None
         self._update_progress = None
+        self._update_close_pending = False
+        self._deferred_update_close_approved = False
+        self._available_update = None
+        cached_update_version = str(
+            settings.value("available_update_version", "") or ""
+        ).strip().lstrip("vV")
+        if (
+            re.fullmatch(r"\d+(?:\.\d+)*", cached_update_version) is None
+            or not is_newer_version(cached_update_version, VERSION)
+        ):
+            settings.remove("available_update_version")
+            cached_update_version = ""
+        elif settings.value("available_update_version") != cached_update_version:
+            settings.setValue("available_update_version", cached_update_version)
+        self._cached_update_version = cached_update_version
         self._pdf_progress = None
         self._pending_pdf_path = None
 
@@ -308,6 +370,9 @@ class MainWindow(QMainWindow):
         self._renderer.bridge.inlineEditStateChanged.connect(
             self._on_preview_editing_changed
         )
+        self._renderer.bridge.unhandledEscape.connect(
+            self._on_preview_unhandled_escape
+        )
         self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._renderer.translate_requested.connect(self._translate_selection)
@@ -338,6 +403,9 @@ class MainWindow(QMainWindow):
         self._edit_preview.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._edit_preview.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._edit_preview.translate_requested.connect(self._translate_selection)
+        self._edit_preview.bridge.unhandledEscape.connect(
+            self._on_preview_unhandled_escape
+        )
 
         self._editor_search_bar = self._build_editor_search_bar()
         self._editor_search_bar.hide()
@@ -396,15 +464,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._pdf_view)
 
         # Tab strip for switching between open documents (one shared viewer).
-        self._tab_bar = QTabBar()
-        self._tab_bar.setObjectName("documentTabs")
-        self._tab_bar.setTabsClosable(True)
-        self._tab_bar.setMovable(True)
-        self._tab_bar.setExpanding(False)
-        self._tab_bar.setDrawBase(False)
-        self._tab_bar.setUsesScrollButtons(True)
-        self._tab_bar.setElideMode(Qt.TextElideMode.ElideRight)
-        self._tab_bar.setVisible(False)
+        self._tab_strip = DocumentTabStrip(self._theme)
+        self._tab_bar = self._tab_strip.tab_bar
         self._tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
         self._tab_bar.tabCloseRequested.connect(self._on_tab_close)
@@ -417,7 +478,7 @@ class MainWindow(QMainWindow):
         renderer_layout = QVBoxLayout(renderer_wrap)
         renderer_layout.setContentsMargins(0, 0, 0, 0)
         renderer_layout.setSpacing(0)
-        renderer_layout.addWidget(self._tab_bar)
+        renderer_layout.addWidget(self._tab_strip)
         renderer_layout.addWidget(self._search_bar)
         renderer_layout.addWidget(self._stack)
         self._workspace = renderer_wrap
@@ -444,62 +505,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.setAcceptDrops(True)
 
-        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(
-            self._panel_open_file
-        )
-        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
-            self._open_daily_note
-        )
-        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(
-            self._toggle_search
-        )
-        QShortcut(QKeySequence("Ctrl+Shift+F"), self).activated.connect(
-            self._open_global_search
-        )
-        QShortcut(QKeySequence("Escape"), self).activated.connect(
-            self._close_search
-        )
-        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(
-            self._toggle_edit_mode
-        )
-        QShortcut(QKeySequence("Ctrl+Shift+E"), self).activated.connect(
-            self._toggle_split_mode
-        )
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
-            self._save_edits
-        )
-        # Ctrl+P opens the fuzzy quick-open palette (VS Code / Obsidian muscle
-        # memory); PDF export moves to Ctrl+Shift+P.
-        QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(
-            self._quick_open
-        )
-        QShortcut(QKeySequence("Ctrl+Shift+P"), self).activated.connect(
-            self._export_pdf
-        )
-        QShortcut(QKeySequence("Ctrl+Shift+M"), self).activated.connect(
-            self._open_mermaid_workspace
-        )
-        QShortcut(QKeySequence("Ctrl+G"), self).activated.connect(
-            self._open_graph_view
-        )
-        QShortcut(QKeySequence("Ctrl+="), self).activated.connect(self._zoom_in)
-        QShortcut(QKeySequence("Ctrl++"), self).activated.connect(self._zoom_in)
-        QShortcut(QKeySequence("Ctrl+-"), self).activated.connect(self._zoom_out)
-        QShortcut(QKeySequence("Ctrl+0"), self).activated.connect(self._zoom_reset)
-        # Tab navigation (browser / editor muscle memory).
-        QShortcut(QKeySequence("Ctrl+W"), self).activated.connect(
-            self._close_current_tab
-        )
-        QShortcut(QKeySequence("Ctrl+Tab"), self).activated.connect(self._next_tab)
-        QShortcut(QKeySequence("Ctrl+Shift+Tab"), self).activated.connect(
-            self._prev_tab
-        )
+        self._install_shortcuts()
 
         self._build_menu_bar()
         self._load_user_css()
         self._apply_theme()
         self._refresh_tags_panel()
-        QTimer.singleShot(2000, self._check_updates_silent)
+        # Bind the delayed check to this window so closing it during startup
+        # cancels the callback instead of invoking a deleted Python wrapper.
+        QTimer.singleShot(2000, self, self._check_updates_silent)
 
     def _build_menu_bar(self):
         # Shortcuts stay on the QShortcuts above; the menu shows them as hints
@@ -511,46 +525,54 @@ class MainWindow(QMainWindow):
             action.triggered.connect(slot)
             return action
 
+        def command_act(command_id, text):
+            spec = shortcut_by_id(command_id)
+            action = act(f"{text}\t{spec.menu_hint}", getattr(self, spec.handler))
+            action.setData(command_id)
+            action.setProperty("commandId", command_id)
+            return action
+
         file_menu = bar.addMenu("檔案(&F)")
-        file_menu.addAction(act("開啟…\tCtrl+O", self._panel_open_file))
-        file_menu.addAction(act("快速開啟…\tCtrl+P", self._quick_open))
-        file_menu.addAction(act("開啟今日筆記\tCtrl+D", self._open_daily_note))
+        file_menu.addAction(command_act("file.open", "開啟…"))
+        file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
+        file_menu.addAction(command_act("file.daily_note", "開啟今日筆記"))
         file_menu.addAction(act("重新載入", self._reload_current))
         file_menu.addSeparator()
-        file_menu.addAction(act("匯出 PDF…\tCtrl+Shift+P", self._export_pdf))
+        file_menu.addAction(command_act("file.export_pdf", "匯出 PDF…"))
         file_menu.addAction(act("匯出 PPT…", self._export_pptx))
         file_menu.addAction(act("匯出 Word…", self._export_docx))
         file_menu.addSeparator()
         file_menu.addAction(act("離開", self.close))
 
         edit_menu = bar.addMenu("編輯(&E)")
-        edit_menu.addAction(act("切換編輯 / 預覽\tCtrl+E", self._toggle_edit_mode))
+        edit_menu.addAction(command_act("edit.toggle", "切換編輯 / 預覽"))
         edit_menu.addAction(
-            act("並排編輯（即時預覽）\tCtrl+Shift+E", self._toggle_split_mode)
+            command_act("edit.split", "並排編輯（即時預覽）")
         )
-        edit_menu.addAction(act("儲存\tCtrl+S", self._save_edits))
+        edit_menu.addAction(command_act("edit.save", "儲存"))
         edit_menu.addAction(act("插入範本…", self._insert_template))
-        edit_menu.addAction(act("尋找 / 取代\tCtrl+F", self._toggle_search))
-        edit_menu.addAction(act("搜尋所有文件庫\tCtrl+Shift+F", self._open_global_search))
+        edit_menu.addAction(command_act("search.current", "尋找 / 取代"))
+        edit_menu.addAction(command_act("search.library", "搜尋所有文件庫"))
 
         view_menu = bar.addMenu("檢視(&V)")
         view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
-        view_menu.addAction(act("筆記關聯圖\tCtrl+G", self._open_graph_view))
+        view_menu.addAction(command_act("view.graph", "筆記關聯圖"))
         view_menu.addSeparator()
-        view_menu.addAction(act("放大\tCtrl++", self._zoom_in))
-        view_menu.addAction(act("縮小\tCtrl+-", self._zoom_out))
-        view_menu.addAction(act("重設縮放\tCtrl+0", self._zoom_reset))
+        view_menu.addAction(command_act("view.zoom_in", "放大"))
+        view_menu.addAction(command_act("view.zoom_out", "縮小"))
+        view_menu.addAction(command_act("view.zoom_reset", "重設縮放"))
         view_menu.addSeparator()
-        view_menu.addAction(act("下一個分頁\tCtrl+Tab", self._next_tab))
-        view_menu.addAction(act("上一個分頁\tCtrl+Shift+Tab", self._prev_tab))
-        view_menu.addAction(act("關閉分頁\tCtrl+W", self._close_current_tab))
+        view_menu.addAction(command_act("tabs.next", "下一個分頁"))
+        view_menu.addAction(command_act("tabs.previous", "上一個分頁"))
+        view_menu.addAction(command_act("tabs.close", "關閉分頁"))
         view_menu.addSeparator()
-        view_menu.addAction(act("切換深色模式", self._toggle_theme))
+        self._theme_action = act("切換深色模式", self._toggle_theme)
+        view_menu.addAction(self._theme_action)
         view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
 
         tools_menu = bar.addMenu("工具(&T)")
         tools_menu.addAction(
-            act("Mermaid 工作區...\tCtrl+Shift+M", self._open_mermaid_workspace)
+            command_act("tools.mermaid_workspace", "Mermaid 工作區...")
         )
         tools_menu.addAction(act("編輯 Mermaid 圖表...", self._edit_mermaid_diagram))
         tools_menu.addAction(act("插入 Mermaid 圖表...", self._insert_mermaid_diagram))
@@ -560,8 +582,27 @@ class MainWindow(QMainWindow):
 
         help_menu = bar.addMenu("說明(&H)")
         help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
-        help_menu.addAction(act("檢查更新…", lambda: self._check_for_updates(manual=True)))
+        self._update_action = act("檢查更新…", self._on_update_button_clicked)
+        self._update_action.setEnabled(
+            self._toolbar_utilities.update_state
+            not in (UPDATE_CHECKING, UPDATE_DOWNLOADING)
+        )
+        help_menu.addAction(self._update_action)
         help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
+
+    def _install_shortcuts(self):
+        self._registered_shortcuts: list[QShortcut] = []
+        for spec in WINDOW_SHORTCUTS:
+            callback = getattr(self, spec.handler)
+            for alias_index, sequence in enumerate(spec.sequences):
+                shortcut = QShortcut(QKeySequence(sequence), self)
+                shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+                shortcut.setObjectName(
+                    f"shortcut.{spec.command_id}.{alias_index}"
+                )
+                shortcut.setProperty("commandId", spec.command_id)
+                shortcut.activated.connect(callback)
+                self._registered_shortcuts.append(shortcut)
 
     def _show_about(self):
         notes = "".join(f"<li>{item}</li>" for item in RELEASE_NOTES)
@@ -574,53 +615,29 @@ class MainWindow(QMainWindow):
         )
 
     def _show_shortcuts(self):
-        groups = [
-            ("檔案", [
-                ("Ctrl+O", "開啟文件"),
-                ("Ctrl+P", "快速開啟（模糊搜尋檔名）"),
-                ("Ctrl+D", "開啟今日筆記"),
-                ("Ctrl+Shift+P", "匯出 PDF"),
-            ]),
-            ("分頁", [
-                ("Ctrl+Tab", "下一個分頁"),
-                ("Ctrl+Shift+Tab", "上一個分頁"),
-                ("Ctrl+W", "關閉目前分頁"),
-            ]),
-            ("編輯", [
-                ("Ctrl+E", "切換編輯 / 預覽"),
-                ("Ctrl+Shift+E", "並排編輯（左編輯、右即時預覽）"),
-                ("Ctrl+S", "儲存"),
-                ("Ctrl+F", "在文件 / PDF 中搜尋"),
-                ("Ctrl+Shift+F", "搜尋所有文件庫內容"),
-            ]),
-            ("檢視", [
-                ("Ctrl+G", "開啟筆記關聯圖"),
-                ("Ctrl++ / Ctrl+- / Ctrl+0", "放大 / 縮小 / 重設縮放"),
-            ]),
-            ("PDF", [
-                ("Ctrl+滾輪", "以游標位置放大 / 縮小 PDF"),
-                ("Ctrl+C", "複製選取的 PDF 文字"),
-                ("H", "螢光標記目前 PDF 選取"),
-                ("Ctrl+Z", "螢光筆模式下撤銷上一筆標記"),
-            ]),
-        ]
-        parts = ["<table cellspacing='6' cellpadding='2'>"]
-        for title, rows in groups:
-            parts.append(
-                f"<tr><td colspan='2' style='padding-top:10px;'><b>{title}</b></td></tr>"
+        ShortcutDialog(self._theme, self).exec()
+
+    def keyPressEvent(self, event):
+        """Close search on an otherwise-unhandled Escape key.
+
+        This fallback deliberately lives after focused-child handling instead
+        of in a WindowShortcut.  Wiki completion, preview inline editing,
+        annotations, and Mermaid canvases therefore get the first chance to
+        consume Escape; if they do not, an open search bar still closes from
+        anywhere in the main window.
+        """
+        if (
+            event.key() == Qt.Key.Key_Escape
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and (
+                not self._search_bar.isHidden()
+                or not self._editor_search_bar.isHidden()
             )
-            for keys, action in rows:
-                parts.append(
-                    f"<tr><td style='padding-right:20px;'><code>{keys}</code></td>"
-                    f"<td>{action}</td></tr>"
-                )
-        parts.append("</table>")
-        box = QMessageBox(self)
-        box.setWindowTitle("鍵盤快捷鍵")
-        box.setIcon(QMessageBox.Icon.NoIcon)
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText("".join(parts))
-        box.exec()
+        ):
+            self._close_search()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _load_user_css(self, reload: bool = False):
         session_state.load_user_css(self, reload=reload)
@@ -668,14 +685,19 @@ class MainWindow(QMainWindow):
         )
         self._highlight_btn.setCheckable(True)
         self._highlight_btn.setEnabled(False)
-        self._theme_btn = self._toolbar_button(
-            "moon", "切換深色模式", self._toggle_theme
+        self._toolbar_utilities = ToolbarUtilities(
+            self._theme,
+            theme_name=self._theme_name,
+            current_version=VERSION,
         )
-        self._update_btn = self._toolbar_button(
-            "circle-arrow-up",
-            f"檢查更新（目前 v{VERSION}）",
-            lambda: self._check_for_updates(manual=True),
-        )
+        self._theme_btn = self._toolbar_utilities.theme_button
+        self._update_btn = self._toolbar_utilities.update_button
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        self._update_btn.clicked.connect(self._on_update_button_clicked)
+        if self._cached_update_version:
+            self._toolbar_utilities.set_update_state(
+                UPDATE_AVAILABLE, version=self._cached_update_version
+            )
 
         title_wrap = QWidget()
         title_layout = QVBoxLayout(title_wrap)
@@ -702,8 +724,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._side_notes_btn)
         layout.addWidget(self._highlight_btn)
         layout.addWidget(title_wrap, stretch=1)
-        layout.addWidget(self._theme_btn)
-        layout.addWidget(self._update_btn)
+        layout.addWidget(self._toolbar_utilities)
         return toolbar
 
     def _toolbar_button(self, icon_name: str, tooltip: str, callback) -> QPushButton:
@@ -737,32 +758,7 @@ QLabel#toolbarSubtitle {{
 }}
 """
         )
-        self._tab_bar.setStyleSheet(
-            f"""
-QTabBar#documentTabs {{
-    background: {self._theme.window};
-    border-bottom: 1px solid {self._theme.border};
-}}
-QTabBar#documentTabs::tab {{
-    background: {self._theme.surface};
-    color: {self._theme.text_muted};
-    border: 1px solid {self._theme.border};
-    border-bottom: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    padding: 6px 12px;
-    margin-right: 2px;
-    max-width: 240px;
-}}
-QTabBar#documentTabs::tab:selected {{
-    background: {self._theme.surface_active};
-    color: {self._theme.text};
-}}
-QTabBar#documentTabs::tab:hover {{
-    background: {self._theme.surface_hover};
-}}
-"""
-        )
+        self._tab_strip.apply_theme(self._theme)
         self._search_bar.setStyleSheet(self._search_style())
         self._panel.apply_theme(self._theme)
         self._splitter.setStyleSheet(
@@ -877,7 +873,6 @@ QSplitter::handle:hover {{
             self._reload_btn,
             self._mermaid_btn,
             self._export_btn,
-            self._update_btn,
         ):
             icon_name = button.property("iconName")
             color = icon_color if button.isEnabled() else disabled_color
@@ -919,12 +914,13 @@ QSplitter::handle:hover {{
         self._edit_btn.setAccessibleName(edit_tip)
         self._edit_btn.setIcon(svg_icon(edit_icon, edit_color, 20))
 
-        theme_icon = "sun" if self._theme_name == "dark" else "moon"
-        theme_tip = "切換淺色模式" if self._theme_name == "dark" else "切換深色模式"
-        self._theme_btn.setProperty("iconName", theme_icon)
-        self._theme_btn.setToolTip(theme_tip)
-        self._theme_btn.setAccessibleName(theme_tip)
-        self._theme_btn.setIcon(svg_icon(theme_icon, icon_color, 20))
+        self._toolbar_utilities.apply_theme(
+            self._theme, theme_name=self._theme_name
+        )
+        theme_action_text = (
+            "切換為淺色模式" if self._theme_name == "dark" else "切換為深色模式"
+        )
+        self._theme_action.setText(theme_action_text)
 
         self._search_prev_btn.setIcon(svg_icon("chevron-left", icon_color, 18))
         self._search_next_btn.setIcon(svg_icon("chevron-right", icon_color, 18))
@@ -932,6 +928,24 @@ QSplitter::handle:hover {{
 
     def _toggle_theme(self):
         session_state.toggle_theme(self)
+
+    def _set_update_state(self, state: str, *, version: str = "") -> None:
+        self._toolbar_utilities.set_update_state(state, version=version)
+        if hasattr(self, "_update_action"):
+            self._update_action.setEnabled(
+                state not in (UPDATE_CHECKING, UPDATE_DOWNLOADING)
+            )
+
+    def _on_update_button_clicked(self):
+        if self._toolbar_utilities.update_state in (
+            UPDATE_CHECKING,
+            UPDATE_DOWNLOADING,
+        ):
+            return
+        if self._available_update is not None:
+            update_flow.prompt_for_update(self, self._available_update)
+            return
+        self._check_for_updates(manual=True)
 
     def _toggle_annotation_side_notes(self, checked=None):
         session_state.toggle_annotation_side_notes(self, checked=checked)
@@ -1000,13 +1014,15 @@ QWidget#searchBar QLabel {{
         layout.setContentsMargins(10, 5, 8, 5)
         layout.setSpacing(4)
 
-        self._search_input = QLineEdit()
+        self._search_input = _SearchLineEdit()
         self._search_input.setPlaceholderText("搜尋目前文件")
         self._search_input.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._search_input.textChanged.connect(self._on_search_text_changed)
         self._search_input.returnPressed.connect(self._search_next)
+        self._search_input.previous_requested.connect(self._search_prev)
+        self._search_input.cancel_requested.connect(self._close_search)
 
         self._search_count = QLabel("")
 
@@ -1053,6 +1069,7 @@ QWidget#searchBar QLabel {{
             return
         if self._search_bar.isHidden():
             self._search_bar.show()
+            self._set_search_escape_enabled(True)
             self._search_input.setFocus()
             self._search_input.selectAll()
         else:
@@ -1071,6 +1088,7 @@ QWidget#searchBar QLabel {{
         if self._active_path != target or self._current_kind != "markdown":
             return
         self._search_bar.show()
+        self._set_search_escape_enabled(True)
         changed = self._search_input.text() != query
         self._search_input.setText(query)
         if not changed:
@@ -1081,6 +1099,7 @@ QWidget#searchBar QLabel {{
         self.statusBar().showMessage(f"已開啟第 {line_number} 行的搜尋結果", 3000)
 
     def _close_search(self):
+        self._set_search_escape_enabled(False)
         self._search_bar.hide()
         self._search_input.clear()
         self._search_count.setText("")
@@ -1129,10 +1148,12 @@ QWidget#searchBar QLabel {{
 
         find_row = QHBoxLayout()
         find_row.setSpacing(4)
-        self._ed_find = QLineEdit()
+        self._ed_find = _SearchLineEdit()
         self._ed_find.setPlaceholderText("尋找")
         self._ed_find.textChanged.connect(lambda _t: self._update_editor_match_count())
         self._ed_find.returnPressed.connect(self._editor_find_next)
+        self._ed_find.previous_requested.connect(self._editor_find_prev)
+        self._ed_find.cancel_requested.connect(self._close_editor_search)
         self._ed_count = QLabel("")
         self._ed_case = QCheckBox("Aa")
         self._ed_case.setToolTip("區分大小寫")
@@ -1157,9 +1178,10 @@ QWidget#searchBar QLabel {{
 
         replace_row = QHBoxLayout()
         replace_row.setSpacing(4)
-        self._ed_replace = QLineEdit()
+        self._ed_replace = _SearchLineEdit(previous_enabled=False)
         self._ed_replace.setPlaceholderText("取代為")
         self._ed_replace.returnPressed.connect(self._editor_replace_one)
+        self._ed_replace.cancel_requested.connect(self._close_editor_search)
         replace_btn = QPushButton("取代")
         replace_btn.clicked.connect(self._editor_replace_one)
         replace_all_btn = QPushButton("全部取代")
@@ -1192,6 +1214,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if selected and " " not in selected:
                 self._ed_find.setText(selected)
             self._editor_search_bar.show()
+            self._set_search_escape_enabled(True)
             self._ed_find.setFocus()
             self._ed_find.selectAll()
             self._update_editor_match_count()
@@ -1199,8 +1222,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._close_editor_search()
 
     def _close_editor_search(self):
+        self._set_search_escape_enabled(False)
         self._editor_search_bar.hide()
         self._editor.setFocus()
+
+    def _set_search_escape_enabled(self, enabled: bool):
+        """Publish a fresh token so delayed WebEngine keys cannot go stale."""
+        self._search_escape_counter += 1
+        generation = self._search_escape_counter if enabled else 0
+        self._active_search_escape_generation = generation
+        self._renderer.set_search_escape_generation(generation)
+        self._edit_preview.set_search_escape_generation(generation)
 
     def _editor_find_flags(self):
         flags = QTextDocument.FindFlag(0)
@@ -1599,6 +1631,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._renderer.set_inline_edit_enabled(True)
         self._preview_timer.stop()
         self._editor_search_bar.hide()
+        self._set_search_escape_enabled(False)
         is_md = bool(self._current_file and is_markdown(self._current_file))
         self._search_btn.setEnabled(is_md)
         self._reload_btn.setEnabled(bool(self._current_file))
@@ -1706,9 +1739,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._toolbar_subtitle.setText(
             "未儲存變更" if dirty else str(self._current_file.parent)
         )
-        idx = self._tab_bar.currentIndex()
-        if idx >= 0:
-            self._tab_bar.setTabText(idx, f"{marker}{name}")
+        self._refresh_tab_labels()
 
     def _open_file(self, filepath: str):
         path = Path(filepath)
@@ -1741,6 +1772,23 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._activate_tab(idx)
 
     # ---------------- document tabs ----------------
+    def _refresh_tab_labels(self):
+        """Rebuild concise labels, disambiguating duplicate filenames only."""
+        paths = [
+            str(self._tab_bar.tabData(index) or "")
+            for index in range(self._tab_bar.count())
+        ]
+        labels = disambiguated_tab_labels(paths)
+        dirty_path = (
+            self._active_path
+            if self._edit_mode and self._editor.is_modified()
+            else None
+        )
+        for index, (path, label) in enumerate(zip(paths, labels)):
+            marker = "● " if path and path == dirty_path else ""
+            self._tab_bar.setTabText(index, f"{marker}{label}")
+        self._tab_bar.refresh_close_buttons()
+
     def _index_of_path(self, key: str) -> int:
         for i in range(self._tab_bar.count()):
             if self._tab_bar.tabData(i) == key:
@@ -1756,7 +1804,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.setTabToolTip(idx, key)
         self._tab_guard = False
         self._tab_state[key] = {"kind": kind, "scroll": None}
-        self._tab_bar.setVisible(self._tab_bar.count() > 0)
+        self._refresh_tab_labels()
         return idx
 
     def _on_tab_changed(self, idx: int):
@@ -1777,12 +1825,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._leave_edit_ui()
         self._activate_tab(idx)
 
-    def _on_tab_close(self, idx: int):
+    def _on_tab_close(self, idx: int) -> bool:
+        if idx < 0 or idx >= self._tab_bar.count():
+            return False
         key = self._tab_bar.tabData(idx)
         closing_active = key == self._active_path
         if closing_active and self._edit_mode:
             if not self._confirm_discard_edits():
-                return
+                return False
             self._leave_edit_ui()
         if closing_active:
             self._active_path = None  # don't save state for a closing document
@@ -1790,11 +1840,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.removeTab(idx)
         self._tab_guard = False
         self._tab_state.pop(key, None)
-        self._tab_bar.setVisible(self._tab_bar.count() > 0)
+        self._refresh_tab_labels()
         if self._tab_bar.count() == 0:
             self._show_empty_state()
         elif closing_active:
             self._activate_tab(self._tab_bar.currentIndex())
+        return True
 
     def _close_current_tab(self):
         if self._tab_bar.count() > 0:
@@ -1809,12 +1860,65 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _build_tab_context_menu(self, idx: int) -> QMenu:
         menu = QMenu(self._tab_bar)
+        if idx < 0 or idx >= self._tab_bar.count():
+            return menu
+        key = str(self._tab_bar.tabData(idx) or "")
+
+        close_action = menu.addAction("關閉分頁")
+        close_action.triggered.connect(
+            lambda _checked=False, path=key: self._close_tab_by_path(path)
+        )
+
+        close_others_action = menu.addAction("關閉其他分頁")
+        close_others_action.setEnabled(self._tab_bar.count() > 1)
+        close_others_action.triggered.connect(
+            lambda _checked=False, path=key: self._close_other_tabs(path)
+        )
+
+        close_right_action = menu.addAction("關閉右側分頁")
+        close_right_action.setEnabled(idx < self._tab_bar.count() - 1)
+        close_right_action.triggered.connect(
+            lambda _checked=False, path=key: self._close_tabs_to_right(path)
+        )
+
+        menu.addSeparator()
         detach_action = menu.addAction("移至新視窗")
         detach_action.setEnabled(self._can_detach_tab(idx))
         detach_action.triggered.connect(
-            lambda _checked=False, tab_index=idx: self._detach_tab(tab_index)
+            lambda _checked=False, path=key: self._detach_tab_by_path(path)
         )
         return menu
+
+    def _close_tab_by_path(self, key: str) -> bool:
+        index = self._index_of_path(key)
+        return self._on_tab_close(index) if index >= 0 else False
+
+    def _close_tab_paths(self, paths) -> None:
+        pending = list(dict.fromkeys(str(path) for path in paths if path))
+        if self._active_path in pending:
+            pending.remove(self._active_path)
+            if not self._close_tab_by_path(self._active_path):
+                return
+        for key in pending:
+            self._close_tab_by_path(key)
+
+    def _close_other_tabs(self, keep_key: str) -> None:
+        if self._index_of_path(keep_key) < 0:
+            return
+        self._close_tab_paths(
+            self._tab_bar.tabData(index)
+            for index in range(self._tab_bar.count())
+            if self._tab_bar.tabData(index) != keep_key
+        )
+
+    def _close_tabs_to_right(self, key: str) -> None:
+        index = self._index_of_path(key)
+        if index < 0:
+            return
+        self._close_tab_paths(
+            self._tab_bar.tabData(tab_index)
+            for tab_index in range(index + 1, self._tab_bar.count())
+        )
 
     def _can_detach_tab(self, idx: int) -> bool:
         return (
@@ -1822,6 +1926,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             and 0 <= idx < self._tab_bar.count()
             and bool(self._tab_bar.tabData(idx))
         )
+
+    def _detach_tab_by_path(self, key: str) -> None:
+        index = self._index_of_path(key)
+        if index >= 0:
+            self._detach_tab(index)
 
     def _detach_tab(self, idx: int):
         if not self._can_detach_tab(idx):
@@ -2436,7 +2545,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 continue
             self._tab_guard = True
             self._tab_bar.setTabData(i, new)
-            self._tab_bar.setTabText(i, Path(new).name)
             self._tab_bar.setTabToolTip(i, new)
             self._tab_guard = False
             if key in self._tab_state:
@@ -2449,6 +2557,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._toolbar_title.setText(self._current_file.name)
             self._toolbar_subtitle.setText(str(self._current_file.parent))
             self._watch_current_file()
+        self._refresh_tab_labels()
         self._panel.recent.migrate_paths(mapping)
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
@@ -2617,6 +2726,18 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _on_preview_editing_changed(self, editing: bool):
         self._preview_editing = bool(editing)
+
+    def _on_preview_unhandled_escape(self, generation: int):
+        if generation != self._active_search_escape_generation:
+            return
+        if (
+            generation > 0
+            and (
+                not self._search_bar.isHidden()
+                or not self._editor_search_bar.isHidden()
+            )
+        ):
+            self._close_search()
 
     def _confirm_discard_preview_edit(self) -> bool:
         """Ask before an action that would tear the preview's editor down.
@@ -3337,5 +3458,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def closeEvent(self, event):
         self._flush_pdf_zoom_pipeline()
+        if self._deferred_update_close_approved:
+            self._deferred_update_close_approved = False
+            super().closeEvent(event)
+            return
         if session_state.close_event(self, event):
+            if update_flow.defer_close_until_updates_finish(self, event):
+                self._deferred_update_close_approved = True
+                return
             super().closeEvent(event)

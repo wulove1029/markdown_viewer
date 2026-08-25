@@ -32,6 +32,29 @@ from .md_converter import convert, convert_text, state_page_html
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
 
+_UNHANDLED_ESCAPE_JS = r"""
+(function () {
+  if (window.__mdUnhandledEscapeInstalled) return;
+  window.__mdUnhandledEscapeInstalled = true;
+  if (typeof QWebChannel === "undefined" || !window.qt ||
+      !qt.webChannelTransport) return;
+  new QWebChannel(qt.webChannelTransport, function (channel) {
+    var bridge = channel.objects.bridge;
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" && event.key !== "Esc") return;
+      var generation = Number(window.__mdSearchEscapeGeneration || 0);
+      if (generation <= 0) return;
+      window.setTimeout(function () {
+        if (!event.defaultPrevented && bridge &&
+            bridge.reportUnhandledEscape) {
+          bridge.reportUnhandledEscape(generation);
+        }
+      }, 0);
+    });
+  });
+})();
+"""
+
 
 def _decode_content_size(value):
     """Decode a WebEngine content-size result into positive finite pixels.
@@ -211,6 +234,7 @@ class RendererView(QWebEngineView):
         self._render_pool = QThreadPool.globalInstance()
         self._pending_text_base_url: QUrl | None = None
         self._scroll_y = 0  # last polled vertical scroll (for per-tab restore)
+        self._search_escape_generation = 0
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
         # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
@@ -569,7 +593,19 @@ class RendererView(QWebEngineView):
         return ""
 
     def _inject_annotations(self, ok):
-        if not ok or not self._current_path or not is_markdown(self._current_path):
+        if not ok:
+            return
+        if not self._current_path or not is_markdown(self._current_path):
+            # Live/split previews deliberately skip annotation and inline-edit
+            # scripts, but their WebEngine focus widget still swallows Escape.
+            # Install only the tiny unhandled-key bridge on those pages.
+            self.page().runJavaScript(
+                "window.__mdSearchEscapeGeneration = %d;\n"
+                % self._search_escape_generation
+                + self._qwebchannel_js
+                + "\n"
+                + _UNHANDLED_ESCAPE_JS
+            )
             return
         boot = "window.__annotBoot(%s, %s, %s);" % (
             json.dumps(self._annot_json),
@@ -587,7 +623,17 @@ class RendererView(QWebEngineView):
             + "\n"
             + self._inline_edit_js
             + "\n"
+            + "window.__mdSearchEscapeGeneration = %d;\n"
+            % self._search_escape_generation
             + boot
+        )
+
+    def set_search_escape_generation(self, generation: int):
+        """Arm unhandled-Escape reports for the current search generation."""
+        self._search_escape_generation = max(0, int(generation))
+        self.page().runJavaScript(
+            "window.__mdSearchEscapeGeneration = %d;"
+            % self._search_escape_generation
         )
 
     def set_inline_edit_enabled(self, enabled: bool):

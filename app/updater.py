@@ -62,13 +62,19 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in parts) if parts else (0,)
 
 
-def _is_newer(latest: str, current: str) -> bool:
+def is_newer_version(latest: str, current: str) -> bool:
+    """Return whether *latest* is semantically newer than *current*."""
     latest_parts = _version_tuple(latest)
     current_parts = _version_tuple(current)
     width = max(len(latest_parts), len(current_parts))
     latest_parts += (0,) * (width - len(latest_parts))
     current_parts += (0,) * (width - len(current_parts))
     return latest_parts > current_parts
+
+
+def _is_newer(latest: str, current: str) -> bool:
+    """Backward-compatible private alias used by existing callers/tests."""
+    return is_newer_version(latest, current)
 
 
 def check_for_update(current_version: str = VERSION) -> UpdateInfo:
@@ -95,7 +101,7 @@ def check_for_update(current_version: str = VERSION) -> UpdateInfo:
         raise UpdateError("Latest release does not include a version tag.")
 
     html_url = str(release.get("html_url") or "")
-    if not _is_newer(latest_version, current_version):
+    if not is_newer_version(latest_version, current_version):
         return UpdateInfo(False, current_version, latest_version, html_url)
 
     for asset in release.get("assets", []):

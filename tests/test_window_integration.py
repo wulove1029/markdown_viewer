@@ -1,15 +1,18 @@
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QSettings, Signal
-from PySide6.QtGui import QCloseEvent, QShortcut, QTextCursor
+from PySide6.QtCore import QObject, QSettings, Qt, Signal
+from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from app import export_actions
 from app import md_table
 from app import window as window_mod
+from app.shortcuts import WINDOW_SHORTCUTS
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
@@ -23,6 +26,7 @@ class _Bridge(QObject):
     orphansReported = Signal(object)
     taskToggled = Signal(object)
     inlineEditStateChanged = Signal(bool)
+    unhandledEscape = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -68,12 +72,16 @@ class _FakeRenderer(QWidget):
         self.ratio_calls = []
         self.reload_calls = 0
         self.inline_edit_enabled = True
+        self.search_escape_generation = 0
 
     def set_annotation_side_notes_visible(self, visible):
         self._side_notes_visible = bool(visible)
 
     def set_inline_edit_enabled(self, enabled):
         self.inline_edit_enabled = bool(enabled)
+
+    def set_search_escape_generation(self, generation):
+        self.search_escape_generation = int(generation)
 
     def set_zoom(self, factor):
         self._zoom = float(factor)
@@ -650,6 +658,147 @@ def test_graph_view_is_modeless_and_does_not_change_document_tabs(
     win._graph_window.close()
 
 
+def test_registered_shortcuts_and_menu_hints_match_registry(make_window):
+    win = make_window()
+    portable = QKeySequence.SequenceFormat.PortableText
+    expected = [
+        (spec.command_id, QKeySequence(sequence).toString(portable))
+        for spec in WINDOW_SHORTCUTS
+        for sequence in spec.sequences
+    ]
+    actual = [
+        (
+            shortcut.property("commandId"),
+            shortcut.key().toString(portable),
+        )
+        for shortcut in win._registered_shortcuts
+    ]
+    assert Counter(actual) == Counter(expected)
+    assert len(actual) == len(expected)
+    assert all(
+        shortcut.context() == Qt.ShortcutContext.WindowShortcut
+        for shortcut in win._registered_shortcuts
+    )
+    object_names = [shortcut.objectName() for shortcut in win._registered_shortcuts]
+    assert len(object_names) == len(set(object_names))
+    assert all(name.startswith("shortcut.") for name in object_names)
+    assert "Esc" not in {sequence for _command_id, sequence in actual}
+
+    actions = [
+        action
+        for action in win.findChildren(window_mod.QAction)
+        if action.data() in {spec.command_id for spec in WINDOW_SHORTCUTS}
+    ]
+    action_counts = Counter(action.data() for action in actions)
+    assert action_counts == Counter(spec.command_id for spec in WINDOW_SHORTCUTS)
+    for spec in WINDOW_SHORTCUTS:
+        action = next(action for action in actions if action.data() == spec.command_id)
+        assert action.shortcut().isEmpty()
+        assert action.text().endswith(f"\t{spec.menu_hint}")
+
+
+def test_search_input_shift_enter_goes_previous_and_escape_closes(
+    make_window, qapp
+):
+    win = make_window()
+    previous = []
+    next_result = []
+    cancelled = []
+    win._search_input.previous_requested.connect(lambda: previous.append(True))
+    win._search_input.returnPressed.connect(lambda: next_result.append(True))
+    win._search_input.cancel_requested.connect(lambda: cancelled.append(True))
+    win._search_bar.show()
+    win._search_input.show()
+    win._search_input.setFocus()
+
+    QTest.keyClick(
+        win._search_input,
+        Qt.Key.Key_Return,
+        Qt.KeyboardModifier.ShiftModifier,
+    )
+    assert previous == [True]
+    assert next_result == []
+
+    QTest.keyClick(win._search_input, Qt.Key.Key_Return)
+    assert next_result == [True]
+
+    QTest.keyClick(win._search_input, Qt.Key.Key_Escape)
+    assert cancelled == [True]
+    assert win._search_bar.isHidden()
+
+
+def test_context_escape_closes_wikilink_popup_before_open_search(
+    make_window, qapp
+):
+    win = make_window()
+    win.show()
+    win._stack.setCurrentWidget(win._editor_split)
+    win._editor.set_content("[[ro")
+    cursor = win._editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    win._editor.setTextCursor(cursor)
+    win._editor.set_wikilink_candidates(["Roadmap"])
+    win._editor.setFocus()
+    win._editor._show_wikilink_completions()
+    qapp.processEvents()
+
+    popup = win._editor._completer.popup()
+    assert popup.isVisible()
+    win._search_bar.show()
+    QTest.keyClick(win._editor, Qt.Key.Key_Escape)
+    qapp.processEvents()
+    assert popup.isVisible() is False
+    assert win._search_bar.isVisible()
+
+
+def test_unhandled_escape_closes_search_from_other_main_window_controls(
+    make_window, qapp
+):
+    win = make_window()
+    win.show()
+    win._search_bar.show()
+    win._theme_btn.setFocus()
+    qapp.processEvents()
+
+    QTest.keyClick(win._theme_btn, Qt.Key.Key_Escape)
+    assert win._search_bar.isHidden()
+
+
+def test_web_preview_unhandled_escape_closes_open_search(make_window):
+    win = make_window()
+    win._search_bar.show()
+    win._set_search_escape_enabled(True)
+    generation = win._active_search_escape_generation
+
+    win._renderer.bridge.unhandledEscape.emit(generation)
+
+    assert win._search_bar.isHidden()
+
+    win._editor_search_bar.show()
+    win._set_search_escape_enabled(True)
+    generation = win._active_search_escape_generation
+    win._edit_preview.bridge.unhandledEscape.emit(generation)
+    assert win._editor_search_bar.isHidden()
+
+
+def test_stale_web_escape_cannot_close_a_new_search(make_window):
+    win = make_window()
+    win._search_bar.show()
+    win._set_search_escape_enabled(True)
+    stale_generation = win._active_search_escape_generation
+
+    win._close_search()
+    win._search_bar.show()
+    win._set_search_escape_enabled(True)
+    current_generation = win._active_search_escape_generation
+
+    win._renderer.bridge.unhandledEscape.emit(stale_generation)
+    assert win._search_bar.isHidden() is False
+
+    win._renderer.bridge.unhandledEscape.emit(current_generation)
+    assert win._search_bar.isHidden()
+
+
 def test_save_refreshes_an_open_graph_view(make_window, tmp_path, monkeypatch):
     note = tmp_path / "graph.md"
     note.write_text("[[Before]]", encoding="utf-8")
@@ -820,6 +969,179 @@ def test_closing_tabs_removes_state_and_shows_empty(make_window, md_files):
     assert win._tab_bar.count() == 0
     assert win._current_file is None
     assert win._renderer.empty_shown is True
+
+
+def test_duplicate_tab_names_disambiguate_keep_dirty_marker_and_recompute(
+    make_window, tmp_path
+):
+    first = tmp_path / "project-a" / "docs" / "README.md"
+    second = tmp_path / "project-b" / "docs" / "README.md"
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_text("# first", encoding="utf-8")
+    second.write_text("# second", encoding="utf-8")
+    win = make_window()
+
+    win.open_path(str(first))
+    assert win._tab_bar.tabText(0) == "README.md"
+    win.open_path(str(second))
+    assert [win._tab_bar.tabText(index) for index in range(2)] == [
+        "README.md · project-a/docs",
+        "README.md · project-b/docs",
+    ]
+    assert win._tab_bar.tabToolTip(0) == str(first)
+    assert win._tab_bar.tabToolTip(1) == str(second)
+
+    win._edit_mode = True
+    win._editor.document().setModified(True)
+    win._update_dirty_ui()
+    assert win._tab_bar.tabText(1) == "● README.md · project-b/docs"
+
+    win._editor.document().setModified(False)
+    win._on_tab_close(1)
+    assert win._tab_bar.tabText(0) == "README.md"
+
+
+def test_all_tabs_menu_selects_live_path_after_reorder(
+    make_window, tmp_path, qapp
+):
+    paths = []
+    win = make_window()
+    for index in range(14):
+        path = tmp_path / f"CoilSync_封閉LAN_需求分析_{index:02}.md"
+        path.write_text(f"# {index}", encoding="utf-8")
+        paths.append(path)
+        win.open_path(str(path))
+
+    win.resize(900, 640)
+    win.show()
+    qapp.processEvents()
+    assert win._tab_bar.has_overflow() is True
+    assert win._tab_strip.overflow_button.isVisible() is True
+
+    menu = win._tab_strip.build_tabs_menu()
+    first_action = next(
+        action for action in menu.actions() if action.data() == str(paths[0])
+    )
+    win._tab_bar.moveTab(0, win._tab_bar.count() - 1)
+    first_action.trigger()
+    qapp.processEvents()
+
+    assert win._tab_bar.tabData(win._tab_bar.currentIndex()) == str(paths[0])
+    assert win._active_path == str(paths[0])
+    assert win._renderer.loaded_paths[-1] == paths[0]
+    active = win._tab_bar.tabRect(win._tab_bar.currentIndex())
+    visible = win._tab_bar.visible_tabs_rect()
+    assert active.left() >= visible.left()
+    assert active.right() <= visible.right()
+
+    loaded_before_move = list(win._renderer.loaded_paths)
+    active_index = win._tab_bar.currentIndex()
+    win._tab_bar.moveTab(active_index, 0)
+    qapp.processEvents()
+    assert win._renderer.loaded_paths == loaded_before_move
+    assert win._tab_bar.tabData(win._tab_bar.currentIndex()) == str(paths[0])
+    active = win._tab_bar.tabRect(win._tab_bar.currentIndex())
+    visible = win._tab_bar.visible_tabs_rect()
+    assert active.left() >= visible.left()
+    assert active.right() <= visible.right()
+
+
+def test_tab_context_menu_closes_right_and_other_tabs(make_window, tmp_path):
+    paths = []
+    win = make_window()
+    for index in range(4):
+        path = tmp_path / f"note-{index}.md"
+        path.write_text(f"# {index}", encoding="utf-8")
+        paths.append(path)
+        win.open_path(str(path))
+
+    right_menu = win._build_tab_context_menu(1)
+    close_right = next(
+        action for action in right_menu.actions() if action.text() == "關閉右側分頁"
+    )
+    assert close_right.isEnabled() is True
+    assert any(action.text() == "移至新視窗" for action in right_menu.actions())
+    close_right.trigger()
+    assert [win._tab_bar.tabData(index) for index in range(2)] == [
+        str(paths[0]),
+        str(paths[1]),
+    ]
+
+    win.open_path(str(paths[2]))
+    win.open_path(str(paths[3]))
+    others_menu = win._build_tab_context_menu(1)
+    close_others = next(
+        action for action in others_menu.actions() if action.text() == "關閉其他分頁"
+    )
+    close_others.trigger()
+    assert win._tab_bar.count() == 1
+    assert win._tab_bar.tabData(0) == str(paths[1])
+    assert win._active_path == str(paths[1])
+
+    only_menu = win._build_tab_context_menu(0)
+    assert next(
+        action for action in only_menu.actions() if action.text() == "關閉其他分頁"
+    ).isEnabled() is False
+    assert next(
+        action for action in only_menu.actions() if action.text() == "關閉右側分頁"
+    ).isEnabled() is False
+
+
+def test_bulk_tab_close_cancel_keeps_every_tab(make_window, tmp_path, monkeypatch):
+    paths = []
+    win = make_window()
+    for index in range(4):
+        path = tmp_path / f"dirty-{index}.md"
+        path.write_text(f"# {index}", encoding="utf-8")
+        paths.append(path)
+        win.open_path(str(path))
+
+    win._edit_mode = True
+    win._editor.document().setModified(True)
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "question",
+        lambda *args, **kwargs: window_mod.QMessageBox.StandardButton.Cancel,
+    )
+    menu = win._build_tab_context_menu(1)
+    next(
+        action for action in menu.actions() if action.text() == "關閉右側分頁"
+    ).trigger()
+
+    assert [win._tab_bar.tabData(index) for index in range(4)] == [
+        str(path) for path in paths
+    ]
+    assert win._active_path == str(paths[-1])
+
+    # Let fixture teardown close the window without reopening the modal prompt.
+    win._editor.document().setModified(False)
+    win._edit_mode = False
+
+
+def test_stale_close_others_action_does_not_close_remaining_tabs(
+    make_window, tmp_path
+):
+    paths = []
+    win = make_window()
+    for index in range(3):
+        path = tmp_path / f"stale-{index}.md"
+        path.write_text(f"# {index}", encoding="utf-8")
+        paths.append(path)
+        win.open_path(str(path))
+
+    menu = win._build_tab_context_menu(1)
+    close_others = next(
+        action for action in menu.actions() if action.text() == "關閉其他分頁"
+    )
+    assert win._close_tab_by_path(str(paths[1])) is True
+
+    close_others.trigger()
+
+    assert [win._tab_bar.tabData(index) for index in range(2)] == [
+        str(paths[0]),
+        str(paths[2]),
+    ]
 
 
 def test_detach_moves_tab_to_new_window(make_window, md_files):
@@ -1106,6 +1428,206 @@ def test_toolbar_button_cycles_three_modes(make_window, md_files):
     assert not win._edit_preview.isHidden()
     win._cycle_view_mode()
     assert win._view_mode == "preview"
+
+
+def test_top_right_utilities_are_grouped_and_theme_button_tracks_action(
+    make_window, qapp
+):
+    win = make_window()
+    win.resize(1000, 700)
+    win.show()
+    qapp.processEvents()
+
+    controls = win._toolbar_utilities
+    assert controls.objectName() == "toolbarUtilities"
+    assert controls.size().width() == 85
+    assert controls.size().height() == 38
+    assert win._theme_btn.objectName() == "themeToggleButton"
+    assert win._update_btn.objectName() == "updateButton"
+    assert win._theme_btn.parent() is controls
+    assert win._update_btn.parent() is controls
+    assert win._theme_btn.geometry().right() < win._update_btn.geometry().left()
+    assert win._theme_btn.property("iconName") == "moon"
+    assert win._theme_btn.toolTip() == "切換為深色模式"
+    assert win._theme_action.text() == "切換為深色模式"
+
+    light_icon = win._theme_btn.icon().cacheKey()
+    QTest.mouseClick(win._theme_btn, Qt.MouseButton.LeftButton)
+
+    assert win._theme_name == "dark"
+    assert win._theme_btn.property("iconName") == "sun"
+    assert win._theme_btn.toolTip() == "切換為淺色模式"
+    assert win._theme_btn.accessibleName() == "切換為淺色模式"
+    assert win._theme_action.text() == "切換為淺色模式"
+    assert win._theme_btn.icon().cacheKey() != light_icon
+    assert window_mod.QSettings(_ORG, _APP).value("theme") == "dark"
+
+
+def test_update_utility_invokes_one_manual_check_after_theme_refreshes(
+    make_window, qapp, monkeypatch
+):
+    win = make_window()
+    calls = []
+    monkeypatch.setattr(
+        win, "_check_for_updates", lambda manual: calls.append(manual)
+    )
+    win.show()
+    qapp.processEvents()
+
+    assert win._update_btn.property("updateState") == "idle"
+    assert win._update_btn.property("iconName") == "circle-arrow-up"
+    assert window_mod.VERSION in win._update_btn.toolTip()
+
+    win._apply_theme()
+    win._refresh_icons()
+    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+    assert calls == [True]
+
+    win._theme_btn.setFocus()
+    QTest.keyClick(win._theme_btn, Qt.Key.Key_Tab)
+    assert win._update_btn.hasFocus() is True
+    QTest.keyClick(win._update_btn, Qt.Key.Key_Space)
+    assert calls == [True, True]
+
+
+def test_cached_update_badge_rechecks_or_opens_live_update(
+    make_window, qapp, monkeypatch
+):
+    window_mod.QSettings(_ORG, _APP).setValue(
+        "available_update_version", "1.26.0"
+    )
+    win = make_window()
+    checks = []
+    prompts = []
+    monkeypatch.setattr(
+        win, "_check_for_updates", lambda manual: checks.append(manual)
+    )
+    monkeypatch.setattr(
+        window_mod.update_flow,
+        "prompt_for_update",
+        lambda window, update: prompts.append((window, update)),
+    )
+    win.show()
+    qapp.processEvents()
+
+    assert win._toolbar_utilities.update_state == "available"
+    assert win._update_btn.property("badgeVisible") is True
+    assert "v1.26.0" in win._update_btn.toolTip()
+
+    # A cached version label has no installer metadata, so clicking refreshes it.
+    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+    assert checks == [True]
+    assert prompts == []
+
+    live_update = object()
+    win._available_update = live_update
+    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+    assert checks == [True]
+    assert prompts == [(win, live_update)]
+
+
+def test_update_menu_action_is_disabled_while_checking_or_downloading(
+    make_window, monkeypatch
+):
+    win = make_window()
+    prompts = []
+    win._available_update = object()
+    monkeypatch.setattr(
+        window_mod.update_flow,
+        "prompt_for_update",
+        lambda *args: prompts.append(args),
+    )
+
+    for state in ("checking", "downloading"):
+        win._set_update_state(state)
+        assert win._update_btn.isEnabled() is False
+        assert win._update_action.isEnabled() is False
+        win._update_action.trigger()
+        win._on_update_button_clicked()
+        assert prompts == []
+
+
+def test_window_close_defers_once_until_running_update_finishes(
+    make_window, qapp, monkeypatch
+):
+    class RunningUpdate(QObject):
+        finished = Signal()
+
+        def __init__(self):
+            super().__init__()
+            self.running = True
+
+        def isRunning(self):  # noqa: N802 (QThread-compatible fake)
+            return self.running
+
+    win = make_window()
+    win.show()
+    qapp.processEvents()
+    close_checks = []
+    monkeypatch.setattr(
+        window_mod.session_state,
+        "close_event",
+        lambda _window, _event: close_checks.append(True) or True,
+    )
+    monkeypatch.setattr(
+        window_mod.QTimer,
+        "singleShot",
+        staticmethod(lambda *args: args[-1]()),
+    )
+    quit_calls = []
+    monkeypatch.setattr(
+        window_mod.update_flow.QApplication,
+        "quit",
+        staticmethod(lambda: quit_calls.append(True)),
+    )
+    thread = RunningUpdate()
+    win._update_check_thread = thread
+
+    assert win.close() is False
+    assert win.isHidden() is True
+    assert win._update_close_pending is True
+    assert win._deferred_update_close_approved is True
+    assert close_checks == [True]
+
+    thread.running = False
+    thread.finished.emit()
+    qapp.processEvents()
+
+    assert win._update_close_pending is False
+    assert win._deferred_update_close_approved is False
+    assert close_checks == [True]
+    assert quit_calls == [True]
+
+
+@pytest.mark.parametrize(
+    ("cached_version", "shows_badge"),
+    [
+        ("0.0.1", False),
+        (window_mod.VERSION, False),
+        (f"v{window_mod.VERSION}", False),
+        ("garbage", False),
+        ("garbage9999", False),
+        ("1.26.0garbage", False),
+        ("1..26", False),
+        ("9999.0.0", True),
+    ],
+)
+def test_cached_update_badge_only_keeps_semantically_newer_versions(
+    make_window, cached_version, shows_badge
+):
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.setValue("available_update_version", cached_version)
+
+    win = make_window()
+
+    assert (win._toolbar_utilities.update_state == "available") is shows_badge
+    assert bool(win._cached_update_version) is shows_badge
+    if shows_badge:
+        assert settings.value("available_update_version") == cached_version.lstrip(
+            "vV"
+        )
+    else:
+        assert settings.contains("available_update_version") is False
 
 
 def test_edit_and_split_modes_unavailable_for_pdf(make_window, md_files):

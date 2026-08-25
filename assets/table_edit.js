@@ -624,8 +624,8 @@
       if (e.key === "Enter" || e.key === "Return") {
         if (e.ctrlKey || e.metaKey) {
           // Suppressed: contenteditable would otherwise insert a newline
-          // while the commit is in flight. Escape stays un-suppressed --
-          // nothing types on Escape, so there is nothing to race.
+          // while the commit is in flight. Escape is marked handled below so
+          // the window-level search fallback does not also react to it.
           halt(e);
           notify("onCommit");
           return;
@@ -641,6 +641,7 @@
         return;
       }
       if (e.key === "Escape" || e.key === "Esc") {
+        halt(e);
         notify("onCancel");
       }
       // Arrow keys are left alone so the browser's own caret movement works.
