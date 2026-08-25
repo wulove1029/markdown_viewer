@@ -479,16 +479,39 @@
     });
   });
 
+  // v2 "click to edit": a genuine double-click (detail === 2) is free for the
+  // browser's native word-select unless the user's preview_double_click
+  // preference is "wysiwyg" (app/edit_backend.py), in which case it should
+  // jump straight into the WYSIWYG editor -- mirroring VSCode's Office
+  // Viewer extension. This never touches the triple-click inline-block-edit
+  // above: they are different gestures, so the "inline" preference leaves
+  // every bit of v1 behaviour (this whole file) untouched.
+  var dblClickMode = "inline";
+
+  document.addEventListener("dblclick", function (e) {
+    if (dblClickMode !== "wysiwyg") return;
+    if (!bridge || !bridge.requestWysiwygEdit) return;
+    if (blocked(e.target)) return;
+    var block = e.target.closest("[data-src-start]");
+    if (!block) return;
+    var start = parseInt(block.getAttribute("data-src-start"), 10);
+    bridge.requestWysiwygEdit(isNaN(start) ? 0 : start);
+  });
+
   window.__inlineEdit = {
     setEnabled: function (value) {
       enabled = !!value;
       if (!enabled) restore();
     },
+    setDoubleClickMode: function (mode) {
+      dblClickMode = mode === "wysiwyg" ? "wysiwyg" : "inline";
+    },
     isEditing: function () { return active !== null; }
   };
 
-  window.__inlineEditBoot = function (channelBridge, isEnabled) {
+  window.__inlineEditBoot = function (channelBridge, isEnabled, doubleClickMode) {
     bridge = channelBridge || null;
     enabled = !!isEnabled;
+    dblClickMode = doubleClickMode === "wysiwyg" ? "wysiwyg" : "inline";
   };
 })();

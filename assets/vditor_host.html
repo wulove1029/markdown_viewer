@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>WYSIWYG</title>
+<!-- Loaded with a file:// baseUrl pointed at assets/ (LocalContentCanAccessFileUrls
+     enabled by wysiwyg_view.py, mirroring fragment_render.py), so every path
+     below is relative to assets/ and never touches the network. -->
+<link rel="stylesheet" href="vditor/dist/index.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  #vditor { height: 100vh; }
+</style>
+</head>
+<body>
+<div id="vditor"></div>
+<!-- QWEBCHANNEL_JS: wysiwyg_view.py inlines Qt's bundled qwebchannel.js here
+     (the same :/qtwebchannel/qwebchannel.js resource renderer.py uses), since
+     it ships as a Qt resource rather than a file under assets/. -->
+<script>/*__WYSIWYG_QWEBCHANNEL_JS__*/</script>
+<script src="vditor/dist/index.min.js"></script>
+<script src="vditor_glue.js"></script>
+<script>
+(function () {
+  function boot() {
+    if (typeof QWebChannel === "undefined" || !window.qt || !qt.webChannelTransport) {
+      return;
+    }
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+      var bridge = channel.objects.wysiwygBridge;
+      window.__wysiwygBridge = bridge;
+      window.__wysiwygBoot(bridge, {
+        elementId: "vditor",
+        lang: "__WYSIWYG_LANG__",
+        cdn: "vditor",
+        value: "",
+      });
+    });
+  }
+  if (document.readyState === "complete" || document.readyState === "interactive") {
+    boot();
+  } else {
+    document.addEventListener("DOMContentLoaded", boot);
+  }
+})();
+</script>
+</body>
+</html>

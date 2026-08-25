@@ -124,6 +124,14 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "_save_edits",
     ),
     ShortcutSpec(
+        "edit.toggle_wysiwyg",
+        "編輯與搜尋",
+        "切換所見即所得編輯（WYSIWYG）",
+        ("Ctrl+Shift+W",),
+        "Markdown 編輯",
+        "_toggle_edit_backend",
+    ),
+    ShortcutSpec(
         "edit.bold",
         "編輯與搜尋",
         "粗體（切換 **粗體** 標記）",

@@ -6,6 +6,11 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog
 
+from .edit_backend import SETTINGS_KEY as EDIT_BACKEND_KEY, normalize_backend
+from .edit_backend import (
+    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
+    normalize_preview_double_click,
+)
 from .file_types import document_kind, is_markdown, is_supported_document
 from .md_converter import set_user_css
 from .settings_dialog import SettingsDialog
@@ -153,6 +158,18 @@ def open_preferences(window):
         window._theme_name = new_theme
         window._apply_theme()
     load_user_css(window, reload=True)
+    if EDIT_BACKEND_KEY in r:
+        # Only the *default* for tabs that have not chosen a backend of
+        # their own; open tabs keep whatever they are already showing.
+        window._edit_backend = normalize_backend(r[EDIT_BACKEND_KEY])
+    if PREVIEW_DOUBLE_CLICK_KEY in r:
+        window._preview_double_click = normalize_preview_double_click(
+            r[PREVIEW_DOUBLE_CLICK_KEY]
+        )
+        if not window._edit_mode:
+            window._renderer.set_preview_double_click_mode(
+                window._preview_double_click
+            )
     window._panel.file_browser.refresh_libraries()
     window._refresh_link_index(force=True)
 
@@ -179,6 +196,8 @@ def apply_zoom(window, factor: float, *, sync_pdf: bool = True):
     window._edit_preview.set_zoom(window._content_zoom)
     if sync_pdf and window._current_kind == "pdf":
         window._pdf_view.set_zoom_factor(window._content_zoom)
+    if window._wysiwyg_view is not None:
+        window._wysiwyg_view.page().setZoomFactor(window._content_zoom)
     QSettings(_ORG, _APP).setValue("content_zoom", window._content_zoom)
     window.statusBar().showMessage(
         f"縮放：{round(window._content_zoom * 100)}%", 2000

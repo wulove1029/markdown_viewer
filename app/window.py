@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QFileSystemWatcher,
+    QPoint,
     QSettings,
     QSize,
     Qt,
@@ -15,6 +16,7 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtGui import (
     QAction,
     QDragEnterEvent,
@@ -50,6 +52,7 @@ from .attachments import import_attachment_file, markdown_attachment_link
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
+from . import edit_backend
 from .editor import EditorView
 from .editor_status import EditorStatus
 from .format_actions import apply_format_action
@@ -102,6 +105,7 @@ from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
 from .renderer import RendererView
+from .wysiwyg_view import WysiwygView
 from .recovery import RecoverySnapshot, RecoveryStore
 from .recovery_dialog import RecoveryDialog
 from .recent_resources import (
@@ -242,6 +246,27 @@ class MainWindow(QMainWindow):
             else str(side_notes_value).lower() in ("1", "true", "yes", "on")
         )
         self._theme = get_theme(self._theme_name)
+        # Default WYSIWYG-vs-split edit backend (opt-in; per-tab overrides
+        # live in ``self._tab_state[key]["edit_backend"]``). See
+        # app/edit_backend.py for the pure state logic and its .txt guard.
+        self._edit_backend = edit_backend.normalize_backend(
+            settings.value(edit_backend.SETTINGS_KEY, edit_backend.DEFAULT_BACKEND)
+        )
+        # v2 "click to edit": PREVIEW double-click routing preference (see
+        # app/edit_backend.py). Independent of ``_edit_backend`` above -- that
+        # one only picks the default backend once EDIT mode is already
+        # entered some other way.
+        self._preview_double_click = edit_backend.normalize_preview_double_click(
+            settings.value(
+                edit_backend.PREVIEW_DOUBLE_CLICK_SETTINGS_KEY,
+                edit_backend.PREVIEW_DOUBLE_CLICK_DEFAULT,
+            )
+        )
+        self._wysiwyg_view: WysiwygView | None = None
+        # Effective backend for whatever is currently in the editor stack;
+        # kept in sync by _activate_editor_state so text-change handlers can
+        # skip work (split-only preview timer) without re-deriving it.
+        self._active_edit_backend = edit_backend.SPLIT_BACKEND
         self._current_file: Path | None = None
         self._current_kind = ""
         # Open documents shown as tabs. The viewer (renderer / PDF view) is
@@ -406,6 +431,13 @@ class MainWindow(QMainWindow):
         self._renderer.bridge.unhandledEscape.connect(
             self._on_preview_unhandled_escape
         )
+        # v2 "click to edit": only the main preview (never the split-mode
+        # preview pane, self._edit_preview) is wired to this -- see
+        # RendererView.set_preview_double_click_mode's docstring.
+        self._renderer.bridge.wysiwygEditRequested.connect(
+            self._on_preview_wysiwyg_edit_requested
+        )
+        self._renderer.set_preview_double_click_mode(self._preview_double_click)
         self._renderer.wikilink_clicked.connect(self._on_wikilink_clicked)
         self._renderer.local_doc_clicked.connect(self._on_local_doc_clicked)
         self._renderer.translate_requested.connect(self._translate_selection)
@@ -597,6 +629,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(command_act("file.export_pdf", "匯出 PDF…"))
         file_menu.addAction(act("匯出 PPT…", self._export_pptx))
         file_menu.addAction(act("匯出 Word…", self._export_docx))
+        file_menu.addAction(act("匯出 HTML…", self._export_html))
         file_menu.addSeparator()
         file_menu.addAction(act("離開", self.close))
 
@@ -606,6 +639,9 @@ class MainWindow(QMainWindow):
             command_act("edit.split", "並排編輯（即時預覽）")
         )
         self._edit_menu.addAction(command_act("edit.save", "儲存"))
+        self._edit_menu.addAction(
+            command_act("edit.toggle_wysiwyg", "切換所見即所得編輯")
+        )
         self._edit_menu.addSeparator()
         self._undo_action = act("復原\tCtrl+Z", self._editor.undo)
         self._redo_action = act("重做\tCtrl+Y", self._editor.redo)
@@ -832,6 +868,13 @@ class MainWindow(QMainWindow):
         self._mermaid_btn = self._toolbar_button(
             "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
         )
+        self._wysiwyg_btn = self._toolbar_button(
+            "layers",
+            "切換所見即所得編輯 (Ctrl+Shift+W)；非標準語法（wiki 連結、"
+            "callout、front matter）建議改用分割檢視編輯",
+            self._toggle_edit_backend,
+        )
+        self._wysiwyg_btn.setCheckable(True)
         self._export_btn = self._toolbar_button(
             "file-down", "匯出 PDF", self._export_pdf
         )
@@ -879,6 +922,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._search_btn)
         layout.addWidget(self._reload_btn)
         layout.addWidget(self._edit_btn)
+        layout.addWidget(self._wysiwyg_btn)
         layout.addWidget(self._mermaid_btn)
         layout.addWidget(self._export_btn)
         layout.addWidget(self._side_notes_btn)
@@ -935,6 +979,8 @@ QSplitter::handle:hover {{
         self._editor_status.apply_theme(self._theme)
         self._editor_search_bar.setStyleSheet(self._editor_search_style())
         self._format_toolbar.apply_theme(self._theme)
+        if self._wysiwyg_view is not None:
+            self._wysiwyg_view.apply_theme(self._theme)
         self._pdf_view.apply_theme(self._theme)
         if self._graph_window is not None:
             self._graph_window.apply_theme(self._theme)
@@ -1028,12 +1074,19 @@ QSplitter::handle:hover {{
     def _refresh_icons(self):
         icon_color = self._theme.text_muted
         disabled_color = self._theme.text_subtle
+        self._wysiwyg_btn.setEnabled(
+            self._edit_mode and self._current_kind == "markdown"
+        )
+        self._wysiwyg_btn.setChecked(
+            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        )
         for button in (
             self._sidebar_btn,
             self._open_btn,
             self._search_btn,
             self._reload_btn,
             self._mermaid_btn,
+            self._wysiwyg_btn,
             self._export_btn,
         ):
             icon_name = button.property("iconName")
@@ -1227,6 +1280,11 @@ QWidget#searchBar QLabel {{
 
     def _toggle_search(self):
         if self._edit_mode:
+            if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+                # The editor's find/replace bar operates on the hidden
+                # QPlainTextEdit; v1 has no WYSIWYG-side search UI (see the
+                # WYSIWYG spec's known trade-offs), so this is a no-op there.
+                return
             self._toggle_editor_search()
             return
         if not self._current_file:
@@ -1667,6 +1725,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if self._editor._plain_text_mode:
             return
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            # These commands mutate the hidden QPlainTextEdit directly; Vditor
+            # has its own toolbar/shortcuts for the same formatting and would
+            # never see this edit, silently diverging from what is saved.
+            return
         if action == "image":
             self._insert_image_via_dialog()
             return
@@ -2015,6 +2078,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         document = state.get("editor_document")
         if not isinstance(document, QTextDocument):
             return False
+        # Any real entry into the editor (Ctrl+E, double-click resume, tab
+        # restore, backend toggle) resumes live editing, so the tab is no
+        # longer merely "parked" behind a preview.
+        state.pop("wysiwyg_parked", None)
         plain_text = self._current_kind == "text"
         if plain_text:
             mode = view_mode.EDIT
@@ -2040,29 +2107,296 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
         self._view_mode = mode
         state["view_mode"] = mode
+
+        backend = edit_backend.backend_allows(
+            state.get("edit_backend", self._edit_backend),
+            self._current_file.suffix if self._current_file else None,
+            is_plain_text=plain_text,
+        )
+        state["edit_backend"] = backend
+        self._active_edit_backend = backend
+
         self._renderer.set_inline_edit_enabled(False)
         self._preview_scroll_ratio = float(
             state.get("preview_scroll_ratio", 0.0) or 0.0
         )
         self._apply_split_visibility()
         self._close_search()
-        self._format_toolbar.setVisible(not plain_text)
         self._search_btn.setEnabled(plain_text)
         self._reload_btn.setEnabled(plain_text)
         self._export_btn.setEnabled(False)
-        self._stack.setCurrentWidget(self._editor_split)
-        if mode == view_mode.SPLIT:
-            self._update_preview()
-        scroll = max(0, int(state.get("editor_scroll", 0) or 0))
-        QTimer.singleShot(
-            0, lambda value=scroll: self._editor.verticalScrollBar().setValue(value)
-        )
-        self._editor.setFocus()
+
+        if backend == edit_backend.WYSIWYG_BACKEND:
+            self._format_toolbar.hide()
+            self._editor_status.hide()
+            view = self._ensure_wysiwyg_view()
+            self._stack.setCurrentWidget(view)
+            view.load_markdown(document.toPlainText())
+            view.page().setZoomFactor(self._content_zoom)
+            view.setFocus()
+        else:
+            self._format_toolbar.setVisible(not plain_text)
+            self._editor_status.show()
+            self._stack.setCurrentWidget(self._editor_split)
+            if mode == view_mode.SPLIT:
+                self._update_preview()
+            scroll = max(0, int(state.get("editor_scroll", 0) or 0))
+            QTimer.singleShot(
+                0,
+                lambda value=scroll: self._editor.verticalScrollBar().setValue(
+                    value
+                ),
+            )
+            self._editor.setFocus()
+
         self._update_editor_status_document()
         self._update_format_menu_actions()
         self._refresh_icons()
         self._update_dirty_ui()
         return True
+
+    def _ensure_wysiwyg_view(self) -> WysiwygView:
+        """Lazily build the WYSIWYG stack page (opt-in: most sessions never do)."""
+        if self._wysiwyg_view is None:
+            self._wysiwyg_view = WysiwygView()
+            self._wysiwyg_view.content_changed.connect(
+                self._on_wysiwyg_content_changed
+            )
+            self._wysiwyg_view.save_requested.connect(self._save_edits)
+            self._wysiwyg_view.esc_requested.connect(self._on_wysiwyg_esc)
+            self._wysiwyg_view.toolbar_action.connect(
+                self._on_wysiwyg_toolbar_action
+            )
+            self._wysiwyg_view.context_menu_requested.connect(
+                self._on_wysiwyg_context_menu
+            )
+            self._wysiwyg_view.apply_theme(self._theme)
+            self._wysiwyg_view.page().setZoomFactor(self._content_zoom)
+            self._stack.addWidget(self._wysiwyg_view)
+        return self._wysiwyg_view
+
+    # ── v4: custom Vditor toolbar buttons + right-click menu ────────────
+
+    def _on_wysiwyg_toolbar_action(self, name: str) -> None:
+        handlers = {
+            "save": self._save_edits,
+            "export_pdf": self._export_pdf,
+            "export_docx": self._export_docx,
+            "export_html": self._export_html,
+            "insert_image": self._wysiwyg_insert_image,
+            "toggle_theme": self._toggle_theme,
+        }
+        handler = handlers.get(name)
+        if handler is not None:
+            handler()
+
+    def _on_wysiwyg_context_menu(self, x: int, y: int) -> None:
+        view = self._wysiwyg_view
+        if view is None:
+            return
+        page = view.page()
+        menu = QMenu(self)
+
+        copy_act = page.action(QWebEnginePage.WebAction.Copy)
+        copy_act.setText("複製")
+        menu.addAction(copy_act)
+        paste_act = page.action(QWebEnginePage.WebAction.Paste)
+        paste_act.setText("貼上")
+        menu.addAction(paste_act)
+        paste_plain_act = page.action(QWebEnginePage.WebAction.PasteAndMatchStyle)
+        paste_plain_act.setText("貼上為純文字")
+        menu.addAction(paste_plain_act)
+
+        menu.addSeparator()
+        export_pdf_act = menu.addAction("匯出 PDF…")
+        export_pdf_act.triggered.connect(self._export_pdf)
+        export_docx_act = menu.addAction("匯出 Word…")
+        export_docx_act.triggered.connect(self._export_docx)
+        export_html_act = menu.addAction("匯出 HTML…")
+        export_html_act.triggered.connect(self._export_html)
+
+        menu.addSeparator()
+        insert_image_act = menu.addAction("插入圖片…")
+        insert_image_act.triggered.connect(self._wysiwyg_insert_image)
+        reveal_act = menu.addAction("在資料夾中顯示")
+        reveal_act.setEnabled(bool(self._current_file))
+        reveal_act.triggered.connect(
+            lambda _checked=False: self._reveal_path(self._current_file)
+        )
+        menu.addAction(reveal_act)
+
+        menu.exec(view.mapToGlobal(QPoint(x, y)))
+
+    def _wysiwyg_insert_image(self, _checked=False) -> None:
+        if (
+            self._wysiwyg_view is None
+            or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+        ):
+            return
+        doc_path = self._editor.document_path()
+        if not doc_path:
+            self.statusBar().showMessage("請先儲存文件才能貼入圖片", 4000)
+            return
+        picked, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "插入圖片",
+            str(Path(doc_path).parent),
+            "圖片 (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.svg)",
+        )
+        if not picked:
+            return
+        try:
+            rel = import_image_file(picked, doc_path)
+        except OSError as exc:
+            QMessageBox.warning(self, "插入圖片", f"無法匯入圖片：\n{exc}")
+            return
+        link = markdown_image_link(rel)
+        self._wysiwyg_view.insert_value(link)
+        self._record_recent_resource(link)
+
+    # ── v2 "click to edit": PREVIEW double-click -> straight into WYSIWYG ──
+
+    def _on_preview_wysiwyg_edit_requested(self, start_line: int) -> None:
+        """A rendered block was double-clicked with preview_double_click=="wysiwyg"."""
+        if self._edit_mode or not self._active_path:
+            return
+        if not self._current_file or not is_markdown(self._current_file):
+            return  # .txt/PDF never reach here (renderer skips the script), belt & suspenders
+        if not edit_backend.preview_double_click_enters_wysiwyg(
+            self._preview_double_click, is_markdown=True
+        ):
+            return
+        state = self._tab_state.setdefault(self._active_path, {})
+        # Force WYSIWYG for *this* entry regardless of the tab's remembered
+        # backend -- the whole point of double-clicking is landing straight
+        # in the WYSIWYG editor, Office-Viewer style.
+        state["edit_backend"] = edit_backend.WYSIWYG_BACKEND
+        snippet = self._source_line_snippet(max(0, int(start_line)))
+        self._request_view_mode(view_mode.EDIT)
+        if (
+            snippet
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            and self._wysiwyg_view is not None
+        ):
+            # Best-effort cursor placement (v2 spec accepts this may fail
+            # silently); give Vditor's own render a moment to settle first.
+            QTimer.singleShot(
+                60, lambda v=self._wysiwyg_view, s=snippet: v.focus_near_text(s)
+            )
+
+    def _source_line_snippet(self, line: int) -> str:
+        """Best-effort text near *line* of the active document, for cursor placement."""
+        state = self._tab_state.get(self._active_path) if self._active_path else None
+        document = state.get("editor_document") if state else None
+        text = (
+            document.toPlainText()
+            if isinstance(document, QTextDocument)
+            else (self._current_file.read_text(encoding="utf-8", errors="ignore")
+                  if self._current_file and self._current_file.exists() else "")
+        )
+        lines = text.split("\n")
+        if 0 <= line < len(lines):
+            snippet = lines[line].strip()
+            if snippet:
+                return snippet[:80]
+        return ""
+
+    def _on_wysiwyg_esc(self) -> None:
+        """Esc inside Vditor: drop back to PREVIEW, buffer stays dirty & parked.
+
+        Deliberately NOT ``_exit_edit_mode()``/``_confirm_discard_edits()``:
+        that pair pops a Save/Discard/Cancel dialog and then truly discards
+        the buffer on "Discard" -- the v2 spec calls for a silent round-trip
+        instead, matching what already happens when you switch to another
+        tab mid-edit (see ``_stash_active_editor_state``): the document stays
+        parked in ``_tab_state`` exactly as dirty as it was.
+        """
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            return
+        if self._wysiwyg_view is None or not self._active_path:
+            return
+        active_path = self._active_path
+        active_state = self._tab_state.get(active_path)
+        if active_state is None:
+            return
+
+        def _finish(markdown, path=active_path, state=active_state):
+            if path != self._active_path or self._tab_state.get(path) is not state:
+                return  # the active tab changed while this was in flight
+            if isinstance(markdown, str):
+                self._on_wysiwyg_content_changed(markdown)
+            self._leave_wysiwyg_ui_keeping_buffer(state)
+
+        self._wysiwyg_view.page().runJavaScript(
+            "window.__wysiwygGlue ? window.__wysiwygGlue.getValue() : null",
+            _finish,
+        )
+
+    def _leave_wysiwyg_ui_keeping_buffer(self, state: dict) -> None:
+        """Swap the UI from WYSIWYG back to PREVIEW without touching the buffer.
+
+        Mirrors ``_leave_edit_ui`` minus the ``_discard_tab_buffer`` call: the
+        tab's ``editor_document`` (and its dirty flag) is left exactly as-is
+        so re-entering the editor shows the same unsaved text.
+
+        Deliberately does NOT set ``state["view_mode"]`` to PREVIEW: that
+        field means "is there a live editing session to resume" to
+        ``_enter_edit_mode``/``_load_document`` (``restore_editor``), not
+        "what is currently on screen" -- exactly the same distinction
+        already at play for a *different* tab parked mid-edit while this one
+        is active. Only the window's own ``_view_mode`` (what this tab is
+        showing *right now*) changes to PREVIEW.
+        """
+        # Mark the tab as "parked": an editing session is still live in
+        # ``editor_document`` (state["view_mode"] stays EDIT/SPLIT, per the
+        # docstring above), but the *screen* is showing PREVIEW.  Every path
+        # that must not treat this tab as a plain, editor-owned-nothing tab
+        # -- restoring it on a tab round-trip, inline preview edits, the
+        # task-checkbox write-back, the dirty-title marker -- keys off this
+        # flag instead of state["view_mode"] or self._view_mode alone.
+        state["wysiwyg_parked"] = True
+        self._editor.release_buffer_document()
+        self._view_mode = view_mode.PREVIEW
+        self._renderer.set_inline_edit_enabled(True)
+        self._renderer.set_preview_double_click_mode(self._preview_double_click)
+        self._preview_timer.stop()
+        self._editor_status_timer.stop()
+        self._recovery_timer.stop()
+        self._editor_search_bar.hide()
+        self._format_toolbar.hide()
+        self._editor_status.show()
+        self._active_edit_backend = edit_backend.SPLIT_BACKEND
+        self._set_search_escape_enabled(False)
+        is_md = bool(self._current_file and is_markdown(self._current_file))
+        self._search_btn.setEnabled(is_md)
+        self._reload_btn.setEnabled(bool(self._current_file))
+        self._export_btn.setEnabled(is_md)
+        self._stack.setCurrentWidget(self._renderer)
+        self._renderer.setFocus()
+        self._update_editor_status_document()
+        self._update_dirty_ui()
+        self._refresh_icons()
+
+    def _on_wysiwyg_content_changed(self, markdown: str) -> None:
+        """Shadow-document push: Vditor's debounced edit becomes the truth.
+
+        See the WYSIWYG spec's "shadow document push model" -- Ctrl+S and
+        every dirty/discard-confirmation path read ``editor_document``
+        (== ``self._editor.document()`` here), never Vditor directly, so
+        writing through ``self._editor`` keeps every one of those paths
+        working unmodified, including the recovery-snapshot scheduling that
+        already listens to the editor's own textChanged/modificationChanged
+        signals.
+        """
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            return
+        document = self._editor.document()
+        if document is self._editor._parking_document:
+            return
+        if self._editor.toPlainText() == markdown:
+            return
+        self._editor.setPlainText(markdown)
+        document.setModified(True)
 
     def _discard_tab_buffer(self, key: str, *, preserve_recovery: bool = False) -> None:
         state = self._tab_state.get(key)
@@ -2091,6 +2425,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     # edit state without creating a per-tab buffer first.
                     pass
             state["view_mode"] = view_mode.PREVIEW
+            state.pop("wysiwyg_parked", None)
             for field in (
                 "cursor", "anchor", "editor_scroll", "editing_encoding",
                 "editing_newline", "source_signature", "preview_scroll_ratio",
@@ -2309,6 +2644,51 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._leave_edit_ui()
 
+    def _toggle_edit_backend(self):
+        """Toolbar button / Ctrl+Shift+W: split editor <-> WYSIWYG (Vditor)."""
+        if not (self._edit_mode and self._current_kind == "markdown"):
+            return
+        if not self._active_path:
+            return
+        state = self._tab_state.get(self._active_path)
+        if state is None or not isinstance(
+            state.get("editor_document"), QTextDocument
+        ):
+            return
+        target = edit_backend.backend_allows(
+            edit_backend.toggle_backend(self._active_edit_backend),
+            self._current_file.suffix if self._current_file else None,
+            is_plain_text=False,  # guarded by the markdown check above
+        )
+        if target == self._active_edit_backend:
+            return  # .txt/plain-text forced back to split: nothing changed
+        if (
+            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            and self._wysiwyg_view is not None
+        ):
+            active_path = self._active_path
+            active_state = state
+
+            def _switch_away_from_wysiwyg(markdown, path=active_path, state=active_state):
+                # Fetch Vditor's live value directly rather than trusting the
+                # debounced push to have already landed: switching backends
+                # must never lose the last keystrokes to an in-flight 250ms
+                # debounce window.
+                if path != self._active_path or self._tab_state.get(path) is not state:
+                    return  # the active tab changed while this was in flight
+                if isinstance(markdown, str):
+                    self._on_wysiwyg_content_changed(markdown)
+                state["edit_backend"] = target
+                self._activate_editor_state(state, self._view_mode)
+
+            self._wysiwyg_view.page().runJavaScript(
+                "window.__wysiwygGlue ? window.__wysiwygGlue.getValue() : null",
+                _switch_away_from_wysiwyg,
+            )
+            return
+        state["edit_backend"] = target
+        self._activate_editor_state(state, self._view_mode)
+
     def _leave_edit_ui(self, *, persist_state: bool = True):
         if persist_state and self._active_path:
             self._discard_tab_buffer(self._active_path)
@@ -2319,11 +2699,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editor.release_buffer_document()
         self._view_mode = view_mode.PREVIEW
         self._renderer.set_inline_edit_enabled(True)
+        self._renderer.set_preview_double_click_mode(self._preview_double_click)
         self._preview_timer.stop()
         self._editor_status_timer.stop()
         self._recovery_timer.stop()
         self._editor_search_bar.hide()
         self._format_toolbar.hide()
+        self._editor_status.show()
+        self._active_edit_backend = edit_backend.SPLIT_BACKEND
         self._set_search_escape_enabled(False)
         is_md = bool(self._current_file and is_markdown(self._current_file))
         self._search_btn.setEnabled(is_md)
@@ -2450,6 +2833,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _save_edits(self) -> bool:
         if not (self._edit_mode and self._current_file):
             return False
+        if (
+            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            and self._wysiwyg_view is not None
+        ):
+            # Best-effort nudge for a save triggered some way other than the
+            # JS-side Ctrl+S handler (which already flushes before it emits
+            # saveRequested -- see vditor_glue.js). This call is fire-and-
+            # forget: _save_edits still saves ``editor_document`` exactly as
+            # it stands right now and never blocks on the JS round trip, per
+            # the "no async runJavaScript in the Ctrl+S path" rule below.
+            self._wysiwyg_view.flush_pending_edits()
         self._stash_active_editor_state(snapshot=False)
         return self._save_tab_buffer(str(self._current_file))
 
@@ -2459,8 +2853,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._recovery_timer.start()
 
     def _on_editor_text_changed(self):
-        # Debounced live re-render; only the split mode shows the preview.
-        if self._view_mode == view_mode.SPLIT:
+        # Debounced live re-render; only the split mode shows the preview,
+        # and the split-mode preview pane is not on screen at all while the
+        # WYSIWYG backend owns the stack (Vditor already shows a live
+        # WYSIWYG render, so a second hidden re-render would be wasted work).
+        if (
+            self._view_mode == view_mode.SPLIT
+            and self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+        ):
             self._preview_timer.start()
         if self._edit_mode:
             self._editor_status_timer.start()
@@ -2524,7 +2924,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not self._current_file:
             return
         name = self._current_file.name
-        dirty = self._edit_mode and self._editor.is_modified()
+        dirty = (
+            self._edit_mode and self._editor.is_modified()
+        ) or self._active_tab_parked_dirty()
         marker = "● " if dirty else ""
         self.setWindowTitle(f"{marker}{name} - Markdown Viewer")
         self._toolbar_title.setText(f"{marker}{name}")
@@ -2921,6 +3323,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             kind in {"markdown", "text"}
             and view_mode.is_editing(str(tab_state.get("view_mode", "")))
             and isinstance(tab_state.get("editor_document"), QTextDocument)
+            # A tab Esc'd out of WYSIWYG keeps its dirty buffer and its
+            # tab_state["view_mode"] at EDIT/SPLIT (so Ctrl+E/double-click
+            # can resume it), but the user explicitly asked to see PREVIEW
+            # last -- a tab round-trip must not silently re-open the editor.
+            and not tab_state.get("wysiwyg_parked")
         )
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
@@ -3800,6 +4207,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             "editing_newline": newline,
             "source_signature": self._file_signature(self._current_file),
             "preview_scroll_ratio": 0.0,
+            # Carry the tab's backend choice across an external-change reload
+            # (a fresh state dict would otherwise silently fall back to the
+            # global default). _activate_editor_state pushes the reloaded
+            # text into Vditor itself when this is WYSIWYG_BACKEND.
+            "edit_backend": previous_state.get("edit_backend", self._edit_backend),
         }
         self._tab_state[self._active_path] = state
         if not self._activate_editor_state(state, mode):
@@ -4173,6 +4585,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if self._edit_mode:
             return  # the editor owns the buffer while editing
+        if self._active_tab_parked_dirty():
+            self.statusBar().showMessage(
+                "有未儲存的編輯，請先進入編輯模式", 4000
+            )
+            return
         try:
             raw = self._current_file.read_bytes()
         except OSError:
@@ -4209,16 +4626,41 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self.statusBar().showMessage("已更新待辦狀態", 1500)
 
     # --- inline editing of a block in the preview (see assets/inline_edit.js) ---
+    def _active_tab_parked_dirty(self) -> bool:
+        """True when the active tab has a parked, unsaved WYSIWYG buffer.
+
+        Esc'ing out of WYSIWYG (``_leave_wysiwyg_ui_keeping_buffer``) swaps
+        the screen back to PREVIEW while leaving the dirty editor buffer
+        parked in ``tab_state`` (``wysiwyg_parked``). ``self._view_mode``
+        alone can no longer be trusted to mean "no editor owns this tab's
+        buffer" -- callers that write straight to disk from the preview must
+        also check this.
+        """
+        if not self._active_path:
+            return False
+        state = self._tab_state.get(self._active_path)
+        if not state or not state.get("wysiwyg_parked"):
+            return False
+        document = state.get("editor_document")
+        return isinstance(document, QTextDocument) and document.isModified()
+
     def _inline_edit_context(self):
         """Return (text, encoding, newline) for the file, or None if off-limits.
 
-        Off-limits means: no Markdown document open, or the text editor owns the
-        buffer -- the same guard the task-checkbox write-back uses, so the
-        preview can never write behind the editor's back.
+        Off-limits means: no Markdown document open, the text editor owns the
+        buffer, or (see ``_active_tab_parked_dirty``) an Esc'd WYSIWYG buffer
+        is parked with unsaved edits -- the same guard the task-checkbox
+        write-back uses, so the preview can never write behind the editor's
+        back.
         """
         if not self._current_file or not is_markdown(self._current_file):
             return None
         if view_mode.is_editing(self._view_mode):
+            return None
+        if self._active_tab_parked_dirty():
+            self.statusBar().showMessage(
+                "有未儲存的編輯，請先進入編輯模式", 4000
+            )
             return None
         try:
             raw = self._current_file.read_bytes()
@@ -4472,6 +4914,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _export_docx(self):
         export_actions.export_docx(self)
+
+    def _export_html(self):
+        export_actions.export_html(self)
 
     def _export_single_page(self, dims):
         export_actions.export_single_page(self, dims)

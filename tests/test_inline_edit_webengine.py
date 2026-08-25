@@ -240,3 +240,49 @@ def test_triple_click_on_a_task_checkbox_does_not_open_an_editor(qapp, tmp_path)
     _wait(600)
 
     assert _eval(view, "document.querySelectorAll('.inline-edit').length") == 0
+
+
+# ---------------------------------------------------------------------------
+# v2 "click to edit": a genuine double-click routes to
+# AnnotationBridge.wysiwygEditRequested end to end, only once
+# set_preview_double_click_mode("wysiwyg") arms it. window.py's own reaction
+# (switching the stack to WysiwygView) is covered with mocks in
+# tests/test_editor_data_safety.py; this only proves the real browser
+# dblclick -> real bridge signal wiring.
+
+@_skip_webengine
+def test_double_click_reaches_the_bridge_once_armed(qapp, tmp_path):
+    md, view, _ = _open_preview(tmp_path, _DOC)
+    requests = []
+    view.bridge.wysiwygEditRequested.connect(requests.append)
+
+    view.set_preview_double_click_mode("wysiwyg")
+    _wait(200)
+    _eval(
+        view,
+        "document.querySelector('p[data-src-start=\"2\"]')"
+        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true, detail: 2}))",
+    )
+    _wait(600)
+
+    assert requests == [2]
+    # And it never opened the triple-click inline editor.
+    assert _eval(view, "document.querySelectorAll('.inline-edit').length") == 0
+
+
+@_skip_webengine
+def test_double_click_does_nothing_while_unarmed(qapp, tmp_path):
+    md, view, _ = _open_preview(tmp_path, _DOC)
+    requests = []
+    view.bridge.wysiwygEditRequested.connect(requests.append)
+    # Default mode ("inline") set by RendererView.__init__: unarmed until the
+    # window explicitly calls set_preview_double_click_mode("wysiwyg").
+
+    _eval(
+        view,
+        "document.querySelector('p[data-src-start=\"2\"]')"
+        ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true, detail: 2}))",
+    )
+    _wait(600)
+
+    assert requests == []

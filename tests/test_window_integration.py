@@ -10,6 +10,7 @@ from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton, QWidget
 
+from app import edit_backend
 from app import export_actions
 from app import md_table
 from app import window as window_mod
@@ -28,6 +29,7 @@ class _Bridge(QObject):
     taskToggled = Signal(object)
     inlineEditStateChanged = Signal(bool)
     unhandledEscape = Signal(int)
+    wysiwygEditRequested = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,12 +76,16 @@ class _FakeRenderer(QWidget):
         self.reload_calls = 0
         self.inline_edit_enabled = True
         self.search_escape_generation = 0
+        self.preview_double_click_mode = "inline"
 
     def set_annotation_side_notes_visible(self, visible):
         self._side_notes_visible = bool(visible)
 
     def set_inline_edit_enabled(self, enabled):
         self.inline_edit_enabled = bool(enabled)
+
+    def set_preview_double_click_mode(self, mode):
+        self.preview_double_click_mode = "wysiwyg" if mode == "wysiwyg" else "inline"
 
     def set_search_escape_generation(self, generation):
         self.search_escape_generation = int(generation)
@@ -1440,6 +1446,7 @@ def test_recent_attachment_is_reimported_with_a_safe_link_for_another_note(
 def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     assert win._view_mode == "preview"
 
@@ -1459,6 +1466,7 @@ def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
 def test_ctrl_shift_e_enters_split_directly_and_back(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
 
     win._toggle_split_mode()  # Ctrl+Shift+E straight from preview
@@ -1711,6 +1719,7 @@ def test_edit_and_split_modes_unavailable_for_pdf(make_window, md_files):
 def test_typing_debounces_rerender_only_in_split_mode(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_split_mode()
     win._edit_preview.text_renders.clear()
@@ -2793,6 +2802,7 @@ def test_format_bold_modifies_document_and_undoes_in_one_step(
 ):
     first, _second = md_files  # "# First\n\nAlpha"
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     assert win._edit_mode is True
@@ -2814,6 +2824,7 @@ def test_format_bold_modifies_document_and_undoes_in_one_step(
 def test_format_italic_shortcut_handler_wraps_selection(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
 
@@ -2832,6 +2843,7 @@ def test_word_style_format_shortcuts_are_real_and_editor_scoped(
 ):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     win.show()
@@ -2901,6 +2913,7 @@ def test_slash_image_cancel_keeps_query_and_success_replaces_it(
 ):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     win.show()
@@ -2966,6 +2979,7 @@ def test_format_toolbar_visible_for_markdown_edit_hidden_for_txt(
     note = tmp_path / "plain.txt"
     note.write_text("text\n", encoding="utf-8")
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
 
     win.open_path(str(first))
     assert win._format_toolbar.isHidden()  # preview mode
@@ -2984,6 +2998,7 @@ def test_format_toolbar_visible_for_markdown_edit_hidden_for_txt(
 def test_format_toolbar_buttons_apply_actions(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
 
@@ -3005,6 +3020,7 @@ def test_format_toolbar_reflects_reliable_cursor_context(
 ):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     editor = win._editor
@@ -3077,6 +3093,7 @@ def test_format_toolbar_overflow_is_contained_and_invokes_hidden_action(qapp):
 def test_second_batch_buttons_apply_actions(make_window, md_files):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     editor = win._editor
@@ -3111,6 +3128,7 @@ def test_image_button_without_saved_path_shows_status(
 ):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(first))
     win._toggle_edit_mode()
     win._editor.set_document_path(None)  # simulate an unsaved buffer
@@ -3142,6 +3160,7 @@ def test_image_button_imports_asset_and_inserts_link(
     src.write_bytes(b"\x89PNG-fake")
 
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(note))
     win._toggle_edit_mode()
     monkeypatch.setattr(
@@ -3173,6 +3192,7 @@ def test_image_button_via_toolbar_click(make_window, tmp_path, monkeypatch):
     src.write_bytes(b"png")
 
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise split-backend editor mechanics
     win.open_path(str(note))
     win._toggle_edit_mode()
     monkeypatch.setattr(
@@ -3189,6 +3209,7 @@ def test_image_button_via_toolbar_click(make_window, tmp_path, monkeypatch):
 # ---------------- new .md notes open in split mode ----------------
 def test_new_md_note_opens_in_split_mode(make_window, tmp_path):
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise the split-editor path
     note = tmp_path / "fresh.md"
     note.write_text("", encoding="utf-8")
 
@@ -3200,6 +3221,20 @@ def test_new_md_note_opens_in_split_mode(make_window, tmp_path):
     assert win._edit_preview.isVisibleTo(win._editor_split)
     assert win._edit_preview.text_renders  # live preview rendered once
     assert win.focusWidget() is win._editor
+
+
+def test_new_md_note_opens_directly_in_wysiwyg_by_default(make_window, tmp_path):
+    """New notes follow the global default backend, which is now WYSIWYG."""
+    win = make_window()
+    note = tmp_path / "fresh-wysiwyg.md"
+    note.write_text("", encoding="utf-8")
+
+    win._on_browser_note_created(str(note))
+
+    assert win._current_kind == "markdown"
+    assert win._view_mode == "split"
+    assert win._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert win._stack.currentWidget() is win._wysiwyg_view
 
 
 def test_new_txt_note_opens_plain_editor_not_split(make_window, tmp_path):
@@ -3228,6 +3263,7 @@ def test_new_note_split_not_reforced_after_user_switches(
 ):
     first, _second = md_files
     win = make_window()
+    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise the split-editor path
     note = tmp_path / "fresh2.md"
     note.write_text("# T\n", encoding="utf-8")
 

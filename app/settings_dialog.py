@@ -34,6 +34,18 @@ from .document_libraries import (
     EXCLUDED_FOLDERS_KEY,
     DocumentLibraryStore,
 )
+from .edit_backend import (
+    DEFAULT_BACKEND,
+    PREVIEW_DOUBLE_CLICK_DEFAULT,
+    PREVIEW_DOUBLE_CLICK_INLINE,
+    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
+    PREVIEW_DOUBLE_CLICK_WYSIWYG,
+    SETTINGS_KEY as EDIT_BACKEND_KEY,
+    SPLIT_BACKEND,
+    WYSIWYG_BACKEND,
+    normalize_backend,
+    normalize_preview_double_click,
+)
 from .note_templates import default_subfolder
 from .translate import (
     DEEPL_KEY,
@@ -197,6 +209,48 @@ class SettingsDialog(QDialog):
         raw = settings.value("update_check_enabled", True)
         self._update_cb.setChecked(_bool_from_qsettings(raw))
         form.addRow("", self._update_cb)
+
+        # Default WYSIWYG-vs-split edit backend (opt-in; per-tab overrides
+        # via the toolbar toggle / Ctrl+Shift+W do not touch this default).
+        current_backend = normalize_backend(
+            settings.value(EDIT_BACKEND_KEY, DEFAULT_BACKEND)
+        )
+        self._edit_backend_combo = QComboBox()
+        self._edit_backend_combo.addItem("所見即所得（WYSIWYG）", WYSIWYG_BACKEND)
+        self._edit_backend_combo.addItem("分割檢視（純文字編輯器）", SPLIT_BACKEND)
+        self._edit_backend_combo.setCurrentIndex(
+            0 if current_backend == WYSIWYG_BACKEND else 1
+        )
+        form.addRow("預設編輯後端", self._edit_backend_combo)
+        backend_hint = QLabel(
+            "WYSIWYG 對 wiki 連結、callout、front matter 等非標準語法支援有限，"
+            "且可能調整既有排版；可隨時用工具列按鈕或 Ctrl+Shift+W 切換。"
+            "純文字（.txt）一律使用分割檢視。"
+        )
+        backend_hint.setWordWrap(True)
+        form.addRow("", backend_hint)
+
+        # v2: what a PREVIEW double-click does (VSCode Office Viewer style).
+        current_dblclick = normalize_preview_double_click(
+            settings.value(PREVIEW_DOUBLE_CLICK_KEY, PREVIEW_DOUBLE_CLICK_DEFAULT)
+        )
+        self._preview_dblclick_combo = QComboBox()
+        self._preview_dblclick_combo.addItem(
+            "直接進入所見即所得（雙擊點一下就編輯）", PREVIEW_DOUBLE_CLICK_WYSIWYG
+        )
+        self._preview_dblclick_combo.addItem(
+            "維持原本行為（雙擊僅選取文字）", PREVIEW_DOUBLE_CLICK_INLINE
+        )
+        self._preview_dblclick_combo.setCurrentIndex(
+            0 if current_dblclick == PREVIEW_DOUBLE_CLICK_WYSIWYG else 1
+        )
+        form.addRow("檢視模式雙擊文件", self._preview_dblclick_combo)
+        dblclick_hint = QLabel(
+            "三擊仍可就地編輯單一區塊（見上方設定），此處只決定「雙擊」的行為；"
+            "僅 Markdown 檔生效，.txt 與 PDF 不受影響。"
+        )
+        dblclick_hint.setWordWrap(True)
+        form.addRow("", dblclick_hint)
 
         # Custom CSS
         css_path = settings.value("custom_css_path", "") or ""
@@ -431,6 +485,12 @@ class SettingsDialog(QDialog):
 
         # Behavior
         update_check = self._update_cb.isChecked()
+        edit_backend_default = self._edit_backend_combo.currentData()
+        self.results[EDIT_BACKEND_KEY] = edit_backend_default
+        settings.setValue(EDIT_BACKEND_KEY, edit_backend_default)
+        preview_dblclick = self._preview_dblclick_combo.currentData()
+        self.results[PREVIEW_DOUBLE_CLICK_KEY] = preview_dblclick
+        settings.setValue(PREVIEW_DOUBLE_CLICK_KEY, preview_dblclick)
         css_path = self._css_edit.text().strip()
         daily_notes_folder = self._daily_notes_edit.text().strip()
         daily_note_template = self._daily_template_edit.text().strip()

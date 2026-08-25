@@ -14,6 +14,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtTest import QTest
 
+from app import edit_backend
 from app import session_state
 from app import window as window_mod
 from app.recovery import RecoveryStore
@@ -144,6 +145,7 @@ def test_tab_switch_preserves_dirty_documents_undo_cursor_and_scroll_without_pro
     )
 
     window = make_workspace_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND  # scroll restore is split-editor-only
     window.resize(980, 560)
     window.show()
     _enter_markdown_editor(window, first)

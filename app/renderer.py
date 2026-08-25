@@ -287,6 +287,10 @@ class RendererView(QWebEngineView):
         # Inline block editing is a preview-mode affordance; the window turns it
         # off whenever the text editor takes over the buffer.
         self._inline_edit_enabled = True
+        # v2 "click to edit": off by default so a RendererView the window never
+        # explicitly opts in (e.g. the split-mode preview pane) never arms the
+        # double-click-to-WYSIWYG gesture; see set_preview_double_click_mode.
+        self._preview_dblclick_mode = "inline"
         self.page().loadFinished.connect(self._inject_annotations)
 
         self.show_empty()
@@ -630,6 +634,9 @@ class RendererView(QWebEngineView):
             json.dumps(self._side_notes_visible),
             json.dumps(self._inline_edit_enabled),
         )
+        dblclick_boot = "window.__inlineEdit && window.__inlineEdit.setDoubleClickMode(%s);" % (
+            json.dumps(self._preview_dblclick_mode)
+        )
         self.page().runJavaScript(
             self._qwebchannel_js
             + "\n"
@@ -640,6 +647,8 @@ class RendererView(QWebEngineView):
             + self._table_edit_js
             + "\n"
             + self._inline_edit_js
+            + "\n"
+            + dblclick_boot
             + "\n"
             + "window.__mdSearchEscapeGeneration = %d;\n"
             % self._search_escape_generation
@@ -664,6 +673,21 @@ class RendererView(QWebEngineView):
         self.page().runJavaScript(
             "window.__inlineEdit && window.__inlineEdit.setEnabled(%s)"
             % json.dumps(self._inline_edit_enabled)
+        )
+
+    def set_preview_double_click_mode(self, mode: str):
+        """Arm/disarm the v2 double-click-to-WYSIWYG gesture.
+
+        *mode* is one of ``edit_backend.PREVIEW_DOUBLE_CLICK_*`` -- kept as a
+        plain string (not imported) so this module stays free of a hard
+        dependency on ``edit_backend``; window.py owns normalizing it.
+        Stored as well as pushed, mirroring ``set_inline_edit_enabled``, so a
+        page loaded later boots with the right state.
+        """
+        self._preview_dblclick_mode = "wysiwyg" if mode == "wysiwyg" else "inline"
+        self.page().runJavaScript(
+            "window.__inlineEdit && window.__inlineEdit.setDoubleClickMode(%s)"
+            % json.dumps(self._preview_dblclick_mode)
         )
 
     def set_annotations(self, annotations: list[dict]):

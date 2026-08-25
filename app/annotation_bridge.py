@@ -29,6 +29,12 @@ class AnnotationBridge(QObject):
     # WebEngine equivalent of an unhandled QWidget key event (for example, to
     # close an open search bar without stealing Escape from inline editing).
     unhandledEscape = Signal(int)
+    # v2 "click to edit": a genuine double-click on a rendered block, only
+    # armed when the preview_double_click preference is "wysiwyg" (see
+    # assets/inline_edit.js's setDoubleClickMode / app/edit_backend.py).
+    # Carries the block's data-src-start line so the window can make a
+    # best-effort attempt at placing the WYSIWYG cursor near the click.
+    wysiwygEditRequested = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -109,6 +115,11 @@ class AnnotationBridge(QObject):
     def reportUnhandledEscape(self, generation):
         """Forward an Escape key that no page-level tool consumed."""
         self.unhandledEscape.emit(int(generation))
+
+    @Slot(int)
+    def requestWysiwygEdit(self, start_line):
+        """A PREVIEW double-click (preview_double_click == "wysiwyg") wants in."""
+        self.wysiwygEditRequested.emit(int(start_line))
 
     # ---- inline preview editing (json in, json out) -------------------------
     @Slot(int, int, result=str)

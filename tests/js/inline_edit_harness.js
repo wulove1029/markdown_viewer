@@ -188,6 +188,9 @@ const bridge = {
   },
   setInlineEditing(flag) {
     editingStates.push(!!flag);
+  },
+  requestWysiwygEdit(startLine) {
+    calls.push(["wysiwyg", startLine]);
   }
 };
 
@@ -690,6 +693,42 @@ check("state: tearing the grid down reports false",
   JSON.stringify(editingStates) === JSON.stringify([true, false]));
 sandbox.window.__inlineEdit.setEnabled(true);
 fetchTable = null;
+
+// ---- v2: preview_double_click routing (assets/inline_edit.js dblclick) ---
+sandbox.window.__inlineEdit.setEnabled(true);
+calls.length = 0;
+
+// Default boot state ("inline" preference / not yet told otherwise): a
+// double-click must stay free for the browser's native word-select, exactly
+// like v1.
+let dblBlock = makeBlock(5, 6);
+fire("dblclick", { target: dblBlock, detail: 2 });
+check("dblclick default: no bridge call", calls.length === 0);
+
+// setDoubleClickMode("wysiwyg"): a double-click on a rendered block asks
+// Python to jump into WYSIWYG, passing the block's starting source line.
+sandbox.window.__inlineEdit.setDoubleClickMode("wysiwyg");
+fire("dblclick", { target: dblBlock, detail: 2 });
+check("dblclick wysiwyg: bridge asked with the block's start line",
+  JSON.stringify(calls) === JSON.stringify([["wysiwyg", 5]]));
+
+// Switching back to "inline" (settings changed mid-session) silences it
+// again without touching triple-click at all.
+calls.length = 0;
+sandbox.window.__inlineEdit.setDoubleClickMode("inline");
+fire("dblclick", { target: dblBlock, detail: 2 });
+check("dblclick back to inline: no bridge call", calls.length === 0);
+fire("click", { target: dblBlock, detail: 3 });
+check("triple-click still opens the inline editor regardless of dblclick mode",
+  textareaOf(dblBlock) !== null);
+fire("keydown", { target: textareaOf(dblBlock), key: "Escape" });
+
+// The double-click boot parameter wires the initial mode the same way.
+calls.length = 0;
+sandbox.window.__inlineEditBoot(bridge, true, "wysiwyg");
+fire("dblclick", { target: dblBlock, detail: 2 });
+check("dblclick: boot(..., \"wysiwyg\") enables it immediately",
+  JSON.stringify(calls) === JSON.stringify([["wysiwyg", 5]]));
 
 if (failures.length) {
   console.error("FAILED:\n  " + failures.join("\n  "));

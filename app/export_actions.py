@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 
+from . import edit_backend
 from .file_types import is_markdown
 from .md_converter import read_text
 
@@ -36,10 +37,41 @@ _PDF_SIZE_CHOICES = [
 _PT_PER_PX = 72.0 / 96.0
 
 
+def _wysiwyg_active(window) -> bool:
+    """True when the active editor backend is WYSIWYG (Vditor).
+
+    Export actions relax their usual "no export while editing" guard only
+    for this backend: the shadow-document push model (see wysiwyg_view.py)
+    keeps ``window._editor``'s buffer -- and the live WysiwygView page itself
+    -- in sync with every keystroke, so exporting from either is safe even
+    with unsaved changes. split/source-code editing still blocks exports,
+    unchanged from before: that buffer is not guaranteed current in the
+    on-screen renderer the way WYSIWYG's own page is.
+    """
+    return (
+        getattr(window, "_active_edit_backend", None) == edit_backend.WYSIWYG_BACKEND
+        and window._wysiwyg_view is not None
+    )
+
+
+def _export_blocked(window) -> bool:
+    return window._edit_mode and not _wysiwyg_active(window)
+
+
+def _export_source_text(window) -> str | None:
+    """Markdown text to feed docx/pptx export: live buffer in WYSIWYG, disk otherwise."""
+    if _wysiwyg_active(window):
+        return window._editor.toPlainText()
+    result = read_text(window._current_file)
+    if result is None:
+        return None
+    return result[0]
+
+
 def export_pdf(window):
     if (
         not window._current_file
-        or window._edit_mode
+        or _export_blocked(window)
         or not is_markdown(window._current_file)
     ):
         return
@@ -54,6 +86,26 @@ def export_pdf(window):
         return
 
     window._export_btn.setEnabled(False)
+    if _wysiwyg_active(window):
+        # The WysiwygView page already *is* the live buffer (push model), so
+        # printing it directly needs no extra "feed buffer to renderer" step.
+        # "single long page" has no equivalent for printToPdf's paginated
+        # engine; fall back to A4 at the chosen orientation for that case.
+        size_key = "A4" if setup["size"] == "single" else setup["size"]
+        layout = pdf_layout(size_key, setup["orientation"])
+        show_pdf_progress(window)
+        view = window._wysiwyg_view
+
+        def _on_wysiwyg_pdf(exported_path, ok, view=view):
+            try:
+                view.page().pdfPrintingFinished.disconnect(_on_wysiwyg_pdf)
+            except (RuntimeError, TypeError):
+                pass
+            on_pdf_exported(window, exported_path, ok)
+
+        view.page().pdfPrintingFinished.connect(_on_wysiwyg_pdf)
+        view.page().printToPdf(path, layout)
+        return
     if setup["size"] == "single":
         window._pending_pdf_path = path
         window._renderer.content_size(window._export_single_page)
@@ -67,15 +119,14 @@ def export_pptx(window):
     if (
         window._exporting
         or not window._current_file
-        or window._edit_mode
+        or _export_blocked(window)
         or not is_markdown(window._current_file)
     ):
         return
-    result = read_text(window._current_file)
-    if result is None:
+    text = _export_source_text(window)
+    if text is None:
         QMessageBox.warning(window, "匯出 PPT", "無法讀取檔案內容。")
         return
-    text, _enc = result
     default = str(window._current_file.with_suffix(".pptx"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 PPT", default, "PowerPoint 簡報 (*.pptx)"
@@ -126,15 +177,14 @@ def export_docx(window):
     if (
         window._exporting
         or not window._current_file
-        or window._edit_mode
+        or _export_blocked(window)
         or not is_markdown(window._current_file)
     ):
         return
-    result = read_text(window._current_file)
-    if result is None:
+    text = _export_source_text(window)
+    if text is None:
         QMessageBox.warning(window, "匯出 Word", "無法讀取檔案內容。")
         return
-    text, _enc = result
     default = str(window._current_file.with_suffix(".docx"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 Word", default, "Word 文件 (*.docx)"
@@ -177,6 +227,43 @@ def export_docx(window):
     window.statusBar().showMessage(
         f"已匯出 Word 文件至 {Path(path).name}", 5000
     )
+
+
+def export_html(window):
+    """Export Vditor's own rendered HTML (``getHTML()``) -- WYSIWYG only.
+
+    Unlike PDF/Word/PPT, this has no Python-side rendering pipeline of its
+    own: it is only reachable from the WYSIWYG toolbar/context menu and
+    reads whatever Vditor currently renders, buffer included.
+    """
+    if (
+        not window._current_file
+        or not is_markdown(window._current_file)
+        or not _wysiwyg_active(window)
+    ):
+        window.statusBar().showMessage(
+            "請先在所見即所得編輯模式下匯出 HTML", 4000
+        )
+        return
+    default = str(window._current_file.with_suffix(".html"))
+    path, _ = QFileDialog.getSaveFileName(
+        window, "匯出 HTML", default, "HTML 檔案 (*.html)"
+    )
+    if not path:
+        return
+
+    def _on_html(html_value, path=path, window=window):
+        if not isinstance(html_value, str):
+            QMessageBox.warning(window, "匯出 HTML", "匯出失敗，請重試。")
+            return
+        try:
+            Path(path).write_text(html_value, encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(window, "匯出 HTML", f"匯出失敗：{exc}")
+            return
+        window.statusBar().showMessage(f"已匯出 HTML 至 {Path(path).name}", 5000)
+
+    window._wysiwyg_view.get_html(_on_html)
 
 
 def ask_page_setup(window):

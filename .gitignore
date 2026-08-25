@@ -9,7 +9,7 @@ env/
 
 build/
 build_bigicon/
-dist/
+/dist/
 dist_bigicon/
 installer_output/
 *.spec.bak
