@@ -1,5 +1,6 @@
 """Markdown to self-contained HTML converter."""
 
+import codecs
 from dataclasses import dataclass
 from html import escape
 import json
@@ -660,14 +661,51 @@ def _front_matter_html(data: dict) -> str:
     return '<div class="frontmatter">' + "".join(rows) + "</div>"
 
 
-def read_text(path: Path) -> tuple[str, str] | None:
-    """Return (text, encoding), trying UTF-8, Big5, GBK in order."""
+def _decode_bytes(raw: bytes) -> tuple[str, str] | None:
+    """Decode *raw*, honouring BOMs first, then UTF-8, Big5, GBK in order.
+
+    A UTF-8 BOM maps to the "utf-8-sig" codec and a UTF-16 BOM to "utf-16",
+    so re-encoding with the returned name round-trips the BOM on save.
+    Never decodes with errors="ignore" -- undecodable bytes return None.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        try:
+            return raw.decode("utf-8-sig"), "utf-8-sig"
+        except UnicodeDecodeError:
+            return None
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        try:
+            return raw.decode("utf-16"), "utf-16"
+        except UnicodeDecodeError:
+            return None
     for encoding in ("utf-8", "cp950", "gbk"):
         try:
-            return path.read_text(encoding=encoding), encoding
+            return raw.decode(encoding), encoding
         except UnicodeDecodeError:
             continue
     return None
+
+
+def read_text_detailed(path: Path) -> tuple[str, str, str] | None:
+    """Return (text, encoding, newline) with newlines normalized to "\\n".
+
+    ``newline`` is "\\r\\n" when the file uses CRLF line endings (detected
+    after decoding, so UTF-16 files sniff correctly too), otherwise "\\n".
+    """
+    result = _decode_bytes(path.read_bytes())
+    if result is None:
+        return None
+    text, encoding = result
+    newline = "\r\n" if "\r\n" in text else "\n"
+    return text.replace("\r\n", "\n").replace("\r", "\n"), encoding, newline
+
+
+def read_text(path: Path) -> tuple[str, str] | None:
+    """Return (text, encoding); see :func:`read_text_detailed`."""
+    result = read_text_detailed(path)
+    if result is None:
+        return None
+    return result[0], result[1]
 
 
 @dataclass(frozen=True)

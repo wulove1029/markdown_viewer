@@ -35,7 +35,22 @@ def test_shortcut_registry_ids_handlers_and_window_sequences_are_unique():
     assert "Ctrl+Shift+M" in registered
     assert "Ctrl++" in registered
     assert "Ctrl+=" in registered
+    assert "Ctrl+K" in registered
+    assert "Ctrl+Shift+7" in registered
+    assert "Ctrl+Shift+8" in registered
     assert "Esc" not in registered
+
+    for command_id in (
+        "edit.bold",
+        "edit.italic",
+        "edit.link",
+        "edit.ordered_list",
+        "edit.bullet_list",
+    ):
+        assert shortcut_by_id(command_id).owner == "editor"
+
+    assert shortcut_by_id("editor.slash_commands").sequences == ("/",)
+    assert shortcut_by_id("editor.smart_list_enter").sequences == ("Enter",)
 
     assert shortcut_by_id("wikilink.accept").sequences == (
         "Enter",

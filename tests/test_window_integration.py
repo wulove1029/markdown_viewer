@@ -1,3 +1,4 @@
+import codecs
 import json
 from collections import Counter
 from datetime import datetime
@@ -675,8 +676,16 @@ def test_registered_shortcuts_and_menu_hints_match_registry(make_window):
     ]
     assert Counter(actual) == Counter(expected)
     assert len(actual) == len(expected)
+    expected_context = {
+        spec.command_id: (
+            Qt.ShortcutContext.WidgetShortcut
+            if spec.owner == "editor"
+            else Qt.ShortcutContext.WindowShortcut
+        )
+        for spec in WINDOW_SHORTCUTS
+    }
     assert all(
-        shortcut.context() == Qt.ShortcutContext.WindowShortcut
+        shortcut.context() == expected_context[shortcut.property("commandId")]
         for shortcut in win._registered_shortcuts
     )
     object_names = [shortcut.objectName() for shortcut in win._registered_shortcuts]
@@ -1375,6 +1384,58 @@ def test_insert_template_missing_folder_is_graceful(
     assert messages == ["範本資料夾不存在，或資料夾內沒有 Markdown 範本。"]
 
 
+def test_recent_attachment_is_reimported_with_a_safe_link_for_another_note(
+    make_window, tmp_path, monkeypatch
+):
+    first = tmp_path / "one" / "first.md"
+    second = tmp_path / "two" / "second.md"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"# One\n")
+    second.write_bytes(b"# Two\n")
+    source = tmp_path / "shared manual.pdf"
+    source.write_bytes(b"%PDF-test")
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "question",
+        staticmethod(
+            lambda *a, **k: window_mod.QMessageBox.StandardButton.Discard
+        ),
+    )
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(source), "")),
+    )
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+
+    win._insert_attachment_via_dialog()
+
+    first_copy = first.parent / "assets" / source.name
+    assert first_copy.is_file()
+    expected_link = "[shared manual.pdf](assets/shared%20manual.pdf)"
+    assert expected_link in win._editor.toPlainText()
+
+    win.open_path(str(second))
+    win._toggle_edit_mode()
+    monkeypatch.setattr(
+        window_mod.QInputDialog,
+        "getItem",
+        staticmethod(lambda *args, **kwargs: (list(args[3])[0], True)),
+    )
+
+    win._insert_recent_resource()
+
+    second_copy = second.parent / "assets" / source.name
+    assert second_copy.is_file()
+    assert expected_link in win._editor.toPlainText()
+    recent = win._recent_resource_entries()
+    assert len(recent) == 1
+    assert Path(recent[0].absolute_path) == first_copy.resolve()
+
+
 # --- view modes: preview / edit / split (階段 2a) ---
 def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
     first, _second = md_files
@@ -1493,8 +1554,9 @@ def test_update_utility_invokes_one_manual_check_after_theme_refreshes(
 def test_cached_update_badge_rechecks_or_opens_live_update(
     make_window, qapp, monkeypatch
 ):
+    available_version = f"{int(window_mod.VERSION.split('.', 1)[0]) + 1}.0.0"
     window_mod.QSettings(_ORG, _APP).setValue(
-        "available_update_version", "1.26.0"
+        "available_update_version", available_version
     )
     win = make_window()
     checks = []
@@ -1512,7 +1574,7 @@ def test_cached_update_badge_rechecks_or_opens_live_update(
 
     assert win._toolbar_utilities.update_state == "available"
     assert win._update_btn.property("badgeVisible") is True
-    assert "v1.26.0" in win._update_btn.toolTip()
+    assert f"v{available_version}" in win._update_btn.toolTip()
 
     # A cached version label has no installer metadata, so clicking refreshes it.
     QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
@@ -1688,7 +1750,7 @@ def test_save_in_split_mode_writes_file_and_stays_in_split(
     assert win._view_mode == "split"  # saving does not leave split mode
 
 
-def test_tab_switch_from_split_discards_and_resets_to_preview(
+def test_tab_switch_from_split_preserves_dirty_buffer_and_restores_it(
     make_window, md_files, monkeypatch
 ):
     first, second = md_files
@@ -1699,12 +1761,11 @@ def test_tab_switch_from_split_discards_and_resets_to_preview(
     win._editor.selectAll()
     win._editor.insertPlainText("unsaved")
     assert win._editor.is_modified()
+    questions = []
     monkeypatch.setattr(
         window_mod.QMessageBox,
         "question",
-        staticmethod(
-            lambda *a, **k: window_mod.QMessageBox.StandardButton.Discard
-        ),
+        staticmethod(lambda *a, **k: questions.append((a, k))),
     )
 
     win._tab_bar.setCurrentIndex(0)
@@ -1713,9 +1774,19 @@ def test_tab_switch_from_split_discards_and_resets_to_preview(
     assert win._active_path == str(first)
     assert win._stack.currentWidget() is win._renderer
     assert second.read_text(encoding="utf-8") == "# Second\n\nBeta"  # untouched
+    assert questions == []
+    second_state = win._tab_state[str(second)]
+    assert second_state["editor_document"].toPlainText() == "unsaved"
+    assert second_state["editor_document"].isModified()
+
+    win._tab_bar.setCurrentIndex(1)
+
+    assert win._view_mode == "split"
+    assert win._editor.toPlainText() == "unsaved"
+    assert win._editor.is_modified()
 
 
-def test_tab_switch_cancel_keeps_split_mode_and_tab(
+def test_tab_switch_never_prompts_and_opens_target_tab(
     make_window, md_files, monkeypatch
 ):
     first, second = md_files
@@ -1726,20 +1797,22 @@ def test_tab_switch_cancel_keeps_split_mode_and_tab(
     win._editor.selectAll()
     win._editor.insertPlainText("unsaved")
     assert win._editor.is_modified()
-    monkeypatch.setattr(
-        window_mod.QMessageBox,
-        "question",
-        staticmethod(
-            lambda *a, **k: window_mod.QMessageBox.StandardButton.Cancel
-        ),
-    )
+    with monkeypatch.context() as context:
+        context.setattr(
+            window_mod.QMessageBox,
+            "question",
+            staticmethod(
+                lambda *a, **k: (_ for _ in ()).throw(
+                    AssertionError("tab switching must not prompt")
+                )
+            ),
+        )
+        win._tab_bar.setCurrentIndex(0)
 
-    win._tab_bar.setCurrentIndex(0)
-
-    assert win._view_mode == "split"
-    assert win._active_path == str(second)
-    assert win._tab_bar.currentIndex() == 1
-    assert win._editor.toPlainText() == "unsaved"
+    assert win._view_mode == "preview"
+    assert win._active_path == str(first)
+    assert win._tab_bar.currentIndex() == 0
+    assert win._tab_state[str(second)]["editor_document"].toPlainText() == "unsaved"
 
 
 def test_editor_scroll_sync_only_drives_preview_in_split(make_window, md_files):
@@ -2464,3 +2537,709 @@ def test_closing_the_preview_editor_clears_the_flag(make_window, tmp_path):
     win._renderer.bridge.inlineEditStateChanged.emit(False)
 
     assert win._preview_editing is False
+
+
+# ---------------- plain-text (.txt) documents ----------------
+def test_open_txt_shows_literal_content_in_editor(make_window, tmp_path):
+    note = tmp_path / "plain.txt"
+    content = "# not a heading\n*stars*\n[[not a link]]\n"
+    note.write_text(content, encoding="utf-8")
+    win = make_window()
+
+    win.open_path(str(note))
+
+    assert win._current_kind == "text"
+    assert win._edit_mode is True
+    assert win._stack.currentWidget() is win._editor_split
+    assert win._editor.toPlainText() == content
+    assert win._editor._plain_text_mode is True
+    assert str(note) in win._panel.recent.paths()
+    # Editor-only: the mode toggles and export stay off, search stays on.
+    assert win._edit_btn.isEnabled() is False
+    assert win._export_btn.isEnabled() is False
+    assert win._search_btn.isEnabled() is True
+    win._toggle_edit_mode()
+    assert win._edit_mode is True
+    assert win._stack.currentWidget() is win._editor_split
+    win._toggle_split_mode()
+    assert win._view_mode == window_mod.view_mode.EDIT
+
+
+def test_txt_edit_save_preserves_crlf_and_skips_preview_reload(
+    make_window, tmp_path
+):
+    note = tmp_path / "crlf.txt"
+    note.write_bytes(b"one\r\ntwo\r\n")
+    win = make_window()
+    win.open_path(str(note))
+    assert win._editor.toPlainText() == "one\ntwo\n"
+
+    win._editor.setPlainText("one\ntwo\nthree\n")
+    assert win._save_edits() is True
+
+    assert note.read_bytes() == b"one\r\ntwo\r\nthree\r\n"
+    assert win._renderer.reload_calls == 0
+    assert win._edit_mode is True  # saving never leaves the text editor
+
+
+def test_txt_utf8_bom_round_trips_without_leaking_into_editor(
+    make_window, tmp_path
+):
+    note = tmp_path / "bom.txt"
+    note.write_bytes(codecs.BOM_UTF8 + "哈囉\n".encode("utf-8"))
+    win = make_window()
+    win.open_path(str(note))
+
+    assert "﻿" not in win._editor.toPlainText()
+    assert win._editor.toPlainText() == "哈囉\n"
+
+    win._editor.setPlainText("哈囉 世界\n")
+    assert win._save_edits() is True
+    assert note.read_bytes() == codecs.BOM_UTF8 + "哈囉 世界\n".encode("utf-8")
+
+
+def test_txt_utf16_bom_decodes_and_saves_utf16(make_window, tmp_path):
+    note = tmp_path / "wide.txt"
+    note.write_bytes("寬字元\r\n".encode("utf-16"))
+    win = make_window()
+    win.open_path(str(note))
+
+    assert win._editor.toPlainText() == "寬字元\n"
+
+    win._editor.setPlainText("寬字元 改\n")
+    assert win._save_edits() is True
+    assert note.read_bytes() == "寬字元 改\r\n".encode("utf-16")
+
+
+def test_txt_undecodable_bytes_show_error_not_garbage(
+    make_window, tmp_path, monkeypatch
+):
+    warnings = []
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "warning",
+        lambda *args: warnings.append(args[2] if len(args) > 2 else ""),
+    )
+    note = tmp_path / "bad.txt"
+    note.write_bytes(b"\xff\xff\x00\x81\x81\xfe")
+    win = make_window()
+
+    win.open_path(str(note))
+
+    assert warnings  # 無法讀取檔案編碼 reached the user
+    assert win._edit_mode is False
+    assert win._stack.currentWidget() is win._renderer
+    assert win._renderer.empty_shown is True
+    assert win._editor.toPlainText() == ""
+
+
+def test_session_restore_reopens_txt_tab(make_window, tmp_path):
+    note = tmp_path / "keep.txt"
+    note.write_text("hello\n", encoding="utf-8")
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.setValue("open_tabs", json.dumps([str(note)]))
+    settings.setValue("active_tab", 0)
+    win = make_window()
+
+    win.restore_last_session()
+
+    assert win._tab_bar.count() == 1
+    assert win._current_kind == "text"
+    assert win._edit_mode is True
+    assert win._editor.toPlainText() == "hello\n"
+
+
+def test_txt_unsaved_close_prompts_and_discard_closes(
+    make_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "dirty.txt"
+    note.write_text("original", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    win._editor.setPlainText("changed")
+    win._editor.document().setModified(True)
+    asked = _answer_question(
+        monkeypatch, window_mod.QMessageBox.StandardButton.Discard
+    )
+
+    assert win._on_tab_close(0) is True
+
+    assert asked
+    assert win._tab_bar.count() == 0
+    assert note.read_text(encoding="utf-8") == "original"
+
+
+def test_tab_switch_between_md_and_txt_restores_views(
+    make_window, md_files, tmp_path
+):
+    first, _second = md_files
+    note = tmp_path / "plain.txt"
+    note.write_text("text body", encoding="utf-8")
+    win = make_window()
+
+    win.open_path(str(first))
+    assert win._stack.currentWidget() is win._renderer
+    win.open_path(str(note))
+    assert win._stack.currentWidget() is win._editor_split
+    assert win._editor._plain_text_mode is True
+
+    win._tab_bar.setCurrentIndex(0)
+    assert win._current_kind == "markdown"
+    assert win._stack.currentWidget() is win._renderer
+
+    win._tab_bar.setCurrentIndex(1)
+    assert win._current_kind == "text"
+    assert win._stack.currentWidget() is win._editor_split
+    assert win._editor.toPlainText() == "text body"
+
+    # Going back to Markdown editing turns Markdown features on again.
+    win._tab_bar.setCurrentIndex(0)
+    win._toggle_edit_mode()
+    assert win._edit_mode is True
+    assert win._editor._plain_text_mode is False
+
+
+# ---------------- Ctrl+N new note ----------------
+def test_new_note_creates_opens_and_edits(make_window, tmp_path, monkeypatch):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+    revealed = []
+    win._panel.file_browser.reveal_created_note = (
+        lambda p: revealed.append(Path(p))
+    )
+
+    class _FakeDialog:
+        def __init__(self, folder, theme, parent=None):
+            self._folder = Path(folder)
+            self._path = None
+
+        def exec(self):
+            from app import file_ops
+
+            self._path = file_ops.create_document(self._folder, "新筆記", ".txt")
+            return window_mod.QDialog.DialogCode.Accepted
+
+        def created_path(self):
+            return self._path
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _FakeDialog)
+
+    win._new_note()
+
+    created = tmp_path / "新筆記.txt"
+    assert created.exists()
+    assert created.read_bytes() == b""
+    assert revealed == [created]
+    assert win._tab_bar.count() == 1
+    assert win._current_file == created
+    assert win._current_kind == "text"
+    assert win._edit_mode is True
+
+
+def test_new_note_falls_back_to_first_library_root(
+    make_window, tmp_path, monkeypatch
+):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: None
+    win._panel.file_browser.library_roots = lambda: [tmp_path]
+    folders = []
+
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None):
+            folders.append(Path(folder))
+
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
+
+    win._new_note()
+
+    assert folders == [tmp_path]
+    assert win._tab_bar.count() == 0
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_new_note_without_any_folder_asks_and_cancels_cleanly(
+    make_window, monkeypatch
+):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: None
+    win._panel.file_browser.library_roots = lambda: []
+    asked = []
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getExistingDirectory",
+        staticmethod(lambda *a, **k: (asked.append(True), "")[1]),
+    )
+
+    def _fail_dialog(*_a, **_k):
+        raise AssertionError("dialog must not open without a folder")
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _fail_dialog)
+
+    win._new_note()
+
+    assert asked == [True]
+    assert win._tab_bar.count() == 0
+
+
+# ---------------- Markdown format toolbar ----------------
+def test_format_bold_modifies_document_and_undoes_in_one_step(
+    make_window, md_files
+):
+    first, _second = md_files  # "# First\n\nAlpha"
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    assert win._edit_mode is True
+
+    editor = win._editor
+    cursor = editor.textCursor()
+    cursor.setPosition(2)
+    cursor.setPosition(7, QTextCursor.MoveMode.KeepAnchor)  # "First"
+    editor.setTextCursor(cursor)
+
+    win._format_bold()
+    assert editor.toPlainText() == "# **First**\n\nAlpha"
+    assert editor.textCursor().selectedText() == "First"
+
+    editor.document().undo()  # a single undo step restores the original
+    assert editor.toPlainText() == "# First\n\nAlpha"
+
+
+def test_format_italic_shortcut_handler_wraps_selection(make_window, md_files):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+
+    editor = win._editor
+    cursor = editor.textCursor()
+    cursor.setPosition(9)
+    cursor.setPosition(14, QTextCursor.MoveMode.KeepAnchor)  # "Alpha"
+    editor.setTextCursor(cursor)
+
+    win._format_italic()
+    assert editor.toPlainText() == "# First\n\n*Alpha*"
+
+
+def test_word_style_format_shortcuts_are_real_and_editor_scoped(
+    make_window, md_files, qapp
+):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    win.show()
+    editor = win._editor
+    editor.setFocus()
+    qapp.processEvents()
+
+    cursor = editor.textCursor()
+    cursor.setPosition(9)
+    cursor.setPosition(14, QTextCursor.MoveMode.KeepAnchor)  # "Alpha"
+    editor.setTextCursor(cursor)
+    QTest.keyClick(
+        editor, Qt.Key.Key_K, Qt.KeyboardModifier.ControlModifier
+    )
+    assert editor.toPlainText() == "# First\n\n[Alpha](url)"
+    assert editor.textCursor().selectedText() == "url"
+
+    editor.document().undo()
+    cursor = editor.textCursor()
+    cursor.setPosition(9)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(
+        editor,
+        Qt.Key.Key_8,
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+    )
+    assert editor.toPlainText() == "# First\n\n- Alpha"
+
+    editor.document().undo()
+    QTest.keyClick(
+        editor,
+        Qt.Key.Key_7,
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+    )
+    assert editor.toPlainText() == "# First\n\n1. Alpha"
+
+    before = editor.toPlainText()
+    win._toggle_search()
+    win._ed_find.setFocus()
+    QTest.keyClick(
+        win._ed_find, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier
+    )
+    assert editor.toPlainText() == before
+
+
+def test_ctrl_k_does_not_format_plain_text(make_window, tmp_path, qapp):
+    note = tmp_path / "plain.txt"
+    note.write_text("plain text", encoding="utf-8")
+    win = make_window()
+    win.open_path(str(note))
+    win.show()
+    win._editor.setFocus()
+    qapp.processEvents()
+    cursor = win._editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    win._editor.setTextCursor(cursor)
+
+    QTest.keyClick(
+        win._editor, Qt.Key.Key_K, Qt.KeyboardModifier.ControlModifier
+    )
+
+    assert win._editor.toPlainText() == "plain text"
+
+
+def test_slash_image_cancel_keeps_query_and_success_replaces_it(
+    make_window, md_files, tmp_path, monkeypatch, qapp
+):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    win.show()
+    editor = win._editor
+    editor.set_content("")
+    editor.setFocus()
+    qapp.processEvents()
+
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: ("", "")),
+    )
+    QTest.keyClicks(editor, "/image")
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "/image"
+    assert editor._slash_popup.isHidden()
+
+    source = tmp_path / "inserted.png"
+    source.write_bytes(b"png")
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(source), "圖片 (*.png)")),
+    )
+    cursor = editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    cursor.removeSelectedText()
+    editor.setTextCursor(cursor)
+    QTest.keyClicks(editor, "/image")
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText().startswith("![](")
+    assert "/image" not in editor.toPlainText()
+
+    editor.document().undo()
+    assert editor.toPlainText() == "/image"
+
+
+def test_format_handlers_noop_in_preview_and_for_txt(
+    make_window, md_files, tmp_path
+):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    assert win._edit_mode is False
+    win._format_bold()  # preview mode: nothing to do
+    assert win._editor.toPlainText() == ""
+
+    note = tmp_path / "plain.txt"
+    note.write_text("just text\n", encoding="utf-8")
+    win.open_path(str(note))
+    assert win._edit_mode is True
+    assert win._editor._plain_text_mode is True
+    win._format_bold()
+    win._apply_format_action("table")
+    assert win._editor.toPlainText() == "just text\n"
+
+
+def test_format_toolbar_visible_for_markdown_edit_hidden_for_txt(
+    make_window, md_files, tmp_path
+):
+    first, _second = md_files
+    note = tmp_path / "plain.txt"
+    note.write_text("text\n", encoding="utf-8")
+    win = make_window()
+
+    win.open_path(str(first))
+    assert win._format_toolbar.isHidden()  # preview mode
+
+    win._toggle_edit_mode()
+    assert not win._format_toolbar.isHidden()
+
+    win._toggle_edit_mode()  # back to preview
+    assert win._format_toolbar.isHidden()
+
+    win.open_path(str(note))  # .txt opens straight into the editor
+    assert win._edit_mode is True
+    assert win._format_toolbar.isHidden()
+
+
+def test_format_toolbar_buttons_apply_actions(make_window, md_files):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+
+    editor = win._editor
+    cursor = editor.textCursor()
+    cursor.setPosition(9)
+    cursor.setPosition(14, QTextCursor.MoveMode.KeepAnchor)  # "Alpha"
+    editor.setTextCursor(cursor)
+
+    win._format_toolbar.button("quote").click()
+    assert editor.toPlainText() == "# First\n\n> Alpha"
+
+    win._format_toolbar.button("h2").click()
+    assert editor.toPlainText() == "# First\n\n## > Alpha"
+
+
+def test_format_toolbar_reflects_reliable_cursor_context(
+    make_window, md_files, qapp
+):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    editor = win._editor
+    cursor = editor.textCursor()
+    cursor.setPosition(2)
+    cursor.setPosition(7, QTextCursor.MoveMode.KeepAnchor)
+    editor.setTextCursor(cursor)
+    qapp.processEvents()
+
+    assert win._format_toolbar.button("h1").property("formatActive") is True
+    assert win._format_toolbar.button("bold").property("formatActive") is False
+
+    win._format_toolbar.button("bold").click()
+    qapp.processEvents()
+    assert win._format_toolbar.button("bold").property("formatActive") is True
+
+
+def test_format_toolbar_has_all_second_batch_buttons(make_window):
+    win = make_window()
+    ids = win._format_toolbar.action_ids()
+    for action_id in (
+        "image", "mermaid", "math_inline", "math_block",
+        "wikilink", "highlight",
+    ):
+        assert action_id in ids
+        assert win._format_toolbar.button(action_id) is not None
+    extension = win._format_toolbar._extension_button
+    assert extension is not None
+    assert extension.text() == "⋯"
+    assert extension.toolTip() == "更多格式工具"
+
+
+def test_format_toolbar_overflow_is_contained_and_invokes_hidden_action(qapp):
+    from app.format_toolbar import FormatToolbar
+    from app.theme import LIGHT
+
+    toolbar = FormatToolbar()
+    try:
+        toolbar.apply_theme(LIGHT)
+        toolbar.resize(480, toolbar.sizeHint().height())
+        toolbar.show()
+        qapp.processEvents()
+        extension = toolbar._extension_button
+
+        assert extension is not None
+        assert extension.isVisible()
+        assert extension.geometry().right() <= toolbar.rect().right()
+
+        # Qt builds the native extension menu during toolbar layout.  Inspect
+        # and trigger it directly; clicking would enter QMenu's modal loop.
+        menu = extension.menu()
+        assert menu is not None
+        hidden_actions = [
+            action for action in menu.actions() if not action.isSeparator()
+        ]
+        assert hidden_actions
+        assert all(action.data() for action in hidden_actions)
+
+        triggered = []
+        toolbar.action_triggered.connect(triggered.append)
+        expected = hidden_actions[0].data()
+        hidden_actions[0].trigger()
+        assert triggered == [expected]
+    finally:
+        toolbar.close()
+        toolbar.deleteLater()
+        qapp.processEvents()
+
+
+def test_second_batch_buttons_apply_actions(make_window, md_files):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    editor = win._editor
+
+    cursor = editor.textCursor()
+    cursor.setPosition(9)
+    cursor.setPosition(14, QTextCursor.MoveMode.KeepAnchor)  # "Alpha"
+    editor.setTextCursor(cursor)
+    win._format_toolbar.button("highlight").click()
+    assert editor.toPlainText() == "# First\n\n<mark>Alpha</mark>"
+    assert editor.textCursor().selectedText() == "Alpha"
+
+    win._format_toolbar.button("wikilink").click()
+    assert editor.toPlainText() == "# First\n\n<mark>[[Alpha]]</mark>"
+
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    win._format_toolbar.button("mermaid").click()
+    assert editor.toPlainText().endswith(
+        "```mermaid\nflowchart LR\n"
+        "    A[步驟一] --> B[步驟二]\n```\n"
+    )
+    assert editor.textCursor().selectedText() == "步驟一"
+
+    win._format_toolbar.button("math_block").click()
+    assert "$$\n\n$$" in editor.toPlainText()
+
+
+def test_image_button_without_saved_path_shows_status(
+    make_window, md_files, monkeypatch
+):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    win._toggle_edit_mode()
+    win._editor.set_document_path(None)  # simulate an unsaved buffer
+
+    opened = []
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (opened.append(True), ("", ""))[1]),
+    )
+    before = win._editor.toPlainText()
+
+    win._apply_format_action("image")
+
+    assert opened == []  # the dialog must not even open
+    assert win._editor.toPlainText() == before
+    assert win.statusBar().currentMessage() == "請先儲存文件才能貼入圖片"
+
+
+def test_image_button_imports_asset_and_inserts_link(
+    make_window, tmp_path, monkeypatch
+):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    note = docs / "note.md"
+    note.write_text("# N\n\nBody", encoding="utf-8")
+    src = tmp_path / "elsewhere" / "pic.png"
+    src.parent.mkdir()
+    src.write_bytes(b"\x89PNG-fake")
+
+    win = make_window()
+    win.open_path(str(note))
+    win._toggle_edit_mode()
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(src), "")),
+    )
+    cursor = win._editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    win._editor.setTextCursor(cursor)
+
+    win._apply_format_action("image")
+
+    assert win._editor.toPlainText().endswith("![](assets/pic.png)")
+    copied = docs / "assets" / "pic.png"
+    assert copied.read_bytes() == b"\x89PNG-fake"
+
+    win._editor.document().undo()  # one undo step removes the whole link
+    assert "assets/pic.png" not in win._editor.toPlainText()
+
+
+def test_image_button_via_toolbar_click(make_window, tmp_path, monkeypatch):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    note = docs / "note.md"
+    note.write_text("Body", encoding="utf-8")
+    src = tmp_path / "out" / "shot.png"
+    src.parent.mkdir()
+    src.write_bytes(b"png")
+
+    win = make_window()
+    win.open_path(str(note))
+    win._toggle_edit_mode()
+    monkeypatch.setattr(
+        window_mod.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(src), "")),
+    )
+
+    win._format_toolbar.button("image").click()
+
+    assert "![](assets/shot.png)" in win._editor.toPlainText()
+
+
+# ---------------- new .md notes open in split mode ----------------
+def test_new_md_note_opens_in_split_mode(make_window, tmp_path):
+    win = make_window()
+    note = tmp_path / "fresh.md"
+    note.write_text("", encoding="utf-8")
+
+    win._on_browser_note_created(str(note))
+
+    assert win._current_kind == "markdown"
+    assert win._view_mode == "split"
+    assert win._stack.currentWidget() is win._editor_split
+    assert win._edit_preview.isVisibleTo(win._editor_split)
+    assert win._edit_preview.text_renders  # live preview rendered once
+    assert win.focusWidget() is win._editor
+
+
+def test_new_txt_note_opens_plain_editor_not_split(make_window, tmp_path):
+    win = make_window()
+    note = tmp_path / "fresh.txt"
+    note.write_text("", encoding="utf-8")
+
+    win._on_browser_note_created(str(note))
+
+    assert win._current_kind == "text"
+    assert win._view_mode == "edit"
+    assert win._editor._plain_text_mode is True
+    assert not win._edit_preview.isVisibleTo(win._editor_split)
+
+
+def test_opening_existing_md_stays_in_preview(make_window, md_files):
+    first, _second = md_files
+    win = make_window()
+    win.open_path(str(first))
+    assert win._view_mode == "preview"
+    assert win._stack.currentWidget() is win._renderer
+
+
+def test_new_note_split_not_reforced_after_user_switches(
+    make_window, md_files, tmp_path
+):
+    first, _second = md_files
+    win = make_window()
+    note = tmp_path / "fresh2.md"
+    note.write_text("# T\n", encoding="utf-8")
+
+    win._on_browser_note_created(str(note))
+    assert win._view_mode == "split"
+
+    win._set_view_mode("edit")  # user drops the preview pane -> plain edit
+    assert win._view_mode == "edit"
+
+    win.open_path(str(first))  # tab switch resets editing to preview
+    assert win._view_mode == "preview"
+
+    win.open_path(str(note))  # each tab restores its own last editor mode
+    assert win._view_mode == "edit"
+    assert win._stack.currentWidget() is win._editor_split

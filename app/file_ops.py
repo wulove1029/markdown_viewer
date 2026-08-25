@@ -62,6 +62,24 @@ def create_note(folder: str | Path, name: str) -> Path:
     return path
 
 
+def create_document(folder: str | Path, name: str, suffix: str = ".md") -> Path:
+    """Create an empty ``name{suffix}`` inside *folder* (UTF-8, no overwrite).
+
+    Unlike :func:`create_note` this never auto-numbers: an existing target is
+    an error so callers (the 新增筆記 dialog) can keep the user's input.
+    """
+    stem = name.strip()
+    if stem.lower().endswith(suffix.lower()):
+        stem = stem[: -len(suffix)].strip()
+    if not is_valid_name(stem):
+        raise OSError(f"無效的檔名：{name}")
+    path = Path(folder) / f"{stem}{suffix}"
+    if path.exists():
+        raise OSError(f"已存在同名檔案：{path}")
+    atomic_write_bytes(path, b"", backup=False)
+    return path
+
+
 def create_folder(parent: str | Path, name: str) -> Path:
     name = name.strip()
     if not is_valid_name(name):

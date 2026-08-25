@@ -1,8 +1,7 @@
 """Save clipboard/dropped images next to a Markdown document and build links.
 
-Design note: when the resulting relative path contains a space, it is wrapped
-in angle brackets (``<path with space.png>``) rather than percent-encoded,
-since that is valid Markdown link syntax and keeps the path human-readable.
+Generated Markdown destinations are percent-encoded so spaces, ``#``, ``?``
+and parentheses cannot be misread by the renderer or QUrl.
 """
 
 from __future__ import annotations
@@ -13,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtGui import QImage
+
+from .resource_links import markdown_resource_link
 
 ASSETS_DIR_NAME = "assets"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
@@ -71,7 +72,9 @@ def import_image_file(src_path: str | Path, doc_path: str | Path) -> str:
     ``<doc_dir>/assets`` (renaming on collision) and the new relative path is
     returned.
     """
-    src = Path(src_path).resolve()
+    src = Path(src_path).resolve(strict=True)
+    if not src.is_file():
+        raise OSError(f"Image source is not a file: {src}")
     doc_dir = Path(doc_path).resolve().parent
     try:
         rel = os.path.relpath(src, doc_dir)
@@ -89,5 +92,4 @@ def import_image_file(src_path: str | Path, doc_path: str | Path) -> str:
 
 def markdown_image_link(rel_path: str, alt: str = "") -> str:
     """Build a ``![alt](path)`` Markdown image link for *rel_path*."""
-    path = f"<{rel_path}>" if " " in rel_path else rel_path
-    return f"![{alt}]({path})"
+    return markdown_resource_link(rel_path, label=alt, image=True)

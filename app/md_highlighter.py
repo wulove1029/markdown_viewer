@@ -17,9 +17,10 @@ from PySide6.QtGui import (
     QTextCharFormat,
 )
 
+from .smart_writing import fence_state_after_line
+
 from .theme import LIGHT, Theme
 
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")
 _QUOTE_RE = re.compile(r"^\s*>")
 _LIST_RE = re.compile(r"^(\s*)([-*+]|\d+[.)])\s")
@@ -77,20 +78,20 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self.rehighlight()
 
     def highlightBlock(self, text: str):  # noqa: N802 (Qt override)
-        in_fence = self.previousBlockState() == 1
-        is_fence_marker = bool(_FENCE_RE.match(text))
+        previous_state = max(0, self.previousBlockState())
+        current_state = fence_state_after_line(text, previous_state)
 
-        if in_fence:
-            if is_fence_marker:
+        if previous_state:
+            if current_state == 0:
                 self.setFormat(0, len(text), self._formats["fence"])
-                self.setCurrentBlockState(0)  # closing fence
+                self.setCurrentBlockState(0)
             else:
                 self.setFormat(0, len(text), self._formats["fence_body"])
-                self.setCurrentBlockState(1)
+                self.setCurrentBlockState(current_state)
             return
-        if is_fence_marker:
+        if current_state:
             self.setFormat(0, len(text), self._formats["fence"])
-            self.setCurrentBlockState(1)
+            self.setCurrentBlockState(current_state)
             return
 
         self.setCurrentBlockState(0)

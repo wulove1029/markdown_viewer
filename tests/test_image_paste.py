@@ -143,5 +143,5 @@ def test_markdown_image_link_with_alt():
 def test_markdown_image_link_wraps_paths_with_spaces():
     assert (
         markdown_image_link("assets/my photo.png")
-        == "![](<assets/my photo.png>)"
+        == "![](assets/my%20photo.png)"
     )

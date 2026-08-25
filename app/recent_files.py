@@ -270,6 +270,7 @@ class _RecentFileDelegate(QStyledItemDelegate):
         elif is_pdf(path):
             icon = self._pdf_icon
         else:
+            # Markdown and plain-text (.txt) share the neutral file icon.
             icon = self._markdown_icon
         icon.paint(painter, icon_rect)
 

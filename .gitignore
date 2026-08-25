@@ -16,6 +16,10 @@ installer_output/
 
 .pytest_cache/
 .pytest_tmp*/
+.pytest_codex_loop_*/
+.codex_test_tmp/
+pytest_run_*/
+test_tmp_*/
 .mypy_cache/
 
 *.log

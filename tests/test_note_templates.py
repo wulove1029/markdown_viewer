@@ -6,6 +6,7 @@ from app.note_templates import (
     find_templates,
     open_or_create_daily_note,
     render_template,
+    prepare_template_insertion,
 )
 
 
@@ -19,6 +20,21 @@ def test_render_template_replaces_supported_variables():
     )
 
     assert rendered == "# Meeting\n2026-07-11 09:05 {{unknown}}"
+
+
+def test_block_template_gets_safe_paragraph_boundaries():
+    assert prepare_template_insertion(
+        "# Inserted\nbody", "paragraph", "following"
+    ) == "\n\n# Inserted\nbody\n\n"
+    assert prepare_template_insertion("# Inserted", "before\n", "") == (
+        "\n# Inserted\n"
+    )
+
+
+def test_single_line_template_snippet_stays_inline():
+    assert prepare_template_insertion("{{date}} memo", "before", "after") == (
+        "{{date}} memo"
+    )
 
 
 def test_daily_note_creates_from_template_then_reopens_without_overwrite(tmp_path):

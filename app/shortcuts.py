@@ -21,6 +21,7 @@ class ShortcutSpec:
     sequences: tuple[str, ...]
     scope: str
     handler: str | None = None
+    owner: str = "window"
 
     @property
     def is_window_shortcut(self) -> bool:
@@ -34,6 +35,14 @@ class ShortcutSpec:
 # These entries are the single source of truth for MainWindow QShortcuts,
 # their menu hints, and their rows in the keyboard-shortcut dialog.
 WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
+    ShortcutSpec(
+        "file.new",
+        "文件",
+        "新增筆記（Markdown 或純文字）",
+        ("Ctrl+N",),
+        "主視窗",
+        "_new_note",
+    ),
     ShortcutSpec(
         "file.open",
         "文件",
@@ -113,6 +122,51 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         ("Ctrl+S",),
         "編輯模式",
         "_save_edits",
+    ),
+    ShortcutSpec(
+        "edit.bold",
+        "編輯與搜尋",
+        "粗體（切換 **粗體** 標記）",
+        ("Ctrl+B",),
+        "Markdown 編輯",
+        "_format_bold",
+        "editor",
+    ),
+    ShortcutSpec(
+        "edit.italic",
+        "編輯與搜尋",
+        "斜體（切換 *斜體* 標記）",
+        ("Ctrl+I",),
+        "Markdown 編輯",
+        "_format_italic",
+        "editor",
+    ),
+    ShortcutSpec(
+        "edit.link",
+        "編輯與搜尋",
+        "插入 Markdown 連結",
+        ("Ctrl+K",),
+        "Markdown 編輯",
+        "_format_link",
+        "editor",
+    ),
+    ShortcutSpec(
+        "edit.ordered_list",
+        "編輯與搜尋",
+        "切換編號清單",
+        ("Ctrl+Shift+7",),
+        "Markdown 編輯",
+        "_format_ordered_list",
+        "editor",
+    ),
+    ShortcutSpec(
+        "edit.bullet_list",
+        "編輯與搜尋",
+        "切換項目清單",
+        ("Ctrl+Shift+8",),
+        "Markdown 編輯",
+        "_format_bullet_list",
+        "editor",
     ),
     ShortcutSpec(
         "search.current",
@@ -215,9 +269,23 @@ CONTEXT_SHORTCUTS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(
         "editor.paste_image",
         "編輯與搜尋",
-        "貼上圖片並插入 Markdown 圖片連結",
+        "貼上圖片，或將網址套用至選取文字",
         ("Ctrl+V",),
         "Markdown 編輯器",
+    ),
+    ShortcutSpec(
+        "editor.slash_commands",
+        "編輯與搜尋",
+        "開啟快速插入命令",
+        ("/",),
+        "Markdown 空白行",
+    ),
+    ShortcutSpec(
+        "editor.smart_list_enter",
+        "編輯與搜尋",
+        "續寫或結束 Markdown 清單",
+        ("Enter",),
+        "Markdown 清單",
     ),
     ShortcutSpec(
         "quick_open.navigate",

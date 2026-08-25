@@ -107,10 +107,16 @@ def _finish_deferred_close(window_ref) -> None:
         return
     app = QApplication.instance()
     window.close()
+    other_visible_windows = any(
+        widget is not window
+        and widget.isVisible()
+        and widget.inherits("QMainWindow")
+        for widget in app.topLevelWidgets()
+    ) if app is not None else False
     if (
         app is not None
         and app.quitOnLastWindowClosed()
-        and not any(widget.isVisible() for widget in app.topLevelWidgets())
+        and not other_visible_windows
     ):
         app.quit()
 

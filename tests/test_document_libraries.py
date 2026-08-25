@@ -6,7 +6,7 @@ from app.document_libraries import (
     scan_library_documents,
     should_skip_directory,
 )
-from app.file_types import document_kind, is_supported_document
+from app.file_types import document_kind, is_supported_document, is_text
 
 
 def test_store_add_deduplicates_paths(tmp_path):
@@ -63,11 +63,16 @@ def test_scan_documents_includes_markdown_pdf_and_skips_hidden_dirs(tmp_path):
     }
 
 
-def test_file_type_helpers_support_markdown_and_pdf():
+def test_file_type_helpers_support_markdown_text_and_pdf():
     assert document_kind("note.md") == "markdown"
     assert document_kind("note.markdown") == "markdown"
+    assert document_kind("plain.txt") == "text"
+    assert document_kind("PLAIN.TXT") == "text"
     assert document_kind("datasheet.PDF") == "pdf"
     assert is_supported_document("datasheet.pdf")
+    assert is_supported_document("plain.txt")
+    assert is_text("plain.txt")
+    assert not is_text("note.md")
     assert not is_supported_document("image.png")
 
 

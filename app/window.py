@@ -29,6 +29,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -45,16 +46,31 @@ from PySide6.QtWidgets import (
 )
 
 from .annotations import Annotation, AnnotationStore, DocumentAnnotations
+from .attachments import import_attachment_file, markdown_attachment_link
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
 from .editor import EditorView
+from .editor_status import EditorStatus
+from .format_actions import apply_format_action
+from .format_commands import commands_for
+from .format_toolbar import FormatToolbar
 from . import export_actions, session_state, update_flow, view_mode
 from . import doc_tags as doc_tags_facade
-from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
+from .file_types import (
+    document_kind,
+    is_markdown,
+    is_pdf,
+    is_supported_document,
+    is_text,
+)
 from .manage_tags_dialog import ManageTagsDialog
 from .graph_view import GraphWindow
-from .image_paste import markdown_image_link, save_clipboard_image
+from .image_paste import (
+    import_image_file,
+    markdown_image_link,
+    save_clipboard_image,
+)
 from .inline_edit import extract_source_lines, replace_source_lines
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
@@ -63,7 +79,9 @@ from .md_converter import (
     front_matter_tags,
     parse_front_matter,
     read_text,
+    read_text_detailed,
 )
+from .new_note_dialog import NewNoteDialog
 from .md_table import parse_table, serialize_table
 from .mermaid_blocks import (
     find_mermaid_blocks,
@@ -76,6 +94,7 @@ from .note_templates import (
     default_subfolder,
     find_templates,
     open_or_create_daily_note,
+    prepare_template_insertion,
     render_template_file,
 )
 from .pdf_notes import PdfNote, PdfNoteStore
@@ -83,6 +102,15 @@ from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
 from .renderer import RendererView
+from .recovery import RecoverySnapshot, RecoveryStore
+from .recovery_dialog import RecoveryDialog
+from .recent_resources import (
+    RecentResource,
+    decode_recent_resources,
+    encode_recent_resources,
+    remember_recent_resource,
+    resource_from_markdown,
+)
 from .shortcuts import WINDOW_SHORTCUTS, shortcut_by_id
 from .shortcuts_dialog import ShortcutDialog
 from .theme import (
@@ -95,6 +123,7 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
+from .text_positions import qt_to_py_position
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
 from .toolbar_utilities import (
@@ -119,6 +148,8 @@ from .version import RELEASE_NOTES, VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+_RECENT_RESOURCES_KEY = "recent_editor_resources"
+_RECENT_TEMPLATES_KEY = "recent_editor_templates"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
 
 
@@ -224,6 +255,8 @@ class MainWindow(QMainWindow):
         # close, or they would clobber the primary window's open_tabs/geometry.
         self._is_detached = False
         self._exporting = False  # reentrancy guard for long-running exports
+        self._recovery_store = RecoveryStore()
+        self._recovery_checked_paths: set[str] = set()
 
         self.setWindowTitle("Markdown Viewer")
         self._restore_geometry()
@@ -394,6 +427,8 @@ class MainWindow(QMainWindow):
         self._editor.image_status.connect(
             lambda msg: self.statusBar().showMessage(msg, 4000)
         )
+        self._editor.format_action_requested.connect(self._apply_format_action)
+        self._editor.resource_inserted.connect(self._record_recent_resource)
 
         # Split mode is a split pane: editor on the left, a live preview on
         # the right, kept in sync as you type (debounced) and scroll. Edit
@@ -409,12 +444,23 @@ class MainWindow(QMainWindow):
 
         self._editor_search_bar = self._build_editor_search_bar()
         self._editor_search_bar.hide()
+        # Markdown formatting toolbar: only shown while editing Markdown
+        # (never for .txt, never in preview / PDF).
+        self._format_toolbar = FormatToolbar()
+        self._format_toolbar.hide()
+        self._format_toolbar.action_triggered.connect(self._apply_format_action)
+        self._editor.format_context_changed.connect(
+            self._on_format_context_changed
+        )
         editor_pane = QWidget()
         editor_pane_layout = QVBoxLayout(editor_pane)
         editor_pane_layout.setContentsMargins(0, 0, 0, 0)
         editor_pane_layout.setSpacing(0)
         editor_pane_layout.addWidget(self._editor_search_bar)
+        editor_pane_layout.addWidget(self._format_toolbar)
         editor_pane_layout.addWidget(self._editor)
+        self._editor_status = EditorStatus(self._theme)
+        editor_pane_layout.addWidget(self._editor_status)
 
         self._editor_split = QSplitter(Qt.Orientation.Horizontal)
         self._editor_split.addWidget(editor_pane)
@@ -428,9 +474,18 @@ class MainWindow(QMainWindow):
         self._preview_timer.setInterval(400)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.timeout.connect(self._update_preview)
+        self._editor_status_timer = QTimer(self)
+        self._editor_status_timer.setInterval(180)
+        self._editor_status_timer.setSingleShot(True)
+        self._editor_status_timer.timeout.connect(self._update_editor_status_document)
+        self._recovery_timer = QTimer(self)
+        self._recovery_timer.setInterval(750)
+        self._recovery_timer.setSingleShot(True)
+        self._recovery_timer.timeout.connect(self._save_active_recovery_snapshot)
         self._scroll_guard = view_mode.ScrollSyncGuard()
         self._preview_scroll_ratio = 0.0
         self._editor.textChanged.connect(self._on_editor_text_changed)
+        self._editor.cursorPositionChanged.connect(self._on_editor_cursor_changed)
         self._editor.verticalScrollBar().valueChanged.connect(
             self._sync_preview_scroll
         )
@@ -533,6 +588,7 @@ class MainWindow(QMainWindow):
             return action
 
         file_menu = bar.addMenu("檔案(&F)")
+        file_menu.addAction(command_act("file.new", "新增筆記…"))
         file_menu.addAction(command_act("file.open", "開啟…"))
         file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
         file_menu.addAction(command_act("file.daily_note", "開啟今日筆記"))
@@ -544,15 +600,89 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(act("離開", self.close))
 
-        edit_menu = bar.addMenu("編輯(&E)")
-        edit_menu.addAction(command_act("edit.toggle", "切換編輯 / 預覽"))
-        edit_menu.addAction(
+        self._edit_menu = bar.addMenu("編輯(&E)")
+        self._edit_menu.addAction(command_act("edit.toggle", "切換編輯 / 預覽"))
+        self._edit_menu.addAction(
             command_act("edit.split", "並排編輯（即時預覽）")
         )
-        edit_menu.addAction(command_act("edit.save", "儲存"))
-        edit_menu.addAction(act("插入範本…", self._insert_template))
-        edit_menu.addAction(command_act("search.current", "尋找 / 取代"))
-        edit_menu.addAction(command_act("search.library", "搜尋所有文件庫"))
+        self._edit_menu.addAction(command_act("edit.save", "儲存"))
+        self._edit_menu.addSeparator()
+        self._undo_action = act("復原\tCtrl+Z", self._editor.undo)
+        self._redo_action = act("重做\tCtrl+Y", self._editor.redo)
+        self._cut_action = act("剪下\tCtrl+X", self._editor.cut)
+        self._copy_action = act("複製\tCtrl+C", self._editor.copy)
+        self._paste_action = act("貼上\tCtrl+V", self._editor.paste)
+        self._select_all_action = act("全選\tCtrl+A", self._editor.selectAll)
+        self._edit_menu.addActions((self._undo_action, self._redo_action))
+        self._edit_menu.addSeparator()
+        self._edit_menu.addActions(
+            (
+                self._cut_action,
+                self._copy_action,
+                self._paste_action,
+                self._select_all_action,
+            )
+        )
+        self._edit_menu.addSeparator()
+        self._edit_menu.addAction(command_act("search.current", "尋找 / 取代"))
+        self._edit_menu.addAction(command_act("search.library", "搜尋所有文件庫"))
+        self._edit_menu.aboutToShow.connect(self._update_native_edit_actions)
+
+        self._format_menu = bar.addMenu("格式(&O)")
+        group_labels = {
+            "text": "文字",
+            "heading": "標題",
+            "structure": "段落與清單",
+            "code": "程式碼",
+            "insert": "插入",
+            "resource": "資源",
+            "math": "公式",
+            "reference": "參照",
+        }
+        group_menus = {
+            group: self._format_menu.addMenu(label)
+            for group, label in group_labels.items()
+        }
+        self._format_menu_actions: dict[str, QAction] = {}
+        shortcut_command_ids = {
+            "bold": "edit.bold",
+            "italic": "edit.italic",
+            "link": "edit.link",
+            "ordered_list": "edit.ordered_list",
+            "bullet_list": "edit.bullet_list",
+        }
+        for command in commands_for("toolbar"):
+            label = command.title
+            if command.shortcut:
+                label += f"\t{command.shortcut}"
+            action = act(
+                label,
+                lambda _checked=False, aid=command.action_id: (
+                    self._apply_format_action(aid)
+                ),
+            )
+            command_id = shortcut_command_ids.get(
+                command.action_id, command.action_id
+            )
+            action.setData(command_id)
+            action.setProperty("commandId", command_id)
+            action.setProperty("formatAction", command.action_id)
+            action.setCheckable(
+                command.action_id
+                in {
+                    "bold", "italic", "strikethrough", "h1", "h2", "h3",
+                    "bullet_list", "ordered_list", "task_list", "quote",
+                    "inline_code", "wikilink", "highlight",
+                }
+            )
+            group_menus[command.group].addAction(action)
+            self._format_menu_actions[command.action_id] = action
+        resource_menu = group_menus["resource"]
+        resource_menu.addSeparator()
+        resource_menu.addAction(act("插入範本…", self._insert_template))
+        resource_menu.addAction(act("加入附件…", self._insert_attachment_via_dialog))
+        resource_menu.addAction(act("最近使用的資源…", self._insert_recent_resource))
+        self._format_menu.aboutToShow.connect(self._update_format_menu_actions)
 
         view_menu = bar.addMenu("檢視(&V)")
         view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
@@ -590,13 +720,43 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self._update_action)
         help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
 
+    def _update_native_edit_actions(self) -> None:
+        editing = self._edit_mode
+        document = self._editor.document()
+        self._undo_action.setEnabled(editing and document.isUndoAvailable())
+        self._redo_action.setEnabled(editing and document.isRedoAvailable())
+        has_selection = editing and self._editor.textCursor().hasSelection()
+        self._cut_action.setEnabled(has_selection)
+        self._copy_action.setEnabled(has_selection)
+        self._paste_action.setEnabled(editing and self._editor.canPaste())
+        self._select_all_action.setEnabled(editing and not document.isEmpty())
+
+    def _update_format_menu_actions(self) -> None:
+        enabled = self._edit_mode and self._current_kind == "markdown"
+        self._format_menu.setEnabled(enabled)
+        for action in self._format_menu_actions.values():
+            action.setEnabled(enabled)
+
+    def _on_format_context_changed(self, action_ids) -> None:
+        active = set(action_ids)
+        self._format_toolbar.set_active_actions(active)
+        for action_id, action in getattr(
+            self, "_format_menu_actions", {}
+        ).items():
+            action.setChecked(action_id in active)
+
     def _install_shortcuts(self):
         self._registered_shortcuts: list[QShortcut] = []
         for spec in WINDOW_SHORTCUTS:
             callback = getattr(self, spec.handler)
             for alias_index, sequence in enumerate(spec.sequences):
-                shortcut = QShortcut(QKeySequence(sequence), self)
-                shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+                owner = self._editor if spec.owner == "editor" else self
+                shortcut = QShortcut(QKeySequence(sequence), owner)
+                shortcut.setContext(
+                    Qt.ShortcutContext.WidgetShortcut
+                    if spec.owner == "editor"
+                    else Qt.ShortcutContext.WindowShortcut
+                )
                 shortcut.setObjectName(
                     f"shortcut.{spec.command_id}.{alias_index}"
                 )
@@ -772,7 +932,9 @@ QSplitter::handle:hover {{
 """
         )
         self._editor.apply_theme(self._theme)
+        self._editor_status.apply_theme(self._theme)
         self._editor_search_bar.setStyleSheet(self._editor_search_style())
+        self._format_toolbar.apply_theme(self._theme)
         self._pdf_view.apply_theme(self._theme)
         if self._graph_window is not None:
             self._graph_window.apply_theme(self._theme)
@@ -925,6 +1087,8 @@ QSplitter::handle:hover {{
         self._search_prev_btn.setIcon(svg_icon("chevron-left", icon_color, 18))
         self._search_next_btn.setIcon(svg_icon("chevron-right", icon_color, 18))
         self._search_close_btn.setIcon(svg_icon("x", icon_color, 18))
+        if hasattr(self, "_format_menu"):
+            self._update_format_menu_actions()
 
     def _toggle_theme(self):
         session_state.toggle_theme(self)
@@ -1440,8 +1604,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._request_view_mode(view_mode.cycle_mode(self._view_mode))
 
     def _request_view_mode(self, mode: str):
-        if not self._current_file or not is_markdown(self._current_file):
-            return  # PDFs (and no document) stay in plain preview
+        if not self._current_file:
+            return
+        if is_text(self._current_file):
+            return  # plain text is editor-only; no preview / split to go to
+        if not is_markdown(self._current_file):
+            return  # PDFs stay in plain preview
         self._set_view_mode(mode)
 
     def _set_view_mode(self, mode: str):
@@ -1457,6 +1625,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # edit <-> split: the editor keeps its buffer, only the preview pane
         # is shown / hidden.
         self._view_mode = mode
+        state = self._active_editor_state()
+        if state is not None:
+            state["view_mode"] = mode
         self._apply_split_visibility()
         if mode == view_mode.SPLIT:
             self._update_preview()
@@ -1472,6 +1643,209 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if len(sizes) == 2 and sizes[1] == 0:
                 total = max(sum(sizes), 2)
                 self._editor_split.setSizes([total // 2, total - total // 2])
+
+    # ── Markdown formatting (toolbar, slash menu, and shortcuts) ───────
+
+    def _format_bold(self):
+        self._apply_format_action("bold")
+
+    def _format_italic(self):
+        self._apply_format_action("italic")
+
+    def _format_link(self):
+        self._apply_format_action("link")
+
+    def _format_ordered_list(self):
+        self._apply_format_action("ordered_list")
+
+    def _format_bullet_list(self):
+        self._apply_format_action("bullet_list")
+
+    def _apply_format_action(self, action: str):
+        """Run a format action; no-op outside Markdown edit mode."""
+        if not self._edit_mode or self._current_kind != "markdown":
+            return
+        if self._editor._plain_text_mode:
+            return
+        if action == "image":
+            self._insert_image_via_dialog()
+            return
+        if action == "attachment":
+            self._insert_attachment_via_dialog()
+            return
+        if action == "template":
+            self._insert_template()
+            return
+        if action == "recent_resource":
+            self._insert_recent_resource()
+            return
+        apply_format_action(self._editor, action)
+        self._editor.setFocus()
+
+    def _insert_image_via_dialog(self):
+        """Toolbar 圖片 button: pick an image file, import it, insert a link."""
+        doc_path = self._editor.document_path()
+        if not doc_path:
+            self.statusBar().showMessage("請先儲存文件才能貼入圖片", 4000)
+            return
+        picked, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "插入圖片",
+            str(Path(doc_path).parent),
+            "圖片 (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.svg)",
+        )
+        if not picked:
+            return
+        try:
+            rel = import_image_file(picked, doc_path)
+        except OSError as exc:
+            QMessageBox.warning(self, "插入圖片", f"無法匯入圖片：\n{exc}")
+            return
+        link = markdown_image_link(rel)
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        cursor.insertText(link)
+        cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._record_recent_resource(link)
+        self._editor.setFocus()
+
+    @staticmethod
+    def _settings_json_list(key: str) -> list[str]:
+        raw = QSettings(_ORG, _APP).value(key, "") or ""
+        try:
+            values = json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            values = []
+        return [str(value) for value in values if str(value).strip()]
+
+    @staticmethod
+    def _remember_setting_value(key: str, value: str, limit: int) -> None:
+        clean = str(value).strip()
+        if not clean:
+            return
+        values = [
+            item for item in MainWindow._settings_json_list(key)
+            if item != clean
+        ]
+        values.insert(0, clean)
+        QSettings(_ORG, _APP).setValue(
+            key, json.dumps(values[:limit], ensure_ascii=False)
+        )
+
+    @staticmethod
+    def _recent_resource_entries() -> list[RecentResource]:
+        raw = QSettings(_ORG, _APP).value(_RECENT_RESOURCES_KEY, "") or ""
+        return decode_recent_resources(raw)
+
+    def _record_recent_resource(self, markdown_link: str) -> None:
+        record = resource_from_markdown(
+            markdown_link, self._editor.document_path()
+        )
+        if record is None:
+            return
+        resources = remember_recent_resource(
+            self._recent_resource_entries(), record, 10
+        )
+        QSettings(_ORG, _APP).setValue(
+            _RECENT_RESOURCES_KEY, encode_recent_resources(resources)
+        )
+
+    def _insert_attachment_via_dialog(self, _checked=False) -> None:
+        if not (
+            self._edit_mode
+            and self._current_kind == "markdown"
+            and self._editor.document_path()
+        ):
+            self.statusBar().showMessage(
+                "請先開啟已儲存的 Markdown 文件", 4000
+            )
+            return
+        picked, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "加入附件",
+            str(self._current_file.parent),
+            "所有檔案 (*.*)",
+        )
+        if not picked:
+            return
+        try:
+            relative = import_attachment_file(picked, self._current_file)
+            link = markdown_attachment_link(relative)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "加入附件", f"無法加入附件：\n{exc}")
+            return
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        cursor.insertText(link)
+        cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._record_recent_resource(link)
+        self._editor.setFocus()
+
+    def _insert_recent_resource(self, _checked=False) -> None:
+        if not (self._edit_mode and self._current_kind == "markdown"):
+            return
+        resources = self._recent_resource_entries()
+        if not resources:
+            QMessageBox.information(
+                self, "最近資源", "目前還沒有最近使用的圖片或附件。"
+            )
+            return
+        labels = [resource.display_text for resource in resources]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "最近資源",
+            "選擇要再次插入的資源：",
+            labels,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        resource = resources[labels.index(choice)]
+        link = resource.markdown_link
+        if not resource.absolute_path:
+            QMessageBox.information(
+                self,
+                "舊版資源紀錄",
+                "這筆舊紀錄沒有來源位置，無法保證跨筆記連結正確。\n"
+                "請改用「加入附件」或「圖片」重新選擇檔案。",
+            )
+            return
+        if resource.absolute_path:
+            source = Path(resource.absolute_path)
+            if not source.is_file():
+                QMessageBox.warning(
+                    self,
+                    "找不到資源",
+                    f"原始資源已移動或刪除：\n{source}",
+                )
+                return
+            try:
+                if resource.kind == "image":
+                    relative = import_image_file(source, self._current_file)
+                    link = markdown_image_link(relative, resource.label)
+                else:
+                    relative = import_attachment_file(source, self._current_file)
+                    link = markdown_attachment_link(relative, resource.label)
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(
+                    self, "插入資源失敗", f"無法匯入資源：\n{exc}"
+                )
+                return
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        cursor.insertText(link)
+        cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        # Keep the selected record's canonical source instead of recording the
+        # freshly copied per-note asset as a second history entry.
+        resources = remember_recent_resource(resources, resource, 10)
+        QSettings(_ORG, _APP).setValue(
+            _RECENT_RESOURCES_KEY, encode_recent_resources(resources)
+        )
+        self._editor.setFocus()
 
     def _open_mermaid_workspace(self):
         dialog = MermaidWorkspaceDialog(theme_name=self._theme_name, parent=self)
@@ -1576,61 +1950,380 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._update_preview()
         self._update_dirty_ui()
 
-    def _enter_edit_mode(self, mode: str = view_mode.EDIT):
-        if not view_mode.is_editing(mode):
-            mode = view_mode.EDIT
-        # Entering the editor hides the preview page and turns inline editing
-        # off, which destroys any open inline editor along with it.
-        if not self._confirm_discard_preview_edit():
-            return
-        try:
-            raw = self._current_file.read_bytes()
-            result = read_text(self._current_file)
-        except OSError as exc:
-            QMessageBox.warning(self, "無法編輯", f"無法讀取檔案：\n{exc}")
-            return
-        if result is None:
-            QMessageBox.warning(
-                self,
-                "無法編輯",
-                "無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK。",
-            )
-            return
+    def _active_editor_state(self) -> dict | None:
+        if not self._active_path:
+            return None
+        return self._tab_state.get(self._active_path)
 
-        text, encoding = result
-        self._editing_encoding = encoding
-        self._editing_newline = "\r\n" if b"\r\n" in raw else "\n"
-        self._editor.set_document_path(self._current_file)
-        self._editor.set_content(text)
-        self._editor.set_wikilink_candidates(
-            self._link_index.completion_candidates
+    def _stash_active_editor_state(self, *, snapshot: bool = True) -> None:
+        if not self._edit_mode or not self._active_path:
+            return
+        document = self._editor.document()
+        if (
+            document is self._editor._parking_document
+            or document.parent() is not None
+        ):
+            # Compatibility callers may toggle ``_edit_mode`` directly while
+            # no real per-tab editor exists.  A clean parking document carries
+            # no state.  If such a caller marked it dirty, promote a clone to
+            # a real parentless tab buffer; the permanent parking document
+            # itself must never be adopted or destroyed by tab state.
+            if not document.isModified():
+                return
+            old_cursor = self._editor.textCursor()
+            promoted = self._editor.create_buffer_document(
+                document.toPlainText()
+            )
+            promoted.setModified(True)
+            self._editor.use_buffer_document(
+                promoted,
+                plain_text_mode=self._current_kind == "text",
+                document_path=self._current_file,
+            )
+            cursor = self._editor.textCursor()
+            maximum = max(0, promoted.characterCount() - 1)
+            anchor = max(0, min(old_cursor.anchor(), maximum))
+            position = max(0, min(old_cursor.position(), maximum))
+            cursor.setPosition(anchor)
+            cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
+            self._editor.setTextCursor(cursor)
+            document = promoted
+        state = self._tab_state.setdefault(self._active_path, {})
+        cursor = self._editor.textCursor()
+        state.update(
+            {
+                "kind": self._current_kind,
+                "view_mode": self._view_mode,
+                "editor_document": document,
+                "cursor": cursor.position(),
+                "anchor": cursor.anchor(),
+                "editor_scroll": self._editor.verticalScrollBar().value(),
+                "editing_encoding": self._editing_encoding,
+                "editing_newline": self._editing_newline,
+                "source_signature": (
+                    state["source_signature"]
+                    if "source_signature" in state
+                    else self._file_signature(self._current_file)
+                ),
+                "preview_scroll_ratio": self._preview_scroll_ratio,
+            }
         )
+        if snapshot and document.isModified():
+            self._save_recovery_for_state(self._active_path, state)
+
+    def _activate_editor_state(self, state: dict, mode: str) -> bool:
+        document = state.get("editor_document")
+        if not isinstance(document, QTextDocument):
+            return False
+        plain_text = self._current_kind == "text"
+        if plain_text:
+            mode = view_mode.EDIT
+        self._editing_encoding = str(
+            state.get("editing_encoding") or "utf-8"
+        )
+        self._editing_newline = str(state.get("editing_newline") or "\n")
+        self._editor.use_buffer_document(
+            document,
+            plain_text_mode=plain_text,
+            document_path=self._current_file,
+        )
+        self._editor.set_wikilink_candidates(
+            [] if plain_text else self._link_index.completion_candidates
+        )
+        max_position = max(0, document.characterCount() - 1)
+        cursor = self._editor.textCursor()
+        anchor = max(0, min(int(state.get("anchor", 0)), max_position))
+        position = max(0, min(int(state.get("cursor", anchor)), max_position))
+        cursor.setPosition(anchor)
+        cursor.setPosition(position, QTextCursor.MoveMode.KeepAnchor)
+        self._editor.setTextCursor(cursor)
 
         self._view_mode = mode
-        self._renderer.set_inline_edit_enabled(False)  # the editor owns the buffer
-        self._preview_scroll_ratio = 0.0
+        state["view_mode"] = mode
+        self._renderer.set_inline_edit_enabled(False)
+        self._preview_scroll_ratio = float(
+            state.get("preview_scroll_ratio", 0.0) or 0.0
+        )
         self._apply_split_visibility()
         self._close_search()
-        self._search_btn.setEnabled(False)
-        self._reload_btn.setEnabled(False)
+        self._format_toolbar.setVisible(not plain_text)
+        self._search_btn.setEnabled(plain_text)
+        self._reload_btn.setEnabled(plain_text)
         self._export_btn.setEnabled(False)
         self._stack.setCurrentWidget(self._editor_split)
         if mode == view_mode.SPLIT:
             self._update_preview()
+        scroll = max(0, int(state.get("editor_scroll", 0) or 0))
+        QTimer.singleShot(
+            0, lambda value=scroll: self._editor.verticalScrollBar().setValue(value)
+        )
         self._editor.setFocus()
+        self._update_editor_status_document()
+        self._update_format_menu_actions()
         self._refresh_icons()
         self._update_dirty_ui()
+        return True
+
+    def _discard_tab_buffer(self, key: str, *, preserve_recovery: bool = False) -> None:
+        state = self._tab_state.get(key)
+        if state is not None:
+            document = state.get("editor_document")
+            if document is self._editor._parking_document:
+                # The parking document is permanent EditorView infrastructure,
+                # never a tab-owned buffer.  Older compatibility paths may
+                # have stored it before this invariant was enforced.
+                document = None
+            if (
+                isinstance(document, QTextDocument)
+                and self._editor.document() is document
+            ):
+                self._editor.release_buffer_document()
+            state["editor_document"] = None
+            if isinstance(document, QTextDocument):
+                # QPlainTextEdit keeps wrapper-side references to documents it
+                # has displayed even after a swap. Queue explicit QObject
+                # destruction once a tab has permanently released its buffer.
+                try:
+                    document.deleteLater()
+                except RuntimeError:
+                    # Qt owns and may already have destroyed its original
+                    # built-in document when a compatibility caller toggles
+                    # edit state without creating a per-tab buffer first.
+                    pass
+            state["view_mode"] = view_mode.PREVIEW
+            for field in (
+                "cursor", "anchor", "editor_scroll", "editing_encoding",
+                "editing_newline", "source_signature", "preview_scroll_ratio",
+            ):
+                state.pop(field, None)
+        if not preserve_recovery:
+            self._recovery_store.discard(key)
+
+    def _dirty_tab_keys(self) -> list[str]:
+        dirty: list[str] = []
+        if self._edit_mode:
+            self._stash_active_editor_state(snapshot=False)
+        for key, state in self._tab_state.items():
+            document = state.get("editor_document")
+            if isinstance(document, QTextDocument) and document.isModified():
+                dirty.append(key)
+        return dirty
+
+    def _save_recovery_for_state(self, key: str, state: dict) -> None:
+        document = state.get("editor_document")
+        if not isinstance(document, QTextDocument) or not document.isModified():
+            self._recovery_store.clear_after_save(key)
+            return
+        cursor = int(state.get("cursor", 0) or 0)
+        anchor = int(state.get("anchor", cursor) or cursor)
+        scroll = int(state.get("editor_scroll", 0) or 0)
+        try:
+            self._recovery_store.save(
+                key,
+                document.toPlainText(),
+                encoding=str(state.get("editing_encoding") or "utf-8"),
+                newline=str(state.get("editing_newline") or "\n"),
+                cursor=max(0, cursor),
+                anchor=max(0, anchor),
+                scroll=max(0, scroll),
+                source_signature=state.get("source_signature"),
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            self.statusBar().showMessage(f"無法建立復原草稿：{exc}", 5000)
+
+    def _save_active_recovery_snapshot(self) -> None:
+        if not self._edit_mode or not self._active_path:
+            return
+        self._stash_active_editor_state(snapshot=False)
+        state = self._tab_state.get(self._active_path)
+        if state is not None:
+            self._save_recovery_for_state(self._active_path, state)
+
+    def _prepare_recovery_state(self, path: Path, kind: str) -> None:
+        key = str(path)
+        if kind not in {"markdown", "text"} or key in self._recovery_checked_paths:
+            return
+        self._recovery_checked_paths.add(key)
+        existing_state = self._tab_state.get(key) or {}
+        if isinstance(existing_state.get("editor_document"), QTextDocument):
+            # A live per-tab document is newer and already owns its undo stack;
+            # never replace it with an older persisted recovery snapshot.
+            return
+        snapshot: RecoverySnapshot | None = self._recovery_store.load(path)
+        if snapshot is None:
+            return
+        try:
+            result = read_text_detailed(path)
+        except OSError:
+            result = None
+        if result is None:
+            disk_text, disk_encoding, disk_newline = "", "utf-8", "\n"
+        else:
+            disk_text, disk_encoding, disk_newline = result
+        if snapshot.draft == disk_text:
+            self._recovery_store.discard(path)
+            return
+        dialog = RecoveryDialog(
+            path,
+            disk_text,
+            snapshot.draft,
+            snapshot.updated_at,
+            self,
+        )
+        dialog.exec()
+        if dialog.choice == RecoveryDialog.DISCARD:
+            self._recovery_store.discard(path)
+            (self._tab_state.get(key) or {}).pop("pending_recovery", None)
+            return
+        if dialog.choice != RecoveryDialog.RESTORE:
+            self._tab_state.setdefault(key, {})["pending_recovery"] = True
+            return
+        document = self._editor.create_buffer_document(snapshot.draft)
+        document.setModified(True)
+        state = self._tab_state.setdefault(key, {})
+        state.update(
+            {
+                "kind": kind,
+                "view_mode": view_mode.EDIT,
+                "editor_document": document,
+                "cursor": snapshot.cursor,
+                "anchor": snapshot.anchor,
+                "editor_scroll": snapshot.scroll,
+                "editing_encoding": snapshot.encoding or disk_encoding,
+                "editing_newline": snapshot.newline or disk_newline,
+                "source_signature": snapshot.signature_pair,
+                "preview_scroll_ratio": 0.0,
+            }
+        )
+        state.pop("pending_recovery", None)
+
+    def _confirm_tab_buffer(self, key: str) -> bool:
+        state = self._tab_state.get(key)
+        document = state.get("editor_document") if state else None
+        if not isinstance(document, QTextDocument) or not document.isModified():
+            return True
+        answer = QMessageBox.question(
+            self,
+            "未儲存的變更",
+            f"{Path(key).name} 有未儲存的變更，要儲存嗎？",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Save:
+            return self._save_tab_buffer(key)
+        if answer == QMessageBox.StandardButton.Discard:
+            self._discard_tab_buffer(key)
+            return True
+        return False
+
+    def _confirm_close_all_edits(self) -> bool:
+        preview_will_be_discarded = self._preview_editing
+        if not self._confirm_discard_preview_edit(commit=False):
+            return False
+        dirty = self._dirty_tab_keys()
+        if not dirty:
+            if preview_will_be_discarded:
+                self._preview_editing = False
+            return True
+        if len(dirty) == 1:
+            confirmed = self._confirm_tab_buffer(dirty[0])
+            if confirmed and preview_will_be_discarded:
+                self._preview_editing = False
+            return confirmed
+        names = "\n".join(f"• {Path(key).name}" for key in dirty)
+        answer = QMessageBox.question(
+            self,
+            "多個分頁尚未儲存",
+            f"以下 {len(dirty)} 份文件有未儲存的變更：\n{names}\n\n"
+            "要全部儲存嗎？",
+            QMessageBox.StandardButton.SaveAll
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.SaveAll:
+            confirmed = all(self._save_tab_buffer(key) for key in dirty)
+        elif answer == QMessageBox.StandardButton.Discard:
+            for key in dirty:
+                self._discard_tab_buffer(key)
+            confirmed = True
+        else:
+            confirmed = False
+        if confirmed and preview_will_be_discarded:
+            self._preview_editing = False
+        return confirmed
+
+    def _enter_edit_mode(self, mode: str = view_mode.EDIT) -> bool:
+        if not view_mode.is_editing(mode):
+            mode = view_mode.EDIT
+        plain_text = bool(self._current_file and is_text(self._current_file))
+        if plain_text:
+            mode = view_mode.EDIT  # .txt has no Markdown preview to split with
+        state = self._active_editor_state()
+        if (
+            state is not None
+            and view_mode.is_editing(str(state.get("view_mode", "")))
+            and isinstance(state.get("editor_document"), QTextDocument)
+        ):
+            return self._activate_editor_state(state, mode)
+        # Entering the editor hides the preview page and turns inline editing
+        # off, which destroys any open inline editor along with it.
+        if not self._confirm_discard_preview_edit():
+            return False
+        try:
+            result = read_text_detailed(self._current_file)
+        except OSError as exc:
+            QMessageBox.warning(self, "無法編輯", f"無法讀取檔案：\n{exc}")
+            return False
+        if result is None:
+            QMessageBox.warning(
+                self,
+                "無法編輯",
+                "無法讀取檔案編碼，請使用 UTF-8、UTF-16、Big5 或 GBK。",
+            )
+            return False
+
+        text, encoding, newline = result
+        document = self._editor.create_buffer_document(text)
+        state = state if state is not None else {}
+        state.update(
+            {
+                "kind": self._current_kind,
+                "view_mode": mode,
+                "editor_document": document,
+                "cursor": 0,
+                "anchor": 0,
+                "editor_scroll": 0,
+                "editing_encoding": encoding,
+                "editing_newline": newline,
+                "source_signature": self._file_signature(self._current_file),
+                "preview_scroll_ratio": 0.0,
+            }
+        )
+        if self._active_path:
+            self._tab_state[self._active_path] = state
+        return self._activate_editor_state(state, mode)
 
     def _exit_edit_mode(self):
         if not self._confirm_discard_edits():
             return
         self._leave_edit_ui()
 
-    def _leave_edit_ui(self):
+    def _leave_edit_ui(self, *, persist_state: bool = True):
+        if persist_state and self._active_path:
+            self._discard_tab_buffer(self._active_path)
+        # The editor widget is shared by every tab.  Even while hidden it
+        # retains its QTextDocument, so park it whenever edit UI is left.
+        # Otherwise closing that now-background tab can delete a document
+        # which QPlainTextEdit still owns and crash inside Qt.
+        self._editor.release_buffer_document()
         self._view_mode = view_mode.PREVIEW
         self._renderer.set_inline_edit_enabled(True)
         self._preview_timer.stop()
+        self._editor_status_timer.stop()
+        self._recovery_timer.stop()
         self._editor_search_bar.hide()
+        self._format_toolbar.hide()
         self._set_search_escape_enabled(False)
         is_md = bool(self._current_file and is_markdown(self._current_file))
         self._search_btn.setEnabled(is_md)
@@ -1638,6 +2331,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._export_btn.setEnabled(is_md)
         self._stack.setCurrentWidget(self._renderer)
         self._renderer.setFocus()
+        self._update_format_menu_actions()
         self._refresh_icons()
         self._update_dirty_ui()
 
@@ -1655,53 +2349,151 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         if answer == QMessageBox.StandardButton.Save:
             return self._save_edits()
-        return answer == QMessageBox.StandardButton.Discard
+        if answer == QMessageBox.StandardButton.Discard:
+            if self._active_path:
+                self._discard_tab_buffer(self._active_path)
+            return True
+        return False
 
-    def _save_edits(self) -> bool:
-        if not (self._edit_mode and self._current_file):
+    def _save_tab_buffer(self, key: str) -> bool:
+        state = self._tab_state.get(key)
+        if state is None:
             return False
+        document = state.get("editor_document")
+        if not isinstance(document, QTextDocument):
+            return False
+        path = Path(key)
+        source_signature = state.get("source_signature")
+        current_signature = self._file_signature(path)
+        if (
+            not document.isModified()
+            and source_signature != current_signature
+        ):
+            # A clean editor has nothing to contribute.  In particular, do
+            # not let Ctrl+S overwrite a newer disk version before the file
+            # watcher has had time to reload it.  We intentionally continue
+            # for an unchanged signature: programmatic editor operations can
+            # replace text while Qt resets the modified flag to False.
+            if key == self._active_path:
+                self.statusBar().showMessage(
+                    "磁碟版本已變更；本機沒有標記為未儲存的內容，因此未覆寫。",
+                    5000,
+                )
+            return True
+        if (
+            source_signature != current_signature
+            and not (
+                state.get("source_deleted") and current_signature is None
+            )
+        ):
+            if source_signature is None:
+                conflict_detail = (
+                    "編輯開始時這個路徑沒有檔案，但現在磁碟上已有同名檔案。"
+                )
+            elif current_signature is None:
+                conflict_detail = "檔案已從磁碟刪除。"
+            else:
+                conflict_detail = "檔案已在磁碟上被其他程式修改。"
+            answer = QMessageBox.question(
+                self,
+                "檔案已在外部變更",
+                f"{path.name}：{conflict_detail}\n"
+                "仍要用目前草稿覆寫磁碟版本嗎？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
 
-        text = self._editor.toPlainText()
-        if self._editing_newline != "\n":
-            text = text.replace("\n", self._editing_newline)
-
-        encoding = self._editing_encoding
+        text = document.toPlainText()
+        newline = str(state.get("editing_newline") or "\n")
+        if newline != "\n":
+            text = text.replace("\n", newline)
+        original_encoding = str(state.get("editing_encoding") or "utf-8")
+        encoding = original_encoding
         try:
             data = text.encode(encoding)
         except UnicodeEncodeError:
             encoding = "utf-8"
             data = text.encode(encoding)
-
         try:
-            atomic_write_bytes(self._current_file, data)
+            atomic_write_bytes(path, data)
         except OSError as exc:
             QMessageBox.warning(self, "儲存失敗", f"無法寫入檔案：\n{exc}")
             return False
 
-        if encoding != self._editing_encoding:
+        document.setModified(False)
+        signature = self._file_signature(path)
+        state["editing_encoding"] = encoding
+        state["source_signature"] = signature
+        state.pop("source_deleted", None)
+        self._recovery_store.clear_after_save(path)
+        if key == self._active_path:
             self._editing_encoding = encoding
-            self.statusBar().showMessage(
-                "內容含原編碼無法表示的字元，已改用 UTF-8 儲存", 6000
-            )
+            self._loaded_signature = signature
+            self._rearm_watch()
+            self._update_editor_status_document()
+            if encoding != original_encoding:
+                self.statusBar().showMessage(
+                    "內容含原編碼無法表示的字元，已改用 UTF-8 儲存", 6000
+                )
+            else:
+                self.statusBar().showMessage("已儲存", 3000)
+            if is_markdown(path):
+                self._reload_preview()
+                self._refresh_link_index(force=True)
+                self._update_front_tags()
         else:
-            self.statusBar().showMessage("已儲存", 3000)
-
-        self._editor.mark_saved()
-        self._loaded_signature = self._file_signature(self._current_file)
-        self._rearm_watch()
-        self._reload_preview()  # keep scroll position across the save
+            self._refresh_link_index(force=True)
         self._update_dirty_ui()
-        self._refresh_link_index(force=True)
-        self._update_front_tags()
         return True
+
+    def _save_edits(self) -> bool:
+        if not (self._edit_mode and self._current_file):
+            return False
+        self._stash_active_editor_state(snapshot=False)
+        return self._save_tab_buffer(str(self._current_file))
 
     def _on_editor_modified(self, _modified: bool):
         self._update_dirty_ui()
+        if self._editor.is_modified():
+            self._recovery_timer.start()
 
     def _on_editor_text_changed(self):
         # Debounced live re-render; only the split mode shows the preview.
         if self._view_mode == view_mode.SPLIT:
             self._preview_timer.start()
+        if self._edit_mode:
+            self._editor_status_timer.start()
+            if self._editor.is_modified():
+                self._recovery_timer.start()
+
+    def _on_editor_cursor_changed(self):
+        if not self._edit_mode:
+            return
+        cursor = self._editor.textCursor()
+        column = qt_to_py_position(
+            cursor.block().text(), cursor.positionInBlock()
+        ) + 1
+        self._editor_status.set_cursor_position(
+            line=cursor.blockNumber() + 1,
+            column=column,
+        )
+
+    def _update_editor_status_document(self) -> None:
+        if not self._edit_mode or self._current_kind not in {"markdown", "text"}:
+            return
+        cursor = self._editor.textCursor()
+        column = qt_to_py_position(
+            cursor.block().text(), cursor.positionInBlock()
+        ) + 1
+        self._editor_status.set_document_state(
+            line=cursor.blockNumber() + 1,
+            column=column,
+            text=self._editor.toPlainText(),
+            document_kind=self._current_kind,
+            encoding=self._editing_encoding,
+            newline=self._editing_newline,
+        )
 
     def _update_preview(self):
         if self._view_mode != view_mode.SPLIT or not self._current_file:
@@ -1748,13 +2540,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             QMessageBox.warning(
                 self,
                 "不支援的檔案",
-                "目前支援 Markdown（.md, .markdown）與 PDF（.pdf）檔案。",
+                "目前支援 Markdown（.md, .markdown）、純文字（.txt）與 PDF（.pdf）檔案。",
             )
             return
-        if self._edit_mode:
-            if not self._confirm_discard_edits():
-                return
-            self._leave_edit_ui()
         key = str(path)
         existing = self._index_of_path(key)
         if existing >= 0:
@@ -1779,14 +2567,23 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             for index in range(self._tab_bar.count())
         ]
         labels = disambiguated_tab_labels(paths)
-        dirty_path = (
-            self._active_path
-            if self._edit_mode and self._editor.is_modified()
-            else None
-        )
+        dirty_paths = {
+            path
+            for path, state in self._tab_state.items()
+            if isinstance(state.get("editor_document"), QTextDocument)
+            and state["editor_document"].isModified()
+        }
+        # Keep the compatibility surface correct even when callers toggle
+        # ``_edit_mode`` directly before a tab buffer has been stashed.
+        if self._edit_mode and self._active_path and self._editor.is_modified():
+            dirty_paths.add(self._active_path)
         for index, (path, label) in enumerate(zip(paths, labels)):
-            marker = "● " if path and path == dirty_path else ""
-            self._tab_bar.setTabText(index, f"{marker}{label}")
+            marker = "● " if path and path in dirty_paths else ""
+            deleted = bool(
+                path and (self._tab_state.get(path) or {}).get("source_deleted")
+            )
+            suffix = "（原檔已刪除）" if deleted else ""
+            self._tab_bar.setTabText(index, f"{marker}{label}{suffix}")
         self._tab_bar.refresh_close_buttons()
 
     def _index_of_path(self, key: str) -> int:
@@ -1803,7 +2600,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.setTabData(idx, key)
         self._tab_bar.setTabToolTip(idx, key)
         self._tab_guard = False
-        self._tab_state[key] = {"kind": kind, "scroll": None}
+        self._tab_state[key] = {
+            "kind": kind,
+            "scroll": None,
+            "view_mode": view_mode.PREVIEW,
+            "editor_document": None,
+        }
         self._refresh_tab_labels()
         return idx
 
@@ -1813,16 +2615,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         key = self._tab_bar.tabData(idx)
         if not key or key == self._active_path:
             return
-        # Switching documents while editing: confirm like opening a new file.
-        if self._edit_mode and not self._confirm_discard_edits():
-            self._tab_guard = True
-            prev = self._index_of_path(self._active_path) if self._active_path else -1
-            if prev >= 0:
-                self._tab_bar.setCurrentIndex(prev)
-            self._tab_guard = False
-            return
-        if self._edit_mode:
-            self._leave_edit_ui()
         self._activate_tab(idx)
 
     def _on_tab_close(self, idx: int) -> bool:
@@ -1830,10 +2622,38 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return False
         key = self._tab_bar.tabData(idx)
         closing_active = key == self._active_path
-        if closing_active and self._edit_mode:
-            if not self._confirm_discard_edits():
+        state = self._tab_state.get(key) or {}
+        preserve_recovery = False
+        if state.get("pending_recovery"):
+            answer = QMessageBox.question(
+                self,
+                "尚未處理的復原草稿",
+                f"{Path(key).name} 的復原草稿尚未還原。\n"
+                "選「是」會保留草稿供下次開啟；選「否」會永久捨棄草稿。",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Cancel:
                 return False
-            self._leave_edit_ui()
+            preserve_recovery = answer == QMessageBox.StandardButton.Yes
+            if preserve_recovery:
+                self._recovery_checked_paths.discard(key)
+            else:
+                self._recovery_store.discard(key)
+        if closing_active and self._edit_mode:
+            self._stash_active_editor_state(snapshot=False)
+        if not self._confirm_tab_buffer(key):
+            return False
+        if closing_active and not self._confirm_discard_preview_edit():
+            return False
+        if closing_active and self._edit_mode:
+            self._leave_edit_ui(persist_state=False)
+        # Confirmation above guarantees the buffer is either saved or
+        # explicitly discarded. Detach it before removing the final tab-state
+        # reference so parentless QTextDocuments can be released immediately.
+        self._discard_tab_buffer(key, preserve_recovery=preserve_recovery)
         if closing_active:
             self._active_path = None  # don't save state for a closing document
         self._tab_guard = True
@@ -1937,16 +2757,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         key = self._tab_bar.tabData(idx)
         path = Path(key)
+        if key == self._active_path and self._edit_mode:
+            self._stash_active_editor_state(snapshot=False)
+        if not self._confirm_tab_buffer(key):
+            return
         if key == self._active_path:
             if self._edit_mode:
-                if not self._confirm_discard_edits():
-                    return
-                self._leave_edit_ui()
+                self._leave_edit_ui(persist_state=False)
             self._save_active_view_state()
             # The detached window restores shared zoom from QSettings during
             # construction, so commit the active PDF's last wheel frame first.
             self._flush_pdf_zoom_pipeline()
         state = dict(self._tab_state.get(key) or {})
+        state["editor_document"] = None
+        state["view_mode"] = view_mode.PREVIEW
         kind = state.get("kind") or document_kind(path)
         if not kind:
             return
@@ -1991,7 +2815,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         key = self._tab_bar.tabData(idx)
         if not key or key == self._active_path:
             return
-        self._save_active_view_state()
+        if self._edit_mode:
+            self._stash_active_editor_state()
+            self._leave_edit_ui(persist_state=False)
+        else:
+            self._save_active_view_state()
         self._active_path = key
         state = self._tab_state.get(key) or {}
         kind = state.get("kind") or document_kind(Path(key))
@@ -2002,7 +2830,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _show_empty_state(self):
         self._flush_pdf_zoom_pipeline()
+        self._editor.release_buffer_document()
         self._editor.set_document_path(None)
+        self._editor.set_plain_text_mode(False)
         self._current_file = None
         self._current_kind = ""
         self._current_front_tags = []
@@ -2028,11 +2858,70 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._watch_current_file()
         self._refresh_icons()
 
+    def _refresh_stale_clean_editor_state(self, path: Path, state: dict) -> None:
+        """Refresh an inactive clean buffer whose source changed on disk."""
+
+        document = state.get("editor_document")
+        if not isinstance(document, QTextDocument) or document.isModified():
+            return
+        current_signature = self._file_signature(path)
+        if state.get("source_signature") == current_signature:
+            return
+        if current_signature is None:
+            # The clean buffer is now the only remaining copy. Promote it to a
+            # draft rather than dropping it merely because deletion happened
+            # while another tab was active.
+            document.setModified(True)
+            state["source_deleted"] = True
+            self._save_recovery_for_state(str(path), state)
+            self.statusBar().showMessage(
+                "原始檔在背景中被刪除；分頁內容已保留為未儲存草稿。",
+                8000,
+            )
+            return
+        try:
+            result = read_text_detailed(path)
+        except OSError:
+            result = None
+        if result is None:
+            # Preserve the readable in-memory version and force the normal
+            # conflict prompt on a future Save.
+            document.setModified(True)
+            self._save_recovery_for_state(str(path), state)
+            return
+        text, encoding, newline = result
+        replacement = self._editor.create_buffer_document(text)
+        state.update(
+            {
+                "editor_document": replacement,
+                "cursor": 0,
+                "anchor": 0,
+                "editor_scroll": 0,
+                "editing_encoding": encoding,
+                "editing_newline": newline,
+                "source_signature": current_signature,
+            }
+        )
+        state.pop("source_deleted", None)
+        try:
+            document.deleteLater()
+        except RuntimeError:
+            pass
+
     def _load_document(self, path: Path, kind: str):
         """Load *path* into the shared viewer, restoring its saved view state."""
         self._flush_pdf_zoom_pipeline()
         self._current_file = path
         self._current_kind = kind
+        self._prepare_recovery_state(path, kind)
+        tab_state = self._tab_state.get(str(path)) or {}
+        if kind in {"markdown", "text"}:
+            self._refresh_stale_clean_editor_state(path, tab_state)
+        restore_editor = (
+            kind in {"markdown", "text"}
+            and view_mode.is_editing(str(tab_state.get("view_mode", "")))
+            and isinstance(tab_state.get("editor_document"), QTextDocument)
+        )
         self.setWindowTitle(f"{path.name} - Markdown Viewer")
         self._toolbar_title.setText(path.name)
         self._toolbar_subtitle.setText(str(path.parent))
@@ -2040,19 +2929,39 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._current_front_tags = []
         self._current_body_tags = []
         if kind == "markdown":
-            self._doc_annotations = AnnotationStore.load(path)
+            self._doc_annotations = (
+                AnnotationStore.load(path) if path.exists()
+                else DocumentAnnotations()
+            )
             self._sync_renderer_annotations()
             self._panel.annotations.set_document(self._doc_annotations)
             self._set_pdf_panel_document(None)
             self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
-            self._update_front_tags()
+            if path.exists():
+                self._update_front_tags()
             scroll = (self._tab_state.get(str(path)) or {}).get("scroll")
             # A fresh page boots with no inline editor, whatever the last one
             # was doing when it was replaced.
             self._preview_editing = False
-            self._renderer.load_file(path, scroll_y=scroll)
+            if path.exists():
+                self._renderer.load_file(path, scroll_y=scroll)
+            else:
+                self._renderer.show_empty()
             self._stack.setCurrentWidget(self._renderer)
+        elif kind == "text":
+            self._doc_annotations = DocumentAnnotations()
+            self._renderer.set_annotations([])
+            self._panel.annotations.set_document(None)
+            self._set_pdf_panel_document(None)
+            self._panel.show_pdf_notes(False)
+            self._panel.set_annotations_enabled(False)
+            self._panel.toc.update_outline([])
+            self._preview_editing = False
+            # Plain text has no preview: the editor IS the document view.
+            if not restore_editor and not self._enter_edit_mode(view_mode.EDIT):
+                self._renderer.show_empty()
+                self._stack.setCurrentWidget(self._renderer)
         else:
             self._doc_annotations = DocumentAnnotations()
             self._renderer.set_annotations([])
@@ -2076,6 +2985,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if self._graph_window is not None and self._graph_window.isVisible():
             current = str(path) if kind == "markdown" else None
             self._graph_window.set_current_path(current)
+        if restore_editor:
+            self._activate_editor_state(
+                tab_state,
+                str(tab_state.get("view_mode") or view_mode.EDIT),
+            )
         self._refresh_icons()
 
     def _open_pdf(self, path: Path):
@@ -2395,17 +3309,51 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._open_file(str(new_path))
         self._refresh_link_index(force=True)
 
+    def _new_note(self):
+        """Ctrl+N: create an empty Markdown / plain-text note and edit it."""
+        browser = self._panel.file_browser
+        folder = browser.selected_directory()
+        if folder is None:
+            roots = browser.library_roots() or []
+            folder = roots[0] if roots else None
+        if folder is None:
+            picked = QFileDialog.getExistingDirectory(
+                self, "選擇新筆記的資料夾"
+            )
+            if not picked:
+                return
+            folder = Path(picked)
+        dialog = NewNoteDialog(folder, self._theme, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        path = dialog.created_path()
+        if path is None:
+            return
+        browser.reveal_created_note(path)
+        self._on_browser_note_created(str(path))
+
     # --- file tree CRUD follow-ups (called by the file browser) ---
     def _on_browser_note_created(self, path: str):
-        """A note was created in the file tree: open it in edit mode."""
+        """A note was created in the file tree: open it for editing.
+
+        A fresh Markdown note starts in split view (editor + live preview);
+        plain text has no preview so it opens in the plain editor. This runs
+        once at creation only -- switching modes or tabs afterwards follows
+        the normal rules.
+        """
         self._open_file(path)
         if (
             self._current_file
             and str(self._current_file) == str(Path(path))
-            and self._current_kind == "markdown"
+            and self._current_kind in ("markdown", "text")
             and not self._edit_mode
         ):
-            self._enter_edit_mode()
+            mode = (
+                view_mode.SPLIT
+                if self._current_kind == "markdown"
+                else view_mode.EDIT
+            )
+            self._enter_edit_mode(mode)
         self._refresh_link_index(force=True)
 
     def _configured_note_folder(self, key: str, default_name: str) -> Path | None:
@@ -2500,9 +3448,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     "範本資料夾不存在，或資料夾內沒有 Markdown 範本。",
                 )
                 return
-            labels = [
-                path.relative_to(folder).as_posix() for path in templates
+            recent = [
+                Path(value) for value in self._settings_json_list(
+                    _RECENT_TEMPLATES_KEY
+                )
             ]
+            recent = [path for path in recent if path in templates][:5]
+            ordered = recent + [path for path in templates if path not in recent]
+            labels = []
+            for path in ordered:
+                relative = path.relative_to(folder).as_posix()
+                labels.append(
+                    f"最近｜{relative}" if path in recent else relative
+                )
             choice, ok = QInputDialog.getItem(
                 self,
                 "插入範本",
@@ -2513,7 +3471,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             )
             if not ok:
                 return
-            template_path = templates[labels.index(choice)]
+            template_path = ordered[labels.index(choice)]
 
         try:
             rendered = render_template_file(
@@ -2530,8 +3488,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
 
         cursor = self._editor.textCursor()
+        editor_text = self._editor.toPlainText()
+        start = qt_to_py_position(editor_text, cursor.selectionStart())
+        end = qt_to_py_position(editor_text, cursor.selectionEnd())
+        rendered = prepare_template_insertion(
+            rendered, editor_text[:start], editor_text[end:]
+        )
         cursor.insertText(rendered)
         self._editor.setTextCursor(cursor)
+        self._remember_setting_value(
+            _RECENT_TEMPLATES_KEY, str(Path(template_path)), 5
+        )
         self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
 
     def _on_browser_paths_migrated(self, mapping: dict):
@@ -2548,7 +3515,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._tab_bar.setTabToolTip(i, new)
             self._tab_guard = False
             if key in self._tab_state:
-                self._tab_state[new] = self._tab_state.pop(key)
+                state = self._tab_state.pop(key)
+                self._tab_state[new] = state
+                self._recovery_store.discard(key)
+                document = state.get("editor_document")
+                if isinstance(document, QTextDocument) and document.isModified():
+                    self._save_recovery_for_state(new, state)
+            if key in self._recovery_checked_paths:
+                self._recovery_checked_paths.discard(key)
+                self._recovery_checked_paths.add(new)
         if self._active_path in mapping:
             self._active_path = mapping[self._active_path]
         if self._current_file and str(self._current_file) in mapping:
@@ -2556,6 +3531,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self.setWindowTitle(f"{self._current_file.name} - Markdown Viewer")
             self._toolbar_title.setText(self._current_file.name)
             self._toolbar_subtitle.setText(str(self._current_file.parent))
+            self._editor.set_document_path(self._current_file)
             self._watch_current_file()
         self._refresh_tab_labels()
         self._panel.recent.migrate_paths(mapping)
@@ -2563,14 +3539,29 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_link_index(force=True)
 
     def _on_browser_paths_deleted(self, paths: list):
-        """Files were deleted on disk: close their tabs and drop recents."""
+        """Close clean deleted files while preserving every dirty draft."""
         for path in paths:
             key = str(path)
             idx = self._index_of_path(key)
             if idx >= 0:
-                if self._edit_mode and key == self._active_path:
-                    # The file is gone; don't offer to "save" it back.
-                    self._editor.mark_saved()
+                if key == self._active_path and self._edit_mode:
+                    self._stash_active_editor_state(snapshot=False)
+                state = self._tab_state.get(key) or {}
+                document = state.get("editor_document")
+                if isinstance(document, QTextDocument) and document.isModified():
+                    # Deletion has already happened in the file browser. Keep
+                    # the buffer and its snapshot so Save can recreate the file
+                    # instead of silently throwing the user's newer text away.
+                    state["source_deleted"] = True
+                    self._save_recovery_for_state(key, state)
+                    if key == self._active_path:
+                        self.statusBar().showMessage(
+                            "原始檔已刪除；未儲存草稿仍保留在此分頁，儲存可重新建立檔案。",
+                            8000,
+                        )
+                    self._refresh_tab_labels()
+                    continue
+                self._recovery_store.discard(key)
                 self._on_tab_close(idx)
         self._panel.recent.remove_paths(list(paths))
         self._refresh_tags_panel()
@@ -2680,6 +3671,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 return
             self._pdf_view.set_highlights(self._pdf_highlights)
             self._pdf_view.restore_page(page)
+        elif self._current_kind == "text":
+            # Reload = re-read the file into the (always-on) editor.
+            if not self._confirm_discard_edits():
+                return
+            if self._active_path:
+                self._discard_tab_buffer(self._active_path)
+            if not self._enter_edit_mode(view_mode.EDIT):
+                return
         else:
             self._reload_preview()
         self.statusBar().showMessage("已重新載入文件", 3000)
@@ -2739,7 +3738,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         ):
             self._close_search()
 
-    def _confirm_discard_preview_edit(self) -> bool:
+    def _confirm_discard_preview_edit(self, *, commit: bool = True) -> bool:
         """Ask before an action that would tear the preview's editor down.
 
         The inline editor lives entirely inside the rendered page, so any
@@ -2759,7 +3758,61 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return False
         # Whatever the caller does next replaces the page, and with it the
         # editor that set this flag.
-        self._preview_editing = False
+        if commit:
+            self._preview_editing = False
+        return True
+
+    def _reload_editor_from_disk(self) -> bool:
+        """Replace the active editor buffer only after disk text is readable."""
+
+        if not self._current_file or not self._active_path:
+            return False
+        try:
+            result = read_text_detailed(self._current_file)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "重新載入失敗", f"無法讀取磁碟版本：\n{exc}"
+            )
+            return False
+        if result is None:
+            QMessageBox.warning(
+                self,
+                "重新載入失敗",
+                "無法辨識磁碟版本的文字編碼。",
+            )
+            return False
+        text, encoding, newline = result
+        mode = self._view_mode if self._edit_mode else view_mode.EDIT
+        if self._current_kind == "text":
+            mode = view_mode.EDIT
+        document = self._editor.create_buffer_document(text)
+        previous_state = self._tab_state.get(self._active_path) or {}
+        previous_document = previous_state.get("editor_document")
+        state = {
+            "kind": self._current_kind,
+            "scroll": None,
+            "view_mode": mode,
+            "editor_document": document,
+            "cursor": 0,
+            "anchor": 0,
+            "editor_scroll": 0,
+            "editing_encoding": encoding,
+            "editing_newline": newline,
+            "source_signature": self._file_signature(self._current_file),
+            "preview_scroll_ratio": 0.0,
+        }
+        self._tab_state[self._active_path] = state
+        if not self._activate_editor_state(state, mode):
+            return False
+        if (
+            isinstance(previous_document, QTextDocument)
+            and previous_document is not document
+        ):
+            try:
+                previous_document.deleteLater()
+            except RuntimeError:
+                pass
+        self._recovery_store.discard(self._active_path)
         return True
 
     def _prompt_external_change(self):
@@ -2790,9 +3843,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if answer == QMessageBox.StandardButton.Yes:
-                    self._leave_edit_ui()
-                    self._preview_editing = False
-                    self._renderer.load_file(self._current_file)
+                    self._reload_editor_from_disk()
             else:
                 answer = QMessageBox.question(
                     self,
@@ -2801,7 +3852,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
                 if answer == QMessageBox.StandardButton.Yes:
-                    self._reload_preview()
+                    if self._edit_mode and self._current_kind in {
+                        "markdown", "text"
+                    }:
+                        self._reload_editor_from_disk()
+                    else:
+                        self._reload_preview()
         finally:
             self._reload_prompt_open = False
 

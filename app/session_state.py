@@ -46,9 +46,21 @@ def restore_last_session(window):
             paths = json.loads(raw)
         except (ValueError, TypeError):
             paths = []
-    paths = [
-        p for p in paths if p and is_supported_document(p) and Path(p).exists()
-    ]
+    recovery_store = getattr(window, "_recovery_store", None)
+
+    def available(path) -> bool:
+        if not path or not is_supported_document(path):
+            return False
+        if Path(path).exists():
+            return True
+        if recovery_store is None:
+            return False
+        try:
+            return recovery_store.load(path) is not None
+        except OSError:
+            return False
+
+    paths = [p for p in paths if available(p)]
     if paths:
         # Add every remembered tab but load only the active one (the others load
         # lazily when first selected).
@@ -69,7 +81,7 @@ def restore_last_session(window):
         return
     # Fallback to the single last_file remembered by older versions.
     last = settings.value("last_file")
-    if last and is_supported_document(last) and Path(last).exists():
+    if available(last):
         window._open_file(last)
 
 
@@ -174,7 +186,9 @@ def apply_zoom(window, factor: float, *, sync_pdf: bool = True):
 
 
 def close_event(window, event) -> bool:
-    if not window._confirm_discard_edits():
+    confirm = getattr(window, "_confirm_close_all_edits", None)
+    safe_to_close = confirm() if callable(confirm) else window._confirm_discard_edits()
+    if not safe_to_close:
         event.ignore()
         return False
     save_active_view_state(window)

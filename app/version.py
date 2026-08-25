@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.25.0"
+VERSION = "1.26.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "文件庫資料夾樹新增清楚的展開箭頭與階層導引線，並以不同圖示區分文件庫、收合與展開資料夾。",
-    "目錄改用真正的標題層級縮排與緊湊列距，目前章節更醒目，長標題也不再產生水平捲軸。",
-    "修正 PDF 大綱第一頁無法點擊跳轉的問題，並改善目錄在亮暗主題與高 DPI 下的顯示。",
+    "新增 Markdown／TXT 筆記建立與完整文字編輯流程，支援各分頁獨立草稿、Undo、游標及捲動狀態。",
+    "Markdown 編輯器新增格式工具列、快速指令、浮動格式列，以及範本、圖片、附件與最近資源插入。",
+    "新增當機復原與外部檔案變更保護，並保留文字編碼及換行格式；背景分頁關閉也不再造成 Qt 閃退。",
 ]
 
 GITHUB_OWNER = "wulove1029"

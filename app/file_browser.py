@@ -875,6 +875,32 @@ class FileBrowserView(QWidget):
     def select_path(self, filepath: str | Path):
         self._select_path(Path(filepath))
 
+    def selected_directory(self) -> Path | None:
+        """Directory of the current tree selection (a file row -> its parent)."""
+        item = self._tree.currentItem()
+        if item is None:
+            return None
+        raw = item.data(0, _PATH_ROLE)
+        if not raw:
+            return None
+        path = Path(str(raw))
+        if item.data(0, _IS_DIR_ROLE):
+            return path
+        return path.parent
+
+    def library_roots(self) -> list[Path]:
+        """Existing library root folders, in configured order."""
+        return [
+            Path(lib.path) for lib in self._libraries if Path(lib.path).is_dir()
+        ]
+
+    def reveal_created_note(self, path: str | Path) -> None:
+        """Refresh + select a note created outside the tree's own actions."""
+        path = Path(path)
+        self._remember_expanded(str(path.parent))
+        self.refresh_libraries()
+        self._select_path(path)
+
     def set_tag_filter(self, tag: str):
         self._active_tag = tag or ""
         self._refresh_list()

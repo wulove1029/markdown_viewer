@@ -72,3 +72,20 @@ def test_fenced_block_state(qapp):
     hl = MarkdownHighlighter(doc, LIGHT)
     hl.rehighlight()  # block-state handling must not raise
     assert doc.blockCount() == 3
+
+
+def test_fenced_block_state_rejects_false_closer_and_four_space_opener(qapp):
+    doc = QTextDocument()
+    doc.setPlainText(
+        "````python\nbody\n```\n~~~\n````\noutside\n    ```\nnormal"
+    )
+    hl = MarkdownHighlighter(doc, LIGHT)
+    hl.rehighlight()
+    states = []
+    block = doc.firstBlock()
+    while block.isValid():
+        states.append(block.userState())
+        block = block.next()
+
+    assert all(state > 0 for state in states[:4])
+    assert states[4:] == [0, 0, 0, 0]

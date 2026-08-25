@@ -214,7 +214,7 @@ class LeftPanel(QWidget):
             self,
             "開啟文件",
             "",
-            "支援的文件 (*.md *.markdown *.pdf);;Markdown 檔案 (*.md *.markdown);;PDF 檔案 (*.pdf);;所有檔案 (*)",
+            "支援的文件 (*.md *.markdown *.txt *.pdf);;Markdown 檔案 (*.md *.markdown);;純文字檔案 (*.txt);;PDF 檔案 (*.pdf);;所有檔案 (*)",
         )
         if path:
             self._on_file_selected(path)

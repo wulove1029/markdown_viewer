@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Iterable
 
 from .atomic_io import atomic_write_bytes
+
+
+_BLOCK_TEMPLATE_RE = re.compile(
+    r"^\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~|\|)"
+)
 
 
 def render_template(text: str, title: str, now: datetime | None = None) -> str:
@@ -61,6 +67,37 @@ def render_template_file(
     """Read a UTF-8 Markdown template and replace its supported variables."""
     text = Path(template_path).read_text(encoding="utf-8")
     return render_template(text, title, now)
+
+
+def prepare_template_insertion(rendered: str, before: str, after: str) -> str:
+    """Give block templates paragraph boundaries while leaving snippets inline."""
+
+    content = str(rendered)
+    stripped = content.strip("\r\n")
+    is_block = "\n" in stripped or bool(_BLOCK_TEMPLATE_RE.match(stripped))
+    if not is_block:
+        return content
+
+    if before:
+        if before.endswith("\n\n"):
+            prefix = ""
+        elif before.endswith("\n"):
+            prefix = "\n"
+        else:
+            prefix = "\n\n"
+    else:
+        prefix = ""
+
+    if after:
+        if after.startswith("\n\n"):
+            suffix = ""
+        elif after.startswith("\n"):
+            suffix = "\n"
+        else:
+            suffix = "\n\n"
+    else:
+        suffix = "" if content.endswith("\n") else "\n"
+    return prefix + content + suffix
 
 
 def open_or_create_daily_note(

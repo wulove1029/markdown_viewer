@@ -25,6 +25,34 @@ def test_create_note_rejects_invalid_names(tmp_path):
         file_ops.create_note(tmp_path, "   ")
 
 
+def test_create_document_writes_empty_file_with_suffix(tmp_path):
+    md = file_ops.create_document(tmp_path, "靈感")
+    assert md == tmp_path / "靈感.md"
+    assert md.read_bytes() == b""
+
+    txt = file_ops.create_document(tmp_path, "備忘", ".txt")
+    assert txt == tmp_path / "備忘.txt"
+    assert txt.read_bytes() == b""
+
+    # A matching typed extension is not doubled (case-insensitive).
+    typed = file_ops.create_document(tmp_path, "list.TXT", ".txt")
+    assert typed == tmp_path / "list.txt"
+
+
+def test_create_document_refuses_existing_and_invalid_names(tmp_path):
+    file_ops.create_document(tmp_path, "note", ".txt")
+    with pytest.raises(OSError):
+        file_ops.create_document(tmp_path, "note", ".txt")
+    with pytest.raises(OSError):
+        file_ops.create_document(tmp_path, "note.txt", ".txt")
+    with pytest.raises(OSError):
+        file_ops.create_document(tmp_path, "bad|name", ".txt")
+    with pytest.raises(OSError):
+        file_ops.create_document(tmp_path, "   ", ".md")
+    # The .txt name never auto-numbers: the first create stays the only file.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["note.txt"]
+
+
 def test_create_folder(tmp_path):
     created = file_ops.create_folder(tmp_path, "inbox")
     assert created.is_dir()

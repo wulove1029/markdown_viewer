@@ -557,7 +557,7 @@ def test_background_scan_builds_tree_off_the_ui_thread(qapp, tmp_path, monkeypat
     sub.mkdir(parents=True)
     (root / "top.md").write_text("# top", encoding="utf-8")
     (sub / "nested.md").write_text("# nested", encoding="utf-8")
-    (sub / "ignored.txt").write_text("x", encoding="utf-8")
+    (sub / "ignored.log").write_text("x", encoding="utf-8")
 
     view = _make_bg_view(
         tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
@@ -573,7 +573,7 @@ def test_background_scan_builds_tree_off_the_ui_thread(qapp, tmp_path, monkeypat
         assert "inbox" in texts
         assert "top.md" in texts
         assert "nested.md" in texts
-        assert "ignored.txt" not in texts
+        assert "ignored.log" not in texts
         # Library roots open by default on the first build.
         assert view._tree.topLevelItem(0).isExpanded() is True
         assert "2 份文件" in view._status.text()
@@ -670,7 +670,7 @@ def test_scan_folder_uses_directory_listing_types(tmp_path):
     (root / "sub").mkdir(parents=True)
     (root / "sub" / "n.md").write_text("n", encoding="utf-8")
     (root / "top.pdf").write_bytes(b"%PDF-1.4")
-    (root / "skip.txt").write_text("x", encoding="utf-8")
+    (root / "skip.log").write_text("x", encoding="utf-8")
     request = fb._ScanRequest(
         libraries=[DocumentLibrary("lib", "Vault", str(root))],
         query="",

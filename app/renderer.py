@@ -24,9 +24,10 @@ from PySide6.QtWebEngineCore import (
     QWebEngineUrlScheme,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QMenu, QMessageBox
 
 from .annotation_bridge import AnnotationBridge
+from .attachment_security import attachment_open_policy
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
 from .md_converter import convert, convert_text, state_page_html
 
@@ -158,7 +159,24 @@ class _DocumentPage(QWebEnginePage):
                 if is_supported_document(local):
                     self._view.local_doc_clicked.emit(local)
                 else:
-                    QDesktopServices.openUrl(url)
+                    policy = attachment_open_policy(local)
+                    if policy == "block":
+                        QMessageBox.warning(
+                            self._view,
+                            "已封鎖不安全的附件",
+                            "為避免執行程式或腳本，Markdown Viewer 不會開啟：\n"
+                            f"{local}",
+                        )
+                    elif policy == "open" or QMessageBox.question(
+                        self._view,
+                        "開啟外部附件",
+                        "這個檔案類型不在一般文件清單中。\n"
+                        f"確定要交給系統開啟嗎？\n\n{local}",
+                        QMessageBox.StandardButton.Yes
+                        | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    ) == QMessageBox.StandardButton.Yes:
+                        QDesktopServices.openUrl(url)
                 return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
