@@ -47,9 +47,13 @@ def test_vditor_glue_exposes_the_boot_and_glue_hooks():
     assert "saveRequested" in script
 
 
-def test_vditor_glue_disables_cache_and_autosave():
+def test_vditor_glue_disables_autosave_and_stale_core_focus_cache():
     script = (_ASSETS / "vditor_glue.js").read_text(encoding="utf-8")
-    assert "cache: { enable: false }" in script
+    # The behavioural harness also inspects the constructed options; these
+    # static checks keep the safety policy visible when Node is unavailable.
+    assert "cache: {" in script
+    assert "enable: false," in script
+    assert 'focusHost: "browser"' in script
 
 
 def test_vditor_host_page_loads_offline_assets_only():

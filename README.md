@@ -51,10 +51,26 @@ $$
 
 ## Editing
 
-Click the pencil (or press **Ctrl+E**) to edit. Edit mode is a split view: a
-syntax-highlighted Markdown editor on the left and a **live preview** on the
-right that updates as you type and scrolls in sync. **Ctrl+S** saves, and
-**Ctrl+F** opens find & replace within the editor.
+Click the pencil (or press **Ctrl+E**) to open the WYSIWYG Markdown editor. It
+bundles the pinned editor fork from VS Code
+[Markdown Editor - Office Viewer 4.2](https://github.com/cweijan/vscode-office),
+not a stock upstream Vditor build. Its single-row top toolbar, left outline,
+direct block editing, draggable block handles, and code blocks with language,
+color-theme, copy, and delete controls follow that editor. The toolbar includes
+headings, text color/highlight, links, lists, task lists, tables, quotes, code,
+attachments, undo/redo, find, themes, export, and settings.
+
+Use **Ctrl+Shift+W** to switch the active Markdown tab to the original
+source-and-live-preview split editor. **Ctrl+S** saves and **Ctrl+F** opens
+find/replace in either editing backend. **Esc** closes the active Office Viewer
+popover one layer at a time and otherwise stays in the editor. Each tab
+remembers its chosen backend, caret, selection, and scroll position, including
+inside long CodeMirror code blocks.
+
+Normal WYSIWYG typing is synchronized as small UTF-16 edits instead of
+replacing the whole document on every keystroke. Save, export, tab switching,
+renames, and close operations take a final live snapshot first, so the latest
+text is retained even if the action happens before the typing debounce fires.
 
 Saves are crash-safe: the file is written atomically and the previous version
 is kept as a `.bak`. If another program changes the open file (e.g. a cloud

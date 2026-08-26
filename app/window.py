@@ -1,6 +1,7 @@
 """Main application window with toolbar, side panel, and renderer workspace."""
 
 import json
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from PySide6.QtGui import (
     QAction,
     QDragEnterEvent,
     QDropEvent,
+    QCursor,
     QGuiApplication,
     QImage,
     QKeySequence,
@@ -127,7 +129,7 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
-from .text_positions import qt_to_py_position
+from .text_positions import py_to_qt_position, qt_to_py_position
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
 from .toolbar_utilities import (
@@ -263,6 +265,13 @@ class MainWindow(QMainWindow):
             )
         )
         self._wysiwyg_view: WysiwygView | None = None
+        self._wysiwyg_shadow_text: str | None = None
+        self._wysiwyg_shadow_qt_length: int | None = None
+        self._wysiwyg_shadow_revision = 0
+        self._applying_wysiwyg_delta = False
+        self._wysiwyg_snapshot_token = 0
+        self._wysiwyg_snapshot_busy = False
+        self._wysiwyg_close_snapshot_approved = False
         # Effective backend for whatever is currently in the editor stack;
         # kept in sync by _activate_editor_state so text-change handlers can
         # skip work (split-only preview timer) without re-deriving it.
@@ -758,6 +767,24 @@ class MainWindow(QMainWindow):
 
     def _update_native_edit_actions(self) -> None:
         editing = self._edit_mode
+        if (
+            editing
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            # These QAction callbacks target the hidden QPlainTextEdit. The
+            # visible Office Viewer surface owns its own undo/cut/copy/paste
+            # shortcuts and right-click menu, so enabling them here would
+            # edit an invisible competing buffer.
+            for action in (
+                self._undo_action,
+                self._redo_action,
+                self._cut_action,
+                self._copy_action,
+                self._paste_action,
+                self._select_all_action,
+            ):
+                action.setEnabled(False)
+            return
         document = self._editor.document()
         self._undo_action.setEnabled(editing and document.isUndoAvailable())
         self._redo_action.setEnabled(editing and document.isRedoAvailable())
@@ -768,7 +795,11 @@ class MainWindow(QMainWindow):
         self._select_all_action.setEnabled(editing and not document.isEmpty())
 
     def _update_format_menu_actions(self) -> None:
-        enabled = self._edit_mode and self._current_kind == "markdown"
+        enabled = (
+            self._edit_mode
+            and self._current_kind == "markdown"
+            and self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+        )
         self._format_menu.setEnabled(enabled)
         for action in self._format_menu_actions.values():
             action.setEnabled(enabled)
@@ -1281,9 +1312,8 @@ QWidget#searchBar QLabel {{
     def _toggle_search(self):
         if self._edit_mode:
             if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
-                # The editor's find/replace bar operates on the hidden
-                # QPlainTextEdit; v1 has no WYSIWYG-side search UI (see the
-                # WYSIWYG spec's known trade-offs), so this is a no-op there.
+                if self._wysiwyg_view is not None:
+                    self._wysiwyg_view.open_find()
                 return
             self._toggle_editor_search()
             return
@@ -1914,8 +1944,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         dialog = MermaidWorkspaceDialog(theme_name=self._theme_name, parent=self)
         dialog.exec()
 
-    def _edit_mermaid_diagram(self):
-        if not self._ensure_markdown_edit_mode():
+    def _edit_mermaid_diagram(self, _checked=False, *, _source_ready=False):
+        if not _source_ready:
+            self._with_source_markdown_editor(
+                lambda: self._edit_mermaid_diagram(_source_ready=True),
+                purpose="編輯 Mermaid 圖表",
+            )
             return
         text = self._editor.toPlainText()
         blocks = find_mermaid_blocks(text)
@@ -1954,8 +1988,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._replace_editor_document(new_text, block.start_offset)
         self.statusBar().showMessage("Mermaid 圖表已更新。", 3000)
 
-    def _insert_mermaid_diagram(self):
-        if not self._ensure_markdown_edit_mode():
+    def _insert_mermaid_diagram(self, _checked=False, *, _source_ready=False):
+        if not _source_ready:
+            self._with_source_markdown_editor(
+                lambda: self._insert_mermaid_diagram(_source_ready=True),
+                purpose="插入 Mermaid 圖表",
+            )
             return
         dialog = MermaidWorkspaceDialog(
             default_template().source,
@@ -1972,17 +2010,41 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._replace_editor_document(new_text, pos)
         self.statusBar().showMessage("Mermaid 圖表已插入。", 3000)
 
-    def _ensure_markdown_edit_mode(self) -> bool:
+    def _with_source_markdown_editor(self, continuation, *, purpose: str) -> None:
+        """Run a source-only command after safely switching away from WYSIWYG."""
         if not self._current_file or not is_markdown(self._current_file):
             QMessageBox.information(
                 self,
                 "Mermaid",
                 "Open a Markdown file before editing Mermaid diagrams.",
             )
-            return False
+            return
         if not self._edit_mode:
-            self._enter_edit_mode()
-        return self._edit_mode
+            if not self._active_path:
+                return
+            state = self._tab_state.setdefault(self._active_path, {})
+            state["edit_backend"] = edit_backend.SPLIT_BACKEND
+            if self._enter_edit_mode():
+                continuation()
+            return
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            continuation()
+            return
+        if not self._active_path:
+            return
+        state = self._tab_state.get(self._active_path)
+        if state is None:
+            return
+
+        def _switch_to_source() -> None:
+            state["edit_backend"] = edit_backend.SPLIT_BACKEND
+            if self._activate_editor_state(state, self._view_mode):
+                continuation()
+
+        self._request_live_wysiwyg_snapshot(
+            _switch_to_source,
+            purpose=purpose,
+        )
 
     def _choose_mermaid_block(self, blocks):
         if len(blocks) == 1:
@@ -2018,9 +2080,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return None
         return self._tab_state.get(self._active_path)
 
-    def _stash_active_editor_state(self, *, snapshot: bool = True) -> None:
+    def _stash_active_editor_state(
+        self, *, snapshot: bool = True, sync_wysiwyg: bool = True
+    ) -> bool:
         if not self._edit_mode or not self._active_path:
-            return
+            return True
         document = self._editor.document()
         if (
             document is self._editor._parking_document
@@ -2032,7 +2096,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             # a real parentless tab buffer; the permanent parking document
             # itself must never be adopted or destroyed by tab state.
             if not document.isModified():
-                return
+                return True
             old_cursor = self._editor.textCursor()
             promoted = self._editor.create_buffer_document(
                 document.toPlainText()
@@ -2073,6 +2137,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         if snapshot and document.isModified():
             self._save_recovery_for_state(self._active_path, state)
+        return True
 
     def _activate_editor_state(self, state: dict, mode: str) -> bool:
         document = state.get("editor_document")
@@ -2115,6 +2180,18 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         state["edit_backend"] = backend
         self._active_edit_backend = backend
+        # Vditor owns undo/redo while visible. Keeping Qt's shadow undo stack
+        # disabled avoids rebuilding/clearing a large QTextDocument on every
+        # debounced delta; it is re-enabled once source editing resumes.
+        was_modified = document.isModified()
+        document.setUndoRedoEnabled(
+            backend != edit_backend.WYSIWYG_BACKEND
+        )
+        document.setModified(was_modified)
+        self._editor.set_markdown_services_suspended(
+            backend == edit_backend.WYSIWYG_BACKEND
+        )
+        document.setModified(was_modified)
 
         self._renderer.set_inline_edit_enabled(False)
         self._preview_scroll_ratio = float(
@@ -2131,7 +2208,16 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._editor_status.hide()
             view = self._ensure_wysiwyg_view()
             self._stack.setCurrentWidget(view)
-            view.load_markdown(document.toPlainText())
+            markdown = document.toPlainText()
+            self._wysiwyg_shadow_text = markdown
+            self._wysiwyg_shadow_qt_length = max(
+                0, document.characterCount() - 1
+            )
+            self._wysiwyg_shadow_revision = 0
+            set_document_path = getattr(view, "set_document_path", None)
+            if callable(set_document_path):
+                set_document_path(self._current_file)
+            view.load_markdown(markdown)
             view.page().setZoomFactor(self._content_zoom)
             view.setFocus()
         else:
@@ -2159,10 +2245,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         """Lazily build the WYSIWYG stack page (opt-in: most sessions never do)."""
         if self._wysiwyg_view is None:
             self._wysiwyg_view = WysiwygView()
-            self._wysiwyg_view.content_changed.connect(
-                self._on_wysiwyg_content_changed
+            content_detailed = getattr(
+                self._wysiwyg_view, "content_changed_detailed", None
             )
+            if content_detailed is not None:
+                content_detailed.connect(self._on_wysiwyg_content_delta)
+            else:
+                self._wysiwyg_view.content_changed.connect(
+                    self._on_wysiwyg_content_changed
+                )
             self._wysiwyg_view.save_requested.connect(self._save_edits)
+            save_detailed = getattr(
+                self._wysiwyg_view, "save_with_content_detailed", None
+            )
+            if save_detailed is not None:
+                save_detailed.connect(self._on_wysiwyg_save_with_content_delta)
+            else:
+                save_with_content = getattr(
+                    self._wysiwyg_view, "save_with_content_requested", None
+                )
+                if save_with_content is not None:
+                    save_with_content.connect(self._on_wysiwyg_save_with_content)
             self._wysiwyg_view.esc_requested.connect(self._on_wysiwyg_esc)
             self._wysiwyg_view.toolbar_action.connect(
                 self._on_wysiwyg_toolbar_action
@@ -2184,11 +2287,121 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             "export_docx": self._export_docx,
             "export_html": self._export_html,
             "insert_image": self._wysiwyg_insert_image,
+            "insert_attachment": self._wysiwyg_insert_attachment,
             "toggle_theme": self._toggle_theme,
+            "toggle_source": self._toggle_edit_backend,
+            "open_graph": self._open_graph_view,
+            "show_export_menu": self._show_wysiwyg_export_menu,
         }
         handler = handlers.get(name)
         if handler is not None:
             handler()
+
+    def _show_wysiwyg_export_menu(self) -> None:
+        view = self._wysiwyg_view
+        if view is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("匯出 PDF…", self._export_pdf)
+        menu.addAction("匯出 PowerPoint…", self._export_pptx)
+        menu.addAction("匯出 Word…", self._export_docx)
+        menu.addAction("匯出 HTML…", self._export_html)
+
+        generation = getattr(view, "_generation", None)
+        anchor_script = """
+            (function () {
+              var toolbar = document.querySelector('.vditor-toolbar');
+              if (!toolbar) return null;
+              var button = toolbar.querySelector('[data-type="export"]');
+              if (!button) return null;
+              var rect = button.getBoundingClientRect();
+              return JSON.stringify({x: rect.left, y: rect.bottom});
+            })();
+        """
+
+        def _show_at_anchor(result=None) -> None:
+            if (
+                self._wysiwyg_view is not view
+                or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+                or (
+                    generation is not None
+                    and getattr(view, "_generation", None) != generation
+                )
+            ):
+                return
+            anchor = result
+            if isinstance(result, str):
+                try:
+                    anchor = json.loads(result)
+                except (TypeError, ValueError):
+                    anchor = None
+            local_pos = None
+            if isinstance(anchor, dict):
+                try:
+                    local_pos = self._wysiwyg_client_point_to_local(
+                        view, float(anchor["x"]), float(anchor["y"])
+                    )
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    local_pos = None
+            if local_pos is None:
+                # Compatibility fallback for an older/custom Vditor DOM: the
+                # toolbar action originates under the pointer, which is a much
+                # better anchor than the old fixed centre-of-view coordinate.
+                cursor_pos = view.mapFromGlobal(QCursor.pos())
+                if view.rect().contains(cursor_pos):
+                    local_pos = cursor_pos
+                else:
+                    toolbar_bottom = self._wysiwyg_client_point_to_local(
+                        view, 0, 38
+                    ).y()
+                    local_pos = QPoint(
+                        max(0, view.width() - menu.sizeHint().width()),
+                        toolbar_bottom,
+                    )
+            menu.exec(view.mapToGlobal(local_pos))
+
+        page = view.page()
+        run_javascript = getattr(page, "runJavaScript", None)
+        if not callable(run_javascript):
+            _show_at_anchor()
+            return
+        try:
+            run_javascript(anchor_script, _show_at_anchor)
+        except TypeError:
+            # Lightweight/older page doubles may expose only the one-argument
+            # overload. Keep the menu usable without changing the bridge API.
+            _show_at_anchor()
+
+    def _wysiwyg_client_point_to_local(
+        self, view: QWidget, x: float, y: float
+    ) -> QPoint:
+        """Map JavaScript client coordinates into QWebEngineView coordinates.
+
+        ``clientX/clientY`` and ``getBoundingClientRect`` are expressed in CSS
+        pixels. QWebEngine's page zoom scales those pixels inside the widget;
+        Qt's local coordinates are already device-independent, so the screen
+        device-pixel ratio must not be applied a second time.
+        """
+        factor = self._content_zoom
+        try:
+            zoom_factor = getattr(view.page(), "zoomFactor", None)
+            if callable(zoom_factor):
+                factor = float(zoom_factor())
+            else:
+                factor = float(factor)
+        except (TypeError, ValueError, RuntimeError):
+            factor = 1.0
+        if not math.isfinite(factor) or factor <= 0:
+            factor = 1.0
+        try:
+            local = QPoint(round(float(x) * factor), round(float(y) * factor))
+        except (TypeError, ValueError, OverflowError):
+            local = QPoint()
+        bounds = view.rect()
+        if not bounds.isEmpty():
+            local.setX(max(bounds.left(), min(local.x(), bounds.right())))
+            local.setY(max(bounds.top(), min(local.y(), bounds.bottom())))
+        return local
 
     def _on_wysiwyg_context_menu(self, x: int, y: int) -> None:
         view = self._wysiwyg_view
@@ -2225,7 +2438,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         menu.addAction(reveal_act)
 
-        menu.exec(view.mapToGlobal(QPoint(x, y)))
+        local_pos = self._wysiwyg_client_point_to_local(view, x, y)
+        menu.exec(view.mapToGlobal(local_pos))
 
     def _wysiwyg_insert_image(self, _checked=False) -> None:
         if (
@@ -2251,6 +2465,30 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             QMessageBox.warning(self, "插入圖片", f"無法匯入圖片：\n{exc}")
             return
         link = markdown_image_link(rel)
+        self._wysiwyg_view.insert_value(link)
+        self._record_recent_resource(link)
+
+    def _wysiwyg_insert_attachment(self, _checked=False) -> None:
+        if (
+            self._wysiwyg_view is None
+            or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+            or not self._current_file
+        ):
+            return
+        picked, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "加入附件",
+            str(self._current_file.parent),
+            "所有檔案 (*.*)",
+        )
+        if not picked:
+            return
+        try:
+            relative = import_attachment_file(picked, self._current_file)
+            link = markdown_attachment_link(relative)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "加入附件", f"無法加入附件：\n{exc}")
+            return
         self._wysiwyg_view.insert_value(link)
         self._record_recent_resource(link)
 
@@ -2302,9 +2540,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         return ""
 
     def _on_wysiwyg_esc(self) -> None:
-        """Esc inside Vditor: drop back to PREVIEW, buffer stays dirty & parked.
+        """Handle a legacy page's Esc request without losing its dirty buffer.
 
-        Deliberately NOT ``_exit_edit_mode()``/``_confirm_discard_edits()``:
+        Office Viewer 4.2 glue no longer sends this request for a clean Esc;
+        the slot remains as a fail-safe for a stale/older page. Deliberately
+        NOT ``_exit_edit_mode()``/``_confirm_discard_edits()``:
         that pair pops a Save/Discard/Cancel dialog and then truly discards
         the buffer on "Discard" -- the v2 spec calls for a silent round-trip
         instead, matching what already happens when you switch to another
@@ -2315,21 +2555,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if self._wysiwyg_view is None or not self._active_path:
             return
-        active_path = self._active_path
-        active_state = self._tab_state.get(active_path)
+        active_state = self._tab_state.get(self._active_path)
         if active_state is None:
             return
-
-        def _finish(markdown, path=active_path, state=active_state):
-            if path != self._active_path or self._tab_state.get(path) is not state:
-                return  # the active tab changed while this was in flight
-            if isinstance(markdown, str):
-                self._on_wysiwyg_content_changed(markdown)
-            self._leave_wysiwyg_ui_keeping_buffer(state)
-
-        self._wysiwyg_view.page().runJavaScript(
-            "window.__wysiwygGlue ? window.__wysiwygGlue.getValue() : null",
-            _finish,
+        self._request_live_wysiwyg_snapshot(
+            lambda state=active_state: self._leave_wysiwyg_ui_keeping_buffer(
+                state
+            ),
+            purpose="返回預覽",
         )
 
     def _leave_wysiwyg_ui_keeping_buffer(self, state: dict) -> None:
@@ -2356,6 +2589,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # flag instead of state["view_mode"] or self._view_mode alone.
         state["wysiwyg_parked"] = True
         self._editor.release_buffer_document()
+        self._editor.set_markdown_services_suspended(False)
         self._view_mode = view_mode.PREVIEW
         self._renderer.set_inline_edit_enabled(True)
         self._renderer.set_preview_double_click_mode(self._preview_double_click)
@@ -2377,26 +2611,344 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._update_dirty_ui()
         self._refresh_icons()
 
-    def _on_wysiwyg_content_changed(self, markdown: str) -> None:
-        """Shadow-document push: Vditor's debounced edit becomes the truth.
+    def _request_live_wysiwyg_snapshot(
+        self, continuation, *, purpose: str
+    ) -> bool:
+        """Freeze the visible editor, apply one live snapshot, then continue.
 
-        See the WYSIWYG spec's "shadow document push model" -- Ctrl+S and
-        every dirty/discard-confirmation path read ``editor_document``
-        (== ``self._editor.document()`` here), never Vditor directly, so
-        writing through ``self._editor`` keeps every one of those paths
-        working unmodified, including the recovery-snapshot scheduling that
-        already listens to the editor's own textChanged/modificationChanged
-        signals.
+        QWebEngine JavaScript is asynchronous. Transition paths must therefore
+        be continuations rather than nested QEventLoops: the latter allow a
+        tab/close signal to re-enter while the old document is still waiting
+        for its callback.
         """
+        view = self._wysiwyg_view
+        if (
+            self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+            or view is None
+        ):
+            continuation()
+            return True
+
+        request = getattr(view, "request_markdown_snapshot_envelope", None)
+        if not callable(request):
+            # Compatibility for lightweight test doubles. Their helper emits
+            # content_changed synchronously, so a flush is sufficient.
+            flush = getattr(view, "flush_pending_edits", None)
+            if callable(flush):
+                flush()
+            continuation()
+            return True
+        if getattr(view, "_ready", True) is False:
+            # Before ready the user cannot have edited the page; the queued
+            # Python document is already the complete save-worthy value.
+            continuation()
+            return True
+        if self._wysiwyg_snapshot_busy:
+            self.statusBar().showMessage(
+                "編輯器正在完成上一個操作，請稍候。", 2500
+            )
+            return False
+
+        self._wysiwyg_snapshot_busy = True
+        self._wysiwyg_snapshot_token += 1
+        operation_token = self._wysiwyg_snapshot_token
+        path = self._active_path
+        state = self._tab_state.get(path) if path else None
+        generation = getattr(view, "_generation", None)
+        snapshot_token = 0
+        completed = False
+        self._tab_bar.setEnabled(False)
+        view.setEnabled(False)
+
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def _context_is_current() -> bool:
+            return (
+                operation_token == self._wysiwyg_snapshot_token
+                and path == self._active_path
+                and self._tab_state.get(path) is state
+                and self._wysiwyg_view is view
+                and self._active_edit_backend
+                == edit_backend.WYSIWYG_BACKEND
+                and (
+                    generation is None
+                    or getattr(view, "_generation", None) == generation
+                )
+            )
+
+        def _unlock() -> None:
+            self._wysiwyg_snapshot_busy = False
+            self._tab_bar.setEnabled(True)
+            if self._wysiwyg_view is view:
+                view.setEnabled(True)
+
+        def _abort(message: str) -> None:
+            nonlocal completed
+            if completed:
+                return
+            completed = True
+            timer.stop()
+            timer.deleteLater()
+            cancel = getattr(view, "cancel_snapshot", None)
+            if callable(cancel):
+                cancel(snapshot_token)
+            _unlock()
+            self.statusBar().showMessage(message, 5000)
+
+        def _continue_after_ack(result=False) -> None:
+            nonlocal completed
+            if completed:
+                return
+            if result is not True or not _context_is_current():
+                _abort(
+                    "文件狀態已變更，已取消%s以避免套用到錯誤分頁。"
+                    % purpose
+                )
+                return
+            completed = True
+            timer.stop()
+            timer.deleteLater()
+            _unlock()
+            continuation()
+
+        def _received(envelope) -> None:
+            nonlocal snapshot_token
+            if completed:
+                return
+            if (
+                not _context_is_current()
+                or not isinstance(envelope, dict)
+                or not isinstance(envelope.get("markdown"), str)
+            ):
+                _abort("文件狀態已變更，已取消%s以避免套用到錯誤分頁。" % purpose)
+                return
+
+            markdown = envelope["markdown"]
+            snapshot_token = int(envelope.get("token", 0) or 0)
+            self._on_wysiwyg_content_delta(
+                markdown,
+                int(envelope.get("start", 0)),
+                int(envelope.get("deleteCount", 0)),
+                str(envelope.get("inserted", "")),
+                int(envelope.get("baseRevision", 0)),
+                int(envelope.get("length", 0)),
+            )
+            acknowledge = getattr(view, "acknowledge_markdown", None)
+            if callable(acknowledge) and snapshot_token:
+                acknowledge(
+                    markdown,
+                    snapshot_token,
+                    int(envelope.get("revision", 0)),
+                    _continue_after_ack,
+                )
+            else:
+                _continue_after_ack(True)
+
+        timer.timeout.connect(
+            lambda: _abort("編輯器尚未回應，已取消%s以避免遺失內容。" % purpose)
+        )
+        timer.start(2500)
+        request(_received)
+        return True
+
+    def _on_wysiwyg_save_with_content(self, markdown: str) -> None:
+        """Save button/Ctrl+S path carrying the live snapshot in one message."""
+        if (
+            self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+            or not self._current_file
+            or not self._active_path
+        ):
+            return
+        self._on_wysiwyg_content_changed(markdown)
+        saved_markdown = self._editor.document().toPlainText()
+        if self._save_tab_buffer(self._active_path) and self._wysiwyg_view is not None:
+            mark_saved = getattr(self._wysiwyg_view, "mark_saved", None)
+            if callable(mark_saved):
+                mark_saved(saved_markdown)
+
+    def _on_wysiwyg_save_with_content_delta(
+        self,
+        markdown: str,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        """Save a live snapshot while applying its small UTF-16 delta."""
+        if (
+            self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+            or not self._current_file
+            or not self._active_path
+        ):
+            return
+        self._on_wysiwyg_content_delta(
+            markdown,
+            start,
+            delete_count,
+            inserted,
+            base_revision,
+            final_length,
+        )
+        saved_markdown = self._editor.document().toPlainText()
+        if self._save_tab_buffer(self._active_path) and self._wysiwyg_view is not None:
+            mark_saved = getattr(self._wysiwyg_view, "mark_saved", None)
+            if callable(mark_saved):
+                mark_saved(saved_markdown)
+
+    def _on_wysiwyg_content_delta(
+        self,
+        markdown: str,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int | None = None,
+        final_length: int | None = None,
+    ) -> None:
+        """Apply Vditor's UTF-16 delta without copying/scanning the document."""
+        if (
+            self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+            or not self._active_path
+        ):
+            return
+        document = self._editor.document()
+        if document is self._editor._parking_document:
+            return
+
+        start = int(start)
+        delete_count = int(delete_count)
+        revision = (
+            self._wysiwyg_shadow_revision
+            if base_revision is None
+            else int(base_revision)
+        )
+        if revision < self._wysiwyg_shadow_revision:
+            # A QWebChannel push that was already in flight can arrive after a
+            # newer transition snapshot has been accepted. It is stale, even
+            # though the editor generation is unchanged, and must never roll
+            # the durable draft back to its older full payload.
+            return
+        old_length = self._wysiwyg_shadow_qt_length
+        document_length = max(0, document.characterCount() - 1)
+        if (
+            old_length is None
+            or document_length != old_length
+            or revision != self._wysiwyg_shadow_revision
+            or start < 0
+            or delete_count < 0
+            or start + delete_count > old_length
+        ):
+            self._on_wysiwyg_content_changed(markdown)
+            self._wysiwyg_shadow_revision = revision + 1
+            return
+
+        if (
+            delete_count == 0
+            and not inserted
+            and markdown == self._wysiwyg_shadow_text
+        ):
+            self._wysiwyg_shadow_revision = revision + 1
+            return
+
+        undo_enabled = document.isUndoRedoEnabled()
+        self._applying_wysiwyg_delta = True
+        try:
+            if undo_enabled:
+                document.setUndoRedoEnabled(False)
+            cursor = QTextCursor(document)
+            cursor.setPosition(start)
+            cursor.setPosition(
+                start + delete_count, QTextCursor.MoveMode.KeepAnchor
+            )
+            cursor.insertText(inserted)
+            if undo_enabled:
+                document.setUndoRedoEnabled(True)
+            self._wysiwyg_shadow_text = markdown
+            self._wysiwyg_shadow_qt_length = (
+                old_length
+                - delete_count
+                + py_to_qt_position(inserted, len(inserted))
+            )
+            if (
+                final_length is not None
+                and self._wysiwyg_shadow_qt_length != int(final_length)
+            ):
+                self._on_wysiwyg_content_changed(markdown)
+            self._wysiwyg_shadow_revision = revision + 1
+            document.setModified(True)
+        finally:
+            if undo_enabled and not document.isUndoRedoEnabled():
+                document.setUndoRedoEnabled(True)
+            self._applying_wysiwyg_delta = False
+
+    def _replace_wysiwyg_shadow_text(self, markdown: str) -> None:
+        """Patch only the changed range of the hidden QTextDocument.
+
+        Qt cursor offsets are UTF-16 while Python indexes Unicode code points,
+        so both ends pass through ``py_to_qt_position``. Undo is intentionally
+        cleared: Vditor owns the visible undo history while this backend is
+        active, and replaying shadow-sync entries after switching to source
+        would be surprising.
+        """
+        document = self._editor.document()
+        previous = document.toPlainText()
+        if previous == markdown:
+            self._wysiwyg_shadow_qt_length = max(
+                0, document.characterCount() - 1
+            )
+            return
+
+        prefix = 0
+        shared = min(len(previous), len(markdown))
+        while prefix < shared and previous[prefix] == markdown[prefix]:
+            prefix += 1
+
+        suffix = 0
+        previous_remaining = len(previous) - prefix
+        markdown_remaining = len(markdown) - prefix
+        while (
+            suffix < previous_remaining
+            and suffix < markdown_remaining
+            and previous[len(previous) - 1 - suffix]
+            == markdown[len(markdown) - 1 - suffix]
+        ):
+            suffix += 1
+
+        old_end = len(previous) - suffix
+        new_end = len(markdown) - suffix
+        undo_enabled = document.isUndoRedoEnabled()
+        self._applying_wysiwyg_delta = True
+        try:
+            if undo_enabled:
+                document.setUndoRedoEnabled(False)
+            cursor = QTextCursor(document)
+            cursor.setPosition(py_to_qt_position(previous, prefix))
+            cursor.setPosition(
+                py_to_qt_position(previous, old_end),
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            cursor.insertText(markdown[prefix:new_end])
+            if undo_enabled:
+                document.setUndoRedoEnabled(True)
+        finally:
+            if undo_enabled and not document.isUndoRedoEnabled():
+                document.setUndoRedoEnabled(True)
+            self._applying_wysiwyg_delta = False
+        self._wysiwyg_shadow_qt_length = max(
+            0, document.characterCount() - 1
+        )
+        document.setModified(True)
+
+    def _on_wysiwyg_content_changed(self, markdown: str) -> None:
+        """Apply a full Vditor value when incremental synchronization cannot."""
         if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
             return
         document = self._editor.document()
         if document is self._editor._parking_document:
             return
-        if self._editor.toPlainText() == markdown:
-            return
-        self._editor.setPlainText(markdown)
-        document.setModified(True)
+        self._wysiwyg_shadow_text = markdown
+        self._replace_wysiwyg_shadow_text(markdown)
 
     def _discard_tab_buffer(self, key: str, *, preserve_recovery: bool = False) -> None:
         state = self._tab_state.get(key)
@@ -2437,7 +2989,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _dirty_tab_keys(self) -> list[str]:
         dirty: list[str] = []
         if self._edit_mode:
-            self._stash_active_editor_state(snapshot=False)
+            if not self._stash_active_editor_state(snapshot=False):
+                # Fail closed: a non-responsive WebEngine must never make a
+                # possibly dirty tab look clean to the window-close path.
+                document = self._editor.document()
+                if document is not self._editor._parking_document:
+                    document.setModified(True)
         for key, state in self._tab_state.items():
             document = state.get("editor_document")
             if isinstance(document, QTextDocument) and document.isModified():
@@ -2469,7 +3026,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _save_active_recovery_snapshot(self) -> None:
         if not self._edit_mode or not self._active_path:
             return
-        self._stash_active_editor_state(snapshot=False)
+        self._stash_active_editor_state(
+            snapshot=False, sync_wysiwyg=False
+        )
         state = self._tab_state.get(self._active_path)
         if state is not None:
             self._save_recovery_for_state(self._active_path, state)
@@ -2640,7 +3199,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         return self._activate_editor_state(state, mode)
 
     def _exit_edit_mode(self):
-        if not self._confirm_discard_edits():
+        self._request_live_wysiwyg_snapshot(
+            self._exit_edit_mode_after_snapshot,
+            purpose="離開編輯",
+        )
+
+    def _exit_edit_mode_after_snapshot(self):
+        if not self._confirm_discard_edits(_snapshot_ready=True):
             return
         self._leave_edit_ui()
 
@@ -2666,24 +3231,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
             and self._wysiwyg_view is not None
         ):
-            active_path = self._active_path
-            active_state = state
-
-            def _switch_away_from_wysiwyg(markdown, path=active_path, state=active_state):
-                # Fetch Vditor's live value directly rather than trusting the
-                # debounced push to have already landed: switching backends
-                # must never lose the last keystrokes to an in-flight 250ms
-                # debounce window.
-                if path != self._active_path or self._tab_state.get(path) is not state:
-                    return  # the active tab changed while this was in flight
-                if isinstance(markdown, str):
-                    self._on_wysiwyg_content_changed(markdown)
+            def _switch_away_from_wysiwyg(state=state):
                 state["edit_backend"] = target
                 self._activate_editor_state(state, self._view_mode)
 
-            self._wysiwyg_view.page().runJavaScript(
-                "window.__wysiwygGlue ? window.__wysiwygGlue.getValue() : null",
+            self._request_live_wysiwyg_snapshot(
                 _switch_away_from_wysiwyg,
+                purpose="切換原始碼編輯",
             )
             return
         state["edit_backend"] = target
@@ -2697,6 +3251,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # Otherwise closing that now-background tab can delete a document
         # which QPlainTextEdit still owns and crash inside Qt.
         self._editor.release_buffer_document()
+        self._editor.set_markdown_services_suspended(False)
         self._view_mode = view_mode.PREVIEW
         self._renderer.set_inline_edit_enabled(True)
         self._renderer.set_preview_double_click_mode(self._preview_double_click)
@@ -2718,7 +3273,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_icons()
         self._update_dirty_ui()
 
-    def _confirm_discard_edits(self) -> bool:
+    def _confirm_discard_edits(self, *, _snapshot_ready: bool = False) -> bool:
         """Return True when it is safe to leave the editor."""
         if not (self._edit_mode and self._editor.is_modified()):
             return True
@@ -2731,7 +3286,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             | QMessageBox.StandardButton.Cancel,
         )
         if answer == QMessageBox.StandardButton.Save:
-            return self._save_edits()
+            return (
+                self._save_edits_after_snapshot()
+                if _snapshot_ready
+                else self._save_edits()
+            )
         if answer == QMessageBox.StandardButton.Discard:
             if self._active_path:
                 self._discard_tab_buffer(self._active_path)
@@ -2833,19 +3392,26 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _save_edits(self) -> bool:
         if not (self._edit_mode and self._current_file):
             return False
-        if (
-            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
-            and self._wysiwyg_view is not None
-        ):
-            # Best-effort nudge for a save triggered some way other than the
-            # JS-side Ctrl+S handler (which already flushes before it emits
-            # saveRequested -- see vditor_glue.js). This call is fire-and-
-            # forget: _save_edits still saves ``editor_document`` exactly as
-            # it stands right now and never blocks on the JS round trip, per
-            # the "no async runJavaScript in the Ctrl+S path" rule below.
-            self._wysiwyg_view.flush_pending_edits()
-        self._stash_active_editor_state(snapshot=False)
-        return self._save_tab_buffer(str(self._current_file))
+        result: list[bool] = []
+
+        def _continue() -> None:
+            result.append(self._save_edits_after_snapshot())
+
+        started = self._request_live_wysiwyg_snapshot(
+            _continue, purpose="儲存"
+        )
+        return result[0] if result else started
+
+    def _save_edits_after_snapshot(self) -> bool:
+        if not self._stash_active_editor_state(snapshot=False):
+            return False
+        markdown = self._editor.document().toPlainText()
+        saved = self._save_tab_buffer(str(self._current_file))
+        if saved and self._wysiwyg_view is not None:
+            mark_saved = getattr(self._wysiwyg_view, "mark_saved", None)
+            if callable(mark_saved):
+                mark_saved(markdown)
+        return saved
 
     def _on_editor_modified(self, _modified: bool):
         self._update_dirty_ui()
@@ -2863,7 +3429,25 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         ):
             self._preview_timer.start()
         if self._edit_mode:
-            self._editor_status_timer.start()
+            if (
+                self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+                and not self._applying_wysiwyg_delta
+            ):
+                # No host command should edit the hidden QPlainTextEdit while
+                # Office Viewer is visible. If one nevertheless does, discard
+                # the delta cache so the next visible-editor message performs
+                # a full authoritative resync instead of accepting a same-size
+                # no-op against diverged hidden text.
+                self._wysiwyg_shadow_text = None
+                self._wysiwyg_shadow_qt_length = None
+            if (
+                not self._applying_wysiwyg_delta
+                and (
+                    self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+                    or self._editor.toPlainText() != self._wysiwyg_shadow_text
+                )
+            ):
+                self._editor_status_timer.start()
             if self._editor.is_modified():
                 self._recovery_timer.start()
 
@@ -3019,11 +3603,31 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._activate_tab(idx)
 
-    def _on_tab_close(self, idx: int) -> bool:
+    def _on_tab_close(self, idx: int, *, _snapshot_ready: bool = False) -> bool:
         if idx < 0 or idx >= self._tab_bar.count():
             return False
         key = self._tab_bar.tabData(idx)
         closing_active = key == self._active_path
+        if (
+            closing_active
+            and not _snapshot_ready
+            and self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            result: list[bool] = []
+
+            def _continue(path=str(key)) -> None:
+                index = self._index_of_path(path)
+                result.append(
+                    self._on_tab_close(index, _snapshot_ready=True)
+                    if index >= 0
+                    else False
+                )
+
+            self._request_live_wysiwyg_snapshot(
+                _continue, purpose="關閉分頁"
+            )
+            return result[0] if result else False
         state = self._tab_state.get(key) or {}
         preserve_recovery = False
         if state.get("pending_recovery"):
@@ -3045,7 +3649,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             else:
                 self._recovery_store.discard(key)
         if closing_active and self._edit_mode:
-            self._stash_active_editor_state(snapshot=False)
+            if not self._stash_active_editor_state(snapshot=False):
+                return False
         if not self._confirm_tab_buffer(key):
             return False
         if closing_active and not self._confirm_discard_preview_edit():
@@ -3111,15 +3716,36 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         return menu
 
-    def _close_tab_by_path(self, key: str) -> bool:
+    def _close_tab_by_path(
+        self, key: str, *, _snapshot_ready: bool = False
+    ) -> bool:
         index = self._index_of_path(key)
-        return self._on_tab_close(index) if index >= 0 else False
+        return (
+            self._on_tab_close(index, _snapshot_ready=_snapshot_ready)
+            if index >= 0
+            else False
+        )
 
-    def _close_tab_paths(self, paths) -> None:
+    def _close_tab_paths(self, paths, *, _snapshot_ready: bool = False) -> None:
         pending = list(dict.fromkeys(str(path) for path in paths if path))
+        if (
+            not _snapshot_ready
+            and self._active_path in pending
+            and self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda items=pending: self._close_tab_paths(
+                    items, _snapshot_ready=True
+                ),
+                purpose="關閉分頁",
+            )
+            return
         if self._active_path in pending:
             pending.remove(self._active_path)
-            if not self._close_tab_by_path(self._active_path):
+            if not self._close_tab_by_path(
+                self._active_path, _snapshot_ready=_snapshot_ready
+            ):
                 return
         for key in pending:
             self._close_tab_by_path(key)
@@ -3154,13 +3780,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if index >= 0:
             self._detach_tab(index)
 
-    def _detach_tab(self, idx: int):
+    def _detach_tab(self, idx: int, *, _snapshot_ready: bool = False):
         if not self._can_detach_tab(idx):
             return
         key = self._tab_bar.tabData(idx)
         path = Path(key)
+        if (
+            key == self._active_path
+            and not _snapshot_ready
+            and self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda tab_path=str(key): self._detach_tab_after_wysiwyg_snapshot(
+                    tab_path
+                ),
+                purpose="移至新視窗",
+            )
+            return
         if key == self._active_path and self._edit_mode:
-            self._stash_active_editor_state(snapshot=False)
+            if not self._stash_active_editor_state(snapshot=False):
+                return
         if not self._confirm_tab_buffer(key):
             return
         if key == self._active_path:
@@ -3198,6 +3838,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
         self._on_tab_close(idx)
 
+    def _detach_tab_after_wysiwyg_snapshot(self, key: str) -> None:
+        index = self._index_of_path(key)
+        if index >= 0:
+            self._detach_tab(index, _snapshot_ready=True)
+
     def _next_tab(self):
         self._step_tab(1)
 
@@ -3210,15 +3855,38 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._tab_bar.setCurrentIndex((self._tab_bar.currentIndex() + delta) % n)
 
-    def _activate_tab(self, idx: int):
+    def _activate_tab(self, idx: int, *, _snapshot_ready: bool = False):
         """Load the document for tab *idx* into the shared viewer."""
         if idx < 0 or idx >= self._tab_bar.count():
             return
         key = self._tab_bar.tabData(idx)
         if not key or key == self._active_path:
             return
+        if (
+            not _snapshot_ready
+            and self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            current = self._index_of_path(self._active_path)
+            if current >= 0:
+                self._tab_guard = True
+                self._tab_bar.setCurrentIndex(current)
+                self._tab_guard = False
+            self._request_live_wysiwyg_snapshot(
+                lambda path=str(key): self._activate_tab_after_wysiwyg_snapshot(
+                    path
+                ),
+                purpose="切換分頁",
+            )
+            return
         if self._edit_mode:
-            self._stash_active_editor_state()
+            if not self._stash_active_editor_state():
+                current = self._index_of_path(self._active_path)
+                if current >= 0:
+                    self._tab_guard = True
+                    self._tab_bar.setCurrentIndex(current)
+                    self._tab_guard = False
+                return
             self._leave_edit_ui(persist_state=False)
         else:
             self._save_active_view_state()
@@ -3226,6 +3894,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         state = self._tab_state.get(key) or {}
         kind = state.get("kind") or document_kind(Path(key))
         self._load_document(Path(key), kind)
+
+    def _activate_tab_after_wysiwyg_snapshot(self, key: str) -> None:
+        index = self._index_of_path(key)
+        if index < 0:
+            return
+        self._tab_guard = True
+        self._tab_bar.setCurrentIndex(index)
+        self._tab_guard = False
+        self._activate_tab(index, _snapshot_ready=True)
 
     def _save_active_view_state(self):
         session_state.save_active_view_state(self)
@@ -3908,9 +4585,24 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
 
-    def _on_browser_paths_migrated(self, mapping: dict):
+    def _on_browser_paths_migrated(
+        self, mapping: dict, *, _snapshot_ready: bool = False
+    ):
         """Files were renamed/moved on disk: re-point tabs, recents, state."""
         if not mapping:
+            return
+        if (
+            not _snapshot_ready
+            and self._active_path in mapping
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            stable_mapping = dict(mapping)
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._on_browser_paths_migrated(
+                    stable_mapping, _snapshot_ready=True
+                ),
+                purpose="重新定位文件",
+            )
             return
         for i in range(self._tab_bar.count()):
             key = self._tab_bar.tabData(i)
@@ -3939,15 +4631,37 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._toolbar_title.setText(self._current_file.name)
             self._toolbar_subtitle.setText(str(self._current_file.parent))
             self._editor.set_document_path(self._current_file)
+            if self._wysiwyg_view is not None:
+                set_document_path = getattr(
+                    self._wysiwyg_view, "set_document_path", None
+                )
+                if callable(set_document_path):
+                    set_document_path(self._current_file)
             self._watch_current_file()
         self._refresh_tab_labels()
         self._panel.recent.migrate_paths(mapping)
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
 
-    def _on_browser_paths_deleted(self, paths: list):
+    def _on_browser_paths_deleted(
+        self, paths: list, *, _snapshot_ready: bool = False
+    ):
         """Close clean deleted files while preserving every dirty draft."""
-        for path in paths:
+        stable_paths = list(paths)
+        deleted_keys = {str(path) for path in stable_paths}
+        if (
+            not _snapshot_ready
+            and self._active_path in deleted_keys
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._on_browser_paths_deleted(
+                    stable_paths, _snapshot_ready=True
+                ),
+                purpose="處理已刪除文件",
+            )
+            return
+        for path in stable_paths:
             key = str(path)
             idx = self._index_of_path(key)
             if idx >= 0:
@@ -3969,8 +4683,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     self._refresh_tab_labels()
                     continue
                 self._recovery_store.discard(key)
-                self._on_tab_close(idx)
-        self._panel.recent.remove_paths(list(paths))
+                self._on_tab_close(
+                    idx,
+                    _snapshot_ready=_snapshot_ready and key == self._active_path,
+                )
+        self._panel.recent.remove_paths(stable_paths)
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
 
@@ -4113,7 +4830,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if str(self._current_file) not in self._fs_watcher.files():
             self._fs_watcher.addPath(str(self._current_file))
 
-    def _on_file_changed(self, path: str):
+    def _on_file_changed(self, path: str, *, _snapshot_ready: bool = False):
         # An os.replace-style save (ours or another editor's) drops the watch,
         # so always re-arm it shortly after the event settles.
         QTimer.singleShot(150, self._rearm_watch)
@@ -4127,6 +4844,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if current == self._loaded_signature:
             return  # our own save, or a no-op touch — nothing changed
+        if (
+            not _snapshot_ready
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._on_file_changed(path, _snapshot_ready=True),
+                purpose="處理檔案的外部變更",
+            )
+            return
         self._loaded_signature = current
         self._prompt_external_change()
 
@@ -4910,9 +5636,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         export_actions.export_pdf(self)
 
     def _export_pptx(self):
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: export_actions.export_pptx(self),
+                purpose="匯出 PowerPoint",
+            )
+            return
         export_actions.export_pptx(self)
 
     def _export_docx(self):
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: export_actions.export_docx(self),
+                purpose="匯出 Word",
+            )
+            return
         export_actions.export_docx(self)
 
     def _export_html(self):
@@ -4963,6 +5707,22 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._deferred_update_close_approved = False
             super().closeEvent(event)
             return
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            and not self._wysiwyg_close_snapshot_approved
+        ):
+            event.ignore()
+
+            def _close_after_snapshot() -> None:
+                self._wysiwyg_close_snapshot_approved = True
+                self.close()
+
+            self._request_live_wysiwyg_snapshot(
+                _close_after_snapshot, purpose="關閉視窗"
+            )
+            return
+        self._wysiwyg_close_snapshot_approved = False
         if session_state.close_event(self, event):
             if update_flow.defer_close_until_updates_finish(self, event):
                 self._deferred_update_close_approved = True

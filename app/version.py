@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.27.0"
+VERSION = "1.28.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "新增所見即所得（WYSIWYG）Markdown 編輯器：檢視中雙擊即可直接編輯，表格、標題、程式碼區塊以成品樣式呈現，Esc 返回檢視。",
-    "編輯器內建完整工具列與右鍵選單：存檔、匯出 PDF／Word／HTML、插入圖片、在資料夾中顯示；匯出永遠使用畫面上最新內容。",
-    "段落左側新增 Notion 式 ＋／⋮⋮ 把手，可插入新段落與拖曳搬移區塊；全程離線，儲存仍走原子寫入與備份保護。",
+    "Markdown 編輯器改用 Office Viewer 4.2 的固定 Vditor fork，對齊單列工具列、左側大綱、區塊把手與程式碼語言／主題控制。",
+    "首次載入直接使用正確文件與主題；輸入改採 UTF-16 增量同步，並分文件恢復一般文字及長程式碼的游標、選取與捲動。",
+    "儲存、匯出、切換分頁、改名與關閉皆先取得非同步最終快照，保留原子寫入與備份保護且不漏掉最後輸入。",
 ]
 
 GITHUB_OWNER = "wulove1029"

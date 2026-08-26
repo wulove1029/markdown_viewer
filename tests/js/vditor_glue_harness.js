@@ -1,7 +1,7 @@
 /* Drives assets/vditor_glue.js against a minimal Vditor + DOM stub.
  *
  * Not a browser: fake timers let the harness deterministically advance the
- * 250ms debounce without a real event loop, and the fake Vditor constructor
+ * 450ms debounce without a real event loop, and the fake Vditor constructor
  * only implements setValue/getValue plus capturing the `input`/`after`
  * callbacks glue code wires up. Prints "OK" and exits 0 when every case
  * passes; prints the failure and exits 1 otherwise.
@@ -47,6 +47,7 @@ function advance(ms) {
 const docListeners = {};
 let hintPanels = []; // [{ style: { display } }], mutated by tests below
 let mountedWysiwygRoot = null; // set by the v4 block-handle tests below
+const selectorResults = new Map(); // exact Office overlays, populated per test
 const document = {
   addEventListener(type, fn) {
     (docListeners[type] = docListeners[type] || []).push(fn);
@@ -61,6 +62,7 @@ const document = {
     return selector === ".vditor-hint" ? hintPanels : [];
   },
   querySelector(selector) {
+    if (selectorResults.has(selector)) return selectorResults.get(selector);
     return selector === ".vditor-wysiwyg" ? mountedWysiwygRoot : null;
   },
   createElement(tag) {
@@ -171,6 +173,12 @@ FakeElement.prototype.removeEventListener = function (type, fn) {
 FakeElement.prototype.setPointerCapture = function () {};
 FakeElement.prototype.releasePointerCapture = function () {};
 FakeElement.prototype.focus = function () {};
+FakeElement.prototype.querySelector = function (selector) {
+  return this._querySelectors ? (this._querySelectors.get(selector) || null) : null;
+};
+FakeElement.prototype.click = function () {
+  fireOn(this, "click");
+};
 
 function createFakeElement(tag) {
   return new FakeElement(tag);
@@ -240,14 +248,31 @@ function check(label, condition) {
 
 // ---- bridge stub --------------------------------------------------------------
 const pushed = [];
+const pushedDetails = [];
+const fullContentCalls = [];
 const saves = [];
+const saveContents = [];
 const readies = [];
 const escapes = [];
 const toolbarActions = [];
 const contextMenus = [];
 const bridge = {
-  contentChanged(md) { pushed.push(md); },
+  contentChanged(md, generation, start, deleteCount, inserted, baseRevision, finalLength) {
+    fullContentCalls.push(md);
+    pushed.push(md);
+    pushedDetails.push({ md, generation, start, deleteCount, inserted, baseRevision, finalLength });
+  },
+  contentDelta(generation, start, deleteCount, inserted, baseRevision, finalLength) {
+    const before = sandbox.window.__wysiwygGlue._state.lastPushedMarkdown;
+    const md = before.slice(0, start) + inserted + before.slice(start + deleteCount);
+    pushed.push(md);
+    pushedDetails.push({
+      md, generation, start, deleteCount, inserted, baseRevision, finalLength,
+      deltaOnly: true,
+    });
+  },
   saveRequested() { saves.push(true); },
+  saveWithContent(md, generation) { saveContents.push([md, generation]); },
   ready() { readies.push(true); },
   escRequested() { escapes.push(true); },
   toolbarAction(name) { toolbarActions.push(name); },
@@ -260,14 +285,27 @@ check("boot: constructs Vditor against the given element id", lastVditorId === "
 check("boot: returns the vditor instance", instance === lastVditorInstance);
 check("boot: mode is wysiwyg", lastVditorOptions.mode === "wysiwyg");
 check("boot: cache/autosave is disabled", lastVditorOptions.cache.enable === false);
+check("boot: core VS Code focus cache stays disabled for shared documents",
+  lastVditorOptions.cache.focusHost === "browser");
+check("boot: outline starts open on the left",
+  lastVditorOptions.outline.position === "left");
+check("boot: first-use outline width matches Office Viewer",
+  lastVditorOptions.outline.width === 280);
+const officeLayoutStyle = document.head.children.find(
+  (element) => element.id === "wysiwyg-office-layout"
+);
+check("toolbar: compact style is installed before Vditor's after hook",
+  !!officeLayoutStyle);
+check("boot: Office Viewer editor theme is enabled",
+  lastVditorOptions.editorTheme === "Auto");
 
 // ---- v2: full "Office Viewer" toolbar --------------------------------------
-// At least these; export/VSCode-only/fullscreen buttons are deliberately
-// left out (see the comment above DEFAULT_TOOLBAR in vditor_glue.js).
+// Built-in Office Viewer controls; host actions are asserted separately.
 [
   "outline", "undo", "redo", "headings", "bold", "italic", "strike",
-  "link", "list", "ordered-list", "check", "outdent", "indent",
-  "quote", "code", "inline-code", "table",
+  "link", "font-color", "background-color", "list", "ordered-list",
+  "check", "quote", "code", "table", "editor-theme",
+  "editor-theme-toggle", "find", "ai-settings", "settings",
 ].forEach((item) => {
   check(`toolbar: includes "${item}"`, lastVditorOptions.toolbar.indexOf(item) >= 0);
 });
@@ -276,6 +314,11 @@ check("boot: cache/autosave is disabled", lastVditorOptions.cache.enable === fal
 lastVditorOptions.after();
 check("ready: bridge.ready() called once construction settles",
   readies.length === 1);
+check("toolbar: Office layout forces one row with horizontal overflow",
+  !!officeLayoutStyle &&
+  officeLayoutStyle.textContent.indexOf("flex-wrap:nowrap") >= 0 &&
+  officeLayoutStyle.textContent.indexOf("overflow-x:auto") >= 0 &&
+  officeLayoutStyle.textContent.indexOf("vditor-toolbar__br") >= 0);
 check("ready: initial value loaded via setValue, not a raw assignment",
   lastVditorInstance.getValue() === "start");
 // Release the guard the initial setValue(options.value) armed before any
@@ -287,11 +330,13 @@ advance(0);
 typeText("hello");
 check("input: nothing pushed before the debounce window elapses",
   pushed.length === 0);
-advance(249);
-check("input: still nothing at 249ms", pushed.length === 0);
+advance(449);
+check("input: still nothing at 449ms", pushed.length === 0);
 advance(1);
-check("input: pushed once the 250ms debounce elapses",
+check("input: pushed once the 450ms debounce elapses",
   pushed.length === 1 && pushed[0] === "hello");
+check("input: normal typing crosses the bridge as delta-only IPC",
+  pushedDetails[0].deltaOnly === true && fullContentCalls.length === 0);
 
 // Rapid typing collapses into a single push (debounce restarts each time).
 pushed.length = 0;
@@ -303,7 +348,7 @@ typeText("hel");
 advance(100);
 check("debounce: no push yet -- each keystroke restarted the timer",
   pushed.length === 0);
-advance(150);
+advance(350);
 check("debounce: exactly one push, holding the latest value",
   pushed.length === 1 && pushed[0] === "hel");
 
@@ -314,14 +359,14 @@ check("setValue: getValue reflects the loaded text immediately",
   sandbox.window.__wysiwygGlue.getValue() === "loaded from python");
 // Vditor's setValue firing `input` synchronously must not push back to Python.
 lastVditorOptions.input("loaded from python");
-advance(300);
+advance(500);
 check("setValue: the echo it caused is never pushed to Python",
   pushed.length === 0);
 
 // A real edit right after a setValue push must not be swallowed by a stale
 // guard: the guard consumes exactly one echo and then behaves normally.
 typeText("user typed after load");
-advance(250);
+advance(450);
 check("setValue: a genuine edit right after loading still pushes",
   pushed.length === 1 && pushed[0] === "user typed after load");
 
@@ -331,9 +376,49 @@ pushed.length = 0;
 sandbox.window.__wysiwygGlue.setValue("no echo this time");
 advance(0); // release the setTimeout(0) fallback that clears the guard
 typeText("typed with no prior echo");
-advance(250);
+advance(450);
 check("setValue: an unconsumed guard still releases and future edits push",
   pushed.length === 1 && pushed[0] === "typed with no prior echo");
+
+// Delta offsets are UTF-16 (the coordinate system shared by JS and Qt), but
+// boundaries may never split an emoji surrogate pair: QWebChannel cannot
+// carry a lone low/high surrogate without data loss.
+pushed.length = 0;
+pushedDetails.length = 0;
+sandbox.window.__wysiwygGlue.setValue("😀", 7);
+advance(0);
+typeText("😺");
+advance(450);
+check("delta: emoji replacement starts before the complete surrogate pair",
+  pushedDetails.length === 1 && pushedDetails[0].start === 0 &&
+  pushedDetails[0].deleteCount === 2 && pushedDetails[0].inserted === "😺");
+
+pushed.length = 0;
+pushedDetails.length = 0;
+sandbox.window.__wysiwygGlue.setValue("\u{10000}", 8);
+advance(0);
+typeText("\u{10400}");
+advance(450);
+check("delta: an equal low surrogate never becomes a detached suffix",
+  pushedDetails.length === 1 && pushedDetails[0].start === 0 &&
+  pushedDetails[0].deleteCount === 2 && pushedDetails[0].inserted === "\u{10400}");
+
+// A transition snapshot is a two-phase read. Until Python acknowledges it,
+// the ordinary debounce remains pending so timeout/cancel cannot erase the
+// recovery-worthy edit.
+pushed.length = 0;
+sandbox.window.__wysiwygGlue.setValue("snapshot base", 9);
+advance(0);
+typeText("snapshot pending");
+const pendingEnvelope = JSON.parse(
+  sandbox.window.__wysiwygGlue.takeSnapshotEnvelope()
+);
+advance(450);
+check("snapshot: pending debounce waits for acknowledge/cancel", pushed.length === 0);
+sandbox.window.__wysiwygGlue.cancelSnapshot(pendingEnvelope.token);
+advance(450);
+check("snapshot: cancel preserves and eventually pushes the pending edit",
+  pushed.length === 1 && pushed[0] === "snapshot pending");
 
 // ---- flushPending (used before Ctrl+S so a save definitely sees the
 // latest keystroke, not one stuck behind the debounce window) --------------
@@ -344,64 +429,127 @@ check("flushPending: pushes immediately without waiting for the debounce",
   pushed.length === 1 && pushed[0] === "about to save");
 
 // ---- Ctrl+S interception ----------------------------------------------------
-// A keystroke sitting inside the debounce window must reach Python via the
-// flush Ctrl+S triggers, ahead of saveRequested (see the ordering comment
-// in vditor_glue.js) -- otherwise Ctrl+S can save one edit stale.
+// A keystroke sitting inside the debounce window is carried in the save
+// message itself, so Python never has to race a separate content push.
 pushed.length = 0;
 saves.length = 0;
+saveContents.length = 0;
 typeText("about to ctrl-s");
 let ev = fireKeydown({ key: "s", ctrlKey: true });
-check("ctrl+s: flushes the pending edit first",
-  pushed.length === 1 && pushed[0] === "about to ctrl-s");
-check("ctrl+s: bridge.saveRequested called", saves.length === 1);
+check("ctrl+s: carries the live edit in the save request",
+  saveContents.length === 1 && saveContents[0][0] === "about to ctrl-s");
 check("ctrl+s: native save suppressed", ev.defaultPrevented === true);
-check("ctrl+s: contentChanged reaches Python before saveRequested",
-  pushed.length === 1 && saves.length === 1);
 
-saves.length = 0;
+saveContents.length = 0;
 ev = fireKeydown({ key: "S", ctrlKey: true });
-check("ctrl+shift+s / capital S: still intercepted", saves.length === 1);
+check("ctrl+shift+s / capital S: still intercepted", saveContents.length === 1);
 
-saves.length = 0;
+saveContents.length = 0;
 ev = fireKeydown({ key: "s", metaKey: true });
-check("cmd+s: also intercepted", saves.length === 1);
+check("cmd+s: also intercepted", saveContents.length === 1);
 
-saves.length = 0;
+saveContents.length = 0;
 ev = fireKeydown({ key: "s", ctrlKey: false });
-check("plain s: not intercepted", saves.length === 0);
+check("plain s: not intercepted", saveContents.length === 0);
 check("plain s: default not prevented", ev.defaultPrevented !== true);
 
-// ---- v2: Esc leaves WYSIWYG, unless a hint panel is open first ------------
+// ---- Office Viewer: Esc closes one exact overlay and never leaves WYSIWYG -
 escapes.length = 0;
 hintPanels = [];
-fireKeydown({ key: "Escape" });
-check("esc: clean escape reaches the bridge", escapes.length === 1);
+ev = fireKeydown({ key: "Escape" });
+check("esc: clean escape never reaches the bridge", escapes.length === 0);
+check("esc: clean escape is left to the exact editor", ev.defaultPrevented !== true);
 
 escapes.length = 0;
 hintPanels = [{ style: { display: "block" } }];
 fireKeydown({ key: "Escape" });
-check("esc: swallowed while a hint panel is open (first Esc closes it)",
+check("esc: existing hint handling remains inside the editor",
   escapes.length === 0);
 
-// Once the panel reports closed (display: none, as Vditor leaves it), the
-// very next Esc reaches the bridge -- this models "first Esc closes the
-// hint, second Esc leaves WYSIWYG" without needing a real hint widget.
 hintPanels = [{ style: { display: "none" } }];
 fireKeydown({ key: "Escape" });
-check("esc: reaches the bridge once no panel reads as open",
-  escapes.length === 1);
+check("esc: a second escape after a hint closes still stays in WYSIWYG",
+  escapes.length === 0);
 
 // A panel with no inline display style at all (never shown) must not be
 // mistaken for an open one.
 escapes.length = 0;
 hintPanels = [{ style: {} }];
 fireKeydown({ key: "Escape" });
-check("esc: a hint element with no display style set does not block it",
-  escapes.length === 1);
+check("esc: an unused hint never causes a host exit", escapes.length === 0);
 hintPanels = [];
 
-// ---- v4: custom toolbar buttons (save/export/insert-image/theme) ----------
-// These are plain-object entries appended after the built-in string names;
+const settingsItem = createFakeElement("div");
+const settingsButton = createFakeElement("button");
+settingsButton.dataset.type = "settings";
+const settingsPanel = createFakeElement("div");
+settingsPanel.classList.add("vditor-hint");
+settingsPanel.style.display = "block";
+settingsButton.click = function () { settingsPanel.style.display = "none"; };
+settingsItem.appendChild(settingsButton);
+settingsItem.appendChild(settingsPanel);
+selectorResults.set(
+  ".vditor-toolbar button[data-type='settings']",
+  settingsButton
+);
+ev = fireKeydown({ key: "Escape" });
+check("esc: exact settings panel is closed by its own toolbar trigger",
+  settingsPanel.style.display === "none");
+check("esc: closing an Office toolbar panel consumes only that escape",
+  ev.defaultPrevented === true && ev.propagationStopped === true);
+selectorResults.delete(".vditor-toolbar button[data-type='settings']");
+
+const languageWrap = createFakeElement("div");
+languageWrap.classList.add("vditor-cm-chrome__lang--open");
+const languageTrigger = createFakeElement("button");
+let languageCloseClicks = 0;
+languageTrigger.click = function () {
+  languageCloseClicks += 1;
+  languageWrap.classList.remove("vditor-cm-chrome__lang--open");
+};
+languageWrap._querySelectors = new Map([
+  [".vditor-cm-chrome__lang-trigger", languageTrigger],
+]);
+selectorResults.set(".vditor-cm-chrome__lang--open", languageWrap);
+fireKeydown({ key: "Escape" });
+check("esc: exact code-language overlay closes through its trigger",
+  languageCloseClicks === 1 &&
+  !languageWrap.classList.contains("vditor-cm-chrome__lang--open"));
+selectorResults.delete(".vditor-cm-chrome__lang--open");
+
+const mermaidWrap = createFakeElement("div");
+mermaidWrap.classList.add("vditor-mermaid-chrome__theme--open");
+const mermaidTrigger = createFakeElement("button");
+let mermaidCloseClicks = 0;
+mermaidTrigger.click = function () {
+  mermaidCloseClicks += 1;
+  mermaidWrap.classList.remove("vditor-mermaid-chrome__theme--open");
+};
+mermaidWrap._querySelectors = new Map([
+  [".vditor-mermaid-chrome__theme-trigger", mermaidTrigger],
+]);
+selectorResults.set(".vditor-mermaid-chrome__theme--open", mermaidWrap);
+fireKeydown({ key: "Escape" });
+check("esc: exact Mermaid-theme overlay closes through its trigger",
+  mermaidCloseClicks === 1 &&
+  !mermaidWrap.classList.contains("vditor-mermaid-chrome__theme--open"));
+selectorResults.delete(".vditor-mermaid-chrome__theme--open");
+
+const aiDialog = createFakeElement("div");
+const aiClose = createFakeElement("button");
+aiDialog.hidden = false;
+aiClose.click = function () { aiDialog.hidden = true; };
+aiDialog._querySelectors = new Map([
+  [".vditor-ai-dialog__close, .vditor-ai-dialog__btn--cancel", aiClose],
+]);
+selectorResults.set(".vditor-ai-dialog-overlay:not([hidden])", aiDialog);
+fireKeydown({ key: "Escape" });
+check("esc: exact AI dialog closes without a host transition", aiDialog.hidden);
+selectorResults.delete(".vditor-ai-dialog-overlay:not([hidden])");
+check("esc: no overlay path ever calls bridge.escRequested", escapes.length === 0);
+
+// ---- Office Viewer host toolbar actions ----------------------------------
+// These are plain-object entries interleaved with the built-in string names;
 // find each by its "name" and invoke .click() the way Vditor would.
 function findToolbarItem(name) {
   return (lastVditorOptions.toolbar || []).find(
@@ -409,12 +557,11 @@ function findToolbarItem(name) {
   );
 }
 [
-  ["save", "save"],
-  ["export-pdf", "export_pdf"],
-  ["export-docx", "export_docx"],
-  ["export-html", "export_html"],
+  ["markmap", "open_graph"],
+  ["edit-in-source", "toggle_source"],
+  ["export", "show_export_menu"],
   ["insert-image", "insert_image"],
-  ["theme-toggle", "toggle_theme"],
+  ["insert-attachment", "insert_attachment"],
 ].forEach(([toolbarName, actionName]) => {
   const item = findToolbarItem(toolbarName);
   check(`toolbar: custom item "${toolbarName}" is present`, !!item);
@@ -427,6 +574,16 @@ function findToolbarItem(name) {
   check(`toolbar: "${toolbarName}" click routes to bridge.toolbarAction("${actionName}")`,
     toolbarActions.length === 1 && toolbarActions[0] === actionName);
 });
+
+const saveItem = findToolbarItem("save");
+check('toolbar: custom item "save" is present', !!saveItem);
+if (saveItem) {
+  saveContents.length = 0;
+  typeText("toolbar save latest");
+  saveItem.click();
+  check("toolbar: save carries the latest Markdown without a debounce race",
+    saveContents.length === 1 && saveContents[0][0] === "toolbar save latest");
+}
 
 // ---- v4: right-click -> bridge.contextMenuRequested(x, y) ------------------
 contextMenus.length = 0;
@@ -520,7 +677,7 @@ check("plus: inserts exactly one new block",
 check("plus: the new block lands directly after the hovered block",
   editableEl.children[0] === blockA && editableEl.children[1] !== blockB &&
   editableEl.children[1].tagName === "P" && editableEl.children[2] === blockB);
-advance(250);
+advance(450);
 check("plus: the insert reaches Python via the normal debounced push",
   pushed.length === 1);
 // Clean up the inserted paragraph so the drag tests below see the original
@@ -549,9 +706,9 @@ check("drag: the drag-source marker is cleared once the drop completes",
 check("drag: the insertion-line indicator is hidden again after drop",
   glueState.dropIndicator.style.display === "none");
 
-advance(250);
+advance(450);
 check("drag: drop reaches Python via the exact same debounce/push path a "
-  + "real keystroke uses (bridge.contentChanged fires once)",
+  + "real keystroke uses (bridge.contentDelta fires once)",
   pushed.length === 1);
 
 // A stray pointermove after the drop must be a no-op: the listener was

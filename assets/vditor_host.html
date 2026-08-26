@@ -29,11 +29,93 @@
     new QWebChannel(qt.webChannelTransport, function (channel) {
       var bridge = channel.objects.wysiwygBridge;
       window.__wysiwygBridge = bridge;
-      window.__wysiwygBoot(bridge, {
-        elementId: "vditor",
-        lang: "__WYSIWYG_LANG__",
-        cdn: "vditor",
-        value: "",
+      bridge.initialConfig(function (rawConfig) {
+        var initial;
+        try {
+          initial = JSON.parse(rawConfig || "{}");
+        } catch (_error) {
+          initial = {};
+        }
+        initial.value = typeof initial.value === "string" ? initial.value : "";
+        initial.generation = typeof initial.generation === "number"
+          ? initial.generation : 0;
+        initial.documentBaseUrl = typeof initial.documentBaseUrl === "string"
+          ? initial.documentBaseUrl : "";
+        var vditorOptions = initial.vditorOptions
+          && typeof initial.vditorOptions === "object"
+          ? initial.vditorOptions : {};
+        vditorOptions.editorTheme = vditorOptions.editorTheme || "Light";
+        vditorOptions.theme = vditorOptions.theme || "classic";
+        vditorOptions.codeMirrorTheme = vditorOptions.codeMirrorTheme || "Github";
+        vditorOptions.mermaidTheme = vditorOptions.mermaidTheme || "Auto";
+        var configuredPreview = vditorOptions.preview
+          && typeof vditorOptions.preview === "object"
+          ? vditorOptions.preview : {};
+        var configuredMarkdown = configuredPreview.markdown
+          && typeof configuredPreview.markdown === "object"
+          ? configuredPreview.markdown : {};
+        configuredMarkdown.linkBase = initial.documentBaseUrl;
+
+        var glueState = window.__wysiwygGlue._state;
+        glueState.generation = initial.generation;
+        glueState.lastPushedMarkdown = initial.value;
+        glueState.documentBaseUrl = initial.documentBaseUrl;
+        // Suppress any constructor-time input echo just as setValue() does.
+        glueState.echoGuard = true;
+
+        // vditor_glue.js continues to own bridge listeners and data-safety
+        // APIs.  This one-shot constructor wrapper only enriches the options
+        // it passes to Office Viewer's Vditor, then immediately restores the
+        // original global constructor.
+        var OriginalVditor = window.Vditor;
+        function InitialVditor(id, options) {
+          Object.keys(vditorOptions).forEach(function (key) {
+            if (key !== "preview") options[key] = vditorOptions[key];
+          });
+          options.value = initial.value;
+          options.preview = options.preview || {};
+          Object.keys(configuredPreview).forEach(function (key) {
+            if (key !== "markdown") options.preview[key] = configuredPreview[key];
+          });
+          options.preview.markdown = options.preview.markdown || {};
+          Object.keys(configuredMarkdown).forEach(function (key) {
+            options.preview.markdown[key] = configuredMarkdown[key];
+          });
+
+          var originalAfter = options.after;
+          options.after = function () {
+            try {
+              if (originalAfter) originalAfter.apply(this, arguments);
+            } finally {
+              glueState.echoGuard = false;
+              // Do not retain a second full Markdown string in this closure.
+              initial.value = "";
+            }
+          };
+          return new OriginalVditor(id, options);
+        }
+        InitialVditor.prototype = OriginalVditor.prototype;
+        window.Vditor = InitialVditor;
+        window.__wysiwygInitialBoot = {
+          constructorValue: true,
+          generation: initial.generation,
+          editorTheme: vditorOptions.editorTheme,
+          theme: vditorOptions.theme,
+          codeMirrorTheme: vditorOptions.codeMirrorTheme,
+          mermaidTheme: vditorOptions.mermaidTheme,
+        };
+        try {
+          window.__wysiwygBoot(bridge, {
+            elementId: "vditor",
+            lang: "__WYSIWYG_LANG__",
+            cdn: "vditor",
+            // InitialVditor injects the real value into the constructor.  An
+            // empty glue value prevents its after() hook from replaying it.
+            value: "",
+          });
+        } finally {
+          window.Vditor = OriginalVditor;
+        }
       });
     });
   }

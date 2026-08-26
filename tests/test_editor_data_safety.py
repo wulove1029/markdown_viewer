@@ -18,8 +18,8 @@ import weakref
 
 import pytest
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QSettings, Signal
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import QCoreApplication, QEvent, QSettings, QTimer, Signal
+from PySide6.QtGui import QAction, QTextDocument
 from PySide6.QtWidgets import QWidget
 
 from app import edit_backend, export_actions, session_state, view_mode
@@ -92,6 +92,91 @@ class _FakeWysiwygView(QWidget):
                 outer.zoom_factors.append(factor)
 
         return _FakePage()
+
+
+class _DelayedSnapshotWysiwygView(_FakeWysiwygView):
+    """Controllable stand-in for WebEngine's two asynchronous callbacks.
+
+    The ordinary fake above intentionally flushes synchronously for broad,
+    fast integration coverage.  These tests need the opposite: snapshot and
+    acknowledgement callbacks stay queued until the test releases them, so
+    tab/save/timeout races can be exercised without a nested event loop or a
+    real Chromium process.
+    """
+
+    content_changed_detailed = Signal(str, int, int, str, int, int)
+    save_with_content_detailed = Signal(str, int, int, str, int, int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ready = True
+        self._generation = 0
+        self.live_markdown = ""
+        self.last_acknowledged_markdown = ""
+        self.revision = 0
+        self._snapshot_token = 0
+        self.snapshot_requests: list[tuple[object, dict]] = []
+        self.acknowledgements: list[tuple[str, int, int, object]] = []
+        self.cancelled_snapshot_tokens: list[int] = []
+        self.saved_markdown: list[str | None] = []
+        self.document_path = None
+
+    @staticmethod
+    def _qt_length(text: str) -> int:
+        return len(text.encode("utf-16-le")) // 2
+
+    def load_markdown(self, text: str) -> None:
+        self._generation += 1
+        self.loaded.append(text)
+        self.live_markdown = text
+        self.last_acknowledged_markdown = text
+        self.revision = 0
+
+    def set_document_path(self, path) -> None:
+        self.document_path = path
+
+    def edit_without_push(self, text: str) -> None:
+        """Change only the visible value, leaving Python's shadow stale."""
+        self.live_markdown = text
+
+    def request_markdown_snapshot_envelope(self, callback) -> None:
+        self._snapshot_token += 1
+        envelope = {
+            "markdown": self.live_markdown,
+            "generation": self._generation,
+            "token": self._snapshot_token,
+            "baseRevision": self.revision,
+            "revision": self.revision + 1,
+            "length": self._qt_length(self.live_markdown),
+            # A full replacement keeps this fake small while exercising the
+            # production UTF-16 incremental-patch path.
+            "start": 0,
+            "deleteCount": self._qt_length(self.last_acknowledged_markdown),
+            "inserted": self.live_markdown,
+        }
+        self.snapshot_requests.append((callback, envelope))
+
+    def deliver_snapshot(self) -> None:
+        callback, envelope = self.snapshot_requests.pop(0)
+        callback(envelope)
+
+    def acknowledge_markdown(
+        self, markdown: str, token: int, revision: int, callback=None
+    ) -> None:
+        self.acknowledgements.append((markdown, token, revision, callback))
+
+    def deliver_acknowledgement(self, result=True) -> None:
+        markdown, _token, revision, callback = self.acknowledgements.pop(0)
+        self.last_acknowledged_markdown = markdown
+        self.revision = revision
+        if callback is not None:
+            callback(result)
+
+    def cancel_snapshot(self, token: int = 0) -> None:
+        self.cancelled_snapshot_tokens.append(token)
+
+    def mark_saved(self, markdown: str | None = None) -> None:
+        self.saved_markdown.append(markdown)
 
 
 @pytest.fixture(autouse=True)
@@ -180,6 +265,37 @@ def _replace_with_dirty_text(window, text: str) -> QTextDocument:
     document.setModified(True)
     assert window._editor.is_modified()
     return document
+
+
+def _capture_menu_exec(monkeypatch, window):
+    """Replace QMenu after window construction and return captured positions."""
+    positions = []
+
+    class MenuSpy:
+        def __init__(self, _parent=None):
+            self.actions = []
+
+        def addAction(self, *args):
+            if args and isinstance(args[0], QAction):
+                action = args[0]
+            else:
+                action = QAction(str(args[0]), window)
+                if len(args) > 1 and callable(args[1]):
+                    action.triggered.connect(args[1])
+            self.actions.append(action)
+            return action
+
+        def addSeparator(self):
+            return None
+
+        def sizeHint(self):
+            return types.SimpleNamespace(width=lambda: 180)
+
+        def exec(self, position):
+            positions.append(type(position)(position))
+
+    monkeypatch.setattr(window_mod, "QMenu", MenuSpy)
+    return positions
 
 
 def test_deleted_dirty_source_keeps_draft_snapshot_and_can_be_recreated(
@@ -632,6 +748,61 @@ def test_wysiwyg_toggle_loads_current_text_and_switches_the_stack(
     assert window._stack.currentWidget() is window._editor_split
 
 
+def test_wysiwyg_context_menu_scales_js_client_coordinates_by_page_zoom(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "wysiwyg-context-menu-zoom.md"
+    note.write_text("context menu", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.resize(640, 480)
+    page = types.SimpleNamespace(
+        zoomFactor=lambda: 1.75,
+        action=lambda _web_action: QAction(window),
+    )
+    monkeypatch.setattr(view, "page", lambda: page)
+    positions = _capture_menu_exec(monkeypatch, window)
+
+    window._on_wysiwyg_context_menu(20, 24)
+
+    assert positions == [view.mapToGlobal(window_mod.QPoint(35, 42))]
+
+
+def test_wysiwyg_export_menu_anchors_to_scaled_toolbar_button_rect(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "wysiwyg-export-menu-anchor.md"
+    note.write_text("export menu", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.resize(640, 480)
+    scripts = []
+
+    def run_javascript(script, callback):
+        scripts.append(script)
+        callback(json.dumps({"x": 80.0, "y": 32.0}))
+
+    page = types.SimpleNamespace(
+        zoomFactor=lambda: 1.5,
+        runJavaScript=run_javascript,
+    )
+    monkeypatch.setattr(view, "page", lambda: page)
+    positions = _capture_menu_exec(monkeypatch, window)
+
+    window._show_wysiwyg_export_menu()
+
+    assert len(scripts) == 1
+    assert '[data-type="export"]' in scripts[0]
+    assert "getBoundingClientRect" in scripts[0]
+    assert positions == [view.mapToGlobal(window_mod.QPoint(120, 48))]
+
+
 def test_wysiwyg_push_marks_the_tab_document_modified(
     make_data_safety_window, tmp_path
 ):
@@ -650,6 +821,127 @@ def test_wysiwyg_push_marks_the_tab_document_modified(
     assert document.isModified() is True
     assert window._editor.is_modified() is True
     assert window._tab_state[str(note)]["editor_document"] is document
+
+
+def test_wysiwyg_delta_replaces_an_emoji_using_utf16_offsets(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-emoji-delta.md"
+    note.write_text("A😀B", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    document = window._editor.document()
+    document.setModified(False)
+
+    # JavaScript and QTextCursor both address the emoji as two UTF-16 code
+    # units.  A Python-code-point offset here would leave a lone surrogate or
+    # consume the trailing B.
+    window._on_wysiwyg_content_delta(
+        "A😺B",
+        start=1,
+        delete_count=2,
+        inserted="😺",
+        base_revision=0,
+        final_length=4,
+    )
+
+    assert document.toPlainText() == "A😺B"
+    assert document.isModified() is True
+    assert window._wysiwyg_shadow_text == "A😺B"
+    assert window._wysiwyg_shadow_qt_length == 4
+    assert window._wysiwyg_shadow_revision == 1
+
+
+def test_wysiwyg_delta_revision_mismatch_uses_the_full_snapshot(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-stale-delta.md"
+    note.write_text("abcdef", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    document = window._editor.document()
+    document.setModified(False)
+
+    full_snapshot = "replacement from full snapshot"
+    window._on_wysiwyg_content_delta(
+        full_snapshot,
+        start=0,
+        delete_count=1,
+        inserted="X",
+        base_revision=9,
+        final_length=len(full_snapshot),
+    )
+
+    # Applying the stale delta would produce "Xbcdef".  The revision guard
+    # must instead converge the Qt shadow document to the full Vditor value.
+    assert document.toPlainText() == full_snapshot
+    assert document.isModified() is True
+    assert window._wysiwyg_shadow_text == full_snapshot
+    assert window._wysiwyg_shadow_qt_length == len(full_snapshot)
+    assert window._wysiwyg_shadow_revision == 10
+
+
+def test_wysiwyg_older_revision_cannot_overwrite_an_accepted_snapshot(
+    make_data_safety_window, tmp_path
+):
+    newest = "newest accepted snapshot"
+    note = tmp_path / "wysiwyg-out-of-order-delta.md"
+    note.write_text(newest, encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    document = window._editor.document()
+    document.setModified(False)
+    # Model a transition snapshot that Python has already accepted and acked.
+    window._wysiwyg_shadow_revision = 2
+
+    window._on_wysiwyg_content_delta(
+        "older queued push",
+        start=0,
+        delete_count=document.characterCount() - 1,
+        inserted="older queued push",
+        base_revision=0,
+        final_length=len("older queued push"),
+    )
+
+    assert document.toPlainText() == newest
+    assert document.isModified() is False
+    assert window._wysiwyg_shadow_text == newest
+    assert window._wysiwyg_shadow_revision == 2
+
+
+def test_wysiwyg_noop_delta_advances_revision_without_marking_dirty(
+    make_data_safety_window, tmp_path
+):
+    markdown = "same 😀"
+    note = tmp_path / "wysiwyg-noop-delta.md"
+    note.write_text(markdown, encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    document = window._editor.document()
+    qt_length = document.characterCount() - 1
+    document.setModified(False)
+
+    window._on_wysiwyg_content_delta(
+        markdown,
+        start=qt_length,
+        delete_count=0,
+        inserted="",
+        base_revision=0,
+        final_length=qt_length,
+    )
+
+    assert document.toPlainText() == markdown
+    assert document.isModified() is False
+    assert window._editor.is_modified() is False
+    assert window._wysiwyg_shadow_revision == 1
 
 
 def test_wysiwyg_push_is_caught_by_confirm_discard_edits(
@@ -696,6 +988,279 @@ def test_wysiwyg_save_writes_the_file_and_marks_the_document_clean(
     # Ctrl+S must never depend on an async runJavaScript round trip; the
     # fake's flush is still called as a best-effort nudge (see _save_edits).
     assert window._wysiwyg_view.flush_calls >= 1
+
+
+def test_wysiwyg_async_save_waits_for_ack_and_writes_the_live_snapshot(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    """The save continuation must use the value newer than the debounce push."""
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "wysiwyg-delayed-save.md"
+    note.write_text("old disk and shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("newest visible WebEngine text")
+
+    window._save_edits()
+
+    assert len(view.snapshot_requests) == 1
+    assert note.read_text(encoding="utf-8") == "old disk and shadow"
+    assert window._editor.toPlainText() == "old disk and shadow"
+
+    view.deliver_snapshot()
+
+    assert len(view.acknowledgements) == 1
+    assert window._editor.toPlainText() == "newest visible WebEngine text"
+    # Applying the snapshot is not permission to write yet: continuation is
+    # released only after JS has aligned the next delta's baseline.
+    assert note.read_text(encoding="utf-8") == "old disk and shadow"
+
+    view.deliver_acknowledgement()
+
+    assert note.read_text(encoding="utf-8") == "newest visible WebEngine text"
+    assert window._editor.document().isModified() is False
+    assert view.saved_markdown[-1] == "newest visible WebEngine text"
+    assert window._wysiwyg_snapshot_busy is False
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_wysiwyg_async_tab_switch_stashes_the_live_snapshot_before_transition(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    first = tmp_path / "wysiwyg-delayed-tab-a.md"
+    second = tmp_path / "wysiwyg-delayed-tab-b.md"
+    first.write_text("old first shadow", encoding="utf-8")
+    second.write_text("second document", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, first)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("latest first-tab text")
+    second_index = window._add_tab(second, "markdown")
+
+    window._tab_bar.setCurrentIndex(second_index)
+
+    # currentChanged fires synchronously, but the old tab remains selected and
+    # active until both WebEngine callbacks finish.
+    assert window._active_path == str(first)
+    assert window._tab_bar.currentIndex() == window._index_of_path(str(first))
+    assert len(view.snapshot_requests) == 1
+
+    view.deliver_snapshot()
+    assert window._active_path == str(first)
+    view.deliver_acknowledgement()
+
+    assert window._active_path == str(second)
+    first_document = window._tab_state[str(first)]["editor_document"]
+    assert first_document.toPlainText() == "latest first-tab text"
+    assert first_document.isModified() is True
+
+
+def test_wysiwyg_snapshot_timeout_fails_closed_and_ignores_late_result(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "wysiwyg-snapshot-timeout.md"
+    note.write_text("durable shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("renderer value that never replied")
+    continued = []
+    existing_timers = set(window.findChildren(QTimer))
+
+    assert window._request_live_wysiwyg_snapshot(
+        lambda: continued.append(True), purpose="測試逾時"
+    ) is True
+    snapshot_timers = [
+        timer
+        for timer in window.findChildren(QTimer)
+        if timer not in existing_timers and timer.isActive()
+    ]
+    assert len(snapshot_timers) == 1
+    assert snapshot_timers[0].interval() == 2500
+    assert window._wysiwyg_snapshot_busy is True
+    assert view.isEnabled() is False
+
+    snapshot_timers[0].timeout.emit()
+
+    assert continued == []
+    assert window._wysiwyg_snapshot_busy is False
+    assert view.isEnabled() is True
+    assert window._tab_bar.isEnabled() is True
+    assert view.cancelled_snapshot_tokens == [0]
+    assert window._editor.toPlainText() == "durable shadow"
+
+    # A WebEngine callback arriving after the timeout cannot revive the
+    # cancelled transition or apply its now-untrusted payload.
+    view.deliver_snapshot()
+    assert continued == []
+    assert window._editor.toPlainText() == "durable shadow"
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_wysiwyg_stale_context_between_snapshot_and_ack_never_continues(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "wysiwyg-stale-ack.md"
+    note.write_text("initial", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("accepted snapshot")
+    continued = []
+
+    window._request_live_wysiwyg_snapshot(
+        lambda: continued.append(True), purpose="測試 stale ack"
+    )
+    view.deliver_snapshot()
+    assert window._editor.toPlainText() == "accepted snapshot"
+    assert len(view.acknowledgements) == 1
+
+    # A document reload between the two async callbacks advances this exact
+    # generation in the real view.  Even a nominally successful old ack must
+    # not release its continuation into the replacement document.
+    view._generation += 1
+    view.deliver_acknowledgement(result=True)
+
+    assert continued == []
+    assert window._wysiwyg_snapshot_busy is False
+    assert view.isEnabled() is True
+    assert window._tab_bar.isEnabled() is True
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_browser_rename_waits_for_wysiwyg_snapshot_and_updates_document_path(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    old_path = tmp_path / "before-rename.md"
+    new_path = tmp_path / "after-rename.md"
+    old_path.write_text("old shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, old_path)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("unpublished rename draft")
+    old_path.rename(new_path)
+
+    window._on_browser_paths_migrated({str(old_path): str(new_path)})
+
+    assert len(view.snapshot_requests) == 1
+    assert window._active_path == str(old_path)
+    assert str(old_path) in window._tab_state
+    assert str(new_path) not in window._tab_state
+    assert Path(view.document_path) == old_path
+
+    view.deliver_snapshot()
+    assert window._active_path == str(old_path)
+    view.deliver_acknowledgement()
+
+    assert window._active_path == str(new_path)
+    assert window._current_file == new_path
+    assert str(old_path) not in window._tab_state
+    state = window._tab_state[str(new_path)]
+    assert state["editor_document"].toPlainText() == "unpublished rename draft"
+    assert state["editor_document"].isModified() is True
+    assert Path(view.document_path) == new_path
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_browser_delete_waits_for_snapshot_and_preserves_unpushed_dirty_draft(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "delete-unpushed-wysiwyg.md"
+    note.write_text("clean shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("draft that exists only in WebEngine")
+    note.unlink()
+
+    window._on_browser_paths_deleted([note])
+
+    state = window._tab_state[str(note)]
+    assert len(view.snapshot_requests) == 1
+    assert window._tab_bar.count() == 1
+    assert state["editor_document"].toPlainText() == "clean shadow"
+    assert state["editor_document"].isModified() is False
+    assert "source_deleted" not in state
+
+    view.deliver_snapshot()
+    assert "source_deleted" not in state
+    view.deliver_acknowledgement()
+
+    assert window._tab_bar.count() == 1
+    assert window._active_path == str(note)
+    assert state["source_deleted"] is True
+    assert state["editor_document"].toPlainText() == (
+        "draft that exists only in WebEngine"
+    )
+    assert state["editor_document"].isModified() is True
+    recovery = window._recovery_store.load(note)
+    assert recovery is not None
+    assert recovery.draft == "draft that exists only in WebEngine"
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_external_change_waits_for_snapshot_then_prompts_for_dirty_wysiwyg(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "external-change-unpushed-wysiwyg.md"
+    note.write_text("disk version one", encoding="utf-8")
+    window = make_data_safety_window()
+    window._edit_backend = edit_backend.SPLIT_BACKEND
+    _enter_markdown_editor(window, note)
+    window._toggle_edit_backend()
+    view = window._wysiwyg_view
+    view.edit_without_push("local draft newer than the shadow")
+    loaded_signature = window._loaded_signature
+    note.write_text("disk version two from another process", encoding="utf-8")
+    prompts = []
+
+    def keep_local_draft(*args, **_kwargs):
+        prompts.append(args[1:3])
+        return window_mod.QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(window_mod.QMessageBox, "question", keep_local_draft)
+
+    window._on_file_changed(str(note))
+
+    assert len(view.snapshot_requests) == 1
+    assert prompts == []
+    assert window._loaded_signature == loaded_signature
+    assert window._editor.toPlainText() == "disk version one"
+
+    view.deliver_snapshot()
+    assert prompts == []
+    view.deliver_acknowledgement()
+
+    assert len(prompts) == 1
+    title, message = prompts[0]
+    assert title == "檔案已在外部變更"
+    assert "但你有未儲存的編輯" in message
+    assert window._editor.toPlainText() == "local draft newer than the shadow"
+    assert window._editor.document().isModified() is True
+    assert note.read_text(encoding="utf-8") == (
+        "disk version two from another process"
+    )
+    assert window._loaded_signature == window._file_signature(note)
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
 
 
 def test_wysiwyg_unsaved_docx_export_uses_the_live_buffer_not_disk(

@@ -1,5 +1,5 @@
-/* Glue between a bundled Vditor 3.11.3 instance (WYSIWYG mode) and the
- * QWebChannel bridge Python registers as "wysiwygBridge".
+/* Glue between the bundled Office Viewer 4.2 Vditor fork (WYSIWYG mode) and
+ * the QWebChannel bridge Python registers as "wysiwygBridge".
  *
  * Design mirrors the inline_edit.js / annotations.js split: this file owns
  * no DOM beyond what Vditor itself builds, and every side effect is reached
@@ -7,12 +7,14 @@
  * tests/js/vditor_glue_harness.js).
  *
  * Contract (see wysiwyg_view.py and the WYSIWYG spec):
- *  - JS -> Py: bridge.contentChanged(markdown) on debounced input (250ms).
- *  - JS -> Py: bridge.saveRequested() on Ctrl+S (native browser save must
- *    never fire; the window's own Ctrl+S save pipeline owns persistence).
+ *  - JS -> Py: bridge.contentDelta(...) on debounced input. Only the changed
+ *    UTF-16 range crosses QWebChannel; older hosts fall back to
+ *    bridge.contentChanged(fullValue, ...delta).
+ *  - JS -> Py: bridge.saveWithContent(...delta) on Ctrl+S (native browser
+ *    save must never fire; the window's atomic save pipeline owns disk I/O).
  *  - JS -> Py: bridge.ready() once Vditor has finished constructing.
- *  - JS -> Py: bridge.escRequested() on a "real" Esc (see onKeydown below) --
- *    the window leaves WYSIWYG back to PREVIEW, keeping the buffer dirty.
+ *  - Esc stays inside WYSIWYG. Office Viewer popovers consume it one layer
+ *    at a time; a clean Esc never asks the host to leave the editor.
  *  - Py -> JS: window.__wysiwygGlue.setValue(text) loads Python-owned text
  *    (open / external reload / backend switch). This must NOT bounce back
  *    as a contentChanged push -- the echo guard below suppresses the input
@@ -21,32 +23,41 @@
 "use strict";
 
 (function (win, doc) {
-  var DEBOUNCE_MS = 250;
+  // A slightly longer idle window keeps the hidden Qt shadow document out of
+  // the typing hot path. Save/tab/close transitions obtain an explicit live
+  // snapshot, so this delay is only a performance policy, never a data-safety
+  // boundary.
+  var DEBOUNCE_MS = 450;
 
-  // Full toolbar, "identical to Office Viewer" per the v2 spec: outline
-  // sidebar, undo/redo, headings, inline marks, indent/outdent, lists,
-  // quote/code, and table (Ctrl+M) -- everything Vditor itself binds a
-  // shortcut to. Export and VSCode-specific buttons (upload/record/devtools/
-  // fullscreen/edit-mode/both/preview/help) are deliberately left out: this
-  // is an offline, always-WYSIWYG embed with no export pipeline of its own.
-  // Simple, offline, distinguishable-by-letter SVG icon (no external asset,
-  // no emoji font dependency) for the v4 custom toolbar buttons below.
-  function letterIcon(letter) {
-    return (
-      '<svg viewBox="0 0 32 32" width="16" height="16">' +
-      '<text x="16" y="23" font-size="18" text-anchor="middle" ' +
-      'fill="currentColor">' + letter + "</text></svg>"
-    );
+  function codicon(name) {
+    return '<span class="codicon codicon-' + name + '" aria-hidden="true"></span>';
   }
 
-  var BASE_TOOLBAR = [
-    "outline", "|",
-    "undo", "redo", "|",
-    "headings", "bold", "italic", "strike", "|",
-    "link", "|",
-    "list", "ordered-list", "check", "outdent", "indent", "|",
-    "quote", "line", "code", "inline-code", "table", "|",
-  ];
+  // Office Viewer uses a dense, single-row toolbar. The upstream fork keeps
+  // the generic Vditor `flex-wrap: wrap`, which turns the 800px desktop editor
+  // into two rows. Keep every action available in-order, tighten only divider
+  // whitespace at compact desktop widths, and allow horizontal scrolling when
+  // an even narrower host cannot contain the complete row.
+  var OFFICE_LAYOUT_STYLE = (
+    ".vditor-toolbar{flex-wrap:nowrap!important;justify-content:flex-start!important;" +
+    "overflow-x:auto!important;overflow-y:hidden!important;}" +
+    ".vditor-toolbar>.vditor-toolbar__item," +
+    ".vditor-toolbar>.vditor-toolbar__divider{flex:0 0 auto;}" +
+    ".vditor-toolbar>.vditor-toolbar__br{display:none!important;}" +
+    ".vditor-toolbar::-webkit-scrollbar{height:4px;}" +
+    "@media(max-width:900px){.vditor-toolbar__divider{" +
+    "margin-left:3px!important;margin-right:3px!important;}}"
+  );
+
+  function injectOfficeLayoutStyle() {
+    if (!doc || !doc.head || typeof doc.createElement !== "function") return;
+    if (doc.querySelector && doc.querySelector("#wysiwyg-office-layout")) return;
+    var style = doc.createElement("style");
+    style.id = "wysiwyg-office-layout";
+    style.type = "text/css";
+    style.textContent = OFFICE_LAYOUT_STYLE;
+    doc.head.appendChild(style);
+  }
 
   function createGlue() {
     var state = {
@@ -57,12 +68,94 @@
       // event(s) it causes must not be pushed back as a user edit.
       echoGuard: false,
       ready: false,
+      generation: 0,
+      pendingMarkdown: null,
+      lastPushedMarkdown: "",
+      snapshotToken: 0,
+      snapshotInFlight: 0,
+      revision: 0,
+      documentSessionId: "",
+      sessionAwaitingValue: false,
+      sessionRestoreToken: 0,
+      documentSessions: {},
     };
+
+    function markdownDelta(before, after) {
+      before = typeof before === "string" ? before : "";
+      after = typeof after === "string" ? after : "";
+      var start = 0;
+      var shared = Math.min(before.length, after.length);
+      while (start < shared && before.charCodeAt(start) === after.charCodeAt(start)) {
+        start += 1;
+      }
+      function isHighSurrogate(code) {
+        return code >= 0xD800 && code <= 0xDBFF;
+      }
+      function isLowSurrogate(code) {
+        return code >= 0xDC00 && code <= 0xDFFF;
+      }
+      function splitsSurrogate(text, offset) {
+        return offset > 0 && offset < text.length &&
+          isHighSurrogate(text.charCodeAt(offset - 1)) &&
+          isLowSurrogate(text.charCodeAt(offset));
+      }
+      if (splitsSurrogate(before, start) || splitsSurrogate(after, start)) {
+        start -= 1;
+      }
+      var oldEnd = before.length;
+      var newEnd = after.length;
+      while (oldEnd > start && newEnd > start &&
+             before.charCodeAt(oldEnd - 1) === after.charCodeAt(newEnd - 1)) {
+        oldEnd -= 1;
+        newEnd -= 1;
+      }
+      if (splitsSurrogate(before, oldEnd)) oldEnd += 1;
+      if (splitsSurrogate(after, newEnd)) newEnd += 1;
+      return {
+        start: start,
+        deleteCount: oldEnd - start,
+        inserted: after.slice(start, newEnd),
+      };
+    }
+
+    function pushMarkdown(markdown) {
+      var delta = markdownDelta(state.lastPushedMarkdown, markdown);
+      var baseRevision = state.revision;
+      if (typeof state.bridge.contentDelta === "function") {
+        state.bridge.contentDelta(
+          state.generation,
+          delta.start,
+          delta.deleteCount,
+          delta.inserted,
+          baseRevision,
+          markdown.length
+        );
+      } else {
+        state.bridge.contentChanged(
+          markdown,
+          state.generation,
+          delta.start,
+          delta.deleteCount,
+          delta.inserted,
+          baseRevision,
+          markdown.length
+        );
+      }
+      state.lastPushedMarkdown = markdown;
+      state.revision = baseRevision + 1;
+    }
 
     function pushContent() {
       state.debounceTimer = null;
       if (state.echoGuard || !state.vditor || !state.bridge) return;
-      state.bridge.contentChanged(state.vditor.getValue());
+      if (state.snapshotInFlight) {
+        state.debounceTimer = win.setTimeout(pushContent, DEBOUNCE_MS);
+        return;
+      }
+      var markdown = typeof state.pendingMarkdown === "string"
+        ? state.pendingMarkdown : state.vditor.getValue();
+      state.pendingMarkdown = null;
+      pushMarkdown(markdown);
     }
 
     // v4: custom toolbar button -> bridge.toolbarAction(name). window.py
@@ -72,6 +165,45 @@
       if (state.bridge && typeof state.bridge.toolbarAction === "function") {
         state.bridge.toolbarAction(name);
       }
+    }
+
+    function requestSave() {
+      if (!state.vditor || !state.bridge) return;
+      if (state.debounceTimer) {
+        win.clearTimeout(state.debounceTimer);
+        state.debounceTimer = null;
+      }
+      var markdown = typeof state.pendingMarkdown === "string"
+        ? state.pendingMarkdown : state.vditor.getValue();
+      state.pendingMarkdown = null;
+      var delta = markdownDelta(state.lastPushedMarkdown, markdown);
+      var baseRevision = state.revision;
+      if (typeof state.bridge.saveWithContent === "function") {
+        state.bridge.saveWithContent(
+          markdown,
+          state.generation,
+          delta.start,
+          delta.deleteCount,
+          delta.inserted,
+          baseRevision,
+          markdown.length
+        );
+      } else {
+        state.bridge.contentChanged(
+          markdown,
+          state.generation,
+          delta.start,
+          delta.deleteCount,
+          delta.inserted,
+          baseRevision,
+          markdown.length
+        );
+        if (typeof state.bridge.saveRequested === "function") {
+          state.bridge.saveRequested();
+        }
+      }
+      state.lastPushedMarkdown = markdown;
+      state.revision = baseRevision + 1;
     }
 
     // v4: right-click anywhere in the Vditor surface -> bridge.
@@ -92,43 +224,65 @@
       state.bridge.contextMenuRequested(x, y);
     }
 
-    // v4: custom buttons (save / export PDF·Word·HTML / insert image /
-    // theme) route through toolbarAction(name) -> bridge.toolbarAction(name);
-    // window.py owns what each one actually does (file dialogs, atomic
-    // save, theme state). Built here (not at module scope) so each click
-    // closure can reach this instance's `state`.
-    var CUSTOM_TOOLBAR_ITEMS = [
-      { name: "save", tip: "存檔 (Ctrl+S)", tipPosition: "s", icon: letterIcon("S"),
-        click: function () { toolbarAction("save"); } },
-      { name: "export-pdf", tip: "匯出 PDF…", tipPosition: "s", icon: letterIcon("P"),
-        click: function () { toolbarAction("export_pdf"); } },
-      { name: "export-docx", tip: "匯出 Word…", tipPosition: "s", icon: letterIcon("W"),
-        click: function () { toolbarAction("export_docx"); } },
-      { name: "export-html", tip: "匯出 HTML…", tipPosition: "s", icon: letterIcon("H"),
-        click: function () { toolbarAction("export_html"); } },
-      { name: "insert-image", tip: "插入圖片…", tipPosition: "s", icon: letterIcon("I"),
-        click: function () { toolbarAction("insert_image"); } },
-      { name: "theme-toggle", tip: "切換深色模式", tipPosition: "s", icon: letterIcon("T"),
-        click: function () { toolbarAction("toggle_theme"); } },
-    ];
+    // Office Viewer 4.2 toolbar order. The underlying Vditor fork supplies
+    // the polished Codicon set, colour pickers, themes, find/replace,
+    // settings, code-block chrome and block handles. Host-specific actions
+    // stay as tiny bridge adapters into the existing Qt workflows.
+    function buildToolbar() {
+      return [
+        "outline",
+        { name: "markmap", tip: "筆記關聯圖", icon: codicon("type-hierarchy"),
+          click: function () { toolbarAction("open_graph"); } },
+        "|",
+        { name: "edit-in-source", tip: "切換原始碼編輯 (Ctrl+Shift+W)",
+          className: "right", icon: codicon("vscode"),
+          click: function () { toolbarAction("toggle_source"); } },
+        { name: "save", tip: "儲存 (Ctrl+S)", className: "right",
+          icon: codicon("save"), click: requestSave },
+        "|",
+        "headings", "bold", "italic", "strike", "link",
+        "|",
+        "font-color", "background-color",
+        { name: "export", tip: "匯出…", icon: codicon("arrow-down"),
+          click: function () { toolbarAction("show_export_menu"); } },
+        { name: "insert-image", tip: "插入圖片…", icon: codicon("mail"),
+          click: function () { toolbarAction("insert_image"); } },
+        "|",
+        "editor-theme", "editor-theme-toggle",
+        "|",
+        "list", "ordered-list", "check", "table",
+        "|",
+        "quote", "code",
+        { name: "insert-attachment", tip: "加入附件…", icon: codicon("cloud-upload"),
+          click: function () { toolbarAction("insert_attachment"); } },
+        "|",
+        "undo", "redo",
+        "|",
+        "find", "ai-settings", "settings",
+      ];
+    }
 
-    function onInput() {
+    function onInput(markdown) {
       if (state.echoGuard) {
         // Consume exactly the one echo this guard was raised for; a real
         // keystroke landing right after must debounce normally again.
         state.echoGuard = false;
         return;
       }
+      state.pendingMarkdown = typeof markdown === "string" ? markdown : null;
       if (state.debounceTimer) win.clearTimeout(state.debounceTimer);
       state.debounceTimer = win.setTimeout(pushContent, DEBOUNCE_MS);
     }
 
     // Vditor's autocomplete/emoji/heading hint popups use the ".vditor-hint"
-    // class and toggle CSS display to show/hide -- see index.min.js. The
-    // *first* Esc while one is open must only close that panel (Vditor's own
-    // job); only a "clean" Esc, with nothing open, leaves WYSIWYG entirely.
+    // class and toggle CSS display to show/hide -- see index.min.js. Find and
+    // those editing hints retain their exact-core Escape handling.
     function isHintPanelOpen() {
       if (!doc || !doc.querySelectorAll) return false;
+      var findBar = doc.querySelector(".vditor-find-bar");
+      if (findBar && (!findBar.style || findBar.style.display !== "none")) {
+        return true;
+      }
       var hints = doc.querySelectorAll(".vditor-hint");
       for (var i = 0; i < hints.length; i++) {
         var el = hints[i];
@@ -139,6 +293,110 @@
       return false;
     }
 
+    function clickControl(control) {
+      if (!control || typeof control.click !== "function") return false;
+      control.click();
+      return true;
+    }
+
+    // Close one exact Office Viewer layer. These selectors intentionally
+    // mirror the 4.2 fork's real DOM instead of guessing from generic modal
+    // geometry. Triggering its own button keeps the fork's internal open-state
+    // bookkeeping synchronized with the visible DOM.
+    function closeExactOfficeOverlay() {
+      if (!doc || !doc.querySelector) return false;
+
+      var aiDialog = doc.querySelector(
+        ".vditor-ai-dialog-overlay:not([hidden])"
+      );
+      if (aiDialog) {
+        var aiClose = aiDialog.querySelector && aiDialog.querySelector(
+          ".vditor-ai-dialog__close, .vditor-ai-dialog__btn--cancel"
+        );
+        if (clickControl(aiClose)) return true;
+      }
+
+      var aiReview = doc.querySelector(".vditor-ai-review");
+      if (aiReview) {
+        var reviewClose = aiReview.querySelector && aiReview.querySelector(
+          ".vditor-ai-review__close, [data-action='reject']"
+        );
+        if (clickControl(reviewClose)) return true;
+      }
+
+      var aiOverlay = doc.querySelector(".vditor-ai-overlay:not([hidden])");
+      if (aiOverlay) {
+        var overlayClose = aiOverlay.querySelector && aiOverlay.querySelector(
+          "[data-action='close'], .vditor-ai-dialog__close"
+        );
+        if (clickControl(overlayClose)) return true;
+      }
+
+      var floatingMenu = doc.querySelector(
+        ".vditor-settings-panel__floating-menu:not([hidden])"
+      );
+      if (floatingMenu) {
+        var openDropdown = doc.querySelector(
+          ".vditor-settings-panel__dropdown-trigger--open"
+        );
+        if (clickControl(openDropdown)) return true;
+        floatingMenu.hidden = true;
+        return true;
+      }
+
+      var themePicker = doc.querySelector(".vditor-theme-picker-popover");
+      if (themePicker && themePicker.style && themePicker.style.display === "block") {
+        var themeDropdown = doc.querySelector(
+          ".vditor-settings-panel__dropdown-trigger--open"
+        );
+        if (clickControl(themeDropdown)) return true;
+        themePicker.style.display = "none";
+        return true;
+      }
+
+      var exactTriggers = [
+        [".vditor-cm-chrome__lang--open", ".vditor-cm-chrome__lang-trigger"],
+        [".vditor-cm-chrome__theme--open", ".vditor-cm-chrome__theme-trigger"],
+        [
+          ".vditor-mermaid-chrome__theme--open",
+          ".vditor-mermaid-chrome__theme-trigger",
+        ],
+      ];
+      for (var i = 0; i < exactTriggers.length; i++) {
+        var openWrap = doc.querySelector(exactTriggers[i][0]);
+        if (openWrap && openWrap.querySelector &&
+            clickControl(openWrap.querySelector(exactTriggers[i][1]))) {
+          return true;
+        }
+      }
+
+      var toolbarTypes = ["editor-theme", "settings", "ai-settings"];
+      for (var j = 0; j < toolbarTypes.length; j++) {
+        var button = doc.querySelector(
+          ".vditor-toolbar button[data-type='" + toolbarTypes[j] + "']"
+        );
+        var item = button && button.parentNode;
+        if (!item || !item.children) continue;
+        for (var k = 0; k < item.children.length; k++) {
+          var panel = item.children[k];
+          if (panel && panel.classList && panel.classList.contains("vditor-hint") &&
+              panel.style && panel.style.display === "block") {
+            if (clickControl(button)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function consumeEscape(event) {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      if (event && typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      } else if (event && typeof event.stopPropagation === "function") {
+        event.stopPropagation();
+      }
+    }
+
     function onKeydown(event) {
       var ctrl = event.ctrlKey || event.metaKey;
       if (ctrl) {
@@ -146,25 +404,20 @@
         if (key !== "s") return;
         event.preventDefault();
         // Flush any debounced edit *before* asking Python to save, in that
-        // order: QWebChannel preserves call order, so contentChanged reaches
-        // Python ahead of saveRequested and Ctrl+S can never save text one
-        // keystroke stale behind the 250ms debounce window.
-        flushPending();
-        if (state.bridge && typeof state.bridge.saveRequested === "function") {
-          state.bridge.saveRequested();
-        }
+        // Carry the live value and its delta in this save call, so Ctrl+S can
+        // never write content one keystroke behind the debounce window.
+        requestSave();
         return;
       }
       if (event.key !== "Escape" && event.key !== "Esc") return;
-      // Checked in the capture phase (this listener is registered with
-      // useCapture=true below), i.e. *before* Vditor's own bubble-phase
-      // handler has a chance to close the panel -- otherwise the panel would
-      // already read as closed by the time this runs, and a single Esc would
-      // both close the hint AND leave WYSIWYG in one keystroke.
-      if (isHintPanelOpen()) return;
-      if (state.bridge && typeof state.bridge.escRequested === "function") {
-        state.bridge.escRequested();
+      if (closeExactOfficeOverlay()) {
+        consumeEscape(event);
+        return;
       }
+      // Find/autocomplete hints already own Escape in the exact core. Do not
+      // consume it here; just ensure it can never escape to the Qt host.
+      if (isHintPanelOpen()) return;
+      // A clean Escape deliberately remains a no-op at the host boundary.
     }
 
     // ---- v4 second wave: Notion-style block handles (+ / drag-to-reorder) ----
@@ -446,6 +699,12 @@
       if (!doc || typeof doc.querySelector !== "function") return;
       var root = doc.querySelector(".vditor-wysiwyg");
       if (!root) return;
+      // Office Viewer's Vditor 4.x owns undo-aware nested block handles.
+      // Never layer the legacy fallback handles on top of those.
+      if (root.querySelector && root.querySelector(".vditor-block-handle")) {
+        state.handlesInstalled = true;
+        return;
+      }
       var editable = root.firstElementChild;
       if (!editable) return;
 
@@ -493,22 +752,37 @@
       if (typeof VditorCtor !== "function") {
         throw new Error("window.Vditor is not loaded");
       }
+      // Install before the exact core creates/measures its toolbar so the
+      // first painted frame is already single-row (no two-row flash).
+      injectOfficeLayoutStyle();
       state.vditor = new VditorCtor(options.elementId || "vditor", {
         mode: "wysiwyg",
         lang: options.lang || "zh_TW",
         cdn: options.cdn || "",
         height: "100%",
+        tab: "\t",
+        editorTheme: options.editorTheme || "Auto",
+        codeMirrorTheme: options.codeMirrorTheme || "Auto",
+        mermaidTheme: options.mermaidTheme || "Auto",
+        // The exact core restores its persisted `outlineWidth` before this
+        // option, so 280px is only the first-use default. Its native resize
+        // implementation continues to clamp and persist within 120-480px.
+        outline: { position: "left", width: 280 },
         // Autosave / local cache must stay off: Ctrl+S -> the window's
         // atomic-write pipeline is the only path that ever touches disk.
-        cache: { enable: false },
+        cache: {
+          enable: false,
+          id: options.documentSessionId || "markdown-viewer:untitled",
+          // The Office fork's VS Code focus adapter keeps a private WeakMap
+          // keyed by the reused Vditor instance. Changing cache.id at runtime
+          // cannot clear that map, so it can restore another file's caret.
+          // Glue owns per-document focus below; keep the core's browser mode.
+          focusHost: "browser",
+        },
         toolbarConfig: { pin: true },
-        toolbar: options.toolbar || BASE_TOOLBAR.concat(CUSTOM_TOOLBAR_ITEMS),
+        toolbar: options.toolbar || buildToolbar(),
         preview: {
-          // Vditor centres content in an 800px column by default; fill the
-          // window instead (Vditor derives its own side padding from this).
-          maxWidth: options.maxWidth || 100000,
           math: { engine: "KaTeX" },
-          hljs: { style: options.hljsStyle || "github" },
           // mermaid/echarts renderers are not bundled offline; render the
           // fenced block as plain code rather than erroring out.
           render: { mermaid: false, echarts: false },
@@ -516,11 +790,24 @@
         input: onInput,
         after: function () {
           state.ready = true;
+          var inner = state.vditor && state.vditor.vditor;
+          var cache = inner && inner.options && inner.options.cache;
+          if (!cache && state.vditor && state.vditor.options) {
+            cache = state.vditor.options.cache;
+          }
+          state.documentSessionId = cache && cache.id ? cache.id : "";
           if (options.value) {
-            setValue(options.value);
+            setValue(
+              options.value,
+              options.generation || 0,
+              options.documentBaseUrl,
+              options.documentSessionId
+            );
           }
           installBlockHandles();
+          injectOfficeLayoutStyle();
           syncToolbarTitles();
+          restoreDocumentSession();
           if (state.bridge && typeof state.bridge.ready === "function") {
             state.bridge.ready();
           }
@@ -528,6 +815,10 @@
       });
       doc.addEventListener("keydown", onKeydown, true);
       doc.addEventListener("contextmenu", onContextMenu, true);
+      if (win && typeof win.addEventListener === "function") {
+        win.addEventListener("blur", persistDocumentSession);
+        win.addEventListener("pagehide", persistDocumentSession);
+      }
       return state.vditor;
     }
 
@@ -546,19 +837,434 @@
       }
     }
 
-    function setValue(text) {
+    var DOCUMENT_SESSION_PREFIX = "markdown-viewer-document-session:";
+
+    function documentSessionStorage() {
+      try {
+        return win && win.localStorage ? win.localStorage : null;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function nodePath(root, node) {
+      if (!root || !node || !(node === root || root.contains(node))) return null;
+      var path = [];
+      while (node && node !== root) {
+        var parent = node.parentNode;
+        if (!parent || !parent.childNodes) return null;
+        var index = Array.prototype.indexOf.call(parent.childNodes, node);
+        if (index < 0) return null;
+        path.unshift(index);
+        node = parent;
+      }
+      return node === root ? path : null;
+    }
+
+    function nodeAtPath(root, path) {
+      if (!root || !Array.isArray(path)) return null;
+      var node = root;
+      for (var i = 0; i < path.length; i++) {
+        if (!node.childNodes || !node.childNodes[path[i]]) return null;
+        node = node.childNodes[path[i]];
+      }
+      return node;
+    }
+
+    function clampNodeOffset(node, offset) {
+      var maximum = node && node.nodeType === 3
+        ? String(node.textContent || "").length
+        : (node && node.childNodes ? node.childNodes.length : 0);
+      return Math.max(0, Math.min(Number(offset) || 0, maximum));
+    }
+
+    function textOffsetForPoint(root, node, offset) {
+      if (!doc || typeof doc.createRange !== "function") return null;
+      try {
+        var range = doc.createRange();
+        range.selectNodeContents(root);
+        range.setEnd(node, clampNodeOffset(node, offset));
+        return range.toString().length;
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function pointAtTextOffset(root, target) {
+      if (!doc || typeof doc.createTreeWalker !== "function") return null;
+      var showText = win.NodeFilter ? win.NodeFilter.SHOW_TEXT : 4;
+      var walker = doc.createTreeWalker(root, showText);
+      var remaining = Math.max(0, Number(target) || 0);
+      var last = null;
+      while (walker.nextNode()) {
+        last = walker.currentNode;
+        var length = String(last.textContent || "").length;
+        if (remaining <= length) return { node: last, offset: remaining };
+        remaining -= length;
+      }
+      return last
+        ? { node: last, offset: String(last.textContent || "").length }
+        : { node: root, offset: 0 };
+    }
+
+    function closestElement(node, selector) {
+      var element = node && node.nodeType === 1
+        ? node : (node && node.parentElement);
+      return element && typeof element.closest === "function"
+        ? element.closest(selector) : null;
+    }
+
+    function codeMirrorView(content) {
+      var tile = content && content.cmTile;
+      var view = tile && tile.view;
+      return view && view.state && view.state.selection ? view : null;
+    }
+
+    function selectedCodeMirror(surface, selection) {
+      var candidates = [doc && doc.activeElement];
+      if (selection && selection.anchorNode) candidates.push(selection.anchorNode);
+      for (var i = 0; i < candidates.length; i++) {
+        var content = closestElement(candidates[i], ".cm-content");
+        if (!content || !surface.contains(content)) continue;
+        var block = closestElement(content, "[data-type='code-block']");
+        var view = codeMirrorView(content);
+        if (!block || !view) continue;
+        var blocks = surface.querySelectorAll("[data-type='code-block']");
+        var blockIndex = Array.prototype.indexOf.call(blocks, block);
+        if (blockIndex >= 0) {
+          return { content: content, view: view, blockIndex: blockIndex };
+        }
+      }
+      return null;
+    }
+
+    function pointContext(node, offset) {
+      if (!node || node.nodeType !== 3) return null;
+      var text = String(node.textContent || "");
+      var caret = clampNodeOffset(node, offset);
+      return {
+        before: text.slice(Math.max(0, caret - 32), caret),
+        after: text.slice(caret, caret + 32),
+      };
+    }
+
+    function closestContextOffset(text, before, after, expected) {
+      before = typeof before === "string" ? before : "";
+      after = typeof after === "string" ? after : "";
+      var needle = before + after;
+      if (!needle) return null;
+      var best = null;
+      var from = 0;
+      while (from <= text.length) {
+        var found = text.indexOf(needle, from);
+        if (found < 0) break;
+        var candidate = found + before.length;
+        if (best === null ||
+            Math.abs(candidate - expected) < Math.abs(best - expected)) {
+          best = candidate;
+        }
+        from = found + 1;
+      }
+      return best;
+    }
+
+    function resolveStoredPoint(root, path, offset, textOffset, before, after) {
+      // Office's focus state is path-first. That matters for repeated text
+      // and for code blocks whose hidden/rendered DOM duplicates content.
+      var node = nodeAtPath(root, path);
+      if (node) {
+        var restoredOffset = clampNodeOffset(node, offset);
+        if (node.nodeType === 3) {
+          var contextual = closestContextOffset(
+            String(node.textContent || ""), before, after, restoredOffset
+          );
+          if (contextual !== null) restoredOffset = contextual;
+        }
+        return { node: node, offset: restoredOffset };
+      }
+      return typeof textOffset === "number"
+        ? pointAtTextOffset(root, textOffset) : null;
+    }
+
+    function persistDocumentSession() {
+      if (!state.ready || !state.documentSessionId || !state.vditor) return;
+      var inner = state.vditor.vditor;
+      var mode = inner && inner.currentMode;
+      var surface = mode && inner[mode] && inner[mode].element;
+      if (!surface) return;
+
+      var session = {
+        mode: mode,
+        scrollTop: Number(surface.scrollTop) || 0,
+      };
+      var selection = win.getSelection && win.getSelection();
+      var range = selection && selection.rangeCount
+        ? selection.getRangeAt(0) : null;
+      var cm = selectedCodeMirror(surface, selection);
+      if (cm) {
+        var main = cm.view.state.selection.main;
+        session.type = "cm";
+        session.blockIndex = cm.blockIndex;
+        session.anchor = Number(main.anchor) || 0;
+        session.head = Number(main.head) || 0;
+      }
+      if (range && surface.contains(range.startContainer) &&
+          surface.contains(range.endContainer) && !cm) {
+        var startPath = nodePath(surface, range.startContainer);
+        var endPath = nodePath(surface, range.endContainer);
+        if (startPath && endPath) {
+          session.type = "dom";
+          session.startPath = startPath;
+          session.startOffset = range.startOffset;
+          session.endPath = endPath;
+          session.endOffset = range.endOffset;
+          session.startTextOffset = textOffsetForPoint(
+            surface, range.startContainer, range.startOffset
+          );
+          session.endTextOffset = textOffsetForPoint(
+            surface, range.endContainer, range.endOffset
+          );
+          var startContext = pointContext(
+            range.startContainer, range.startOffset
+          );
+          var endContext = pointContext(range.endContainer, range.endOffset);
+          if (startContext) {
+            session.startBefore = startContext.before;
+            session.startAfter = startContext.after;
+          }
+          if (endContext) {
+            session.endBefore = endContext.before;
+            session.endAfter = endContext.after;
+          }
+        }
+      }
+      state.documentSessions[state.documentSessionId] = session;
+      var storage = documentSessionStorage();
+      if (storage) {
+        try {
+          storage.setItem(
+            DOCUMENT_SESSION_PREFIX + state.documentSessionId,
+            JSON.stringify(session)
+          );
+        } catch (_error) {
+          // Private/locked storage must never affect the editor or saving.
+        }
+      }
+    }
+
+    function readDocumentSession(sessionId) {
+      var session = state.documentSessions[sessionId];
+      if (session) return session;
+      var storage = documentSessionStorage();
+      if (!storage) return null;
+      try {
+        var raw = storage.getItem(DOCUMENT_SESSION_PREFIX + sessionId);
+        session = raw ? JSON.parse(raw) : null;
+      } catch (_error) {
+        session = null;
+      }
+      if (session && typeof session === "object") {
+        state.documentSessions[sessionId] = session;
+        return session;
+      }
+      return null;
+    }
+
+    function setDocumentSession(sessionId) {
+      var value = typeof sessionId === "string" && sessionId
+        ? sessionId : "markdown-viewer:untitled";
+      var inner = state.vditor && state.vditor.vditor;
+      if (!inner || !inner.options) {
+        state.documentSessionId = value;
+        return;
+      }
+      inner.options.cache = inner.options.cache || {};
+      var changed = state.documentSessionId !== value ||
+        inner.options.cache.id !== value;
+      if (!changed) return;
+      persistDocumentSession();
+      inner.options.cache.enable = false;
+      inner.options.cache.id = value;
+      inner.options.cache.focusHost = "browser";
+      state.documentSessionId = value;
+      state.sessionAwaitingValue = true;
+      state.sessionRestoreToken += 1;
+    }
+
+    function restoreDocumentSession() {
+      if (!state.ready || !state.vditor || !state.documentSessionId) return;
+      var sessionId = state.documentSessionId;
+      var generation = state.generation;
+      var restoreToken = ++state.sessionRestoreToken;
+      var session = readDocumentSession(sessionId);
+      if (!session) return;
+
+      function stillCurrent() {
+        return state.documentSessionId === sessionId &&
+          state.generation === generation &&
+          state.sessionRestoreToken === restoreToken &&
+          !!state.vditor;
+      }
+
+      function applyScroll(surface) {
+        surface.scrollTop = Math.max(0, Number(session.scrollTop) || 0);
+      }
+
+      function restoreCodeMirror(surface, attempt) {
+        if (!stillCurrent()) return;
+        // Off-screen code blocks are virtualized. Put the block in the
+        // viewport first so the core can mount its CodeMirror view.
+        applyScroll(surface);
+        var blocks = surface.querySelectorAll("[data-type='code-block']");
+        var block = blocks[Math.max(0, Number(session.blockIndex) || 0)];
+        var content = block && block.querySelector(".cm-content");
+        var view = codeMirrorView(content);
+        if (view) {
+          try {
+            var length = view.state.doc.length;
+            var anchor = Math.max(0, Math.min(Number(session.anchor) || 0, length));
+            var head = Math.max(0, Math.min(Number(session.head) || 0, length));
+            view.dispatch({
+              selection: { anchor: anchor, head: head },
+              scrollIntoView: false,
+            });
+            view.focus();
+          } catch (_error) {
+            // A pinned-bundle capability mismatch must not break loading.
+          }
+          applyScroll(surface);
+          // CodeMirror and Chromium may scroll the newly focused caret on
+          // the next layout frame even though dispatch used scrollIntoView:
+          // false. Reapply the document's root scroll after that focus/layout
+          // sequence settles, with the same stale-session guard.
+          if (win && typeof win.requestAnimationFrame === "function") {
+            win.requestAnimationFrame(function () {
+              if (!stillCurrent()) return;
+              applyScroll(surface);
+              win.requestAnimationFrame(function () {
+                if (stillCurrent()) applyScroll(surface);
+              });
+            });
+          }
+          return;
+        }
+        if (attempt < 72 && win &&
+            typeof win.requestAnimationFrame === "function") {
+          win.requestAnimationFrame(function () {
+            restoreCodeMirror(surface, attempt + 1);
+          });
+        }
+      }
+
+      function applySession() {
+        if (!stillCurrent()) return;
+        var inner = state.vditor.vditor;
+        var mode = inner && inner.currentMode;
+        var surface = mode && inner[mode] && inner[mode].element;
+        if (!surface || session.mode !== mode) return;
+
+        if (session.type === "cm") {
+          restoreCodeMirror(surface, 0);
+          return;
+        }
+        var range = null;
+        var startPoint = resolveStoredPoint(
+          surface,
+          session.startPath,
+          session.startOffset,
+          session.startTextOffset,
+          session.startBefore,
+          session.startAfter
+        );
+        var endPoint = resolveStoredPoint(
+          surface,
+          session.endPath,
+          session.endOffset,
+          session.endTextOffset,
+          session.endBefore,
+          session.endAfter
+        );
+        var startNode = startPoint && startPoint.node;
+        var endNode = endPoint && endPoint.node;
+        if (startNode && endNode && doc && typeof doc.createRange === "function") {
+          try {
+            range = doc.createRange();
+            range.setStart(startNode, clampNodeOffset(startNode, startPoint.offset));
+            range.setEnd(endNode, clampNodeOffset(endNode, endPoint.offset));
+            try {
+              surface.focus({ preventScroll: true });
+            } catch (_error) {
+              if (typeof surface.focus === "function") surface.focus();
+            }
+            var selection = win.getSelection && win.getSelection();
+            if (selection) {
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+            inner[mode].range = range.cloneRange ? range.cloneRange() : range;
+          } catch (_error) {
+            range = null;
+          }
+        }
+        applyScroll(surface);
+      }
+
+      // setValue rebuilds the WYSIWYG DOM synchronously, while code/math
+      // decorators settle on animation frames. Two frames matches Office
+      // Viewer's own restore timing and avoids a visible caret jump.
+      if (win && typeof win.requestAnimationFrame === "function") {
+        win.requestAnimationFrame(function () {
+          win.requestAnimationFrame(applySession);
+        });
+      } else {
+        win.setTimeout(applySession, 0);
+      }
+    }
+
+    function setDocumentBase(baseUrl, sessionId) {
+      var value = typeof baseUrl === "string" ? baseUrl : "";
+      state.documentBaseUrl = value;
+      if (typeof sessionId === "string") setDocumentSession(sessionId);
+      var inner = state.vditor && state.vditor.vditor;
+      if (!inner) return;
+      if (inner.options && inner.options.preview && inner.options.preview.markdown) {
+        inner.options.preview.markdown.linkBase = value;
+      }
+      if (inner.lute && typeof inner.lute.SetLinkBase === "function") {
+        inner.lute.SetLinkBase(value);
+      }
+    }
+
+    function setValue(text, generation, documentBaseUrl, documentSessionId) {
       if (!state.vditor) return;
       if (state.debounceTimer) {
         win.clearTimeout(state.debounceTimer);
         state.debounceTimer = null;
       }
+      state.pendingMarkdown = null;
+      state.snapshotInFlight = 0;
+      state.sessionRestoreToken += 1;
+      var clearUndoStack = state.sessionAwaitingValue ||
+        state.documentSessionId !== documentSessionId;
+      if (typeof generation === "number") state.generation = generation;
+      state.lastPushedMarkdown = text == null ? "" : String(text);
+      state.revision = 0;
+      if (state.documentSessionId === documentSessionId &&
+          !state.sessionAwaitingValue) {
+        // A reload of the same file still needs to preserve the current
+        // caret before setValue rebuilds the editable DOM.
+        persistDocumentSession();
+      }
+      setDocumentBase(documentBaseUrl, documentSessionId);
+      state.sessionAwaitingValue = false;
       state.echoGuard = true;
-      state.vditor.setValue(text == null ? "" : text);
+      state.vditor.setValue(text == null ? "" : text, clearUndoStack);
       // Vditor's setValue does not reliably fire `input` synchronously (or
       // at all, for an unchanged value). Clear a guard nothing consumed on
       // the next tick so it cannot suppress the user's next real edit.
       win.setTimeout(function () {
         state.echoGuard = false;
+        restoreDocumentSession();
       }, 0);
     }
 
@@ -573,19 +1279,133 @@
       }
     }
 
+    function takeSnapshot() {
+      // Snapshot reads must not consume the normal debounced push. If the
+      // renderer times out or a transition becomes stale, that push is still
+      // needed for recovery and dirty-state tracking.
+      return state.vditor ? state.vditor.getValue() : null;
+    }
+
+    function takeSnapshotEnvelope() {
+      var markdown = takeSnapshot();
+      if (typeof markdown !== "string") return null;
+      var delta = markdownDelta(state.lastPushedMarkdown, markdown);
+      state.snapshotToken += 1;
+      state.snapshotInFlight = state.snapshotToken;
+      return JSON.stringify({
+        markdown: markdown,
+        generation: state.generation,
+        token: state.snapshotToken,
+        baseRevision: state.revision,
+        revision: state.revision + 1,
+        length: markdown.length,
+        start: delta.start,
+        deleteCount: delta.deleteCount,
+        inserted: delta.inserted,
+      });
+    }
+
+    function acknowledgeMarkdown(markdown, generation, token, revision) {
+      if (typeof generation === "number" && generation !== state.generation) return false;
+      if (typeof token === "number" && token !== state.snapshotInFlight) return false;
+      if (typeof markdown === "string") state.lastPushedMarkdown = markdown;
+      if (typeof revision === "number") state.revision = revision;
+      state.snapshotInFlight = 0;
+      if (state.pendingMarkdown === markdown) {
+        state.pendingMarkdown = null;
+        if (state.debounceTimer) {
+          win.clearTimeout(state.debounceTimer);
+          state.debounceTimer = null;
+        }
+      } else if (typeof state.pendingMarkdown === "string" && !state.debounceTimer) {
+        state.debounceTimer = win.setTimeout(pushContent, 0);
+      }
+      return true;
+    }
+
+    function cancelSnapshot(token) {
+      if (typeof token === "number" && token && token !== state.snapshotInFlight) return;
+      state.snapshotInFlight = 0;
+      if (typeof state.pendingMarkdown === "string" && !state.debounceTimer) {
+        state.debounceTimer = win.setTimeout(pushContent, 0);
+      }
+    }
+
+    function ensureInsertionCaret() {
+      var inner = state.vditor && state.vditor.vditor;
+      var mode = inner && inner.currentMode;
+      var surface = mode && inner[mode] && inner[mode].element;
+      if (!surface || !doc || !doc.createRange || !win.getSelection) return;
+
+      function isUsable(range) {
+        if (!range || !range.startContainer ||
+            !(range.startContainer === surface || surface.contains(range.startContainer))) {
+          return false;
+        }
+        var node = range.startContainer.nodeType === 1
+          ? range.startContainer : range.startContainer.parentElement;
+        return !(node && node.closest && node.closest(".vditor-editor-boundary"));
+      }
+
+      var selection = win.getSelection();
+      var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+      if (!isUsable(range)) {
+        range = inner[mode].range;
+      }
+      if (!isUsable(range)) {
+        // A programmatic setValue() leaves the fork's cached range on its
+        // leading zero-width boundary sentinel. Inserting there renders the
+        // image visually, but DOM -> Markdown intentionally ignores it. Give
+        // host-driven inserts a real paragraph at the document end instead.
+        var paragraph = doc.createElement("p");
+        paragraph.setAttribute("data-block", "0");
+        paragraph.appendChild(doc.createElement("br"));
+        var trailingBoundary = surface.querySelector(
+          ":scope > .vditor-editor-boundary:last-child"
+        );
+        surface.insertBefore(paragraph, trailingBoundary || null);
+        range = doc.createRange();
+        range.setStart(paragraph, 0);
+        range.collapse(true);
+      }
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      inner[mode].range = range;
+    }
+
     // v4: insert a Markdown snippet (image/attachment link) at the caret,
     // used by window.py after a file picker + image_paste.py import.
     function insertValue(text) {
-      if (!state.vditor || !state.vditor.insertValue) return;
-      state.vditor.insertValue(text == null ? "" : text);
+      if (!state.vditor) return;
+      var value = text == null ? "" : text;
+      if (typeof state.vditor.insertMarkdown === "function") {
+        ensureInsertionCaret();
+        state.vditor.insertMarkdown(value);
+      } else if (typeof state.vditor.insertValue === "function") {
+        state.vditor.insertValue(value);
+      }
+    }
+
+    function markSaved(markdown) {
+      if (state.vditor && typeof state.vditor.markSaved === "function") {
+        state.vditor.markSaved(typeof markdown === "string" ? markdown : undefined);
+      }
     }
 
     return {
       boot: boot,
       setValue: setValue,
+      setDocumentBase: setDocumentBase,
       getValue: getValue,
       insertValue: insertValue,
       flushPending: flushPending,
+      takeSnapshot: takeSnapshot,
+      takeSnapshotEnvelope: takeSnapshotEnvelope,
+      acknowledgeMarkdown: acknowledgeMarkdown,
+      cancelSnapshot: cancelSnapshot,
+      markSaved: markSaved,
       _state: state,
       // Test-only hook (tests/js/vditor_glue_harness.js): production code
       // never calls this directly, it happens automatically from `after`

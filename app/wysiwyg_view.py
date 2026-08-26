@@ -1,19 +1,20 @@
-"""WYSIWYG Markdown editor backend: a QWebEngineView hosting Vditor 3.11.3.
+"""WYSIWYG backend hosting the Office Viewer 4.2 Vditor fork.
 
 Only used by the EDIT/SPLIT view modes when the user has opted into the
 WYSIWYG edit backend (see ``app/edit_backend.py``); the PREVIEW-mode
 rendering pipeline (``app/renderer.py``) is completely untouched.
 
-Data-safety contract (see the WYSIWYG spec's "shadow document push model"):
-this widget never owns the save-worthy truth.  It only ever (a) receives a
-full Markdown load from Python via :meth:`load_markdown`, or (b) reports a
-full Markdown snapshot back via :attr:`content_changed`, debounced ~250ms by
-``assets/vditor_glue.js``.  ``window.py`` is responsible for writing that
-snapshot into the active tab's ``QTextDocument`` and marking it modified.
+Data-safety contract: normal typing is mirrored into the active tab's hidden
+``QTextDocument`` as a small UTF-16 delta after a short idle window.  Save,
+tab, export, backend-switch and close transitions instead take an explicit
+asynchronous snapshot and acknowledge it before moving on.  The visible web
+editor owns undo/redo while it is active; the Qt document remains the durable
+save/recovery buffer.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -22,9 +23,21 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from .text_positions import py_to_qt_position, qt_to_py_position
+
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
 _LANG_MAP = {"zh_TW": "zh_TW", "en_US": "en_US"}
+
+
+def _document_session_id(path: str | Path | None) -> str:
+    """Return a stable, non-identifying cache key for one document path."""
+    if path:
+        identity = str(Path(path).resolve()).casefold()
+    else:
+        identity = "untitled"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return f"markdown-viewer:{digest}"
 
 
 def _read_resource(path: str) -> str:
@@ -43,25 +56,94 @@ class _WysiwygBridge(QObject):
     RendererView already occupies that name; see renderer.py:274).
 
     The Signal/Slot names below are deliberately distinct from the page's
-    JS-facing method names (``contentChanged``/``saveRequested``/``ready``,
+    JS-facing method names (``contentChanged``/``saveWithContent``/``ready``,
     called by assets/vditor_glue.js): a Signal and a @Slot cannot share one
     name on the same QObject in PySide6.
     """
 
-    contentPushed = Signal(str)
+    contentPushed = Signal(str, int, int, int, str, int, int)
+    contentDeltaPushed = Signal(int, int, int, str, int, int)
     saveRequestedSig = Signal()
+    saveWithContentSig = Signal(str, int, int, int, str, int, int)
     viewReadySig = Signal()
     escRequestedSig = Signal()
     toolbarActionSig = Signal(str)
     contextMenuRequestedSig = Signal(int, int)
 
-    @Slot(str)
-    def contentChanged(self, markdown: str) -> None:
-        self.contentPushed.emit(markdown)
+    def __init__(self, view: "WysiwygView") -> None:
+        super().__init__(view)
+        self._view = view
+
+    @Slot(result=str)
+    def initialConfig(self) -> str:
+        """Return the one-shot constructor payload requested by the host page."""
+        return self._view._claim_initial_config()
+
+    @Slot(str, int, int, int, str, int, int)
+    def contentChanged(
+        self,
+        markdown: str,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        self.contentPushed.emit(
+            markdown,
+            generation,
+            start,
+            delete_count,
+            inserted,
+            base_revision,
+            final_length,
+        )
+
+    @Slot(int, int, int, str, int, int)
+    def contentDelta(
+        self,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        """Receive the typing hot path without a full Markdown IPC copy."""
+        self.contentDeltaPushed.emit(
+            generation,
+            start,
+            delete_count,
+            inserted,
+            base_revision,
+            final_length,
+        )
 
     @Slot()
     def saveRequested(self) -> None:
         self.saveRequestedSig.emit()
+
+    @Slot(str, int, int, int, str, int, int)
+    def saveWithContent(
+        self,
+        markdown: str,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        self.saveWithContentSig.emit(
+            markdown,
+            generation,
+            start,
+            delete_count,
+            inserted,
+            base_revision,
+            final_length,
+        )
 
     @Slot()
     def ready(self) -> None:
@@ -84,15 +166,17 @@ class WysiwygView(QWebEngineView):
     """Embeds Vditor in WYSIWYG mode and bridges it to Python via QWebChannel."""
 
     content_changed = Signal(str)
+    content_changed_detailed = Signal(str, int, int, str, int, int)
     save_requested = Signal()
+    save_with_content_requested = Signal(str)
+    save_with_content_detailed = Signal(str, int, int, str, int, int)
     view_ready = Signal()
-    # Esc inside Vditor, once assets/vditor_glue.js has confirmed no hint
-    # panel ate it first (see its isHintPanelOpen()). window.py leaves
-    # WYSIWYG back to PREVIEW on this -- no save/discard confirmation, the
-    # dirty buffer just stays parked in tab_state (see the v2 spec).
+    # Compatibility bridge for pages from before Office parity. The bundled
+    # 4.2 glue never emits a clean Esc: exact popovers consume it and an
+    # otherwise-unhandled Esc stays inside the editor.
     esc_requested = Signal()
-    # v4: custom toolbar button click (name in {"save", "export_pdf",
-    # "export_docx", "export_html", "insert_image", "toggle_theme"}).
+    # Host-specific toolbar button click (export, attachments, source switch,
+    # graph and other Qt-owned workflows).
     toolbar_action = Signal(str)
     # v4: right-click inside the Vditor surface; (x, y) are viewport-relative
     # pixels from the JS "contextmenu" event, which map 1:1 onto this
@@ -110,8 +194,10 @@ class WysiwygView(QWebEngineView):
         self.setPage(page)
 
         self._bridge = _WysiwygBridge(self)
-        self._bridge.contentPushed.connect(self.content_changed)
+        self._bridge.contentPushed.connect(self._on_content_pushed)
+        self._bridge.contentDeltaPushed.connect(self._on_content_delta_pushed)
         self._bridge.saveRequestedSig.connect(self.save_requested)
+        self._bridge.saveWithContentSig.connect(self._on_save_with_content)
         self._bridge.viewReadySig.connect(self._on_view_ready)
         self._bridge.escRequestedSig.connect(self.esc_requested)
         self._bridge.toolbarActionSig.connect(self.toolbar_action)
@@ -123,7 +209,20 @@ class WysiwygView(QWebEngineView):
 
         self._base_url = QUrl.fromLocalFile(str(ASSETS_DIR) + "/")
         self._ready = False
-        self._pending_markdown: str | None = None
+        self._generation = 0
+        self._pending_markdown: tuple[str, int, str, str] | None = None
+        self._document_base_url = ""
+        self._document_session_id = _document_session_id(None)
+        self._live_markdown = ""
+        self._live_revision = 0
+        self._resync_in_flight = False
+        self._pending_theme_name = "light"
+        self._boot_generation: int | None = None
+        self._boot_markdown: str | None = None
+        self._boot_base_url = ""
+        self._boot_session_id = self._document_session_id
+        self._boot_theme_name: str | None = None
+        self._boot_config_json: str | None = None
         # Set while Python is pushing content into Vditor, so the resulting
         # echo (see vditor_glue.js's setValue guard) is not mistaken for a
         # push worth re-checking here; kept for parity/debugging only, the
@@ -148,12 +247,256 @@ class WysiwygView(QWebEngineView):
         # str-taking method here would hide that API from this subclass.
         self.page().setHtml(html, self._base_url)
 
+    @staticmethod
+    def _theme_options(name: str) -> dict[str, str]:
+        """Return IDs from Office Viewer's exact 4.2 theme catalog."""
+        dark = name == "dark"
+        return {
+            "editorTheme": "One Dark" if dark else "Light",
+            "theme": "dark" if dark else "classic",
+            "codeMirrorTheme": "One Dark" if dark else "Github",
+            # Auto follows the selected editor theme and is the 4.2 default.
+            "mermaidTheme": "Auto",
+        }
+
+    def _claim_initial_config(self) -> str:
+        """Snapshot queued state for Vditor's first constructor invocation.
+
+        MainWindow creates this view, applies its theme and queues the active
+        document before Chromium can finish QWebChannel setup.  Supplying that
+        state here lets the host construct Vditor once with the final value and
+        themes instead of first rendering an empty Auto-themed editor.
+        """
+        if self._boot_config_json is not None:
+            return self._boot_config_json
+
+        pending = self._pending_markdown
+        if pending is None:
+            markdown = ""
+            generation = self._generation
+            base_url = self._document_base_url
+            session_id = self._document_session_id
+        else:
+            markdown, generation, base_url, session_id = pending
+
+        self._boot_generation = int(generation)
+        self._boot_markdown = markdown
+        self._boot_base_url = base_url
+        self._boot_session_id = session_id
+        self._boot_theme_name = self._pending_theme_name
+        config = {
+            "value": markdown,
+            "generation": int(generation),
+            "documentBaseUrl": base_url,
+            # Keep all constructor-owned settings in one extensible object.
+            # Per-document fields such as documentCacheId can be added here
+            # without another bespoke host-page handshake.
+            "vditorOptions": {
+                **self._theme_options(self._boot_theme_name),
+                "cache": {
+                    "enable": False,
+                    "id": session_id,
+                    # The reused WebEngine owns per-document caret/scroll
+                    # sessions in vditor_glue.js.  The fork's VS Code adapter
+                    # keeps a private WeakMap that cannot be invalidated when
+                    # cache.id changes and can leak one tab's caret to another.
+                    "focusHost": "browser",
+                },
+                "preview": {"markdown": {"linkBase": base_url}},
+            },
+        }
+        self._boot_config_json = json.dumps(config, ensure_ascii=False)
+        return self._boot_config_json
+
     def _on_view_ready(self) -> None:
         self._ready = True
+        pending = self._pending_markdown
+        if pending is not None:
+            text, generation, base_url, session_id = pending
+            if (
+                int(generation) == self._boot_generation
+                and text == self._boot_markdown
+                and base_url == self._boot_base_url
+                and session_id == self._boot_session_id
+            ):
+                # The constructor already owns this exact document.
+                self._pending_markdown = None
+            else:
+                # A newer document arrived after the host claimed its initial
+                # config. Preserve the generation/data-safety contract.
+                self._push_markdown(text, generation, base_url, session_id)
+                self._pending_markdown = None
+        if self._pending_theme_name != self._boot_theme_name:
+            # Same race handling for a theme changed during page startup.
+            self._apply_theme_name(self._pending_theme_name)
+
+        # Release the transient full-document constructor copies as soon as
+        # the page has acknowledged that it is ready.
+        self._boot_markdown = None
+        self._boot_config_json = None
         self.view_ready.emit()
-        if self._pending_markdown is not None:
-            self._push_markdown(self._pending_markdown)
-            self._pending_markdown = None
+
+    def _on_content_pushed(
+        self,
+        markdown: str,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        """Compatibility full-value path for older glue/bridge clients."""
+        if int(generation) == self._generation:
+            self._live_markdown = markdown
+            self._live_revision = int(base_revision) + 1
+            self.content_changed_detailed.emit(
+                markdown,
+                int(start),
+                int(delete_count),
+                inserted,
+                int(base_revision),
+                int(final_length),
+            )
+            self.content_changed.emit(markdown)
+
+    @staticmethod
+    def _apply_utf16_delta(
+        markdown: str,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        final_length: int,
+    ) -> str | None:
+        """Apply JavaScript/Qt UTF-16 offsets to a Python Unicode string."""
+        start = int(start)
+        delete_count = int(delete_count)
+        if start < 0 or delete_count < 0:
+            return None
+        old_length = py_to_qt_position(markdown, len(markdown))
+        end = start + delete_count
+        if end > old_length:
+            return None
+        start_py = qt_to_py_position(markdown, start)
+        end_py = qt_to_py_position(markdown, end)
+        # Refuse offsets that split a surrogate pair; recovery will request a
+        # rare full value instead of creating invalid Unicode.
+        if (
+            py_to_qt_position(markdown, start_py) != start
+            or py_to_qt_position(markdown, end_py) != end
+        ):
+            return None
+        updated = markdown[:start_py] + inserted + markdown[end_py:]
+        if py_to_qt_position(updated, len(updated)) != int(final_length):
+            return None
+        return updated
+
+    def _on_content_delta_pushed(
+        self,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        """Rebuild the full value locally after delta-only QWebChannel IPC."""
+        if int(generation) != self._generation:
+            return
+        base_revision = int(base_revision)
+        if base_revision < self._live_revision:
+            return
+        markdown = None
+        if base_revision == self._live_revision:
+            markdown = self._apply_utf16_delta(
+                self._live_markdown,
+                start,
+                delete_count,
+                inserted,
+                final_length,
+            )
+        if markdown is None:
+            self._request_live_resync(int(generation))
+            return
+        self._live_markdown = markdown
+        self._live_revision = base_revision + 1
+        self.content_changed_detailed.emit(
+            markdown,
+            int(start),
+            int(delete_count),
+            inserted,
+            base_revision,
+            int(final_length),
+        )
+        self.content_changed.emit(markdown)
+
+    def _request_live_resync(self, generation: int) -> None:
+        """Recover a rare revision/offset drift with one explicit full read."""
+        if self._resync_in_flight or not self._ready:
+            return
+        self._resync_in_flight = True
+        script = (
+            "(function(){var g=window.__wysiwygGlue;"
+            "if(!g||!g._state.vditor){return null;}return JSON.stringify({"
+            "markdown:g.getValue(),generation:g._state.generation,"
+            "revision:g._state.revision});})();"
+        )
+
+        def _recovered(result) -> None:
+            self._resync_in_flight = False
+            try:
+                value = json.loads(result) if isinstance(result, str) else None
+            except (TypeError, ValueError):
+                value = None
+            if (
+                not isinstance(value, dict)
+                or int(value.get("generation", -1)) != self._generation
+                or int(value.get("generation", -1)) != generation
+                or not isinstance(value.get("markdown"), str)
+            ):
+                return
+            revision = max(0, int(value.get("revision", 0)))
+            if revision < self._live_revision:
+                return
+            markdown = value["markdown"]
+            self._live_markdown = markdown
+            self._live_revision = revision
+            # A negative start deliberately selects MainWindow's full-value
+            # convergence path. This path runs only after detected drift.
+            self.content_changed_detailed.emit(
+                markdown,
+                -1,
+                0,
+                "",
+                max(0, revision - 1),
+                py_to_qt_position(markdown, len(markdown)),
+            )
+            self.content_changed.emit(markdown)
+
+        self.page().runJavaScript(script, _recovered)
+
+    def _on_save_with_content(
+        self,
+        markdown: str,
+        generation: int,
+        start: int,
+        delete_count: int,
+        inserted: str,
+        base_revision: int,
+        final_length: int,
+    ) -> None:
+        if int(generation) == self._generation:
+            self._live_markdown = markdown
+            self._live_revision = int(base_revision) + 1
+            self.save_with_content_detailed.emit(
+                markdown,
+                int(start),
+                int(delete_count),
+                inserted,
+                int(base_revision),
+                int(final_length),
+            )
+            self.save_with_content_requested.emit(markdown)
 
     # ---- public API ----------------------------------------------------
     def load_markdown(self, text: str) -> None:
@@ -162,21 +505,71 @@ class WysiwygView(QWebEngineView):
         Safe to call before the page has finished booting: the value is
         queued and flushed once ``ready()`` arrives.
         """
+        self._generation += 1
+        generation = self._generation
+        self._live_markdown = text
+        self._live_revision = 0
+        self._resync_in_flight = False
         if not self._ready:
-            self._pending_markdown = text
+            self._pending_markdown = (
+                text,
+                generation,
+                self._document_base_url,
+                self._document_session_id,
+            )
             return
-        self._push_markdown(text)
+        self._push_markdown(
+            text,
+            generation,
+            self._document_base_url,
+            self._document_session_id,
+        )
 
-    def _push_markdown(self, text: str) -> None:
+    def _push_markdown(
+        self, text: str, generation: int, base_url: str, session_id: str
+    ) -> None:
         self._loading = True
         js = (
-            "window.__wysiwygGlue && window.__wysiwygGlue.setValue(%s);"
-            % json.dumps(text)
+            "window.__wysiwygGlue && window.__wysiwygGlue.setValue(%s,%d,%s,%s);"
+            % (
+                json.dumps(text),
+                int(generation),
+                json.dumps(base_url),
+                json.dumps(session_id),
+            )
         )
         self.page().runJavaScript(js, lambda _result: setattr(self, "_loading", False))
 
+    def set_document_path(self, path: str | Path | None) -> None:
+        """Set the base used to resolve relative images now and on next load."""
+        self._document_session_id = _document_session_id(path)
+        if not path:
+            self._document_base_url = ""
+        else:
+            directory = Path(path).resolve().parent
+            self._document_base_url = QUrl.fromLocalFile(
+                str(directory) + "/"
+            ).toString()
+
+        if self._pending_markdown is not None:
+            text, generation, _old_base, _old_session_id = self._pending_markdown
+            self._pending_markdown = (
+                text,
+                generation,
+                self._document_base_url,
+                self._document_session_id,
+            )
+        if self._ready:
+            self.page().runJavaScript(
+                "window.__wysiwygGlue && window.__wysiwygGlue.setDocumentBase(%s,%s);"
+                % (
+                    json.dumps(self._document_base_url),
+                    json.dumps(self._document_session_id),
+                )
+            )
+
     def insert_value(self, text: str) -> None:
-        """Insert *text* at the caret (v4: image/attachment link insertion)."""
+        """Insert an image/attachment Markdown snippet at the live caret."""
         js = (
             "window.__wysiwygGlue && window.__wysiwygGlue.insertValue(%s);"
             % json.dumps(text)
@@ -202,6 +595,98 @@ class WysiwygView(QWebEngineView):
             "window.__wysiwygGlue && window.__wysiwygGlue.flushPending();"
         )
 
+    def request_markdown_snapshot(self, callback) -> None:
+        """Asynchronously return the live editor value without emitting it."""
+        if not self._ready:
+            pending = self._pending_markdown
+            callback(pending[0] if pending is not None else None)
+            return
+        self.page().runJavaScript(
+            "window.__wysiwygGlue ? window.__wysiwygGlue.takeSnapshot() : null",
+            lambda result: callback(result if isinstance(result, str) else None),
+        )
+
+    def request_markdown_snapshot_envelope(self, callback) -> None:
+        """Return the live Markdown plus a UTF-16 delta from the last push."""
+        if not self._ready:
+            pending = self._pending_markdown
+            callback(
+                {
+                    "markdown": pending[0],
+                    "generation": pending[1],
+                    "start": 0,
+                    "deleteCount": 0,
+                    "inserted": "",
+                }
+                if pending is not None
+                else None
+            )
+            return
+
+        def _decode(result) -> None:
+            try:
+                value = json.loads(result) if isinstance(result, str) else None
+            except (TypeError, ValueError):
+                value = None
+            if not isinstance(value, dict):
+                callback(None)
+                return
+            if (
+                not isinstance(value.get("markdown"), str)
+                or int(value.get("generation", -1)) != self._generation
+                or int(value.get("token", 0)) <= 0
+            ):
+                callback(None)
+                return
+            callback(value)
+
+        self.page().runJavaScript(
+            "window.__wysiwygGlue ? "
+            "window.__wysiwygGlue.takeSnapshotEnvelope() : null",
+            _decode,
+        )
+
+    def acknowledge_markdown(
+        self, markdown: str, token: int, revision: int, callback=None
+    ) -> None:
+        """Align the next JS delta after Python accepted a direct snapshot."""
+        def _acknowledged(result) -> None:
+            if result is True:
+                self._live_markdown = markdown
+                self._live_revision = int(revision)
+            if callback is not None:
+                callback(result)
+
+        self.page().runJavaScript(
+            "window.__wysiwygGlue && window.__wysiwygGlue.acknowledgeMarkdown(%s,%d,%d,%d);"
+            % (
+                json.dumps(markdown),
+                self._generation,
+                int(token),
+                int(revision),
+            ),
+            _acknowledged,
+        )
+
+    def cancel_snapshot(self, token: int = 0) -> None:
+        """Release a failed transition without consuming its pending push."""
+        self.page().runJavaScript(
+            "window.__wysiwygGlue && window.__wysiwygGlue.cancelSnapshot(%d);"
+            % int(token)
+        )
+
+    def mark_saved(self, markdown: str | None = None) -> None:
+        value = "null" if markdown is None else json.dumps(markdown)
+        self.page().runJavaScript(
+            "window.__wysiwygGlue && window.__wysiwygGlue.markSaved(%s);" % value
+        )
+
+    def open_find(self) -> None:
+        self.page().runJavaScript(
+            "(function(){var b=document.querySelector('button[data-type=\"find\"]');"
+            "if(b){b.click();}})();"
+        )
+
     def focus_near_text(self, snippet: str) -> None:
         """Best-effort: place the caret near *snippet* (v2 double-click-to-edit).
 
@@ -221,11 +706,23 @@ class WysiwygView(QWebEngineView):
     def apply_theme(self, theme) -> None:
         """Best-effort Vditor theme sync; failures are non-fatal (cosmetic only)."""
         name = getattr(theme, "name", theme)
-        vditor_theme = "dark" if name == "dark" else "classic"
-        content_theme = "dark" if name == "dark" else "light"
+        self._pending_theme_name = "dark" if name == "dark" else "light"
+        if not self._ready:
+            return
+        self._apply_theme_name(self._pending_theme_name)
+
+    def _apply_theme_name(self, name: str) -> None:
+        options = self._theme_options(name)
         js = (
             "(function(){var v=window.__wysiwygGlue && window.__wysiwygGlue._state.vditor;"
-            "if(v && v.setTheme){try{v.setTheme(%s,%s,%s);}catch(e){}}})();"
-            % (json.dumps(vditor_theme), json.dumps(content_theme), json.dumps(content_theme))
+            "if(!v){return;}try{"
+            "if(v.setEditorTheme){v.setEditorTheme(%s);}"
+            "if(v.setTheme){v.setTheme(%s,%s);}"
+            "}catch(e){}})();"
+            % (
+                json.dumps(options["editorTheme"]),
+                json.dumps(options["theme"]),
+                json.dumps(options["codeMirrorTheme"]),
+            )
         )
         self.page().runJavaScript(js)

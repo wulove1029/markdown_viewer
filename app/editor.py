@@ -93,6 +93,7 @@ class EditorView(QPlainTextEdit):
         self._parking_document.setUndoRedoEnabled(True)
         self._theme: Theme = LIGHT
         self._plain_text_mode = False
+        self._markdown_services_suspended = False
         self._wikilink_candidates: list[str] = []
         self._document_path: str | None = None
         self._completion_model = QStringListModel(self)
@@ -183,7 +184,7 @@ class EditorView(QPlainTextEdit):
             self.setDocument(document)
             document.modificationChanged.connect(self.modified_changed)
         self._plain_text_mode = bool(plain_text_mode)
-        if self._plain_text_mode:
+        if self._plain_text_mode or self._markdown_services_suspended:
             self._highlighter.setDocument(None)
         else:
             self._highlighter.setDocument(document)
@@ -219,7 +220,7 @@ class EditorView(QPlainTextEdit):
         if enabled == self._plain_text_mode:
             return
         self._plain_text_mode = enabled
-        if enabled:
+        if enabled or self._markdown_services_suspended:
             self._completer.popup().hide()
             self._hide_editor_overlays()
             self._highlighter.setDocument(None)
@@ -227,6 +228,27 @@ class EditorView(QPlainTextEdit):
             self._highlighter.setDocument(self.document())
             self._highlighter.set_theme(self._theme)
         self._emit_format_context()
+
+    def set_markdown_services_suspended(self, suspended: bool) -> None:
+        """Pause hidden source-editor work while WebEngine owns editing.
+
+        The QTextDocument remains the durable shadow buffer, but syntax
+        highlighting, slash completion and format-context calculations do
+        not need to run for an editor widget that is not visible.
+        """
+        suspended = bool(suspended)
+        if suspended == self._markdown_services_suspended:
+            return
+        self._markdown_services_suspended = suspended
+        self._completer.popup().hide()
+        self._hide_editor_overlays()
+        if suspended or self._plain_text_mode:
+            self._highlighter.setDocument(None)
+            self.format_context_changed.emit(set())
+        else:
+            self._highlighter.setDocument(self.document())
+            self._highlighter.set_theme(self._theme)
+            self._emit_format_context()
 
     # ---------------- line number gutter ----------------
     def line_number_area_width(self) -> int:
@@ -500,7 +522,7 @@ class EditorView(QPlainTextEdit):
         self._selection_format_bar.hide()
 
     def _emit_format_context(self) -> None:
-        if self._plain_text_mode:
+        if self._plain_text_mode or self._markdown_services_suspended:
             self.format_context_changed.emit(set())
             return
         cursor = self.textCursor()
@@ -528,6 +550,8 @@ class EditorView(QPlainTextEdit):
         )
 
     def _editor_context_changed(self, *_args) -> None:
+        if self._markdown_services_suspended:
+            return
         self._emit_format_context()
         if not self._selection_toolbar_from_mouse:
             self._selection_format_bar.hide()
@@ -910,7 +934,7 @@ class EditorView(QPlainTextEdit):
 
     def apply_theme(self, theme: Theme):
         self._theme = theme
-        if not self._plain_text_mode:
+        if not self._plain_text_mode and not self._markdown_services_suspended:
             self._highlighter.set_theme(theme)
         self.setStyleSheet(
             f"""

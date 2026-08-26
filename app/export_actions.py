@@ -41,12 +41,10 @@ def _wysiwyg_active(window) -> bool:
     """True when the active editor backend is WYSIWYG (Vditor).
 
     Export actions relax their usual "no export while editing" guard only
-    for this backend: the shadow-document push model (see wysiwyg_view.py)
-    keeps ``window._editor``'s buffer -- and the live WysiwygView page itself
-    -- in sync with every keystroke, so exporting from either is safe even
-    with unsaved changes. split/source-code editing still blocks exports,
-    unchanged from before: that buffer is not guaranteed current in the
-    on-screen renderer the way WYSIWYG's own page is.
+    for this backend. PDF/HTML use the live WysiwygView page; source-based
+    Word/PowerPoint exports are entered through MainWindow's acknowledged
+    snapshot gate. Split/source-code editing still blocks exports because its
+    on-screen renderer can lag the source buffer.
     """
     return (
         getattr(window, "_active_edit_backend", None) == edit_backend.WYSIWYG_BACKEND
