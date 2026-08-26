@@ -25,6 +25,7 @@ test_tmp_*/
 *.log
 *.tmp
 *.bak
+/tmp/
 
 # Per-document annotation sidecars (notes / highlights) — local user data
 *.notes.json
