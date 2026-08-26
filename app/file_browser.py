@@ -710,6 +710,7 @@ class FileBrowserView(QWidget):
         # Optional hooks the main window installs so tabs / recents / session
         # state follow filesystem changes made here.
         self.on_note_created = None    # callable(path_str)
+        self.on_new_note_requested = None  # callable(folder_str)
         self.on_paths_migrated = None  # callable({old: new})
         self.on_paths_deleted = None   # callable([path_str, ...])
 
@@ -1287,7 +1288,7 @@ class FileBrowserView(QWidget):
             new_note_act = QAction("新增筆記", self)
             new_note_act.setEnabled(folder_exists)
             new_note_act.triggered.connect(
-                lambda _=False, p=path: self._create_note_action(p)
+                lambda _=False, p=path: self._request_new_note_action(p)
             )
             menu.addAction(new_note_act)
 
@@ -1379,6 +1380,18 @@ class FileBrowserView(QWidget):
         return menu
 
     # ---------------- CRUD actions ----------------
+    def _request_new_note_action(self, folder: str) -> None:
+        """Use the host's full new-note flow when available.
+
+        The main window installs this hook so Ctrl+N and the folder context
+        menu share the same Markdown/TXT and source/Office choices. Standalone
+        FileBrowserView consumers retain the legacy Markdown-only prompt.
+        """
+        if callable(self.on_new_note_requested):
+            self.on_new_note_requested(str(folder))
+            return
+        self._create_note_action(folder)
+
     def _create_note_action(self, folder: str):
         name, ok = QInputDialog.getText(self, "新增筆記", "筆記名稱：")
         if not ok or not name.strip():

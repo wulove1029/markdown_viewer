@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Markdown 編輯拆成兩條清楚入口：`Ctrl+E`／鉛筆固定使用原始 Markdown，`Ctrl+Shift+E` 使用原始碼並排預覽，`Ctrl+Shift+W`／圖層按鈕固定使用 Office 視覺編輯器；兩種模式都只讀寫標準 `.md` 純文字。
+- 新建 Markdown 筆記可直接選擇原始 Markdown 或 Office 視覺編輯；工具列與 Markdown 分頁上的彩色 `MD`／`Office` 小標籤會同步顯示目前模式，背景分頁也能直接辨認。
+- Office 模式開啟 front matter、wiki-links、Obsidian callouts 或帶標題的參照式連結前會顯示相容性提醒，取消時不建立編輯草稿、不更動檔案。
+
+### Changed
+- 安全預設改回原始 Markdown；檢視模式雙擊預設維持原本的文字選取／區塊操作，需要時可在偏好設定明確改成直接進入 Office 編輯。
+- Office 切換至原始 Markdown 前會等待最新 WebEngine 快照與確認，避免快速切換時遺失最後一次輸入。
+
+### Fixed
+- 修正 Office 視覺編輯的縮放延遲：`Ctrl+滾輪` 不再受內建 250ms 節流而遺失大部分事件，現在會合併高解析度滾輪輸入並統一使用內容縮放；`Ctrl+=`／`Ctrl+-` 改用較快且可預期的標準級距，背景預覽與偏好設定則在操作停止後才同步一次，避免每一階都重複排版。
+
 ## [1.28.0] - 2026-08-26
 
 ### Added

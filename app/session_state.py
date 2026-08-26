@@ -6,7 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog
 
-from .edit_backend import SETTINGS_KEY as EDIT_BACKEND_KEY, normalize_backend
+from .content_zoom import clamp_zoom_factor
+from .edit_backend import (
+    SETTINGS_KEY as EDIT_BACKEND_KEY,
+    SPLIT_BACKEND,
+    WYSIWYG_BACKEND,
+    normalize_backend,
+)
 from .edit_backend import (
     PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
     normalize_preview_double_click,
@@ -17,6 +23,115 @@ from .settings_dialog import SettingsDialog
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+
+DOCUMENT_EDIT_BACKENDS_KEY = "document_edit_backends_v1"
+_DOCUMENT_EDIT_BACKENDS_LIMIT = 300
+_DOCUMENT_EDIT_BACKEND_VALUES = {SPLIT_BACKEND, WYSIWYG_BACKEND}
+
+
+def _document_backend_path_key(path) -> str | None:
+    """Return the exact app-state key for a Markdown path, if supported."""
+    try:
+        key = str(Path(path))
+    except (TypeError, ValueError, OSError):
+        return None
+    return key if key and is_markdown(key) else None
+
+
+def _document_edit_backends() -> dict[str, str]:
+    """Read and sanitize the per-document backend map from QSettings."""
+    raw = QSettings(_ORG, _APP).value(DOCUMENT_EDIT_BACKENDS_KEY)
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    cleaned = {
+        key: backend
+        for key, backend in data.items()
+        if isinstance(key, str)
+        and is_markdown(key)
+        and backend in _DOCUMENT_EDIT_BACKEND_VALUES
+    }
+    if len(cleaned) > _DOCUMENT_EDIT_BACKENDS_LIMIT:
+        cleaned = dict(
+            list(cleaned.items())[-_DOCUMENT_EDIT_BACKENDS_LIMIT:]
+        )
+    return cleaned
+
+
+def _save_document_edit_backends(backends: dict[str, str]) -> None:
+    QSettings(_ORG, _APP).setValue(
+        DOCUMENT_EDIT_BACKENDS_KEY,
+        json.dumps(backends, ensure_ascii=False),
+    )
+
+
+def load_document_edit_backend(path) -> str | None:
+    """Return a Markdown document's remembered backend, if it has one."""
+    key = _document_backend_path_key(path)
+    if key is None:
+        return None
+    return _document_edit_backends().get(key)
+
+
+def remember_document_edit_backend(path, backend: str) -> None:
+    """Remember one Markdown backend, refreshing its bounded insertion order."""
+    key = _document_backend_path_key(path)
+    if key is None or backend not in _DOCUMENT_EDIT_BACKEND_VALUES:
+        return
+    backends = _document_edit_backends()
+    backends.pop(key, None)
+    backends[key] = backend
+    while len(backends) > _DOCUMENT_EDIT_BACKENDS_LIMIT:
+        backends.pop(next(iter(backends)))
+    _save_document_edit_backends(backends)
+
+
+def migrate_document_edit_backends(mapping) -> None:
+    """Move remembered backend entries alongside renamed Markdown paths."""
+    if not isinstance(mapping, dict):
+        return
+    backends = _document_edit_backends()
+    changed = False
+    for old_path, new_path in mapping.items():
+        old_key = _document_backend_path_key(old_path)
+        if old_key is None or old_key not in backends:
+            continue
+        backend = backends.pop(old_key)
+        changed = True
+        new_key = _document_backend_path_key(new_path)
+        if new_key is None:
+            continue
+        backends.pop(new_key, None)
+        backends[new_key] = backend
+    if changed:
+        while len(backends) > _DOCUMENT_EDIT_BACKENDS_LIMIT:
+            backends.pop(next(iter(backends)))
+        _save_document_edit_backends(backends)
+
+
+def forget_document_edit_backends(paths) -> None:
+    """Forget remembered backend entries for one path or an iterable of paths."""
+    if isinstance(paths, (str, Path)):
+        paths = (paths,)
+    try:
+        iterator = iter(paths)
+    except TypeError:
+        return
+    backends = _document_edit_backends()
+    changed = False
+    for path in iterator:
+        key = _document_backend_path_key(path)
+        if key is not None and key in backends:
+            del backends[key]
+            changed = True
+    if changed:
+        _save_document_edit_backends(backends)
 
 
 def restore_geometry(window):
@@ -191,12 +306,18 @@ def toggle_annotation_side_notes(window, checked=None):
     window._refresh_icons()
 
 
-def apply_zoom(window, factor: float, *, sync_pdf: bool = True):
-    window._content_zoom = window._renderer.set_zoom(factor)
+def apply_zoom(
+    window,
+    factor: float,
+    *,
+    sync_pdf: bool = True,
+    sync_wysiwyg: bool = True,
+):
+    window._content_zoom = window._renderer.set_zoom(clamp_zoom_factor(factor))
     window._edit_preview.set_zoom(window._content_zoom)
     if sync_pdf and window._current_kind == "pdf":
         window._pdf_view.set_zoom_factor(window._content_zoom)
-    if window._wysiwyg_view is not None:
+    if sync_wysiwyg and window._wysiwyg_view is not None:
         window._wysiwyg_view.page().setZoomFactor(window._content_zoom)
     QSettings(_ORG, _APP).setValue("content_zoom", window._content_zoom)
     window.statusBar().showMessage(

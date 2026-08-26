@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
-from app import settings_dialog as settings_dialog_mod
+from app import edit_backend, settings_dialog as settings_dialog_mod
 from app.settings_dialog import SettingsDialog, _bool_from_qsettings
 
 _ORG = "markdown-viewer"
@@ -103,6 +103,16 @@ class TestSettingsDialogConstruction:
         assert dlg._daily_notes_edit.text() == str(tmp_path / "Vault" / "Daily Notes")
         assert dlg._templates_folder_edit.text() == str(tmp_path / "Vault" / "Templates")
 
+    def test_safe_source_editor_defaults_are_visible(self, qapp):
+        dlg = SettingsDialog(None)
+
+        assert dlg._edit_backend_combo.currentData() == edit_backend.SOURCE_BACKEND
+        assert "原始 Markdown" in dlg._edit_backend_combo.currentText()
+        assert (
+            dlg._preview_dblclick_combo.currentData()
+            == edit_backend.PREVIEW_DOUBLE_CLICK_INLINE
+        )
+
 
 class TestSettingsDialogAccept:
     """Simulate clicking OK by calling accept() directly."""
@@ -158,6 +168,29 @@ class TestSettingsDialogAccept:
         reopened = SettingsDialog(None)
         assert reopened._excluded_folders_edit.toPlainText() == (
             "ios\napp_flutter/generated"
+        )
+
+    def test_office_defaults_can_be_chosen_and_persisted(self, qapp):
+        dlg = SettingsDialog(None)
+        office_index = dlg._edit_backend_combo.findData(
+            edit_backend.WYSIWYG_BACKEND
+        )
+        dblclick_index = dlg._preview_dblclick_combo.findData(
+            edit_backend.PREVIEW_DOUBLE_CLICK_WYSIWYG
+        )
+        dlg._edit_backend_combo.setCurrentIndex(office_index)
+        dlg._preview_dblclick_combo.setCurrentIndex(dblclick_index)
+
+        dlg.accept()
+        reopened = SettingsDialog(None)
+
+        assert (
+            reopened._edit_backend_combo.currentData()
+            == edit_backend.WYSIWYG_BACKEND
+        )
+        assert (
+            reopened._preview_dblclick_combo.currentData()
+            == edit_backend.PREVIEW_DOUBLE_CLICK_WYSIWYG
         )
 
     def test_results_empty_before_accept(self, qapp):

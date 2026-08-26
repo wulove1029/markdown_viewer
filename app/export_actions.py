@@ -85,24 +85,7 @@ def export_pdf(window):
 
     window._export_btn.setEnabled(False)
     if _wysiwyg_active(window):
-        # The WysiwygView page already *is* the live buffer (push model), so
-        # printing it directly needs no extra "feed buffer to renderer" step.
-        # "single long page" has no equivalent for printToPdf's paginated
-        # engine; fall back to A4 at the chosen orientation for that case.
-        size_key = "A4" if setup["size"] == "single" else setup["size"]
-        layout = pdf_layout(size_key, setup["orientation"])
-        show_pdf_progress(window)
-        view = window._wysiwyg_view
-
-        def _on_wysiwyg_pdf(exported_path, ok, view=view):
-            try:
-                view.page().pdfPrintingFinished.disconnect(_on_wysiwyg_pdf)
-            except (RuntimeError, TypeError):
-                pass
-            on_pdf_exported(window, exported_path, ok)
-
-        view.page().pdfPrintingFinished.connect(_on_wysiwyg_pdf)
-        view.page().printToPdf(path, layout)
+        _export_wysiwyg_pdf(window, path, setup)
         return
     if setup["size"] == "single":
         window._pending_pdf_path = path
@@ -330,12 +313,14 @@ def pdf_layout(size_key: str, orientation: str) -> QPageLayout:
     )
 
 
-def export_single_page(window, dims):
+def _single_page_layout(dims, viewport_width) -> QPageLayout | None:
+    """Build an exact one-page layout from validated CSS-pixel dimensions."""
     try:
         measured_w = float(dims[0])
         h_px = float(dims[1])
+        viewport_w = float(viewport_width)
     except (TypeError, ValueError, IndexError):
-        measured_w, h_px = 0.0, 0.0
+        return None
 
     if (
         not math.isfinite(measured_w)
@@ -343,6 +328,122 @@ def export_single_page(window, dims):
         or measured_w <= 0
         or h_px <= 0
     ):
+        return None
+    if not math.isfinite(viewport_w) or viewport_w <= 0:
+        viewport_w = 0.0
+
+    # Mirror the visible document width while still accommodating content
+    # that genuinely overflows it (for example, a wide Markdown table).
+    w_px = max(viewport_w, measured_w)
+    if w_px < 200:
+        w_px = 800.0
+
+    return QPageLayout(
+        QPageSize(
+            QSizeF(w_px * _PT_PER_PX, (h_px + 4) * _PT_PER_PX),
+            QPageSize.Unit.Point,
+            "Continuous",
+            QPageSize.SizeMatchPolicy.ExactMatch,
+        ),
+        QPageLayout.Orientation.Portrait,
+        QMarginsF(0, 0, 0, 0),
+        QPageLayout.Unit.Point,
+    )
+
+
+def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
+    """Prepare the live Office surface, print it, then always restore it."""
+    view = window._wysiwyg_view
+    show_pdf_progress(window)
+    state = {"phase": "preparing", "cleaned": False, "connected": False}
+    page = None
+
+    def _cleanup() -> None:
+        if state["cleaned"]:
+            return
+        state["cleaned"] = True
+        finish = getattr(view, "finish_pdf_export", None)
+        if callable(finish):
+            try:
+                finish()
+            except (RuntimeError, TypeError):
+                pass
+
+    def _disconnect() -> None:
+        nonlocal page
+        if not state["connected"] or page is None:
+            return
+        state["connected"] = False
+        try:
+            page.pdfPrintingFinished.disconnect(_on_printed)
+        except (RuntimeError, TypeError):
+            pass
+
+    def _complete(exported_path: str, ok: bool) -> None:
+        if state["phase"] == "done":
+            return
+        state["phase"] = "done"
+        _disconnect()
+        try:
+            _cleanup()
+        finally:
+            on_pdf_exported(window, exported_path, bool(ok))
+
+    def _on_printed(exported_path, ok) -> None:
+        if state["phase"] != "printing":
+            return
+        _complete(str(exported_path), bool(ok))
+
+    def _on_prepared(result) -> None:
+        nonlocal page
+        if state["phase"] != "preparing":
+            return
+        prepared = result is True or (
+            isinstance(result, dict) and result.get("ok") is True
+        )
+        if not prepared:
+            _complete(path, False)
+            return
+
+        if setup["size"] == "single":
+            dims = (
+                (result.get("width"), result.get("height"))
+                if isinstance(result, dict)
+                else None
+            )
+            # Office preparation reports the printable content shell width.
+            # Do not widen it back to the whole widget (which can include the
+            # outline/sidebar); doing so changes line wrapping in the PDF.
+            layout = _single_page_layout(dims, 0)
+            if layout is None:
+                _complete(path, False)
+                return
+        else:
+            layout = pdf_layout(setup["size"], setup["orientation"])
+
+        try:
+            page = view.page()
+            page.pdfPrintingFinished.connect(_on_printed)
+            state["connected"] = True
+            state["phase"] = "printing"
+            page.printToPdf(path, layout)
+        except (AttributeError, RuntimeError, TypeError):
+            _complete(path, False)
+
+    prepare = getattr(view, "prepare_pdf_export", None)
+    if not callable(prepare):
+        _complete(path, False)
+        return
+    try:
+        prepare(_on_prepared)
+    except (RuntimeError, TypeError):
+        if state["phase"] == "preparing":
+            _complete(path, False)
+
+
+def export_single_page(window, dims):
+    layout = _single_page_layout(dims, window._renderer.width())
+    if layout is None:
         window._pending_pdf_path = None
         window._export_btn.setEnabled(
             bool(window._current_file) and not window._edit_mode
@@ -354,27 +455,6 @@ def export_single_page(window, dims):
             "無法取得完整頁面尺寸，請等待文件載入完成後再重試。",
         )
         return
-
-    # Base the page width on the actual viewport so the PDF mirrors the
-    # on-screen layout; widen if the content itself overflows (wide tables).
-    w_px = max(float(window._renderer.width()), measured_w)
-    if w_px < 200:
-        w_px = 800.0
-
-    w_pt = w_px * _PT_PER_PX
-    h_pt = (h_px + 4) * _PT_PER_PX
-
-    layout = QPageLayout(
-        QPageSize(
-            QSizeF(w_pt, h_pt),
-            QPageSize.Unit.Point,
-            "Continuous",
-            QPageSize.SizeMatchPolicy.ExactMatch,
-        ),
-        QPageLayout.Orientation.Portrait,
-        QMarginsF(0, 0, 0, 0),
-        QPageLayout.Unit.Point,
-    )
 
     show_pdf_progress(window)
     window._renderer.export_pdf(
@@ -401,7 +481,10 @@ def close_pdf_progress(window):
 
 def on_pdf_exported(window, path: str, ok: bool):
     close_pdf_progress(window)
-    window._export_btn.setEnabled(bool(window._current_file) and not window._edit_mode)
+    window._export_btn.setEnabled(
+        bool(window._current_file)
+        and (not window._edit_mode or _wysiwyg_active(window))
+    )
     window._refresh_icons()
     if not ok:
         window.statusBar().clearMessage()

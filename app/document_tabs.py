@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
@@ -24,6 +24,9 @@ MAX_TAB_WIDTH = 200
 TAB_STRIP_HEIGHT = 36
 _TAB_CHROME_WIDTH = 54
 _CLOSE_BUTTON_SIZE = 20
+_MODE_BADGE_SIZE = QSize(46, 18)
+_MODE_BADGE_GAP = 6
+_MODE_BADGES = {"markdown": "MD", "office": "Office"}
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
 
@@ -86,6 +89,8 @@ class DocumentTabBar(QTabBar):
 
     def __init__(self, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
+        self._mode_badges: list[str | None] = []
+        self._mode_badge_icons: dict[str, QIcon] = {}
         self.setObjectName("documentTabs")
         self.setAccessibleName("開啟的文件分頁")
         self.setTabsClosable(True)
@@ -95,6 +100,7 @@ class DocumentTabBar(QTabBar):
         self.setDrawBase(False)
         self.setUsesScrollButtons(True)
         self.setElideMode(Qt.TextElideMode.ElideRight)
+        self.setIconSize(_MODE_BADGE_SIZE)
         self.setMouseTracking(True)
         self.setFixedHeight(TAB_STRIP_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -106,12 +112,84 @@ class DocumentTabBar(QTabBar):
 
     def apply_theme(self, theme: Theme) -> None:
         self._theme = theme
+        self._mode_badge_icons.clear()
+        for index, mode in enumerate(self._mode_badges):
+            self.setTabIcon(
+                index, self._mode_badge_icon(mode) if mode else QIcon()
+            )
         self._sync_close_buttons()
         self.update()
 
+    def mode_badge(self, index: int) -> str | None:
+        """Return ``markdown``/``office`` for *index*, if it has a mode pill."""
+        if index < 0 or index >= len(self._mode_badges):
+            return None
+        return self._mode_badges[index]
+
+    def set_mode_badge(self, index: int, mode: str | None) -> None:
+        """Render a compact, theme-aware Markdown/Office pill in the icon slot."""
+        if index < 0 or index >= self.count():
+            return
+        mode = mode if mode in _MODE_BADGES else None
+        if self._mode_badges[index] == mode:
+            return
+        self._mode_badges[index] = mode
+        self.setTabIcon(
+            index, self._mode_badge_icon(mode) if mode else QIcon()
+        )
+        self.updateGeometry()
+
+    def mode_badge_text(self, index: int) -> str:
+        """Return the compact text painted in a tab's mode pill."""
+        return _MODE_BADGES.get(self.mode_badge(index), "")
+
+    def _mode_badge_icon(self, mode: str) -> QIcon:
+        cached = self._mode_badge_icons.get(mode)
+        if cached is not None:
+            return cached
+        office = mode == "office"
+        background = self._theme.accent_soft if office else self._theme.surface_alt
+        foreground = self._theme.accent if office else self._theme.success
+        scale = 2
+        pixmap = QPixmap(
+            _MODE_BADGE_SIZE.width() * scale,
+            _MODE_BADGE_SIZE.height() * scale,
+        )
+        pixmap.setDevicePixelRatio(scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(QColor(background))
+        painter.setPen(QPen(QColor(foreground), 1))
+        rect = QRectF(
+            0.5,
+            0.5,
+            _MODE_BADGE_SIZE.width() - 1,
+            _MODE_BADGE_SIZE.height() - 1,
+        )
+        painter.drawRoundedRect(rect, 5, 5)
+        font = painter.font()
+        font.setPixelSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(foreground))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _MODE_BADGES[mode])
+        painter.end()
+        icon = QIcon(pixmap)
+        self._mode_badge_icons[mode] = icon
+        return icon
+
     def tabSizeHint(self, index: int) -> QSize:  # noqa: N802 (Qt override)
         text_width = self.fontMetrics().horizontalAdvance(self.tabText(index))
-        width = max(MIN_TAB_WIDTH, min(MAX_TAB_WIDTH, text_width + _TAB_CHROME_WIDTH))
+        badge_width = (
+            _MODE_BADGE_SIZE.width() + _MODE_BADGE_GAP
+            if self.mode_badge(index)
+            else 0
+        )
+        width = max(
+            MIN_TAB_WIDTH,
+            min(MAX_TAB_WIDTH, text_width + _TAB_CHROME_WIDTH + badge_width),
+        )
         return QSize(width, TAB_STRIP_HEIGHT)
 
     def minimumTabSizeHint(self, index: int) -> QSize:  # noqa: N802
@@ -122,12 +200,15 @@ class DocumentTabBar(QTabBar):
 
     def tabInserted(self, index: int):  # noqa: N802 (Qt override)
         super().tabInserted(index)
+        self._mode_badges.insert(index, None)
         self._hovered_index = -1
         self._sync_close_buttons()
         self.tabsChanged.emit()
 
     def tabRemoved(self, index: int):  # noqa: N802 (Qt override)
         super().tabRemoved(index)
+        if 0 <= index < len(self._mode_badges):
+            self._mode_badges.pop(index)
         self._hovered_index = -1
         self._sync_close_buttons()
         self.tabsChanged.emit()
@@ -198,6 +279,11 @@ class DocumentTabBar(QTabBar):
         self._sync_close_buttons()
 
     def _on_tab_moved(self, _from: int, _to: int) -> None:
+        if (
+            0 <= _from < len(self._mode_badges)
+            and 0 <= _to < len(self._mode_badges)
+        ):
+            self._mode_badges.insert(_to, self._mode_badges.pop(_from))
         self._hovered_index = -1
         self.ensure_tab_visible(self.currentIndex())
         self._sync_close_buttons()
@@ -209,9 +295,10 @@ class DocumentTabBar(QTabBar):
             QTabBar.ButtonPosition.LeftSide,
         ):
             button = self.tabButton(index, side)
-            if button is not None:
+            if button is not None and button.objectName() != "documentTabModeBadge":
                 button.setObjectName("documentTabCloseButton")
-                button.setAccessibleName(f"關閉 {self.tabText(index)}")
+                tab_name = self.accessibleTabName(index) or self.tabText(index)
+                button.setAccessibleName(f"關閉 {tab_name}")
                 button.setToolTip("關閉分頁")
                 button.setFixedSize(_CLOSE_BUTTON_SIZE, _CLOSE_BUTTON_SIZE)
                 button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -298,7 +385,9 @@ class DocumentTabStrip(QWidget):
         for index in range(self.tab_bar.count()):
             path = str(self.tab_bar.tabData(index) or "")
             label = self.tab_bar.tabText(index) or Path(path).name or path
-            action = menu.addAction(label.replace("&", "&&"))
+            badge_text = self.tab_bar.mode_badge_text(index)
+            mode = f"[{badge_text}] " if badge_text else ""
+            action = menu.addAction(f"{mode}{label}".replace("&", "&&"))
             action.setCheckable(True)
             action.setChecked(index == current)
             action.setData(path)

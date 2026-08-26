@@ -275,6 +275,30 @@ def test_new_empty_folder_stays_reachable_for_current_session(
         view.close()
 
 
+def test_folder_context_new_note_uses_the_host_dialog_hook(
+    qapp, tmp_path, monkeypatch
+):
+    root = tmp_path / "vault"
+    root.mkdir()
+    view = _make_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    requested = []
+    view.on_new_note_requested = requested.append
+    try:
+        root_item = view._find_item(root)
+        assert root_item is not None
+        menu = view._build_context_menu(root_item)
+        action = next(a for a in menu.actions() if a.text() == "新增筆記")
+
+        action.trigger()
+
+        assert requested == [str(root)]
+        assert list(root.iterdir()) == []
+    finally:
+        view.close()
+
+
 def test_tree_state_round_trip_restores_expansion_and_selection(
     qapp, tmp_path, monkeypatch
 ):

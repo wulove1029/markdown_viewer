@@ -12,9 +12,15 @@ SPLIT_BACKEND = "split"
 WYSIWYG_BACKEND = "wysiwyg"
 BACKENDS = (SPLIT_BACKEND, WYSIWYG_BACKEND)
 
+# Public UI name for the existing QPlainTextEdit backend.  Keep
+# ``SPLIT_BACKEND`` as the stored value for backwards compatibility: the same
+# backend renders both the source-only EDIT view and the source + preview
+# SPLIT view.
+SOURCE_BACKEND = SPLIT_BACKEND
+
 # QSettings key + default, shared by window.py and settings_dialog.py.
 SETTINGS_KEY = "edit_backend"
-DEFAULT_BACKEND = WYSIWYG_BACKEND
+DEFAULT_BACKEND = SOURCE_BACKEND
 
 
 def normalize_backend(value: str | None) -> str:
@@ -23,7 +29,7 @@ def normalize_backend(value: str | None) -> str:
 
 
 def toggle_backend(value: str | None) -> str:
-    """Toolbar button / Ctrl+Shift+W: split <-> wysiwyg."""
+    """Return the other backend for compatibility with older callers."""
     return SPLIT_BACKEND if normalize_backend(value) == WYSIWYG_BACKEND else WYSIWYG_BACKEND
 
 
@@ -45,12 +51,10 @@ def backend_allows(backend: str, path_suffix: str | None, *, is_plain_text: bool
 
 
 # ---------------------------------------------------------------------------
-# v2: "click to edit" -- a PREVIEW-mode double-click can jump straight into
-# EDIT mode with the WYSIWYG backend forced on, mirroring VSCode's Office
-# Viewer extension. This is a separate, opt-out-able preference from
-# ``edit_backend`` above (which only governs the *default* backend once you
-# are already in EDIT mode): a user can prefer the split backend by default
-# yet still want double-click-to-WYSIWYG, or vice versa.
+# A PREVIEW-mode double-click can optionally jump straight into the Office
+# editor, mirroring VS Code's Office Viewer extension. This remains separate
+# from ``edit_backend``, which is the default used by new-note creation flows;
+# explicit source/Office commands always take precedence over both settings.
 
 PREVIEW_DOUBLE_CLICK_WYSIWYG = "wysiwyg"
 PREVIEW_DOUBLE_CLICK_INLINE = "inline"
@@ -58,11 +62,11 @@ PREVIEW_DOUBLE_CLICK_VALUES = (PREVIEW_DOUBLE_CLICK_WYSIWYG, PREVIEW_DOUBLE_CLIC
 
 # QSettings key + default, shared by window.py and settings_dialog.py.
 PREVIEW_DOUBLE_CLICK_SETTINGS_KEY = "preview_double_click"
-PREVIEW_DOUBLE_CLICK_DEFAULT = PREVIEW_DOUBLE_CLICK_WYSIWYG
+PREVIEW_DOUBLE_CLICK_DEFAULT = PREVIEW_DOUBLE_CLICK_INLINE
 
 
 def normalize_preview_double_click(value: str | None) -> str:
-    """Coerce unknown/empty values to the new default ("wysiwyg")."""
+    """Coerce unknown/empty values to the safe original preview behaviour."""
     return value if value in PREVIEW_DOUBLE_CLICK_VALUES else PREVIEW_DOUBLE_CLICK_DEFAULT
 
 

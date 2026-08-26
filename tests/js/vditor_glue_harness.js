@@ -88,6 +88,9 @@ function fireDocEvent(type, props) {
   const event = Object.assign({}, props || {});
   event.preventDefault = function () { event.defaultPrevented = true; };
   event.stopPropagation = function () { event.propagationStopped = true; };
+  event.stopImmediatePropagation = function () {
+    event.immediatePropagationStopped = true;
+  };
   (docListeners[type] || []).slice().forEach((fn) => fn(event));
   return event;
 }
@@ -255,6 +258,7 @@ const saveContents = [];
 const readies = [];
 const escapes = [];
 const toolbarActions = [];
+const zoomRequests = [];
 const contextMenus = [];
 const bridge = {
   contentChanged(md, generation, start, deleteCount, inserted, baseRevision, finalLength) {
@@ -276,6 +280,7 @@ const bridge = {
   ready() { readies.push(true); },
   escRequested() { escapes.push(true); },
   toolbarAction(name) { toolbarActions.push(name); },
+  zoomRequested(steps) { zoomRequests.push(steps); },
   contextMenuRequested(x, y) { contextMenus.push([x, y]); },
 };
 
@@ -584,6 +589,139 @@ if (saveItem) {
   check("toolbar: save carries the latest Markdown without a debounce race",
     saveContents.length === 1 && saveContents[0][0] === "toolbar save latest");
 }
+
+// ---- Ctrl/meta+wheel -> one canonical, accumulated page-zoom request ------
+const wheelSurface = createFakeElement("div");
+wheelSurface.className = "vditor-wysiwyg";
+wheelSurface.style["--editor-font-size"] = "18px";
+
+zoomRequests.length = 0;
+let plainWheel = fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: false, metaKey: false, deltaY: -100,
+});
+check("wheel: plain scrolling remains untouched",
+  !plainWheel.defaultPrevented && zoomRequests.length === 0);
+let zeroWheel = fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: 0,
+});
+check("wheel: a zero delta remains untouched",
+  !zeroWheel.defaultPrevented && zoomRequests.length === 0);
+
+let firstZoomWheel = fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: -100, deltaMode: 0,
+});
+advance(10);
+fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: -100, deltaMode: 0,
+});
+advance(6);
+check("wheel: capture suppresses the vendored 250ms font-size handler",
+  firstZoomWheel.defaultPrevented === true &&
+  firstZoomWheel.immediatePropagationStopped === true);
+check("wheel: two events inside one frame are accumulated without postponing flush",
+  zoomRequests.length === 1 && zoomRequests[0] === 2);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 10; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -100, deltaMode: 0,
+  });
+}
+advance(16);
+check("wheel: one dense batch preserves every full wheel step",
+  zoomRequests.length === 1 && zoomRequests[0] === 10);
+advance(64);
+check("wheel: a completed full-step batch has no duplicate idle remainder",
+  zoomRequests.length === 1);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 10; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -3, deltaMode: 0,
+  });
+}
+advance(16);
+check("wheel: precision deltas remain pending below one full notch",
+  zoomRequests.length === 0);
+advance(64);
+check("wheel: precision deltas emit their net direction on idle",
+  zoomRequests.length === 1 && zoomRequests[0] === 1);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 10; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -51, deltaMode: 0,
+  });
+  advance(20);
+}
+advance(60);
+check("wheel: fractional notches preserve totals across frame boundaries",
+  zoomRequests.reduce((sum, value) => sum + value, 0) === 5);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 4; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -149, deltaMode: 0,
+  });
+  advance(20);
+}
+advance(60);
+check("wheel: positive residual is emitted once on idle",
+  zoomRequests.reduce((sum, value) => sum + value, 0) === 6);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 4; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -151, deltaMode: 0,
+  });
+  advance(20);
+}
+advance(60);
+check("wheel: batching never rounds every fractional event independently",
+  zoomRequests.reduce((sum, value) => sum + value, 0) === 6);
+
+zoomRequests.length = 0;
+fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: -49, deltaMode: 0,
+});
+fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: 50, deltaMode: 0,
+});
+advance(16);
+advance(64);
+check("wheel: nearly-cancelled direction changes stay inside the dead zone",
+  zoomRequests.length === 0);
+
+zoomRequests.length = 0;
+fireDocEvent("wheel", {
+  target: wheelSurface, ctrlKey: true, deltaY: -1, deltaMode: 2,
+});
+advance(16);
+check("wheel: one page-mode event maps to one zoom step",
+  zoomRequests.length === 1 && zoomRequests[0] === 1);
+
+zoomRequests.length = 0;
+for (let i = 0; i < 10; i += 1) {
+  fireDocEvent("wheel", {
+    target: wheelSurface, ctrlKey: true, deltaY: -100, deltaMode: 0,
+  });
+  advance(30);
+}
+check("wheel: ten rapid events are accumulated rather than throttled away",
+  zoomRequests.reduce((sum, value) => sum + value, 0) === 10);
+
+zoomRequests.length = 0;
+fireDocEvent("wheel", {
+  target: wheelSurface, metaKey: true, deltaY: -200, deltaMode: 0,
+});
+fireDocEvent("wheel", {
+  target: wheelSurface, metaKey: true, deltaY: 100, deltaMode: 0,
+});
+advance(40);
+check("wheel: opposite deltas in one batch collapse to their net direction",
+  zoomRequests.length === 1 && zoomRequests[0] === 1);
+check("wheel: canonical zoom does not rewrite the editor font-size setting",
+  wheelSurface.style["--editor-font-size"] === "18px");
 
 // ---- v4: right-click -> bridge.contextMenuRequested(x, y) ------------------
 contextMenus.length = 0;

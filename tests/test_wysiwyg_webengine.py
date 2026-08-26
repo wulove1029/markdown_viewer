@@ -10,18 +10,40 @@ tests/js/vditor_glue_harness.js.
 
 import json
 import os
+import re
 
+import fitz
 import pytest
-from PySide6.QtCore import QEventLoop, QPoint, QTimer, Qt, QUrl
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import (
+    QEventLoop,
+    QMarginsF,
+    QPoint,
+    QSettings,
+    QTimer,
+    Qt,
+    QUrl,
+)
+from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
 from PySide6.QtTest import QTest
 
+from app import wysiwyg_view as wysiwyg_view_mod
 from app.wysiwyg_view import WysiwygView
 
 _skip_webengine = pytest.mark.skipif(
     os.environ.get("RUN_WEBENGINE_TESTS") != "1",
     reason="headless WebEngine is flaky; set RUN_WEBENGINE_TESTS=1 to run",
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_wysiwyg_qsettings(tmp_path, monkeypatch):
+    """Keep every real-WebEngine case independent of user theme settings."""
+    settings_path = tmp_path / "wysiwyg-webengine-settings.ini"
+
+    def isolated_settings(*_args, **_kwargs):
+        return QSettings(str(settings_path), QSettings.Format.IniFormat)
+
+    monkeypatch.setattr(wysiwyg_view_mod, "QSettings", isolated_settings)
 
 
 def _wait(ms):
@@ -69,6 +91,127 @@ def _current_value(view) -> str:
     return value.rstrip("\n") if isinstance(value, str) else value
 
 
+def _dom_rect(view, node_expression):
+    """Return one DOM node's viewport rect as a JSON-compatible mapping."""
+    raw = _eval(
+        view,
+        "JSON.stringify((function(){var node=("
+        + node_expression
+        + ");if(!node){return null;}var rect=node.getBoundingClientRect();"
+        "return {left:rect.left,top:rect.top,width:rect.width,height:rect.height};"
+        "})())",
+    )
+    rect = json.loads(raw) if isinstance(raw, str) else None
+    assert rect is not None, f"DOM node not found: {node_expression}"
+    assert rect["width"] > 0 and rect["height"] > 0
+    return rect
+
+
+def _native_click(view, node_expression):
+    """Click a DOM node through Chromium's real QWindow input path."""
+    rect = _dom_rect(view, node_expression)
+    point = QPoint(
+        round(rect["left"] + rect["width"] / 2),
+        round(rect["top"] + rect["height"] / 2),
+    )
+    assert 0 <= point.x() < view.width()
+    assert 0 <= point.y() < view.height()
+    page_window = view.windowHandle()
+    assert page_window is not None
+    page_window.requestActivate()
+    QTest.mouseClick(
+        page_window,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        point,
+    )
+    return rect
+
+
+def _editor_theme_option_expression(theme_name):
+    return (
+        "(function(){var panel=document.querySelector("
+        "'.vditor-editor-theme-panel');if(!panel){return null;}"
+        "return Array.from(panel.querySelectorAll('button[data-theme]'))"
+        ".find(function(button){return button.getAttribute('data-theme')==="
+        + json.dumps(theme_name)
+        + ";})||null;})()"
+    )
+
+
+def _editor_theme_panel_is_open(view):
+    return (
+        _eval(
+            view,
+            "(function(){var panel=document.querySelector("
+            "'.vditor-editor-theme-panel');var host=panel&&"
+            "panel.closest('.vditor-hint');return !!host&&"
+            "getComputedStyle(host).display!=='none';})()",
+        )
+        is True
+    )
+
+
+def _choose_editor_theme_with_pointer(view, theme_name):
+    """Open the editor-theme panel and choose an item with native input."""
+    trigger = "document.querySelector('button[data-type=\"editor-theme\"]')"
+    _native_click(view, trigger)
+    assert _wait_until(lambda: _editor_theme_panel_is_open(view))
+
+    option = _editor_theme_option_expression(theme_name)
+    # Opening the panel schedules its final positioning on a zero-delay
+    # timer.  ``display != none`` can therefore become true one browser turn
+    # before the option escapes toolbar clipping.  Recompute the option centre
+    # while polling the real hit-test result so this remains a pointer test,
+    # rather than racing the popup's asynchronous layout.
+    def option_is_hit_testable():
+        return (
+            _eval(
+                view,
+                "(function(){var target=("
+                + option
+                + ");if(!target){return false;}var rect=target."
+                "getBoundingClientRect();var hit=document.elementFromPoint("
+                "rect.left+rect.width/2,rect.top+rect.height/2);"
+                "return !!hit&&(hit===target||target.contains(hit));})()",
+            )
+            is True
+        )
+
+    assert _wait_until(option_is_hit_testable, timeout_ms=3000), (
+        "The visible editor-theme option is clipped from pointer hit testing"
+    )
+    _native_click(view, option)
+    assert _wait_until(
+        lambda: _eval(
+            view,
+            "document.querySelector('.vditor').getAttribute('data-editor-theme')",
+        )
+        == theme_name
+    )
+
+
+def _editor_theme_state(view):
+    raw = _eval(
+        view,
+        "JSON.stringify((function(){"
+        "var inner=window.__wysiwygGlue._state.vditor.vditor;"
+        "var root=document.querySelector('.vditor');"
+        "var surface=inner[inner.currentMode].element;"
+        "var style=getComputedStyle(surface);return {"
+        "preference:root.getAttribute('data-editor-theme'),"
+        "option:inner.options.editorTheme,"
+        "background:style.backgroundColor,foreground:style.color};})())",
+    )
+    return json.loads(raw)
+
+
+def _css_rgb_luma(value):
+    channels = [int(channel) for channel in re.findall(r"\d+", value)[:3]]
+    assert len(channels) == 3, f"Expected an rgb() color, got {value!r}"
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
 @_skip_webengine
 def test_wysiwyg_view_becomes_ready_and_round_trips_load_markdown(qapp):
     view = WysiwygView()
@@ -87,7 +230,7 @@ def test_wysiwyg_view_becomes_ready_and_round_trips_load_markdown(qapp):
 def test_initial_constructor_uses_final_value_base_and_exact_themes(
     qapp, tmp_path
 ):
-    """Queued startup state reaches the first Vditor constructor exactly once."""
+    """Queued startup state reaches the constructor with true Auto themes."""
     note_dir = tmp_path / "notes"
     note_dir.mkdir()
     document_path = note_dir / "note.md"
@@ -100,6 +243,7 @@ def test_initial_constructor_uses_final_value_base_and_exact_themes(
     )
 
     view = WysiwygView()
+    view.resize(1100, 700)
     push_calls = []
     theme_calls = []
     original_push = view._push_markdown
@@ -121,82 +265,135 @@ def test_initial_constructor_uses_final_value_base_and_exact_themes(
         view.apply_theme("dark")
         view.set_document_path(document_path)
         view.load_markdown(markdown)
+        view.show()
         assert _wait_until(lambda: view._ready)
         assert _wait_until(lambda: "print(1)" in (_current_value(view) or ""))
 
-        state = json.loads(
-            _eval(
-                view,
-                "JSON.stringify((function(){"
-                "var glue=window.__wysiwygGlue._state;"
-                "var inner=glue.vditor.vditor;"
-                "var root=document.querySelector('.vditor');"
-                "return {boot:window.__wysiwygInitialBoot,"
-                "value:glue.vditor.getValue(),"
-                "generation:glue.generation,"
-                "focusHost:inner.options.cache.focusHost,"
-                "linkBase:inner.options.preview.markdown.linkBase,"
-                "editorTheme:inner.options.editorTheme,"
-                "theme:inner.options.theme,"
-                "codeMirrorTheme:inner.options.codeMirrorTheme,"
-                "mermaidTheme:inner.options.mermaidTheme,"
-                "imageAttr:(document.querySelector('.vditor-wysiwyg img')||{})"
-                ".src||null,"
-                "imageMarkup:(document.querySelector('.vditor-wysiwyg img')||{})"
-                ".getAttribute&&document.querySelector('.vditor-wysiwyg img')"
-                ".getAttribute('src'),"
-                "htmlCm:document.documentElement.getAttribute('data-cm-theme'),"
-                "rootCm:root&&root.getAttribute('data-cm-theme'),"
-                "rootEditor:root&&root.getAttribute('data-editor-theme')};"
-                "})())",
+        def read_state():
+            return json.loads(
+                _eval(
+                    view,
+                    "JSON.stringify((function(){"
+                    "var glue=window.__wysiwygGlue._state;"
+                    "var inner=glue.vditor.vditor;"
+                    "var html=document.documentElement;"
+                    "var root=document.querySelector('.vditor');"
+                    "var surface=inner[inner.currentMode].element;"
+                    "var htmlStyle=getComputedStyle(html);"
+                    "var surfaceStyle=getComputedStyle(surface);"
+                    "var tokens=glue.hostTheme&&glue.hostTheme.tokens||{};"
+                    "return {boot:window.__wysiwygInitialBoot,"
+                    "value:glue.vditor.getValue(),"
+                    "generation:glue.generation,"
+                    "focusHost:inner.options.cache.focusHost,"
+                    "linkBase:inner.options.preview.markdown.linkBase,"
+                    "editorTheme:inner.options.editorTheme,"
+                    "theme:inner.options.theme,"
+                    "codeMirrorTheme:inner.options.codeMirrorTheme,"
+                    "mermaidTheme:inner.options.mermaidTheme,"
+                    "imageAttr:(document.querySelector('.vditor-wysiwyg img')"
+                    "||{}).src||null,"
+                    "imageMarkup:(document.querySelector('.vditor-wysiwyg img')"
+                    "||{}).getAttribute&&document.querySelector("
+                    "'.vditor-wysiwyg img').getAttribute('src'),"
+                    "htmlEditor:html.getAttribute('data-editor-theme'),"
+                    "rootEditor:root&&root.getAttribute('data-editor-theme'),"
+                    "htmlCm:html.getAttribute('data-cm-theme'),"
+                    "rootCm:root&&root.getAttribute('data-cm-theme'),"
+                    "hostKind:html.getAttribute('data-vscode-theme-kind'),"
+                    "hostStateKind:glue.hostTheme&&glue.hostTheme.kind,"
+                    "hostBackground:htmlStyle.getPropertyValue("
+                    "'--vscode-editor-background').trim(),"
+                    "hostForeground:htmlStyle.getPropertyValue("
+                    "'--vscode-editor-foreground').trim(),"
+                    "payloadBackground:tokens['--vscode-editor-background'],"
+                    "payloadForeground:tokens['--vscode-editor-foreground'],"
+                    "surfaceBackground:surfaceStyle.backgroundColor,"
+                    "surfaceForeground:surfaceStyle.color};})())",
+                )
             )
-        )
+
+        state = read_state()
         assert state["boot"] == {
             "constructorValue": True,
             "generation": 1,
-            "editorTheme": "One Dark",
+            "editorTheme": "Auto",
             "theme": "dark",
-            "codeMirrorTheme": "One Dark",
+            "codeMirrorTheme": "Auto",
             "mermaidTheme": "Auto",
         }
         assert state["value"].rstrip("\n") == markdown
         assert state["generation"] == 1
         assert state["focusHost"] == "browser"
         assert state["linkBase"] == expected_base
-        assert state["editorTheme"] == "One Dark"
+        assert state["editorTheme"] == "Auto"
         assert state["theme"] == "dark"
-        assert state["codeMirrorTheme"] == "One Dark"
+        assert state["codeMirrorTheme"] == "Auto"
         assert state["mermaidTheme"] == "Auto"
         assert state["imageAttr"] == expected_image_src
         assert state["imageMarkup"] == expected_image_src
         assert "![alt](images/pic.png)" in state["value"]
         assert expected_image_src not in state["value"]
-        assert state["htmlCm"] == "One Dark"
-        assert state["rootCm"] == "One Dark"
-        assert state["rootEditor"] == "One Dark"
+        assert state["htmlEditor"] == "Auto"
+        assert state["rootEditor"] == "Auto"
+        assert state["htmlCm"] == "Auto"
+        assert state["rootCm"] == "Auto"
+        assert state["hostKind"] == "vscode-dark"
+        assert state["hostStateKind"] == "dark"
+        assert state["hostBackground"] == state["payloadBackground"]
+        assert state["hostForeground"] == state["payloadForeground"]
+        assert _css_rgb_luma(state["surfaceBackground"]) < 128
         assert push_calls == []
         assert theme_calls == []
         assert view._pending_markdown is None
 
-        # Runtime light-theme sync must use the catalog's case-sensitive ID,
-        # not the old lower-case value that silently fell back to Auto.
+        # Auto stays the persisted/runtime preference while the host tokens
+        # and effective surface follow a later application-theme change.
         view.apply_theme("light")
         assert _wait_until(
-            lambda: _eval(
-                view,
-                "document.documentElement.getAttribute('data-cm-theme')",
+            lambda: (
+                read_state()["hostKind"] == "vscode-light"
+                and read_state()["surfaceBackground"]
+                != state["surfaceBackground"]
             )
-            == "Github"
         )
+        light_state = read_state()
         assert theme_calls == [("light",)]
-        assert (
-            _eval(
-                view,
-                "window.__wysiwygGlue._state.vditor.vditor.options"
-                ".codeMirrorTheme",
-            )
-            == "Github"
+        assert light_state["editorTheme"] == "Auto"
+        assert light_state["theme"] == "classic"
+        assert light_state["codeMirrorTheme"] == "Auto"
+        assert light_state["htmlEditor"] == "Auto"
+        assert light_state["rootEditor"] == "Auto"
+        assert light_state["htmlCm"] == "Auto"
+        assert light_state["rootCm"] == "Auto"
+        assert light_state["hostStateKind"] == "light"
+        assert light_state["hostBackground"] == light_state["payloadBackground"]
+        assert light_state["hostForeground"] == light_state["payloadForeground"]
+        assert light_state["hostBackground"] != state["hostBackground"]
+        assert light_state["hostForeground"] != state["hostForeground"]
+        assert _css_rgb_luma(light_state["surfaceBackground"]) > (
+            _css_rgb_luma(state["surfaceBackground"])
         )
+
+        # Office parity: the very first native toggle click from Auto on a
+        # light host selects One Dark and must visibly darken the editor.
+        _native_click(
+            view,
+            "document.querySelector('button[data-type=\"editor-theme-toggle\"]')",
+        )
+        assert _wait_until(
+            lambda: (
+                read_state()["editorTheme"] == "One Dark"
+                and _css_rgb_luma(read_state()["surfaceBackground"])
+                < _css_rgb_luma(light_state["surfaceBackground"])
+            )
+        )
+        toggled_state = read_state()
+        assert toggled_state["htmlEditor"] == "One Dark"
+        assert toggled_state["rootEditor"] == "One Dark"
+        assert toggled_state["theme"] == "dark"
+        assert toggled_state["hostKind"] == "vscode-light"
+        assert toggled_state["hostBackground"] == light_state["hostBackground"]
     finally:
         _dispose(view)
 
@@ -374,6 +571,124 @@ def test_wysiwyg_context_menu_reaches_the_bridge(qapp):
 
 
 @_skip_webengine
+def test_wysiwyg_ctrl_wheel_batches_canonical_zoom_without_font_side_effects(
+    qapp,
+):
+    view = WysiwygView()
+    view.resize(1000, 700)
+    view.show()
+    requests = []
+    view.zoom_requested.connect(requests.append)
+    original_settings = None
+    try:
+        assert _wait_until(lambda: view._ready)
+        original_settings = _eval(
+            view, "localStorage.getItem('vditor-global-settings')"
+        )
+        prepared = _eval(
+            view,
+            "(function(){"
+            "var raw=localStorage.getItem('vditor-global-settings');"
+            "var data={};try{data=raw?JSON.parse(raw):{};}catch(e){data={};}"
+            "data.editorFontSize=18;"
+            "localStorage.setItem('vditor-global-settings',JSON.stringify(data));"
+            "document.documentElement.style.setProperty('--editor-font-size','18px');"
+            "var surface=document.querySelector('.vditor-wysiwyg');"
+            "function fire(ctrl){var event=new WheelEvent('wheel',{"
+            "deltaY:-100,deltaMode:0,ctrlKey:ctrl,bubbles:true,cancelable:true});"
+            "surface.dispatchEvent(event);return event.defaultPrevented;}"
+            "return JSON.stringify({plain:fire(false),first:fire(true),second:fire(true)});"
+            "})()",
+        )
+        dispatch_state = json.loads(prepared)
+        assert dispatch_state == {"plain": False, "first": True, "second": True}
+        assert _wait_until(lambda: requests, timeout_ms=3000, step_ms=20)
+        assert requests == [2]
+
+        requests.clear()
+        _eval(
+            view,
+            "(function(){var surface=document.querySelector('.vditor-wysiwyg');"
+            "for(var i=0;i<10;i+=1){surface.dispatchEvent(new WheelEvent('wheel',"
+            "{deltaY:-100,deltaMode:0,ctrlKey:true,bubbles:true,cancelable:true}));}"
+            "})()",
+        )
+        assert _wait_until(lambda: requests, timeout_ms=3000, step_ms=20)
+        assert requests == [10]
+
+        requests.clear()
+        _eval(
+            view,
+            "(function(){var surface=document.querySelector('.vditor-wysiwyg');"
+            "for(var i=0;i<10;i+=1){surface.dispatchEvent(new WheelEvent('wheel',"
+            "{deltaY:-3,deltaMode:0,ctrlKey:true,bubbles:true,cancelable:true}));}"
+            "})()",
+        )
+        _wait(60)
+        assert requests == []
+        assert _wait_until(lambda: requests, timeout_ms=3000, step_ms=20)
+        assert requests == [1]
+
+        requests.clear()
+        _eval(
+            view,
+            "(function(){var surface=document.querySelector('.vditor-wysiwyg');"
+            "var sent=0;var timer=setInterval(function(){surface.dispatchEvent("
+            "new WheelEvent('wheel',{deltaY:-51,deltaMode:0,ctrlKey:true,"
+            "bubbles:true,cancelable:true}));sent+=1;if(sent===10)"
+            "clearInterval(timer);},20);})()",
+        )
+        assert _wait_until(
+            lambda: sum(requests) == 5,
+            timeout_ms=3000,
+            step_ms=20,
+        ), requests
+        _wait(100)
+        assert sum(requests) == 5
+
+        requests.clear()
+        _eval(
+            view,
+            "(function(){var surface=document.querySelector('.vditor-wysiwyg');"
+            "var sent=0;var timer=setInterval(function(){"
+            "surface.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,deltaMode:0,"
+            "ctrlKey:true,bubbles:true,cancelable:true}));sent+=1;"
+            "if(sent===10)clearInterval(timer);},30);})()",
+        )
+        assert _wait_until(
+            lambda: sum(requests) == 10,
+            timeout_ms=3000,
+            step_ms=20,
+        ), requests
+
+        state = json.loads(
+            _eval(
+                view,
+                "JSON.stringify((function(){"
+                "var data=JSON.parse(localStorage.getItem('vditor-global-settings'));"
+                "return {font:data.editorFontSize,css:document.documentElement.style"
+                ".getPropertyValue('--editor-font-size')};})())",
+            )
+        )
+        assert state == {"font": 18, "css": "18px"}
+        assert view.page().zoomFactor() == pytest.approx(1.0)
+    finally:
+        if original_settings is None:
+            _eval(
+                view,
+                "localStorage.removeItem('vditor-global-settings')",
+            )
+        else:
+            _eval(
+                view,
+                "localStorage.setItem('vditor-global-settings',"
+                + json.dumps(original_settings)
+                + ")",
+            )
+        _dispose(view)
+
+
+@_skip_webengine
 def test_wysiwyg_custom_toolbar_button_reaches_the_bridge(qapp):
     """A host action remains a toolbar action; save is tested separately."""
     view = WysiwygView()
@@ -471,6 +786,278 @@ def test_exact_office_viewer_toolbar_order_and_native_titles(qapp):
         assert all(button["title"] for button in buttons)
     finally:
         _dispose(view)
+
+
+@_skip_webengine
+def test_editor_theme_picker_is_hit_testable_with_real_pointer_input(qapp):
+    """A visible theme option must receive native Chromium pointer input.
+
+    Calling ``HTMLElement.click()`` cannot catch a toolbar overflow rule that
+    paints the popover while clipping it out of hit testing, so this test uses
+    the same QWindow path as a user's mouse.
+    """
+    view = WysiwygView()
+    view.resize(900, 700)
+    view.show()
+    try:
+        assert _wait_until(lambda: view._ready)
+        view.load_markdown("Pointer dismissal target\n\nSecond body paragraph")
+        assert _wait_until(
+            lambda: "Second body paragraph" in (_current_value(view) or "")
+        )
+        before = _editor_theme_state(view)
+        target = (
+            "Light"
+            if _css_rgb_luma(before["background"]) < 128
+            else "One Dark"
+        )
+
+        trigger = "document.querySelector('button[data-type=\"editor-theme\"]')"
+        _native_click(view, trigger)
+        assert _wait_until(lambda: _editor_theme_panel_is_open(view))
+
+        def popover_state():
+            raw = _eval(
+                view,
+                "JSON.stringify((function(){var themeContent=document."
+                "querySelector('.vditor-editor-theme-panel');var theme="
+                "themeContent&&themeContent.closest('.vditor-hint');"
+                "var headingsButton=document.querySelector("
+                "'button[data-type=\"headings\"]');var headings=headingsButton&&"
+                "headingsButton.parentElement.querySelector("
+                "':scope > .vditor-hint');function open(panel){return !!panel&&"
+                "getComputedStyle(panel).display!=='none';}return {"
+                "theme:open(theme),headings:open(headings)};})())",
+            )
+            return json.loads(raw)
+
+        # Opening another core-owned toolbar panel closes the theme panel;
+        # the two must never remain layered over one another.
+        _native_click(
+            view, "document.querySelector('button[data-type=\"headings\"]')"
+        )
+        assert _wait_until(
+            lambda: popover_state() == {"theme": False, "headings": True}
+        )
+
+        # Reopening the theme panel closes headings, and an actual body click
+        # dismisses the theme panel without leaving toolbar overflow unlocked.
+        _native_click(view, trigger)
+        assert _wait_until(
+            lambda: popover_state() == {"theme": True, "headings": False}
+        )
+        surface = (
+            "(function(){var inner=window.__wysiwygGlue._state.vditor.vditor;"
+            "return inner[inner.currentMode].element;})()"
+        )
+        surface_rect = _dom_rect(view, surface)
+        body_point = QPoint(
+            round(surface_rect["left"] + surface_rect["width"] - 50),
+            round(surface_rect["top"] + min(100, surface_rect["height"] / 2)),
+        )
+        body_hit = _eval(
+            view,
+            "(function(){var surface=("
+            + surface
+            + ");var hit=document.elementFromPoint("
+            + str(body_point.x())
+            + ","
+            + str(body_point.y())
+            + ");return !!hit&&(hit===surface||surface.contains(hit))&&"
+            "!(hit.closest&&hit.closest('.vditor-hint'));})()",
+        )
+        assert body_hit is True
+        page_window = view.windowHandle()
+        assert page_window is not None
+        QTest.mouseClick(
+            page_window,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            body_point,
+        )
+        assert _wait_until(lambda: not _editor_theme_panel_is_open(view))
+        assert (
+            _eval(
+                view,
+                "getComputedStyle(document.querySelector('.vditor-toolbar'))"
+                ".overflowX",
+            )
+            == "auto"
+        )
+
+        _choose_editor_theme_with_pointer(view, target)
+        assert _wait_until(
+            lambda: _editor_theme_state(view)["background"]
+            != before["background"]
+        )
+        after = _editor_theme_state(view)
+        assert after["preference"] == target
+        assert after["option"] == target
+        assert after["background"] != before["background"]
+        assert after["foreground"] != before["foreground"]
+        assert not _editor_theme_panel_is_open(view)
+        assert (
+            _eval(
+                view,
+                "getComputedStyle(document.querySelector('.vditor-toolbar'))"
+                ".overflowX",
+            )
+            == "auto"
+        )
+
+        # The same native popup must not disturb a horizontally scrolled
+        # toolbar after the host narrows. This reuses the live WebEngine view
+        # so the coverage does not add another Chromium/GPU lifecycle.
+        view.resize(600, 700)
+        toolbar_state = (
+            "JSON.stringify((function(){var toolbar=document.querySelector("
+            "'.vditor-toolbar');var trigger=document.querySelector("
+            "'button[data-type=\"editor-theme\"]');var rect=trigger."
+            "getBoundingClientRect();return {scrollLeft:toolbar.scrollLeft,"
+            "scrollWidth:toolbar.scrollWidth,clientWidth:toolbar.clientWidth,"
+            "triggerLeft:rect.left};})())"
+        )
+        narrow_popup_state = (
+            "JSON.stringify((function(){var toolbar=document.querySelector("
+            "'.vditor-toolbar');var trigger=document.querySelector("
+            "'button[data-type=\"editor-theme\"]');var content=document."
+            "querySelector('.vditor-editor-theme-panel');var panel=content&&"
+            "content.closest('.vditor-hint');var rect=panel&&panel."
+            "getBoundingClientRect();var option=content&&content.querySelector("
+            "'button[data-theme]');var optionRect=option&&option."
+            "getBoundingClientRect();var hit=optionRect&&document."
+            "elementFromPoint(optionRect.left+optionRect.width/2,optionRect.top+"
+            "optionRect.height/2);return {popoverOpen:!!panel&&panel.matches("
+            "':popover-open'),popover:panel&&panel.getAttribute('popover'),"
+            "sameParent:!!panel&&panel.parentElement===trigger.parentElement,"
+            "left:rect&&rect.left,top:rect&&rect.top,right:rect&&rect.right,"
+            "bottom:rect&&rect.bottom,viewportWidth:innerWidth,viewportHeight:"
+            "innerHeight,optionHit:!!option&&!!hit&&(hit===option||option."
+            "contains(hit)),overflowX:getComputedStyle(toolbar).overflowX,"
+            "overflowY:getComputedStyle(toolbar).overflowY};})())"
+        )
+        assert _wait_until(
+            lambda: (
+                lambda state: state["scrollWidth"] > state["clientWidth"]
+            )(json.loads(_eval(view, toolbar_state)))
+        )
+        _eval(
+            view,
+            "(function(){var toolbar=document.querySelector('.vditor-toolbar');"
+            "toolbar.scrollLeft=100;return toolbar.scrollLeft;})()",
+        )
+        assert _wait_until(
+            lambda: json.loads(_eval(view, toolbar_state))["scrollLeft"] >= 90
+        )
+        before_narrow = json.loads(_eval(view, toolbar_state))
+        _native_click(view, trigger)
+        assert _wait_until(lambda: _editor_theme_panel_is_open(view))
+        _wait(100)
+        during_narrow = json.loads(_eval(view, toolbar_state))
+        popup_narrow = json.loads(_eval(view, narrow_popup_state))
+        assert during_narrow["scrollLeft"] == pytest.approx(
+            before_narrow["scrollLeft"], abs=1
+        )
+        assert during_narrow["triggerLeft"] == pytest.approx(
+            before_narrow["triggerLeft"], abs=1
+        )
+        assert popup_narrow["popoverOpen"] is True
+        assert popup_narrow["popover"] == "manual"
+        assert popup_narrow["sameParent"] is True
+        assert popup_narrow["left"] >= 0
+        assert popup_narrow["top"] >= 0
+        assert popup_narrow["right"] <= popup_narrow["viewportWidth"]
+        assert popup_narrow["bottom"] <= popup_narrow["viewportHeight"]
+        assert popup_narrow["optionHit"] is True
+        assert popup_narrow["overflowX"] == "auto"
+        assert popup_narrow["overflowY"] == "hidden"
+        _eval(
+            view,
+            "(function(){var toolbar=document.querySelector('.vditor-toolbar');"
+            "toolbar.scrollLeft=120;return toolbar.scrollLeft;})()",
+        )
+        assert _wait_until(
+            lambda: json.loads(_eval(view, toolbar_state))["scrollLeft"] >= 110
+        )
+        changed_while_open = json.loads(_eval(view, toolbar_state))
+        _native_click(view, trigger)
+        assert _wait_until(lambda: not _editor_theme_panel_is_open(view))
+        after_narrow = json.loads(_eval(view, toolbar_state))
+        popup_after_narrow = json.loads(_eval(view, narrow_popup_state))
+        assert after_narrow["scrollLeft"] == pytest.approx(
+            changed_while_open["scrollLeft"], abs=1
+        )
+        assert after_narrow["triggerLeft"] == pytest.approx(
+            changed_while_open["triggerLeft"], abs=1
+        )
+        assert popup_after_narrow["popoverOpen"] is False
+        assert popup_after_narrow["popover"] is None
+    finally:
+        _dispose(view)
+
+
+@_skip_webengine
+def test_explicit_editor_theme_persists_while_auto_follows_app_theme(qapp):
+    """App-theme changes respect an explicit choice; Auto follows the app."""
+    first_view = None
+    restored_view = None
+    try:
+        first_view = WysiwygView()
+        first_view.resize(900, 700)
+        first_view.show()
+        first_view.apply_theme("light")
+        assert _wait_until(lambda: first_view._ready)
+        _choose_editor_theme_with_pointer(first_view, "One Dark")
+        explicit = _editor_theme_state(first_view)
+        assert explicit["preference"] == "One Dark"
+
+        # A later application-theme refresh must not reset the explicit
+        # editor preference back to Light.
+        first_view.apply_theme("light")
+        _wait(200)
+        after_app_refresh = _editor_theme_state(first_view)
+        assert after_app_refresh["preference"] == "One Dark"
+        assert after_app_refresh["background"] == explicit["background"]
+        assert after_app_refresh["foreground"] == explicit["foreground"]
+
+        _dispose(first_view)
+        first_view = None
+        restored_view = WysiwygView()
+        restored_view.resize(900, 700)
+        restored_view.show()
+        restored_view.apply_theme("light")
+        assert _wait_until(lambda: restored_view._ready)
+        assert _wait_until(
+            lambda: _editor_theme_state(restored_view)["preference"]
+            == "One Dark"
+        ), "The explicit editor theme did not survive a new WebEngine view"
+
+        _choose_editor_theme_with_pointer(restored_view, "Auto")
+        restored_view.apply_theme("light")
+        assert _wait_until(
+            lambda: _editor_theme_state(restored_view)["preference"] == "Auto"
+        )
+        light = _editor_theme_state(restored_view)
+
+        restored_view.apply_theme("dark")
+        assert _wait_until(
+            lambda: (
+                _editor_theme_state(restored_view)["preference"] == "Auto"
+                and _editor_theme_state(restored_view)["background"]
+                != light["background"]
+            )
+        )
+        dark = _editor_theme_state(restored_view)
+        assert dark["preference"] == "Auto"
+        assert dark["foreground"] != light["foreground"]
+        assert _css_rgb_luma(dark["background"]) < _css_rgb_luma(
+            light["background"]
+        )
+    finally:
+        if first_view is not None:
+            _dispose(first_view)
+        if restored_view is not None:
+            _dispose(restored_view)
 
 
 @_skip_webengine
@@ -1535,5 +2122,161 @@ def test_escape_closes_exact_code_language_and_theme_overlays(qapp):
                 )
             )
             assert escapes == []
+    finally:
+        _dispose(view)
+
+
+@_skip_webengine
+def test_prepared_wysiwyg_pdf_contains_full_document_without_editor_chrome(
+    qapp, tmp_path
+):
+    """Print preparation exports document flow, not the scrolled live UI."""
+    top_marker = "PDF_TOP_BODY_SENTINEL"
+    bottom_marker = "PDF_BOTTOM_BODY_SENTINEL"
+    toolbar_marker = "PDF_TOOLBAR_SENTINEL"
+    heading_marker = "PDF_HEADING_SENTINEL"
+    list_marker = "PDF_LIST_SENTINEL"
+    table_marker = "PDF_TABLE_SENTINEL"
+    code_marker = "PDF_FENCED_CODE_SENTINEL"
+    paragraphs = [
+        f"# {top_marker} {heading_marker}",
+        f"- {list_marker} first printable list item\n- second printable list item",
+        (
+            "| Fixture | Sentinel |\n"
+            "| --- | --- |\n"
+            f"| table row | {table_marker} |"
+        ),
+        f"```text\n{code_marker}\n```",
+    ]
+    paragraphs.extend(
+        (
+            f"Printable paragraph {index:03d} contains enough ordinary text "
+            "to wrap across lines and force Chromium onto multiple PDF pages. "
+            "It deliberately has no Markdown heading, so an outline cannot "
+            "duplicate either boundary sentinel."
+        )
+        for index in range(84)
+    )
+    paragraphs.append(bottom_marker + " ends the complete printable document.")
+    markdown = "\n\n".join(paragraphs)
+
+    view = WysiwygView()
+    view.resize(900, 700)
+    view.show()
+    prepared = {}
+    printed = {}
+    pdf_path = tmp_path / "prepared-wysiwyg.pdf"
+    try:
+        assert _wait_until(lambda: view._ready)
+        view.load_markdown(markdown)
+        assert _wait_until(
+            lambda: bottom_marker in (_current_value(view) or ""),
+            timeout_ms=8000,
+        )
+        before = json.loads(
+            _eval(
+                view,
+                "JSON.stringify((function(){"
+                "var inner=window.__wysiwygGlue._state.vditor.vditor;"
+                "var surface=inner[inner.currentMode].element;"
+                "var toolbar=document.querySelector('.vditor-toolbar');"
+                "var marker=document.createElement('span');"
+                "marker.id='pdf-toolbar-test-sentinel';"
+                f"marker.textContent={json.dumps(toolbar_marker)};"
+                "marker.style.cssText='font-size:10px;white-space:nowrap';"
+                "toolbar.insertBefore(marker,toolbar.firstChild);"
+                "surface.scrollTop=surface.scrollHeight;return {"
+                "scrollTop:surface.scrollTop,scrollHeight:surface.scrollHeight,"
+                "clientHeight:surface.clientHeight,"
+                "toolbarDisplay:getComputedStyle(toolbar).display,"
+                "toolbarVisibility:getComputedStyle(toolbar).visibility};})())",
+            )
+        )
+        assert before["scrollTop"] > 0
+        assert before["scrollHeight"] > before["clientHeight"]
+
+        view.prepare_pdf_export(
+            lambda payload: prepared.setdefault("payload", payload)
+        )
+        assert _wait_until(lambda: "payload" in prepared, timeout_ms=8000)
+        payload = prepared["payload"]
+        assert isinstance(payload, dict)
+        assert payload.get("ok") is True
+        assert payload.get("width", 0) > 0
+        assert payload.get("height", 0) > view.height()
+
+        layout = QPageLayout(
+            QPageSize(QPageSize.PageSizeId.A4),
+            QPageLayout.Orientation.Portrait,
+            QMarginsF(0, 0, 0, 0),
+            QPageLayout.Unit.Millimeter,
+        )
+        pdf_loop = QEventLoop()
+
+        def pdf_finished(path, ok):
+            printed.update(path=path, ok=ok)
+            pdf_loop.quit()
+
+        view.page().pdfPrintingFinished.connect(pdf_finished)
+        try:
+            view.page().printToPdf(str(pdf_path), layout)
+            QTimer.singleShot(30000, pdf_loop.quit)
+            pdf_loop.exec()
+        finally:
+            try:
+                view.page().pdfPrintingFinished.disconnect(pdf_finished)
+            except (RuntimeError, TypeError):
+                pass
+            view.finish_pdf_export()
+            view.finish_pdf_export()  # Cleanup is intentionally idempotent.
+
+        assert printed == {"path": str(pdf_path), "ok": True}
+        assert pdf_path.is_file()
+        assert _wait_until(
+            lambda: abs(
+                _eval(
+                    view,
+                    "(function(){var inner=window.__wysiwygGlue._state.vditor"
+                    ".vditor;return inner[inner.currentMode].element.scrollTop;})()",
+                )
+                - before["scrollTop"]
+            )
+            < 2
+        )
+        after = json.loads(
+            _eval(
+                view,
+                "JSON.stringify((function(){var toolbar=document.querySelector("
+                "'.vditor-toolbar');return {"
+                "display:getComputedStyle(toolbar).display,"
+                "visibility:getComputedStyle(toolbar).visibility,"
+                "marker:!!document.getElementById('pdf-toolbar-test-sentinel'),"
+                "printShell:!!document.getElementById('vditor-print-shell')};"
+                "})())",
+            )
+        )
+        assert after == {
+            "display": before["toolbarDisplay"],
+            "visibility": before["toolbarVisibility"],
+            "marker": True,
+            "printShell": False,
+        }
+
+        with fitz.open(pdf_path) as document:
+            assert document.page_count >= 2
+            page_text = [page.get_text().strip() for page in document]
+            assert all(page_text), "The prepared PDF contains a blank trailing page"
+            combined = "\n".join(page_text)
+            assert top_marker in combined
+            assert heading_marker in combined
+            assert list_marker in combined
+            assert table_marker in combined
+            assert code_marker in combined
+            assert bottom_marker in combined
+            assert toolbar_marker not in combined
+            top_rects = document[0].search_for(top_marker)
+            assert top_rects, "The document start is missing from PDF page 1"
+            assert top_rects[0].y0 < 72
+            assert top_rects[0].x0 < 120
     finally:
         _dispose(view)

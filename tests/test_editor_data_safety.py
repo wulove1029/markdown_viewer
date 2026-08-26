@@ -47,6 +47,7 @@ class _FakeWysiwygView(QWidget):
     view_ready = Signal()
     esc_requested = Signal()
     toolbar_action = Signal(str)
+    zoom_requested = Signal(int)
     context_menu_requested = Signal(int, int)
 
     def __init__(self, parent=None):
@@ -323,6 +324,11 @@ def test_deleted_dirty_source_keeps_draft_snapshot_and_can_be_recreated(
     assert document.isModified()
     assert document.toPlainText() == draft
     assert window._recovery_store.load(note).draft == draft
+    assert (
+        window._tab_bar.tabText(0)
+        == "● deleted-dirty.md（原檔已刪除）"
+    )
+    assert window._tab_bar.mode_badge_text(0) == "MD"
 
     # If another process recreates the deleted path first, it is a real
     # conflict and must not be overwritten merely because the tab remembers
@@ -342,6 +348,8 @@ def test_deleted_dirty_source_keeps_draft_snapshot_and_can_be_recreated(
     assert document.isModified() is False
     assert "source_deleted" not in window._tab_state[key]
     assert window._recovery_store.load(note) is None
+    assert window._tab_bar.tabText(0) == "deleted-dirty.md"
+    assert window._tab_bar.mode_badge_text(0) == "MD"
 
 
 def test_dirty_external_reload_replaces_split_buffer_and_clears_snapshot(
@@ -771,6 +779,152 @@ def test_wysiwyg_context_menu_scales_js_client_coordinates_by_page_zoom(
     assert positions == [view.mapToGlobal(window_mod.QPoint(35, 42))]
 
 
+def test_wysiwyg_wheel_zoom_applies_one_final_factor_and_defers_persistence(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-wheel-zoom.md"
+    note.write_text("dirty draft", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    window._open_office_editor()
+    view = window._wysiwyg_view
+    document = window._editor.document()
+    view.type_markdown("dirty draft updated")
+    zoom_call_count = len(view.zoom_factors)
+    settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
+    renderer_zoom = window._renderer._zoom
+    preview_zoom = window._edit_preview._zoom
+
+    view.zoom_requested.emit(3)
+
+    assert window._content_zoom == pytest.approx(1.5)
+    assert view.zoom_factors[zoom_call_count:] == [pytest.approx(1.5)]
+    assert window._renderer._zoom == pytest.approx(renderer_zoom)
+    assert window._edit_preview._zoom == pytest.approx(preview_zoom)
+    assert settings.value("content_zoom") is None
+    assert window._pending_office_zoom == pytest.approx(1.5)
+    assert window._office_zoom_sync_timer.isActive()
+    assert window._editor.document() is document
+    assert document.toPlainText() == "dirty draft updated"
+    assert document.isModified() is True
+
+    window._commit_office_zoom()
+
+    assert window._renderer._zoom == pytest.approx(1.5)
+    assert window._edit_preview._zoom == pytest.approx(1.5)
+    assert view.zoom_factors[zoom_call_count:] == [pytest.approx(1.5)]
+    assert float(settings.value("content_zoom")) == pytest.approx(1.5)
+    assert window._pending_office_zoom is None
+    assert window._office_zoom_sync_timer.isActive() is False
+
+
+def test_wysiwyg_wheel_zoom_ignores_hidden_view_and_clamped_edge(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-hidden-wheel.md"
+    note.write_text("text", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    window._open_office_editor()
+    view = window._wysiwyg_view
+
+    window._apply_zoom(3.0)
+    window._commit_office_zoom()
+    before = list(view.zoom_factors)
+    view.zoom_requested.emit(1)
+    assert view.zoom_factors == before
+    assert window._office_zoom_sync_timer.isActive() is False
+
+    window._stack.setCurrentWidget(window._renderer)
+    view.zoom_requested.emit(-2)
+    assert window._content_zoom == pytest.approx(3.0)
+    assert view.zoom_factors == before
+
+
+def test_wysiwyg_keyboard_zoom_updates_only_visible_page_until_idle(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-keyboard-zoom.md"
+    note.write_text("text", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    window._open_office_editor()
+    view = window._wysiwyg_view
+    zoom_call_count = len(view.zoom_factors)
+    settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
+
+    window._zoom_in()
+    window._zoom_in()
+    window._zoom_in()
+
+    assert window._content_zoom == pytest.approx(1.5)
+    assert view.zoom_factors[zoom_call_count:] == pytest.approx(
+        [1.1, 1.25, 1.5]
+    )
+    assert window._renderer._zoom == pytest.approx(1.0)
+    assert window._edit_preview._zoom == pytest.approx(1.0)
+    assert settings.value("content_zoom") is None
+    assert window._office_zoom_sync_timer.isActive()
+
+    window._commit_office_zoom()
+
+    assert window._renderer._zoom == pytest.approx(1.5)
+    assert window._edit_preview._zoom == pytest.approx(1.5)
+    assert view.zoom_factors[zoom_call_count:] == pytest.approx(
+        [1.1, 1.25, 1.5]
+    )
+    assert float(settings.value("content_zoom")) == pytest.approx(1.5)
+
+
+def test_pending_wysiwyg_wheel_zoom_flushes_before_view_transition(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-flush-zoom.md"
+    note.write_text("text", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    window._open_office_editor()
+    settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
+
+    window._wysiwyg_view.zoom_requested.emit(2)
+    assert settings.value("content_zoom") is None
+
+    window._toggle_office_mode()
+
+    assert float(settings.value("content_zoom")) == pytest.approx(1.25)
+    assert window._renderer._zoom == pytest.approx(1.25)
+    assert window._edit_preview._zoom == pytest.approx(1.25)
+    assert window._pending_office_zoom is None
+    assert window._office_zoom_sync_timer.isActive() is False
+    assert window._stack.currentWidget() is window._renderer
+
+
+def test_pending_wysiwyg_zoom_flushes_before_source_split_becomes_visible(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "wysiwyg-to-source-split-zoom.md"
+    note.write_text("text", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    window._open_office_editor()
+    settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
+
+    window._wysiwyg_view.zoom_requested.emit(2)
+    assert window._edit_preview._zoom == pytest.approx(1.0)
+    assert settings.value("content_zoom") is None
+
+    window._toggle_split_mode()
+
+    assert window._active_edit_backend == edit_backend.SOURCE_BACKEND
+    assert window._view_mode == view_mode.SPLIT
+    assert window._stack.currentWidget() is window._editor_split
+    assert window._renderer._zoom == pytest.approx(1.25)
+    assert window._edit_preview._zoom == pytest.approx(1.25)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.25)
+    assert window._pending_office_zoom is None
+    assert window._office_zoom_sync_timer.isActive() is False
+
+
 def test_wysiwyg_export_menu_anchors_to_scaled_toolbar_button_rect(
     make_data_safety_window, tmp_path, monkeypatch
 ):
@@ -1159,6 +1313,8 @@ def test_browser_rename_waits_for_wysiwyg_snapshot_and_updates_document_path(
 
     assert len(view.snapshot_requests) == 1
     assert window._active_path == str(old_path)
+    assert window._tab_bar.tabText(0) == "before-rename.md"
+    assert window._tab_bar.mode_badge_text(0) == "Office"
     assert str(old_path) in window._tab_state
     assert str(new_path) not in window._tab_state
     assert Path(view.document_path) == old_path
@@ -1174,6 +1330,110 @@ def test_browser_rename_waits_for_wysiwyg_snapshot_and_updates_document_path(
     assert state["editor_document"].toPlainText() == "unpublished rename draft"
     assert state["editor_document"].isModified() is True
     assert Path(view.document_path) == new_path
+    assert window._tab_bar.tabText(0) == "● after-rename.md"
+    assert window._tab_bar.mode_badge_text(0) == "Office"
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_browser_rename_snapshot_timeout_still_reconciles_the_new_path(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    old_path = tmp_path / "timeout-before.md"
+    new_path = tmp_path / "timeout-after.md"
+    old_path.write_text("last confirmed shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, old_path)
+    window._toggle_office_mode()
+    existing_timers = set(window.findChildren(QTimer))
+    old_path.rename(new_path)
+
+    window._on_browser_paths_migrated({str(old_path): str(new_path)})
+
+    snapshot_timers = [
+        timer
+        for timer in window.findChildren(QTimer)
+        if timer not in existing_timers and timer.isActive()
+    ]
+    assert len(snapshot_timers) == 1
+    snapshot_timers[0].timeout.emit()
+
+    assert window._active_path == str(new_path)
+    assert window._current_file == new_path
+    state = window._tab_state[str(new_path)]
+    assert state["editor_document"].isModified() is True
+    assert state["editor_document"].toPlainText() == "last confirmed shadow"
+    assert session_state.load_document_edit_backend(old_path) is None
+    assert session_state.load_document_edit_backend(new_path) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+    assert window._recovery_store.load(new_path) is not None
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_chained_renames_during_snapshot_reconcile_in_filesystem_order(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    first = tmp_path / "chain-a.md"
+    second = tmp_path / "chain-b.md"
+    final = tmp_path / "chain-c.md"
+    first.write_text("confirmed", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, first)
+    window._toggle_office_mode()
+    view = window._wysiwyg_view
+    first.rename(second)
+
+    window._on_browser_paths_migrated({str(first): str(second)})
+    assert window._wysiwyg_snapshot_busy is True
+    second.rename(final)
+    window._on_browser_paths_migrated({str(second): str(final)})
+
+    assert window._wysiwyg_snapshot_busy is False
+    assert view.cancelled_snapshot_tokens == [0]
+    assert window._active_path == str(final)
+    assert window._current_file == final
+    assert str(first) not in window._tab_state
+    assert str(second) not in window._tab_state
+    assert str(final) in window._tab_state
+    assert session_state.load_document_edit_backend(first) is None
+    assert session_state.load_document_edit_backend(second) is None
+    assert session_state.load_document_edit_backend(final) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+    window._active_edit_backend = edit_backend.SPLIT_BACKEND
+
+
+def test_rename_then_delete_during_snapshot_keeps_a_recoverable_draft(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    first = tmp_path / "delete-chain-a.md"
+    renamed = tmp_path / "delete-chain-b.md"
+    first.write_text("last confirmed", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, first)
+    window._toggle_office_mode()
+    first.rename(renamed)
+
+    window._on_browser_paths_migrated({str(first): str(renamed)})
+    assert window._wysiwyg_snapshot_busy is True
+    renamed.unlink()
+    window._on_browser_paths_deleted([renamed])
+
+    assert window._wysiwyg_snapshot_busy is False
+    assert window._active_path == str(renamed)
+    state = window._tab_state[str(renamed)]
+    assert state["source_deleted"] is True
+    assert state["editor_document"].isModified() is True
+    assert state["editor_document"].toPlainText() == "last confirmed"
+    recovery = window._recovery_store.load(renamed)
+    assert recovery is not None
+    assert recovery.draft == "last confirmed"
+    assert session_state.load_document_edit_backend(renamed) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
     window._active_edit_backend = edit_backend.SPLIT_BACKEND
 
 
@@ -1384,6 +1644,264 @@ def test_txt_files_always_force_the_split_backend(
     assert window._active_edit_backend == edit_backend.SPLIT_BACKEND
 
 
+# ── Explicit dual editor routes ─────────────────────────────────────────
+
+def test_fresh_markdown_source_shortcuts_never_enter_office(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "source-routes.md"
+    note.write_text("# source\n", encoding="utf-8")
+    window = make_data_safety_window()
+    window.open_path(str(note))
+
+    window._toggle_edit_mode()
+
+    assert window._view_mode == view_mode.EDIT
+    assert window._active_edit_backend == edit_backend.SOURCE_BACKEND
+    assert window._stack.currentWidget() is window._editor_split
+    assert window._wysiwyg_view is None
+    assert window._editor_mode_badge.text() == "原始 Markdown"
+    assert window._tab_bar.tabText(0) == "source-routes.md"
+    assert window._tab_bar.mode_badge_text(0) == "MD"
+
+    window._toggle_edit_mode()
+    assert window._view_mode == view_mode.PREVIEW
+
+    window._toggle_split_mode()
+    assert window._view_mode == view_mode.SPLIT
+    assert window._active_edit_backend == edit_backend.SOURCE_BACKEND
+    assert window._editor_mode_badge.text() == "原始 Markdown · 並排"
+    assert window._wysiwyg_view is None
+
+
+def test_office_shortcut_owns_a_separate_preview_route(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "office-route.md"
+    note.write_text("# office\n", encoding="utf-8")
+    window = make_data_safety_window()
+    window.open_path(str(note))
+
+    window._toggle_office_mode()
+
+    assert window._view_mode == view_mode.EDIT
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert window._stack.currentWidget() is window._wysiwyg_view
+    assert window._editor_mode_badge.text() == "Office 視覺編輯"
+    assert window._wysiwyg_btn.isChecked() is True
+    assert window._tab_bar.tabText(0) == "office-route.md"
+    assert window._tab_bar.mode_badge_text(0) == "Office"
+
+    window._toggle_office_mode()
+
+    assert window._view_mode == view_mode.PREVIEW
+    assert window._stack.currentWidget() is window._renderer
+    assert window._wysiwyg_btn.isChecked() is False
+    assert window._tab_bar.tabText(0) == "office-route.md"
+    assert window._tab_bar.mode_badge_text(0) == "MD"
+
+
+def test_each_markdown_document_restores_its_remembered_editor(
+    make_data_safety_window, tmp_path
+):
+    office_note = tmp_path / "remember-office.md"
+    source_note = tmp_path / "remember-source.md"
+    office_note.write_text("Office", encoding="utf-8")
+    source_note.write_text("Source", encoding="utf-8")
+    window = make_data_safety_window()
+
+    window.open_path(str(office_note))
+    window._toggle_office_mode()
+    window.open_path(str(source_note))
+    window._toggle_edit_mode()
+    window._toggle_edit_mode()
+
+    assert [window._tab_bar.tabText(i) for i in range(2)] == [
+        "remember-office.md",
+        "remember-source.md",
+    ]
+    assert [window._tab_bar.mode_badge_text(i) for i in range(2)] == [
+        "Office",
+        "MD",
+    ]
+
+    assert session_state.load_document_edit_backend(office_note) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+    assert session_state.load_document_edit_backend(source_note) == (
+        edit_backend.SOURCE_BACKEND
+    )
+
+    reopened = make_data_safety_window()
+    reopened.open_path(str(office_note))
+    reopened.open_path(str(source_note))
+
+    assert reopened._tab_state[str(office_note)]["edit_backend"] == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+    assert reopened._tab_state[str(source_note)]["edit_backend"] == (
+        edit_backend.SOURCE_BACKEND
+    )
+    assert [reopened._tab_bar.tabText(i) for i in range(2)] == [
+        "remember-office.md",
+        "remember-source.md",
+    ]
+    assert [reopened._tab_bar.mode_badge_text(i) for i in range(2)] == [
+        "MD",
+        "MD",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("route", "expected_mode"),
+    [
+        ("_toggle_edit_mode", view_mode.EDIT),
+        ("_toggle_split_mode", view_mode.SPLIT),
+    ],
+)
+def test_office_to_source_waits_for_the_latest_snapshot(
+    make_data_safety_window, tmp_path, monkeypatch, route, expected_mode
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / f"office-to-{expected_mode}.md"
+    note.write_text("old shadow", encoding="utf-8")
+    window = make_data_safety_window()
+    window.open_path(str(note))
+    window._toggle_office_mode()
+    view = window._wysiwyg_view
+    view.edit_without_push("latest visible Office text")
+
+    getattr(window, route)()
+
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert window._stack.currentWidget() is view
+    assert len(view.snapshot_requests) == 1
+    assert window._tab_bar.tabText(0) == note.name
+    assert window._tab_bar.mode_badge_text(0) == "Office"
+
+    view.deliver_snapshot()
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert window._tab_bar.tabText(0) == f"● {note.name}"
+    assert window._tab_bar.mode_badge_text(0) == "Office"
+    view.deliver_acknowledgement()
+
+    assert window._active_edit_backend == edit_backend.SOURCE_BACKEND
+    assert window._view_mode == expected_mode
+    assert window._stack.currentWidget() is window._editor_split
+    assert window._editor.toPlainText() == "latest visible Office text"
+    assert window._editor.document().isModified() is True
+    assert window._tab_bar.tabText(0) == f"● {note.name}"
+    assert window._tab_bar.mode_badge_text(0) == "MD"
+
+
+def test_office_compatibility_warning_cancels_safely_and_acks_one_revision(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "office-risk.md"
+    original = "---\ntitle: Risky\n---\n\n> [!NOTE] Keep me\n"
+    note.write_text(original, encoding="utf-8")
+    window = make_data_safety_window()
+    window.open_path(str(note))
+    answers = [
+        window_mod.QMessageBox.StandardButton.Cancel,
+        window_mod.QMessageBox.StandardButton.Open,
+        window_mod.QMessageBox.StandardButton.Open,
+    ]
+    prompts = []
+
+    def answer_warning(*args, **_kwargs):
+        prompts.append(args[1:3])
+        return answers.pop(0)
+
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", answer_warning)
+
+    window._toggle_office_mode()
+
+    assert window._view_mode == view_mode.PREVIEW
+    assert window._wysiwyg_view is None
+    assert note.read_text(encoding="utf-8") == original
+    assert len(prompts) == 1
+    assert session_state.load_document_edit_backend(note) is None
+
+    window._toggle_office_mode()
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert len(prompts) == 2
+    assert session_state.load_document_edit_backend(note) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+    assert "front matter" in prompts[-1][1]
+    assert "Obsidian callouts" in prompts[-1][1]
+
+    # Reopening the exact acknowledged revision does not nag again.
+    window._toggle_office_mode()
+    window._toggle_office_mode()
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert len(prompts) == 2
+
+    # A source edit changes the fingerprint, so the next Office entry asks
+    # again instead of silently treating new content as acknowledged.
+    window._toggle_office_mode()
+    window._toggle_edit_mode()
+    window._editor.setPlainText(original + "[[Another risk]]\n")
+    window._editor.document().setModified(True)
+    assert window._save_edits() is True
+    window._toggle_edit_mode()
+    window._toggle_office_mode()
+
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert len(prompts) == 3
+    assert "wiki-links" in prompts[-1][1]
+
+
+def test_failed_office_to_source_snapshot_keeps_the_remembered_office_route(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(window_mod, "WysiwygView", _DelayedSnapshotWysiwygView)
+    note = tmp_path / "office-source-timeout.md"
+    note.write_text("Office", encoding="utf-8")
+    window = make_data_safety_window()
+    window.open_path(str(note))
+    window._toggle_office_mode()
+    view = window._wysiwyg_view
+    existing_timers = set(window.findChildren(QTimer))
+
+    window._toggle_edit_mode()
+
+    snapshot_timers = [
+        timer
+        for timer in window.findChildren(QTimer)
+        if timer not in existing_timers and timer.isActive()
+    ]
+    assert len(snapshot_timers) == 1
+    snapshot_timers[0].timeout.emit()
+
+    assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert window._stack.currentWidget() is view
+    assert session_state.load_document_edit_backend(note) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
+
+
+def test_source_route_preserves_markdown_bom_crlf_and_trailing_whitespace(
+    make_data_safety_window, tmp_path
+):
+    note = tmp_path / "source-bytes.md"
+    original_text = "---\r\ntitle: Exact\r\n---\r\n\r\nline  \r\n\r\n"
+    note.write_bytes(original_text.encode("utf-8-sig"))
+    window = make_data_safety_window()
+    window.open_path(str(note))
+    window._toggle_edit_mode()
+
+    window._editor.setPlainText(
+        window._editor.toPlainText().replace("title: Exact", "title: Exact edit")
+    )
+    window._editor.document().setModified(True)
+    assert window._save_edits() is True
+
+    expected = original_text.replace("title: Exact", "title: Exact edit")
+    assert note.read_bytes() == expected.encode("utf-8-sig")
+
+
 # ---------------------------------------------------------------------------
 # v2: PREVIEW double-click -> WYSIWYG -> Esc -> back to PREVIEW, buffer intact
 # (acceptance condition b).
@@ -1394,6 +1912,7 @@ def test_double_click_from_preview_enters_wysiwyg_directly(
     note = tmp_path / "dblclick.md"
     note.write_text("# hello\n", encoding="utf-8")
     window = make_data_safety_window()
+    window._preview_double_click = edit_backend.PREVIEW_DOUBLE_CLICK_WYSIWYG
     window.open_path(str(note))
     assert window._edit_mode is False  # still in PREVIEW
 
@@ -1425,6 +1944,7 @@ def test_wysiwyg_esc_returns_to_preview_keeping_the_dirty_buffer(
     note = tmp_path / "dblclick-esc.md"
     note.write_text("start", encoding="utf-8")
     window = make_data_safety_window()
+    window._preview_double_click = edit_backend.PREVIEW_DOUBLE_CLICK_WYSIWYG
     window.open_path(str(note))
     window._on_preview_wysiwyg_edit_requested(0)
     document = window._editor.document()
@@ -1442,8 +1962,8 @@ def test_wysiwyg_esc_returns_to_preview_keeping_the_dirty_buffer(
     assert document.isModified() is True
     assert document.toPlainText() == "start, typed in WYSIWYG"
 
-    # Re-entering shows the same unsaved text, still dirty.
-    window._toggle_edit_mode()
+    # The explicit Office route resumes the same unsaved text, still dirty.
+    window._toggle_office_mode()
     assert window._edit_mode is True
     assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
     assert window._wysiwyg_view.loaded[-1] == "start, typed in WYSIWYG"
@@ -1474,6 +1994,7 @@ def test_wysiwyg_esc_is_a_noop_outside_the_wysiwyg_backend(
 
 def _esc_parked_dirty_tab(window, note):
     """Open *note*, edit it in WYSIWYG, then Esc back to PREVIEW (parked)."""
+    window._preview_double_click = edit_backend.PREVIEW_DOUBLE_CLICK_WYSIWYG
     window.open_path(str(note))
     window._on_preview_wysiwyg_edit_requested(0)
     document = window._editor.document()
@@ -1506,8 +2027,9 @@ def test_wysiwyg_esc_parked_tab_survives_a_tab_round_trip_as_preview(
     assert document.isModified() is True
     assert document.toPlainText() == "TYPED-UNSAVED"
 
-    # Ctrl+E still resumes the parked WYSIWYG buffer, and the flag clears.
-    window._toggle_edit_mode()
+    # The explicit Office shortcut resumes the parked buffer; Ctrl+E now owns
+    # the separate original-Markdown route.
+    window._toggle_office_mode()
     assert window._edit_mode is True
     assert window._active_edit_backend == edit_backend.WYSIWYG_BACKEND
     assert window._wysiwyg_view.loaded[-1] == "TYPED-UNSAVED"
@@ -1553,10 +2075,12 @@ def test_window_title_shows_dirty_marker_for_a_parked_wysiwyg_buffer(
 
     assert window.windowTitle().startswith("● ")
     assert window._toolbar_title.text().startswith("● ")
-    assert window._tab_bar.tabText(0).startswith("● ")
+    assert window._tab_bar.tabText(0) == "● parked-title.md"
+    assert window._tab_bar.mode_badge_text(0) == "MD"
 
-    # Saving (via the resumed editor) clears all three markers together.
-    window._toggle_edit_mode()
+    # Saving (via the resumed Office editor) clears all three markers together.
+    window._toggle_office_mode()
     assert window._save_edits() is True
     assert not window.windowTitle().startswith("● ")
-    assert not window._tab_bar.tabText(0).startswith("● ")
+    assert window._tab_bar.tabText(0) == "parked-title.md"
+    assert window._tab_bar.mode_badge_text(0) == "Office"

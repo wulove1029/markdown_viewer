@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from . import file_ops
+from . import edit_backend, file_ops
 from .theme import Theme
 
 NOTE_TYPES: tuple[tuple[str, str], ...] = (
@@ -53,7 +54,14 @@ def validate_new_note(folder: Path, name: str, suffix: str) -> str:
 class NewNoteDialog(QDialog):
     """Modal dialog that creates one empty .md / .txt file in *folder*."""
 
-    def __init__(self, folder: str | Path, theme: Theme, parent=None):
+    def __init__(
+        self,
+        folder: str | Path,
+        theme: Theme,
+        parent=None,
+        *,
+        default_backend: str = edit_backend.DEFAULT_BACKEND,
+    ):
         super().__init__(parent)
         self._folder = Path(folder)
         self._created_path: Path | None = None
@@ -78,6 +86,33 @@ class NewNoteDialog(QDialog):
             self._type_buttons.append((button, suffix))
         type_row.addStretch()
         layout.addLayout(type_row)
+
+        editor_row = QHBoxLayout()
+        editor_row.setSpacing(8)
+        editor_row.addWidget(QLabel("Markdown 編輯方式："))
+        self._editor_backend_combo = QComboBox()
+        self._editor_backend_combo.setObjectName("newNoteEditorBackend")
+        self._editor_backend_combo.addItem(
+            "原始 Markdown（純文字＋即時預覽，建議）",
+            edit_backend.SOURCE_BACKEND,
+        )
+        self._editor_backend_combo.addItem(
+            "Office 視覺編輯器", edit_backend.WYSIWYG_BACKEND
+        )
+        selected_backend = edit_backend.normalize_backend(default_backend)
+        self._editor_backend_combo.setCurrentIndex(
+            1 if selected_backend == edit_backend.WYSIWYG_BACKEND else 0
+        )
+        editor_row.addWidget(self._editor_backend_combo, 1)
+        layout.addLayout(editor_row)
+
+        self._editor_hint = QLabel(
+            "兩種方式都建立標準 .md 純文字檔；原始模式直接編輯 Markdown，"
+            "不經視覺格式轉換，Office 模式則提供視覺化編輯。"
+        )
+        self._editor_hint.setObjectName("newNoteEditorHint")
+        self._editor_hint.setWordWrap(True)
+        layout.addWidget(self._editor_hint)
 
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("輸入檔名（可省略副檔名）")
@@ -122,6 +157,7 @@ class NewNoteDialog(QDialog):
             f"QDialog {{ background: {theme.window}; }}"
             f"QLabel {{ color: {theme.text}; }}"
             f"QLabel#newNoteFolder {{ color: {theme.text_muted}; font-size: 12px; }}"
+            f"QLabel#newNoteEditorHint {{ color: {theme.text_muted}; font-size: 12px; }}"
             f"QLabel#newNoteError {{ color: {theme.danger}; font-size: 12px; }}"
             f"QRadioButton {{ color: {theme.text}; }}"
             f"QLineEdit {{ background: {theme.surface}; border: 1px solid {theme.border};"
@@ -154,6 +190,14 @@ class NewNoteDialog(QDialog):
                 return suffix
         return NOTE_TYPES[0][1]
 
+    def selected_editor_backend(self) -> str:
+        """Return the requested editor; .txt always uses the source backend."""
+        if self.selected_suffix().lower() != ".md":
+            return edit_backend.SOURCE_BACKEND
+        return edit_backend.normalize_backend(
+            self._editor_backend_combo.currentData()
+        )
+
     def target_path(self) -> Path:
         return self._folder / normalized_file_name(
             self._name_input.text(), self.selected_suffix()
@@ -163,6 +207,9 @@ class NewNoteDialog(QDialog):
         return self._created_path
 
     def _revalidate(self, *_args) -> str:
+        markdown_selected = self.selected_suffix().lower() == ".md"
+        self._editor_backend_combo.setEnabled(markdown_selected)
+        self._editor_hint.setEnabled(markdown_selected)
         error = validate_new_note(
             self._folder, self._name_input.text(), self.selected_suffix()
         )

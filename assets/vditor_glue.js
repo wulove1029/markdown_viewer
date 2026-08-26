@@ -28,6 +28,13 @@
   // snapshot, so this delay is only a performance policy, never a data-safety
   // boundary.
   var DEBOUNCE_MS = 450;
+  // The bundled fork throttles Ctrl+wheel for 250ms and changes only one font
+  // pixel, dropping most precision-wheel events. Batch the gesture once per
+  // display-frame interval and hand one canonical page-zoom delta to Qt.
+  var WHEEL_ZOOM_BATCH_MS = 16;
+  var WHEEL_ZOOM_STEP_PX = 100;
+  var WHEEL_ZOOM_IDLE_MS = 80;
+  var WHEEL_ZOOM_IDLE_MIN_PX = 24;
 
   function codicon(name) {
     return '<span class="codicon codicon-' + name + '" aria-hidden="true"></span>';
@@ -41,6 +48,10 @@
   var OFFICE_LAYOUT_STYLE = (
     ".vditor-toolbar{flex-wrap:nowrap!important;justify-content:flex-start!important;" +
     "overflow-x:auto!important;overflow-y:hidden!important;}" +
+    ".vditor-toolbar.vditor-toolbar--editor-theme-open{" +
+    "overflow:visible!important;}" +
+    ".vditor-hint.vditor-editor-theme-float{position:fixed!important;" +
+    "z-index:12000!important;margin:0!important;inset:auto!important;}" +
     ".vditor-toolbar>.vditor-toolbar__item," +
     ".vditor-toolbar>.vditor-toolbar__divider{flex:0 0 auto;}" +
     ".vditor-toolbar>.vditor-toolbar__br{display:none!important;}" +
@@ -64,6 +75,9 @@
       vditor: null,
       bridge: null,
       debounceTimer: null,
+      zoomWheelDelta: 0,
+      zoomWheelTimer: null,
+      zoomWheelIdleTimer: null,
       // True while a Python-driven setValue() is in flight: the input
       // event(s) it causes must not be pushed back as a user edit.
       echoGuard: false,
@@ -78,7 +92,39 @@
       sessionAwaitingValue: false,
       sessionRestoreToken: 0,
       documentSessions: {},
+      hostTheme: null,
+      themePopupPanel: null,
+      themePopupToolbar: null,
+      themePopupScrollLeft: null,
+      themePopupUsesTopLayer: false,
+      themePopupInstalled: false,
+      themePopupObserver: null,
+      printShell: null,
+      printLiveScroll: null,
     };
+
+    function applyHostTheme(config) {
+      config = config && typeof config === "object" ? config : {};
+      var kind = config.kind === "dark" ? "dark" : "light";
+      var vscodeKind = kind === "dark" ? "vscode-dark" : "vscode-light";
+      var tokens = config.tokens && typeof config.tokens === "object"
+        ? config.tokens : {};
+      var roots = [doc && doc.documentElement, doc && doc.body];
+      for (var i = 0; i < roots.length; i++) {
+        var root = roots[i];
+        if (!root) continue;
+        root.setAttribute("data-vscode-theme-kind", vscodeKind);
+        if (!root.style || typeof root.style.setProperty !== "function") continue;
+        Object.keys(tokens).forEach(function (name) {
+          var value = tokens[name];
+          if (name.indexOf("--vscode-") === 0 && typeof value === "string" && value) {
+            root.style.setProperty(name, value);
+          }
+        });
+      }
+      state.hostTheme = { kind: kind, tokens: tokens };
+      return true;
+    }
 
     function markdownDelta(before, after) {
       before = typeof before === "string" ? before : "";
@@ -262,6 +308,184 @@
       ];
     }
 
+    function editorThemeTrigger() {
+      if (!doc || !doc.querySelector) return null;
+      return doc.querySelector(
+        ".vditor-toolbar button[data-type='editor-theme']"
+      );
+    }
+
+    function editorThemePanel() {
+      if (!doc || !doc.querySelector) return null;
+      var content = doc.querySelector(".vditor-editor-theme-panel");
+      if (content && typeof content.closest === "function") {
+        return content.closest(".vditor-hint");
+      }
+      return null;
+    }
+
+    function clearThemePopupPosition(panel) {
+      if (!panel || !panel.style) return;
+      if (typeof panel.hidePopover === "function" &&
+          panel.matches && panel.matches(":popover-open")) {
+        try { panel.hidePopover(); } catch (_error) {}
+      }
+      panel.removeAttribute("popover");
+      panel.classList.remove("vditor-editor-theme-float");
+      ["position", "z-index", "top", "left", "right", "bottom", "inset",
+       "margin", "visibility"].forEach(
+        function (name) { panel.style.removeProperty(name); }
+      );
+    }
+
+    function restoreThemePopup() {
+      var panel = state.themePopupPanel || editorThemePanel();
+      var toolbar = state.themePopupToolbar;
+      var scrollLeft = state.themePopupScrollLeft;
+      var usedTopLayer = state.themePopupUsesTopLayer;
+      if (panel) clearThemePopupPosition(panel);
+      if (toolbar && toolbar.classList) {
+        toolbar.classList.remove("vditor-toolbar--editor-theme-open");
+      }
+      state.themePopupPanel = null;
+      state.themePopupToolbar = null;
+      state.themePopupScrollLeft = null;
+      state.themePopupUsesTopLayer = false;
+      if (!usedTopLayer && toolbar && typeof scrollLeft === "number") {
+        var restoreScroll = function () { toolbar.scrollLeft = scrollLeft; };
+        // Force the overflow:auto layout back before assigning scrollLeft;
+        // Chromium otherwise discards the value while the visible-overflow
+        // style from the just-closed popup is still being resolved.
+        void toolbar.offsetWidth;
+        restoreScroll();
+        if (win && typeof win.requestAnimationFrame === "function") {
+          win.requestAnimationFrame(restoreScroll);
+        }
+      }
+    }
+
+    function positionThemePopup() {
+      var trigger = editorThemeTrigger();
+      var panel = editorThemePanel();
+      if (!trigger || !panel || !panel.style || panel.style.display !== "block") {
+        restoreThemePopup();
+        return;
+      }
+
+      var toolbar = trigger.closest && trigger.closest(".vditor-toolbar");
+      if (!toolbar) {
+        restoreThemePopup();
+        return;
+      }
+      var triggerRect = trigger.getBoundingClientRect();
+      state.themePopupPanel = panel;
+      if (state.themePopupToolbar !== toolbar) {
+        state.themePopupToolbar = toolbar;
+        state.themePopupScrollLeft = toolbar.scrollLeft || 0;
+      }
+      panel.classList.add("vditor-editor-theme-float");
+      panel.style.setProperty("position", "fixed", "important");
+      panel.style.setProperty("z-index", "12000", "important");
+      panel.style.setProperty("inset", "auto", "important");
+      panel.style.setProperty("margin", "0", "important");
+      panel.style.setProperty("visibility", "hidden", "important");
+
+      // A native popover stays in the toolbar's DOM (so Vditor's own
+      // outside-click / sibling-panel lifecycle keeps working) while being
+      // promoted to Chromium's top layer, outside the toolbar's overflow
+      // clip. Crucially, the toolbar remains overflow:auto and keeps its
+      // horizontal scroll position instead of jumping back to zero.
+      var usesTopLayer = typeof panel.showPopover === "function" &&
+        typeof panel.hidePopover === "function";
+      if (usesTopLayer) {
+        panel.setAttribute("popover", "manual");
+        try {
+          if (!panel.matches || !panel.matches(":popover-open")) {
+            panel.showPopover();
+          }
+        } catch (_error) {
+          usesTopLayer = false;
+          panel.removeAttribute("popover");
+        }
+      }
+      state.themePopupUsesTopLayer = usesTopLayer;
+      if (!usesTopLayer) {
+        // Compatibility fallback for engines without the Popover API.
+        toolbar.classList.add("vditor-toolbar--editor-theme-open");
+      }
+
+      var panelRect = panel.getBoundingClientRect();
+      var margin = 8;
+      var gap = 6;
+      var viewportWidth = Math.max(
+        doc.documentElement ? doc.documentElement.clientWidth : 0,
+        win.innerWidth || 0
+      );
+      var viewportHeight = Math.max(
+        doc.documentElement ? doc.documentElement.clientHeight : 0,
+        win.innerHeight || 0
+      );
+      var left = Math.min(
+        Math.max(margin, triggerRect.left),
+        Math.max(margin, viewportWidth - panelRect.width - margin)
+      );
+      var top = triggerRect.bottom + gap;
+      if (top + panelRect.height > viewportHeight - margin &&
+          triggerRect.top - gap - panelRect.height >= margin) {
+        top = triggerRect.top - gap - panelRect.height;
+      }
+      top = Math.max(
+        margin,
+        Math.min(top, Math.max(margin, viewportHeight - panelRect.height - margin))
+      );
+      panel.style.setProperty("left", Math.round(left) + "px", "important");
+      panel.style.setProperty("top", Math.round(top) + "px", "important");
+      panel.style.removeProperty("visibility");
+    }
+
+    function scheduleThemePopupSync() {
+      if (!win || typeof win.setTimeout !== "function") return;
+      win.setTimeout(positionThemePopup, 0);
+    }
+
+    function installThemePopupLifecycle() {
+      if (state.themePopupInstalled || !doc || !doc.querySelector) return;
+      var toolbar = doc.querySelector(".vditor-toolbar");
+      if (!toolbar || typeof toolbar.addEventListener !== "function") return;
+      state.themePopupInstalled = true;
+      toolbar.addEventListener("click", scheduleThemePopupSync, false);
+      // Capture sees option/outside clicks even when the exact core stops the
+      // bubbling event. The zero-delay sync runs only after core open/close.
+      doc.addEventListener("click", scheduleThemePopupSync, true);
+      var panel = editorThemePanel();
+      if (panel && win && typeof win.MutationObserver === "function") {
+        state.themePopupObserver = new win.MutationObserver(function () {
+          if (state.themePopupPanel === panel && panel.style.display !== "block") {
+            restoreThemePopup();
+          }
+        });
+        state.themePopupObserver.observe(panel, {
+          attributes: true,
+          attributeFilter: ["style"],
+        });
+      }
+      toolbar.addEventListener("scroll", function () {
+        if (state.themePopupPanel) positionThemePopup();
+      });
+      if (win && typeof win.addEventListener === "function") {
+        win.addEventListener("resize", function () {
+          if (state.themePopupPanel) positionThemePopup();
+        });
+      }
+    }
+
+    function notifyThemePreference(method, value) {
+      if (state.bridge && typeof state.bridge[method] === "function") {
+        state.bridge[method](String(value || ""));
+      }
+      scheduleThemePopupSync();
+    }
+
     function onInput(markdown) {
       if (state.echoGuard) {
         // Consume exactly the one echo this guard was raised for; a real
@@ -395,6 +619,91 @@
       } else if (event && typeof event.stopPropagation === "function") {
         event.stopPropagation();
       }
+    }
+
+    function isOfficeEditorWheelTarget(target) {
+      if (target && target.nodeType === 3) target = target.parentElement;
+      while (target) {
+        if (target.classList && (
+          target.classList.contains("vditor-wysiwyg") ||
+          target.classList.contains("vditor-ir")
+        )) return true;
+        target = target.parentNode;
+      }
+      return false;
+    }
+
+    function consumeZoomWheel(event) {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      if (event && typeof event.stopImmediatePropagation === "function") {
+        event.stopImmediatePropagation();
+      } else if (event && typeof event.stopPropagation === "function") {
+        event.stopPropagation();
+      }
+    }
+
+    function normalizedWheelDelta(event) {
+      var delta = Number(event && event.deltaY);
+      if (!isFinite(delta) || delta === 0) return 0;
+      var mode = Number(event && event.deltaMode) || 0;
+      if (mode === 1) delta *= 16;
+      // A page-mode event represents one wheel action. Multiplying it by the
+      // viewport height would turn a single event into 4-10 zoom levels.
+      if (mode === 2) delta = delta < 0 ? -WHEEL_ZOOM_STEP_PX : WHEEL_ZOOM_STEP_PX;
+      return delta;
+    }
+
+    function emitZoomWheelSteps(steps) {
+      if (!steps) return;
+      if (state.bridge && typeof state.bridge.zoomRequested === "function") {
+        state.bridge.zoomRequested(steps);
+      }
+    }
+
+    function flushZoomWheel() {
+      state.zoomWheelTimer = null;
+      var delta = state.zoomWheelDelta;
+      var count = Math.floor(Math.abs(delta) / WHEEL_ZOOM_STEP_PX);
+      if (count < 1) return;
+      var consumed = count * WHEEL_ZOOM_STEP_PX;
+      state.zoomWheelDelta = delta - (delta < 0 ? -consumed : consumed);
+      emitZoomWheelSteps(delta < 0 ? count : -count);
+    }
+
+    function flushZoomWheelRemainder() {
+      state.zoomWheelIdleTimer = null;
+      // A precision trackpad can produce many small deltas that never reach a
+      // mouse-wheel notch inside one frame. Preserve that gesture and
+      // emit its net direction once input becomes idle.
+      var delta = state.zoomWheelDelta;
+      state.zoomWheelDelta = 0;
+      // Ignore near-zero residue, especially two opposite motions that almost
+      // cancel. A short precision gesture still reaches one useful step.
+      if (Math.abs(delta) >= WHEEL_ZOOM_IDLE_MIN_PX) {
+        emitZoomWheelSteps(delta < 0 ? 1 : -1);
+      }
+    }
+
+    function onWheel(event) {
+      if (!(event && (event.ctrlKey || event.metaKey))) return;
+      if (!isOfficeEditorWheelTarget(event.target)) return;
+      var delta = normalizedWheelDelta(event);
+      if (!delta) return;
+      // Capture + immediate propagation stop prevents the vendored target
+      // handler from also changing --editor-font-size/localStorage.
+      consumeZoomWheel(event);
+      state.zoomWheelDelta += delta;
+      if (state.zoomWheelTimer === null) {
+        state.zoomWheelTimer = win.setTimeout(
+          flushZoomWheel, WHEEL_ZOOM_BATCH_MS
+        );
+      }
+      if (state.zoomWheelIdleTimer !== null) {
+        win.clearTimeout(state.zoomWheelIdleTimer);
+      }
+      state.zoomWheelIdleTimer = win.setTimeout(
+        flushZoomWheelRemainder, WHEEL_ZOOM_IDLE_MS
+      );
     }
 
     function onKeydown(event) {
@@ -762,8 +1071,18 @@
         height: "100%",
         tab: "\t",
         editorTheme: options.editorTheme || "Auto",
+        theme: options.theme || "classic",
         codeMirrorTheme: options.codeMirrorTheme || "Auto",
         mermaidTheme: options.mermaidTheme || "Auto",
+        changeEditorTheme: function (value) {
+          notifyThemePreference("changeEditorTheme", value);
+        },
+        changeCodeTheme: function (value) {
+          notifyThemePreference("changeCodeTheme", value);
+        },
+        changeMermaidTheme: function (value) {
+          notifyThemePreference("changeMermaidTheme", value);
+        },
         // The exact core restores its persisted `outlineWidth` before this
         // option, so 280px is only the first-use default. Its native resize
         // implementation continues to clamp and persist within 120-480px.
@@ -807,6 +1126,7 @@
           installBlockHandles();
           injectOfficeLayoutStyle();
           syncToolbarTitles();
+          installThemePopupLifecycle();
           restoreDocumentSession();
           if (state.bridge && typeof state.bridge.ready === "function") {
             state.bridge.ready();
@@ -814,6 +1134,7 @@
         },
       });
       doc.addEventListener("keydown", onKeydown, true);
+      doc.addEventListener("wheel", onWheel, { capture: true, passive: false });
       doc.addEventListener("contextmenu", onContextMenu, true);
       if (win && typeof win.addEventListener === "function") {
         win.addEventListener("blur", persistDocumentSession);
@@ -1388,6 +1709,107 @@
       }
     }
 
+    function finishPrint() {
+      var shell = state.printShell;
+      if (!shell && doc && doc.getElementById) {
+        shell = doc.getElementById("vditor-print-shell");
+      }
+      if (shell && shell.parentNode) shell.parentNode.removeChild(shell);
+      state.printShell = null;
+      var savedScroll = state.printLiveScroll;
+      state.printLiveScroll = null;
+      if (savedScroll && savedScroll.element) {
+        var restoreScroll = function () {
+          savedScroll.element.scrollLeft = savedScroll.left;
+          savedScroll.element.scrollTop = savedScroll.top;
+        };
+        restoreScroll();
+        if (win && typeof win.requestAnimationFrame === "function") {
+          win.requestAnimationFrame(restoreScroll);
+        } else if (win && typeof win.setTimeout === "function") {
+          win.setTimeout(restoreScroll, 0);
+        }
+      }
+      return true;
+    }
+
+    function preparePrint() {
+      finishPrint();
+      if (!doc || !doc.body || !state.vditor ||
+          typeof state.vditor.getHTML !== "function") {
+        return { ok: false, width: 0, height: 0 };
+      }
+      try {
+        var html = state.vditor.getHTML();
+        if (typeof html !== "string") {
+          return { ok: false, width: 0, height: 0 };
+        }
+        var liveRoot = doc.getElementById("vditor");
+        var inner = state.vditor.vditor;
+        var currentMode = inner && inner.currentMode;
+        var liveSurface = currentMode && inner[currentMode] && inner[currentMode].element;
+        if (liveSurface) {
+          state.printLiveScroll = {
+            element: liveSurface,
+            left: liveSurface.scrollLeft || 0,
+            top: liveSurface.scrollTop || 0,
+          };
+        }
+        var measureWidth = liveSurface && liveSurface.clientWidth ||
+          liveRoot && liveRoot.clientWidth ||
+          doc.documentElement && doc.documentElement.clientWidth ||
+          win.innerWidth || 0;
+        measureWidth = Math.max(320, measureWidth);
+        var shell = doc.createElement("main");
+        shell.id = "vditor-print-shell";
+        shell.className = "vditor-print-shell";
+        shell.setAttribute("data-print-ready", "true");
+        shell.setAttribute("role", "document");
+        shell.setAttribute("aria-hidden", "true");
+        shell.style.setProperty(
+          "--vditor-print-measure-width",
+          Math.ceil(measureWidth) + "px"
+        );
+        if (liveRoot && liveRoot.classList &&
+            liveRoot.classList.contains("vditor--dark")) {
+          shell.classList.add("vditor--dark");
+        }
+        ["data-editor-theme", "data-cm-theme", "data-mermaid-theme"].forEach(
+          function (name) {
+            var value = liveRoot && liveRoot.getAttribute(name);
+            if (value) shell.setAttribute(name, value);
+          }
+        );
+
+        var content = doc.createElement("article");
+        content.className = "vditor-reset vditor-print-content";
+        content.innerHTML = html;
+        shell.appendChild(content);
+        doc.body.appendChild(shell);
+        state.printShell = shell;
+
+        var width = Math.ceil(Math.max(
+          measureWidth,
+          shell.scrollWidth || 0,
+          content.scrollWidth || 0,
+          content.getBoundingClientRect().width || 0
+        ));
+        var height = Math.ceil(Math.max(
+          shell.scrollHeight || 0,
+          content.scrollHeight || 0,
+          content.getBoundingClientRect().height || 0
+        ));
+        if (!isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) {
+          finishPrint();
+          return { ok: false, width: 0, height: 0 };
+        }
+        return { ok: true, width: width, height: height };
+      } catch (_error) {
+        finishPrint();
+        return { ok: false, width: 0, height: 0 };
+      }
+    }
+
     function markSaved(markdown) {
       if (state.vditor && typeof state.vditor.markSaved === "function") {
         state.vditor.markSaved(typeof markdown === "string" ? markdown : undefined);
@@ -1406,6 +1828,9 @@
       acknowledgeMarkdown: acknowledgeMarkdown,
       cancelSnapshot: cancelSnapshot,
       markSaved: markSaved,
+      preparePrint: preparePrint,
+      finishPrint: finishPrint,
+      applyHostTheme: applyHostTheme,
       _state: state,
       // Test-only hook (tests/js/vditor_glue_harness.js): production code
       // never calls this directly, it happens automatically from `after`

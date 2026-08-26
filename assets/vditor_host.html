@@ -10,6 +10,82 @@
 <style>
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
   #vditor { height: 100vh; }
+
+  /* preparePrint() creates this off-screen sibling from Vditor.getHTML().
+     Keeping it outside the live editor is important: Chromium otherwise
+     prints the pinned toolbar, outline and the editor's clipped scroll port. */
+  #vditor-print-shell[data-print-ready="true"] {
+    box-sizing: border-box;
+    display: block;
+    position: fixed;
+    left: -100000px;
+    top: 0;
+    width: var(--vditor-print-measure-width, 800px);
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    visibility: hidden;
+    pointer-events: none;
+    background: var(--bg-color, #fff);
+    color: var(--editor-foreground, var(--textarea-text-color, #1d1f23));
+  }
+  #vditor-print-shell .vditor-print-content {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    height: auto;
+    margin: 0;
+    padding: 24px 32px;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+
+  @media print {
+    html, body {
+      width: auto !important;
+      height: auto !important;
+      min-height: 0 !important;
+      overflow: visible !important;
+      background: var(--bg-color, #fff) !important;
+    }
+    body > * {
+      display: none !important;
+    }
+    body > #vditor-print-shell[data-print-ready="true"] {
+      display: block !important;
+      position: static !important;
+      width: auto !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    #vditor-print-shell .vditor-print-content {
+      width: auto !important;
+      max-width: none !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+    #vditor-print-shell img,
+    #vditor-print-shell pre,
+    #vditor-print-shell blockquote {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    #vditor-print-shell h1,
+    #vditor-print-shell h2,
+    #vditor-print-shell h3,
+    #vditor-print-shell h4,
+    #vditor-print-shell h5,
+    #vditor-print-shell h6 {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
+  }
 </style>
 </head>
 <body>
@@ -44,9 +120,9 @@
         var vditorOptions = initial.vditorOptions
           && typeof initial.vditorOptions === "object"
           ? initial.vditorOptions : {};
-        vditorOptions.editorTheme = vditorOptions.editorTheme || "Light";
+        vditorOptions.editorTheme = vditorOptions.editorTheme || "Auto";
         vditorOptions.theme = vditorOptions.theme || "classic";
-        vditorOptions.codeMirrorTheme = vditorOptions.codeMirrorTheme || "Github";
+        vditorOptions.codeMirrorTheme = vditorOptions.codeMirrorTheme || "Auto";
         vditorOptions.mermaidTheme = vditorOptions.mermaidTheme || "Auto";
         var configuredPreview = vditorOptions.preview
           && typeof vditorOptions.preview === "object"
@@ -57,6 +133,9 @@
         configuredMarkdown.linkBase = initial.documentBaseUrl;
 
         var glueState = window.__wysiwygGlue._state;
+        if (window.__wysiwygGlue.applyHostTheme) {
+          window.__wysiwygGlue.applyHostTheme(initial.hostTheme || {});
+        }
         glueState.generation = initial.generation;
         glueState.lastPushedMarkdown = initial.value;
         glueState.documentBaseUrl = initial.documentBaseUrl;

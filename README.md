@@ -51,8 +51,19 @@ $$
 
 ## Editing
 
-Click the pencil (or press **Ctrl+E**) to open the WYSIWYG Markdown editor. It
-bundles the pinned editor fork from VS Code
+There are two explicit editing routes, and both read and save a standard
+plain-text `.md` file:
+
+- Click the pencil or press **Ctrl+E** for the original Markdown source editor.
+  Press **Ctrl+Shift+E** for source plus live preview.
+- Click the layers button or press **Ctrl+Shift+W** for the visual **Office
+  editor**. Press it again to return to preview.
+
+New Markdown notes show the same choice. The safe default is the original
+source editor, and preview double-click keeps the original inline-selection
+behaviour unless Office editing is explicitly enabled in Preferences.
+
+The Office route bundles the pinned editor fork from VS Code
 [Markdown Editor - Office Viewer 4.2](https://github.com/cweijan/vscode-office),
 not a stock upstream Vditor build. Its single-row top toolbar, left outline,
 direct block editing, draggable block handles, and code blocks with language,
@@ -60,12 +71,27 @@ color-theme, copy, and delete controls follow that editor. The toolbar includes
 headings, text color/highlight, links, lists, task lists, tables, quotes, code,
 attachments, undo/redo, find, themes, export, and settings.
 
-Use **Ctrl+Shift+W** to switch the active Markdown tab to the original
-source-and-live-preview split editor. **Ctrl+S** saves and **Ctrl+F** opens
-find/replace in either editing backend. **Esc** closes the active Office Viewer
-popover one layer at a time and otherwise stays in the editor. Each tab
-remembers its chosen backend, caret, selection, and scroll position, including
-inside long CodeMirror code blocks.
+**Ctrl+S** saves and **Ctrl+F** opens find/replace in either editor. **Esc**
+closes the active Office Viewer popover one layer at a time and otherwise stays
+in the editor. Each live tab keeps its current editor, caret, selection, and
+scroll position while you switch tabs, including inside long CodeMirror code
+blocks. The last explicit editor choice is stored as a per-document preference
+for workflows that reopen an editing workspace; explicit source and Office
+shortcuts always take precedence.
+
+In Office editing, **Ctrl+mouse wheel** uses the same page zoom as
+**Ctrl+= / Ctrl+-**. Precision-wheel events are accumulated instead of dropped,
+and familiar zoom stops make it quicker to return from a small view to 100%.
+
+Every Markdown tab has a small colored `MD` or `Office` pill beside its
+filename to identify the current workspace without making the mode look like
+part of the filename. Background Office workspaces keep their blue pill;
+returning one to preview changes it back to the neutral Markdown pill.
+
+Visual editors may normalize syntax they do not understand. Before Office
+Viewer opens a document containing front matter, wiki-links, Obsidian callouts,
+or titled reference-link definitions, the app warns you and recommends the
+source editor. No editor metadata is written into the Markdown file.
 
 Normal WYSIWYG typing is synchronized as small UTF-16 edits instead of
 replacing the whole document on every keystroke. Save, export, tab switching,
@@ -107,7 +133,9 @@ external software is required**.
 | Ctrl+O | Open a document |
 | Ctrl+P | Quick open (fuzzy file finder) |
 | Ctrl+F | Find in document / PDF |
-| Ctrl+E | Toggle edit mode |
+| Ctrl+E | Original Markdown source editor / preview |
+| Ctrl+Shift+E | Original Markdown source + live preview / preview |
+| Ctrl+Shift+W | Office visual editor / preview |
 | Ctrl+S | Save |
 | Ctrl+Shift+P | Export to PDF |
 | Ctrl+Shift+M | Open Mermaid workspace |
@@ -116,6 +144,7 @@ external software is required**.
 | Ctrl+C | Copy selected PDF text |
 | H | Highlight the current PDF selection |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in / out / reset |
+| Ctrl+mouse wheel | Zoom Office editor / zoom PDF around pointer |
 
 Open several documents at once as **tabs** — switch with Ctrl+Tab / Ctrl+Shift+Tab,
 close with Ctrl+W, drag to reorder, and your open tabs are restored on the next

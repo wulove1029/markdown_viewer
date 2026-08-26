@@ -2,6 +2,7 @@
 
 import codecs
 
+from app import edit_backend
 from app.md_converter import read_text, read_text_detailed
 from app.new_note_dialog import (
     NewNoteDialog,
@@ -90,12 +91,44 @@ def test_dialog_creates_empty_file_with_selected_type(qapp, tmp_path):
         # Switch to 純文字 (.txt).
         dialog._type_buttons[1][0].setChecked(True)
         assert dialog.selected_suffix() == ".txt"
+        assert dialog.selected_editor_backend() == edit_backend.SOURCE_BACKEND
+        assert dialog._editor_backend_combo.isEnabled() is False
         assert dialog.target_path() == tmp_path / "我的筆記.txt"
         dialog._attempt_create()
         created = dialog.created_path()
         assert created == tmp_path / "我的筆記.txt"
         assert created.read_bytes() == b""
         assert dialog.result() == dialog.DialogCode.Accepted
+    finally:
+        dialog.close()
+
+
+def test_dialog_offers_two_markdown_editor_routes(qapp, tmp_path):
+    dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        assert dialog.selected_suffix() == ".md"
+        assert dialog.selected_editor_backend() == edit_backend.SOURCE_BACKEND
+        assert dialog._editor_backend_combo.count() == 2
+        assert "原始 Markdown" in dialog._editor_backend_combo.itemText(0)
+        assert "Office" in dialog._editor_backend_combo.itemText(1)
+
+        dialog._editor_backend_combo.setCurrentIndex(1)
+        assert dialog.selected_editor_backend() == edit_backend.WYSIWYG_BACKEND
+
+        dialog._type_buttons[1][0].setChecked(True)
+        assert dialog.selected_editor_backend() == edit_backend.SOURCE_BACKEND
+    finally:
+        dialog.close()
+
+
+def test_dialog_can_default_to_explicit_office_route(qapp, tmp_path):
+    dialog = NewNoteDialog(
+        tmp_path,
+        LIGHT,
+        default_backend=edit_backend.WYSIWYG_BACKEND,
+    )
+    try:
+        assert dialog.selected_editor_backend() == edit_backend.WYSIWYG_BACKEND
     finally:
         dialog.close()
 

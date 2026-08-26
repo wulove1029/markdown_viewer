@@ -102,7 +102,7 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(
         "edit.toggle",
         "編輯與搜尋",
-        "切換編輯／預覽",
+        "原始 Markdown 編輯／預覽",
         ("Ctrl+E",),
         "Markdown",
         "_toggle_edit_mode",
@@ -110,7 +110,7 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(
         "edit.split",
         "編輯與搜尋",
-        "切換並排編輯與即時預覽",
+        "原始 Markdown 並排編輯／預覽",
         ("Ctrl+Shift+E",),
         "Markdown",
         "_toggle_split_mode",
@@ -126,10 +126,10 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(
         "edit.toggle_wysiwyg",
         "編輯與搜尋",
-        "切換所見即所得編輯（WYSIWYG）",
+        "Office 視覺編輯／預覽",
         ("Ctrl+Shift+W",),
-        "Markdown 編輯",
-        "_toggle_edit_backend",
+        "Markdown",
+        "_toggle_office_mode",
     ),
     ShortcutSpec(
         "edit.bold",
@@ -205,7 +205,7 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "檢視與工具",
         "放大內容",
         ("Ctrl++", "Ctrl+="),
-        "預覽／PDF",
+        "預覽／Office／PDF",
         "_zoom_in",
     ),
     ShortcutSpec(
@@ -213,7 +213,7 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "檢視與工具",
         "縮小內容",
         ("Ctrl+-",),
-        "預覽／PDF",
+        "預覽／Office／PDF",
         "_zoom_out",
     ),
     ShortcutSpec(
@@ -221,7 +221,7 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "檢視與工具",
         "重設內容縮放",
         ("Ctrl+0",),
-        "預覽／PDF",
+        "預覽／Office／PDF",
         "_zoom_reset",
     ),
     ShortcutSpec(
@@ -413,6 +413,13 @@ CONTEXT_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "刪除目前選取的標註",
         ("Delete",),
         "預覽標註",
+    ),
+    ShortcutSpec(
+        "office.pointer_zoom",
+        "檢視與工具",
+        "累積滾輪輸入放大／縮小",
+        ("Ctrl+滾輪",),
+        "Office 視覺編輯",
     ),
     ShortcutSpec(
         "pdf.pointer_zoom",

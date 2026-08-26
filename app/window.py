@@ -54,6 +54,7 @@ from .attachments import import_attachment_file, markdown_attachment_link
 from .atomic_io import atomic_write_bytes
 from .document_libraries import DocumentLibraryStore
 from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
+from .content_zoom import clamp_zoom_factor, step_zoom_factor
 from . import edit_backend
 from .editor import EditorView
 from .editor_status import EditorStatus
@@ -87,6 +88,11 @@ from .md_converter import (
     read_text_detailed,
 )
 from .new_note_dialog import NewNoteDialog
+from .markdown_compat import (
+    office_compatibility_risks,
+    office_risk_labels,
+    office_warning_fingerprint,
+)
 from .md_table import parse_table, serialize_table
 from .mermaid_blocks import (
     find_mermaid_blocks,
@@ -248,9 +254,8 @@ class MainWindow(QMainWindow):
             else str(side_notes_value).lower() in ("1", "true", "yes", "on")
         )
         self._theme = get_theme(self._theme_name)
-        # Default WYSIWYG-vs-split edit backend (opt-in; per-tab overrides
-        # live in ``self._tab_state[key]["edit_backend"]``). See
-        # app/edit_backend.py for the pure state logic and its .txt guard.
+        # Safe creation-flow default. Explicit source/Office entry actions set
+        # a per-tab override in ``self._tab_state[key]["edit_backend"]``.
         self._edit_backend = edit_backend.normalize_backend(
             settings.value(edit_backend.SETTINGS_KEY, edit_backend.DEFAULT_BACKEND)
         )
@@ -271,6 +276,7 @@ class MainWindow(QMainWindow):
         self._applying_wysiwyg_delta = False
         self._wysiwyg_snapshot_token = 0
         self._wysiwyg_snapshot_busy = False
+        self._wysiwyg_snapshot_abort = None
         self._wysiwyg_close_snapshot_approved = False
         # Effective backend for whatever is currently in the editor stack;
         # kept in sync by _activate_editor_state so text-change handlers can
@@ -402,6 +408,7 @@ class MainWindow(QMainWindow):
         # File tree CRUD hooks: keep tabs / recents / watcher in sync when the
         # browser creates, renames, moves, or deletes files on disk.
         self._panel.file_browser.on_note_created = self._on_browser_note_created
+        self._panel.file_browser.on_new_note_requested = self._new_note
         self._panel.file_browser.on_paths_migrated = self._on_browser_paths_migrated
         self._panel.file_browser.on_paths_deleted = self._on_browser_paths_deleted
         self._renderer = RendererView(
@@ -553,6 +560,13 @@ class MainWindow(QMainWindow):
         self._pdf_zoom_sync_timer.setSingleShot(True)
         self._pdf_zoom_sync_timer.setInterval(120)
         self._pdf_zoom_sync_timer.timeout.connect(self._commit_pdf_wheel_zoom)
+        # Office zoom is active-view first: WebEngine updates immediately,
+        # while hidden previews and QSettings synchronize once input is idle.
+        self._pending_office_zoom: float | None = None
+        self._office_zoom_sync_timer = QTimer(self)
+        self._office_zoom_sync_timer.setSingleShot(True)
+        self._office_zoom_sync_timer.setInterval(120)
+        self._office_zoom_sync_timer.timeout.connect(self._commit_office_zoom)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._renderer)
@@ -643,14 +657,19 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act("離開", self.close))
 
         self._edit_menu = bar.addMenu("編輯(&E)")
-        self._edit_menu.addAction(command_act("edit.toggle", "切換編輯 / 預覽"))
-        self._edit_menu.addAction(
-            command_act("edit.split", "並排編輯（即時預覽）")
+        self._source_edit_action = command_act(
+            "edit.toggle", "原始 Markdown 編輯 / 預覽"
         )
+        self._edit_menu.addAction(self._source_edit_action)
+        self._source_split_action = command_act(
+            "edit.split", "原始 Markdown 並排編輯 / 預覽"
+        )
+        self._edit_menu.addAction(self._source_split_action)
         self._edit_menu.addAction(command_act("edit.save", "儲存"))
-        self._edit_menu.addAction(
-            command_act("edit.toggle_wysiwyg", "切換所見即所得編輯")
+        self._office_edit_action = command_act(
+            "edit.toggle_wysiwyg", "Office 視覺編輯 / 預覽"
         )
+        self._edit_menu.addAction(self._office_edit_action)
         self._edit_menu.addSeparator()
         self._undo_action = act("復原\tCtrl+Z", self._editor.undo)
         self._redo_action = act("重做\tCtrl+Y", self._editor.redo)
@@ -767,6 +786,12 @@ class MainWindow(QMainWindow):
 
     def _update_native_edit_actions(self) -> None:
         editing = self._edit_mode
+        markdown_available = bool(
+            self._current_file and self._current_kind == "markdown"
+        )
+        self._source_edit_action.setEnabled(markdown_available)
+        self._source_split_action.setEnabled(markdown_available)
+        self._office_edit_action.setEnabled(markdown_available)
         if (
             editing
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
@@ -894,18 +919,22 @@ class MainWindow(QMainWindow):
             "refresh", "重新載入文件", self._reload_current
         )
         self._edit_btn = self._toolbar_button(
-            "pencil", "編輯文件 (Ctrl+E)", self._cycle_view_mode
+            "pencil", "使用原始 Markdown 編輯 (Ctrl+E)", self._cycle_view_mode
         )
         self._mermaid_btn = self._toolbar_button(
             "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
         )
         self._wysiwyg_btn = self._toolbar_button(
             "layers",
-            "切換所見即所得編輯 (Ctrl+Shift+W)；非標準語法（wiki 連結、"
-            "callout、front matter）建議改用分割檢視編輯",
-            self._toggle_edit_backend,
+            "使用 Office 視覺編輯器 (Ctrl+Shift+W)；再次按下回到預覽",
+            self._toggle_office_mode,
         )
         self._wysiwyg_btn.setCheckable(True)
+        self._editor_mode_badge = QLabel("")
+        self._editor_mode_badge.setObjectName("editorModeBadge")
+        self._editor_mode_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._editor_mode_badge.setMinimumHeight(24)
+        self._editor_mode_badge.hide()
         self._export_btn = self._toolbar_button(
             "file-down", "匯出 PDF", self._export_pdf
         )
@@ -954,6 +983,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._reload_btn)
         layout.addWidget(self._edit_btn)
         layout.addWidget(self._wysiwyg_btn)
+        layout.addWidget(self._editor_mode_badge)
         layout.addWidget(self._mermaid_btn)
         layout.addWidget(self._export_btn)
         layout.addWidget(self._side_notes_btn)
@@ -990,6 +1020,15 @@ QLabel#toolbarSubtitle {{
     background: transparent;
     color: {self._theme.text_muted};
     font-size: 12px;
+}}
+QLabel#editorModeBadge {{
+    background: {self._theme.surface};
+    border: 1px solid {self._theme.border};
+    border-radius: 6px;
+    color: {self._theme.text_muted};
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
 }}
 """
         )
@@ -1105,12 +1144,18 @@ QSplitter::handle:hover {{
     def _refresh_icons(self):
         icon_color = self._theme.text_muted
         disabled_color = self._theme.text_subtle
-        self._wysiwyg_btn.setEnabled(
-            self._edit_mode and self._current_kind == "markdown"
-        )
+        self._wysiwyg_btn.setEnabled(self._current_kind == "markdown")
         self._wysiwyg_btn.setChecked(
-            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
         )
+        office_tip = (
+            "回到 Markdown 預覽 (Ctrl+Shift+W)"
+            if self._wysiwyg_btn.isChecked()
+            else "使用 Office 視覺編輯器 (Ctrl+Shift+W)"
+        )
+        self._wysiwyg_btn.setToolTip(office_tip)
+        self._wysiwyg_btn.setAccessibleName(office_tip)
         for button in (
             self._sidebar_btn,
             self._open_btn,
@@ -1121,8 +1166,30 @@ QSplitter::handle:hover {{
             self._export_btn,
         ):
             icon_name = button.property("iconName")
-            color = icon_color if button.isEnabled() else disabled_color
+            if not button.isEnabled():
+                color = disabled_color
+            elif button is self._wysiwyg_btn and button.isChecked():
+                color = self._theme.accent
+            else:
+                color = icon_color
             button.setIcon(svg_icon(icon_name, color, 20))
+
+        markdown_editing = self._edit_mode and self._current_kind == "markdown"
+        self._editor_mode_badge.setVisible(markdown_editing)
+        if markdown_editing:
+            if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+                badge_text = "Office 視覺編輯"
+                badge_tip = "目前使用 Office 視覺編輯器；磁碟格式仍為 Markdown 純文字"
+            else:
+                badge_text = (
+                    "原始 Markdown · 並排"
+                    if self._view_mode == view_mode.SPLIT
+                    else "原始 Markdown"
+                )
+                badge_tip = "目前直接編輯 Markdown 純文字"
+            self._editor_mode_badge.setText(badge_text)
+            self._editor_mode_badge.setToolTip(badge_tip)
+            self._editor_mode_badge.setAccessibleName(badge_tip)
 
         side_notes_tip = (
             "隱藏旁註卡片" if self._side_notes_visible else "顯示旁註卡片"
@@ -1147,13 +1214,19 @@ QSplitter::handle:hover {{
         self._highlight_btn.setChecked(self._pen_mode)
         self._highlight_btn.setIcon(svg_icon("highlighter", highlight_color, 20))
 
-        # Three-state cycle button: preview -> edit -> split -> preview.
-        if self._view_mode == view_mode.SPLIT:
+        # The pencil owns the original Markdown route. From Office it switches
+        # to source; otherwise it cycles source edit -> source split -> preview.
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            edit_icon, edit_tip = "pencil", "切換到原始 Markdown 編輯 (Ctrl+E)"
+        elif self._view_mode == view_mode.SPLIT:
             edit_icon, edit_tip = "eye", "回到預覽 (Ctrl+E)"
         elif self._view_mode == view_mode.EDIT:
-            edit_icon, edit_tip = "columns", "並排即時預覽 (Ctrl+Shift+E)"
+            edit_icon, edit_tip = "columns", "原始 Markdown 並排預覽 (Ctrl+Shift+E)"
         else:
-            edit_icon, edit_tip = "pencil", "編輯文件 (Ctrl+E)"
+            edit_icon, edit_tip = "pencil", "使用原始 Markdown 編輯 (Ctrl+E)"
         edit_color = icon_color if self._edit_btn.isEnabled() else disabled_color
         self._edit_btn.setProperty("iconName", edit_icon)
         self._edit_btn.setToolTip(edit_tip)
@@ -1609,6 +1682,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._pending_pdf_wheel_zoom = self._content_zoom
         self._pdf_zoom_sync_timer.start()
 
+    def _commit_office_zoom(self):
+        self._office_zoom_sync_timer.stop()
+        factor = self._pending_office_zoom
+        self._pending_office_zoom = None
+        if factor is not None:
+            # The visible Office page already owns this factor. Synchronize
+            # hidden views and persistence without forcing a second reflow.
+            session_state.apply_zoom(self, factor, sync_wysiwyg=False)
+
     def _commit_pdf_wheel_zoom(self):
         self._pdf_zoom_sync_timer.stop()
         factor = self._pending_pdf_wheel_zoom
@@ -1620,13 +1702,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             session_state.apply_zoom(self, factor, sync_pdf=False)
 
     def _flush_pdf_zoom_pipeline(self):
-        """Persist the last PDF wheel frame before leaving its document."""
+        """Persist the last deferred zoom frame before a view transition."""
         if self._current_kind == "pdf":
             # This emits zoom_changed while the current document is still the
             # PDF, so the guarded handler can retain the final factor.
             self._pdf_view.flush_pending_wheel_zoom()
         if self._pending_pdf_wheel_zoom is not None:
             self._commit_pdf_wheel_zoom()
+        if self._pending_office_zoom is not None:
+            self._commit_office_zoom()
 
     def _pdf_pages_map(self) -> dict:
         return session_state.pdf_pages_map()
@@ -1680,16 +1764,174 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._view_mode = view_mode.PREVIEW
 
     def _toggle_edit_mode(self):
-        """Ctrl+E: toggle between preview and the plain editor."""
-        self._request_view_mode(view_mode.toggle_edit(self._view_mode))
+        """Ctrl+E: enter the original Markdown editor, or return to preview."""
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.SOURCE_BACKEND
+        ):
+            self._request_view_mode(view_mode.PREVIEW)
+            return
+        self._open_source_editor(view_mode.EDIT)
 
     def _toggle_split_mode(self):
-        """Ctrl+Shift+E: jump straight into split (editor + live preview)."""
-        self._request_view_mode(view_mode.toggle_split(self._view_mode))
+        """Ctrl+Shift+E: use the source editor with live preview."""
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.SOURCE_BACKEND
+            and self._view_mode == view_mode.SPLIT
+        ):
+            self._request_view_mode(view_mode.PREVIEW)
+            return
+        self._open_source_editor(view_mode.SPLIT)
 
     def _cycle_view_mode(self):
-        """Toolbar button: preview -> edit -> split -> preview."""
-        self._request_view_mode(view_mode.cycle_mode(self._view_mode))
+        """Pencil button: cycle only the original Markdown editing route."""
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._open_source_editor(view_mode.EDIT)
+            return
+        target = view_mode.cycle_mode(self._view_mode)
+        if view_mode.is_editing(target):
+            self._open_source_editor(target)
+        else:
+            self._request_view_mode(target)
+
+    def _open_source_editor(self, mode: str = view_mode.EDIT) -> bool:
+        """Enter the existing plain-Markdown backend without silent conversion."""
+        if not self._current_file or not is_markdown(self._current_file):
+            return False
+        if not self._active_path:
+            return False
+        mode = view_mode.SPLIT if mode == view_mode.SPLIT else view_mode.EDIT
+        state = self._tab_state.setdefault(self._active_path, {})
+
+        def _activate_source() -> bool:
+            # The source split may reveal EditPreview immediately. Commit the
+            # last Office scale before changing stacks to avoid a stale frame.
+            self._flush_pdf_zoom_pipeline()
+            previous_backend = state.get("edit_backend")
+            state["edit_backend"] = edit_backend.SOURCE_BACKEND
+            if self._edit_mode:
+                activated = self._activate_editor_state(state, mode)
+            else:
+                activated = self._enter_edit_mode(mode)
+            if activated:
+                session_state.remember_document_edit_backend(
+                    self._active_path, edit_backend.SOURCE_BACKEND
+                )
+                self.statusBar().showMessage("已切換至原始 Markdown 編輯器", 2500)
+            elif previous_backend is None:
+                state.pop("edit_backend", None)
+            else:
+                state["edit_backend"] = previous_backend
+            return activated
+
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+            and self._wysiwyg_view is not None
+        ):
+            return self._request_live_wysiwyg_snapshot(
+                _activate_source,
+                purpose="切換原始 Markdown 編輯器",
+            )
+        return _activate_source()
+
+    def _office_entry_markdown(self, state: dict) -> str:
+        document = state.get("editor_document")
+        if isinstance(document, QTextDocument):
+            return document.toPlainText()
+        if not self._current_file:
+            return ""
+        try:
+            result = read_text_detailed(self._current_file)
+        except OSError:
+            return ""
+        return result[0] if result is not None else ""
+
+    def _confirm_office_compatibility(self, state: dict, markdown: str) -> bool:
+        """Warn before Vditor sees syntax proven to be lossy on round-trip."""
+        risks = office_compatibility_risks(markdown)
+        if not risks:
+            state.pop("office_warning_ack", None)
+            state.pop("office_warning_pending_ack", None)
+            return True
+        fingerprint = office_warning_fingerprint(markdown, risks)
+        if state.get("office_warning_ack") == fingerprint:
+            return True
+        labels = "\n".join(f"• {label}" for label in office_risk_labels(risks))
+        answer = QMessageBox.warning(
+            self,
+            "Office 視覺編輯相容性提醒",
+            "這份文件包含 Office 視覺編輯器可能重新整理或無法完整保留的語法：\n\n"
+            f"{labels}\n\n"
+            "建議使用原始 Markdown 編輯器。若仍要開啟，請先確認已有版本控制或備份。",
+            QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Open:
+            state.pop("office_warning_pending_ack", None)
+            self.statusBar().showMessage(
+                "已取消 Office 視覺編輯，文件仍保持原始 Markdown。", 4000
+            )
+            return False
+        state["office_warning_pending_ack"] = fingerprint
+        return True
+
+    def _open_office_editor(self) -> bool:
+        """Enter the Office editor explicitly; the on-disk format remains .md."""
+        if not self._current_file or not is_markdown(self._current_file):
+            return False
+        if not self._active_path:
+            return False
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            return True
+        state = self._tab_state.setdefault(self._active_path, {})
+        if self._edit_mode and not self._stash_active_editor_state(
+            sync_wysiwyg=False
+        ):
+            return False
+        markdown = self._office_entry_markdown(state)
+        if not self._confirm_office_compatibility(state, markdown):
+            self._refresh_icons()
+            return False
+        previous_backend = state.get("edit_backend")
+        state["edit_backend"] = edit_backend.WYSIWYG_BACKEND
+        if self._edit_mode:
+            activated = self._activate_editor_state(state, view_mode.EDIT)
+        else:
+            activated = self._enter_edit_mode(view_mode.EDIT)
+        pending_ack = state.pop("office_warning_pending_ack", None)
+        if activated and pending_ack:
+            state["office_warning_ack"] = pending_ack
+        if activated:
+            session_state.remember_document_edit_backend(
+                self._active_path, edit_backend.WYSIWYG_BACKEND
+            )
+            self.statusBar().showMessage(
+                "已切換至 Office 視覺編輯器；儲存格式仍為 Markdown 純文字",
+                3500,
+            )
+        elif previous_backend is None:
+            state.pop("edit_backend", None)
+        else:
+            state["edit_backend"] = previous_backend
+        return activated
+
+    def _toggle_office_mode(self) -> None:
+        """Ctrl+Shift+W: Office from either route; Office back to preview."""
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_view_mode(view_mode.PREVIEW)
+            return
+        self._open_office_editor()
 
     def _request_view_mode(self, mode: str):
         if not self._current_file:
@@ -2270,6 +2512,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._wysiwyg_view.toolbar_action.connect(
                 self._on_wysiwyg_toolbar_action
             )
+            zoom_requested = getattr(self._wysiwyg_view, "zoom_requested", None)
+            if zoom_requested is not None:
+                zoom_requested.connect(self._on_wysiwyg_zoom_requested)
             self._wysiwyg_view.context_menu_requested.connect(
                 self._on_wysiwyg_context_menu
             )
@@ -2296,6 +2541,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         handler = handlers.get(name)
         if handler is not None:
             handler()
+
+    def _on_wysiwyg_zoom_requested(self, steps: int) -> None:
+        """Apply one coalesced Office wheel gesture to canonical page zoom."""
+        if (
+            self._wysiwyg_view is None
+            or self._stack.currentWidget() is not self._wysiwyg_view
+            or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
+        ):
+            return
+        target = step_zoom_factor(self._content_zoom, steps)
+        if abs(target - self._content_zoom) < 1e-6:
+            return
+        self._apply_zoom(target)
 
     def _show_wysiwyg_export_menu(self) -> None:
         view = self._wysiwyg_view
@@ -2504,15 +2762,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._preview_double_click, is_markdown=True
         ):
             return
-        state = self._tab_state.setdefault(self._active_path, {})
-        # Force WYSIWYG for *this* entry regardless of the tab's remembered
-        # backend -- the whole point of double-clicking is landing straight
-        # in the WYSIWYG editor, Office-Viewer style.
-        state["edit_backend"] = edit_backend.WYSIWYG_BACKEND
         snippet = self._source_line_snippet(max(0, int(start_line)))
-        self._request_view_mode(view_mode.EDIT)
+        opened = self._open_office_editor()
         if (
-            snippet
+            opened
+            and snippet
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
             and self._wysiwyg_view is not None
         ):
@@ -2580,6 +2834,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         is active. Only the window's own ``_view_mode`` (what this tab is
         showing *right now*) changes to PREVIEW.
         """
+        # Commit the active Office scale before revealing RendererView, so it
+        # never paints one frame at the previous zoom and then reflows again.
+        self._flush_pdf_zoom_pipeline()
         # Mark the tab as "parked": an editing session is still live in
         # ``editor_document`` (state["view_mode"] stays EDIT/SPLIT, per the
         # docstring above), but the *screen* is showing PREVIEW.  Every path
@@ -2612,7 +2869,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_icons()
 
     def _request_live_wysiwyg_snapshot(
-        self, continuation, *, purpose: str
+        self,
+        continuation,
+        *,
+        purpose: str,
+        on_failure=None,
     ) -> bool:
         """Freeze the visible editor, apply one live snapshot, then continue.
 
@@ -2644,6 +2905,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             continuation()
             return True
         if self._wysiwyg_snapshot_busy:
+            if callable(on_failure):
+                # Rename/delete notifications arrive *after* the filesystem
+                # mutation and cannot wait behind a user action that still
+                # targets the old path. Cancel that action and reconcile the
+                # already-changed disk state immediately, keeping the last
+                # confirmed shadow document as a dirty draft.
+                abort = self._wysiwyg_snapshot_abort
+                if callable(abort):
+                    abort(
+                        "檔案路徑已變更，已取消上一個操作並優先保留編輯草稿。"
+                    )
+                on_failure()
+                return True
             self.statusBar().showMessage(
                 "編輯器正在完成上一個操作，請稍候。", 2500
             )
@@ -2679,6 +2953,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
         def _unlock() -> None:
             self._wysiwyg_snapshot_busy = False
+            self._wysiwyg_snapshot_abort = None
             self._tab_bar.setEnabled(True)
             if self._wysiwyg_view is view:
                 view.setEnabled(True)
@@ -2695,6 +2970,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 cancel(snapshot_token)
             _unlock()
             self.statusBar().showMessage(message, 5000)
+            if callable(on_failure):
+                on_failure()
+
+        self._wysiwyg_snapshot_abort = _abort
 
         def _continue_after_ack(result=False) -> None:
             nonlocal completed
@@ -2749,7 +3028,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             lambda: _abort("編輯器尚未回應，已取消%s以避免遺失內容。" % purpose)
         )
         timer.start(2500)
-        request(_received)
+        try:
+            request(_received)
+        except (RuntimeError, TypeError):
+            _abort("編輯器無法取得內容，已取消%s。" % purpose)
         return True
 
     def _on_wysiwyg_save_with_content(self, markdown: str) -> None:
@@ -3210,40 +3492,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._leave_edit_ui()
 
     def _toggle_edit_backend(self):
-        """Toolbar button / Ctrl+Shift+W: split editor <-> WYSIWYG (Vditor)."""
+        """Compatibility action used by Office's own ``toggle_source`` button."""
         if not (self._edit_mode and self._current_kind == "markdown"):
-            return
-        if not self._active_path:
-            return
-        state = self._tab_state.get(self._active_path)
-        if state is None or not isinstance(
-            state.get("editor_document"), QTextDocument
-        ):
-            return
-        target = edit_backend.backend_allows(
-            edit_backend.toggle_backend(self._active_edit_backend),
-            self._current_file.suffix if self._current_file else None,
-            is_plain_text=False,  # guarded by the markdown check above
-        )
-        if target == self._active_edit_backend:
-            return  # .txt/plain-text forced back to split: nothing changed
-        if (
-            self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
-            and self._wysiwyg_view is not None
-        ):
-            def _switch_away_from_wysiwyg(state=state):
-                state["edit_backend"] = target
-                self._activate_editor_state(state, self._view_mode)
-
-            self._request_live_wysiwyg_snapshot(
-                _switch_away_from_wysiwyg,
-                purpose="切換原始碼編輯",
-            )
-            return
-        state["edit_backend"] = target
-        self._activate_editor_state(state, self._view_mode)
+            return False
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            return self._open_source_editor(view_mode.EDIT)
+        return self._open_office_editor()
 
     def _leave_edit_ui(self, *, persist_state: bool = True):
+        # Office zoom synchronizes hidden views on idle. A direct transition
+        # must commit first so the newly-visible preview starts at that scale.
+        self._flush_pdf_zoom_pipeline()
         if persist_state and self._active_path:
             self._discard_tab_buffer(self._active_path)
         # The editor widget is shared by every tab.  Even while hidden it
@@ -3547,7 +3806,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     # ---------------- document tabs ----------------
     def _refresh_tab_labels(self):
-        """Rebuild concise labels, disambiguating duplicate filenames only."""
+        """Rebuild tab labels with disambiguation, dirty, and editor mode."""
         paths = [
             str(self._tab_bar.tabData(index) or "")
             for index in range(self._tab_bar.count())
@@ -3565,11 +3824,45 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             dirty_paths.add(self._active_path)
         for index, (path, label) in enumerate(zip(paths, labels)):
             marker = "● " if path and path in dirty_paths else ""
-            deleted = bool(
-                path and (self._tab_state.get(path) or {}).get("source_deleted")
+            state = self._tab_state.get(path) or {}
+            tab_mode = None
+            if path and is_markdown(path):
+                backend = edit_backend.normalize_backend(
+                    state.get("edit_backend")
+                )
+                office_workspace = (
+                    backend == edit_backend.WYSIWYG_BACKEND
+                    and view_mode.is_editing(state.get("view_mode"))
+                    and not state.get("wysiwyg_parked")
+                )
+                tab_mode = "office" if office_workspace else "markdown"
+            deleted_suffix = (
+                "（原檔已刪除）" if state.get("source_deleted") else ""
             )
-            suffix = "（原檔已刪除）" if deleted else ""
-            self._tab_bar.setTabText(index, f"{marker}{label}{suffix}")
+            self._tab_bar.set_mode_badge(index, tab_mode)
+            tooltip = path
+            if tab_mode == "office":
+                tooltip = f"{path}\n工作區：Office 視覺編輯"
+            elif tab_mode == "markdown":
+                tooltip = f"{path}\n工作區：Markdown"
+            self._tab_bar.setTabToolTip(index, tooltip)
+            self._tab_bar.setTabText(
+                index, f"{marker}{label}{deleted_suffix}"
+            )
+            mode_name = (
+                "Office 視覺編輯"
+                if tab_mode == "office"
+                else "Markdown 工作區" if tab_mode == "markdown" else ""
+            )
+            state_names = [mode_name] if mode_name else []
+            if marker:
+                state_names.append("未儲存")
+            if deleted_suffix:
+                state_names.append("原檔已刪除")
+            state_names.append(label)
+            self._tab_bar.setAccessibleTabName(
+                index, "，".join(state_names)
+            )
         self._tab_bar.refresh_close_buttons()
 
     def _index_of_path(self, key: str) -> int:
@@ -3586,12 +3879,18 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.setTabData(idx, key)
         self._tab_bar.setTabToolTip(idx, key)
         self._tab_guard = False
-        self._tab_state[key] = {
+        state = {
             "kind": kind,
             "scroll": None,
             "view_mode": view_mode.PREVIEW,
             "editor_document": None,
         }
+        if kind == "markdown":
+            state["edit_backend"] = (
+                session_state.load_document_edit_backend(path)
+                or edit_backend.SOURCE_BACKEND
+            )
+        self._tab_state[key] = state
         self._refresh_tab_labels()
         return idx
 
@@ -4393,10 +4692,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._open_file(str(new_path))
         self._refresh_link_index(force=True)
 
-    def _new_note(self):
+    def _new_note(self, requested_folder=None):
         """Ctrl+N: create an empty Markdown / plain-text note and edit it."""
         browser = self._panel.file_browser
-        folder = browser.selected_directory()
+        if isinstance(requested_folder, bool):
+            requested_folder = None
+        folder = Path(requested_folder) if requested_folder else None
+        if folder is None:
+            folder = browser.selected_directory()
         if folder is None:
             roots = browser.library_roots() or []
             folder = roots[0] if roots else None
@@ -4407,23 +4710,33 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if not picked:
                 return
             folder = Path(picked)
-        dialog = NewNoteDialog(folder, self._theme, self)
+        dialog = NewNoteDialog(
+            folder,
+            self._theme,
+            self,
+            default_backend=self._edit_backend,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         path = dialog.created_path()
         if path is None:
             return
+        selected_backend = getattr(dialog, "selected_editor_backend", None)
+        backend = (
+            selected_backend()
+            if callable(selected_backend)
+            else edit_backend.DEFAULT_BACKEND
+        )
         browser.reveal_created_note(path)
-        self._on_browser_note_created(str(path))
+        self._on_browser_note_created(str(path), backend=backend)
 
     # --- file tree CRUD follow-ups (called by the file browser) ---
-    def _on_browser_note_created(self, path: str):
+    def _on_browser_note_created(self, path: str, *, backend: str | None = None):
         """A note was created in the file tree: open it for editing.
 
-        A fresh Markdown note starts in split view (editor + live preview);
-        plain text has no preview so it opens in the plain editor. This runs
-        once at creation only -- switching modes or tabs afterwards follows
-        the normal rules.
+        A fresh Markdown note follows the explicitly requested editor. Calls
+        from the file tree use the configured creation default; plain text has
+        no preview and always opens in the original editor.
         """
         self._open_file(path)
         if (
@@ -4432,12 +4745,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             and self._current_kind in ("markdown", "text")
             and not self._edit_mode
         ):
-            mode = (
-                view_mode.SPLIT
-                if self._current_kind == "markdown"
-                else view_mode.EDIT
-            )
-            self._enter_edit_mode(mode)
+            if self._current_kind == "text":
+                self._enter_edit_mode(view_mode.EDIT)
+            elif edit_backend.normalize_backend(
+                backend if backend is not None else self._edit_backend
+            ) == edit_backend.WYSIWYG_BACKEND:
+                self._open_office_editor()
+            else:
+                self._open_source_editor(view_mode.SPLIT)
         self._refresh_link_index(force=True)
 
     def _configured_note_folder(self, key: str, default_name: str) -> Path | None:
@@ -4491,7 +4806,16 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 and self._current_kind == "markdown"
                 and not self._edit_mode
             ):
-                self._enter_edit_mode()
+                backend = (
+                    self._edit_backend
+                    if created
+                    else session_state.load_document_edit_backend(path)
+                    or edit_backend.SOURCE_BACKEND
+                )
+                if backend == edit_backend.WYSIWYG_BACKEND:
+                    self._open_office_editor()
+                else:
+                    self._open_source_editor(view_mode.EDIT)
         else:
             self._editor.setFocus()
 
@@ -4586,10 +4910,31 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
 
     def _on_browser_paths_migrated(
-        self, mapping: dict, *, _snapshot_ready: bool = False
+        self,
+        mapping: dict,
+        *,
+        _snapshot_ready: bool = False,
+        _snapshot_failed: bool = False,
     ):
         """Files were renamed/moved on disk: re-point tabs, recents, state."""
         if not mapping:
+            return
+        if not _snapshot_ready and self._wysiwyg_snapshot_busy:
+            # The preceding disk event may not have reconciled its path yet,
+            # so this mapping does not necessarily contain _active_path.
+            # Still serialize every already-applied filesystem mutation.
+            stable_mapping = dict(mapping)
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._on_browser_paths_migrated(
+                    stable_mapping, _snapshot_ready=True
+                ),
+                purpose="重新定位文件",
+                on_failure=lambda: self._on_browser_paths_migrated(
+                    stable_mapping,
+                    _snapshot_ready=True,
+                    _snapshot_failed=True,
+                ),
+            )
             return
         if (
             not _snapshot_ready
@@ -4602,8 +4947,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     stable_mapping, _snapshot_ready=True
                 ),
                 purpose="重新定位文件",
+                on_failure=lambda: self._on_browser_paths_migrated(
+                    stable_mapping,
+                    _snapshot_ready=True,
+                    _snapshot_failed=True,
+                ),
             )
             return
+        if _snapshot_failed and self._active_path in mapping:
+            failed_state = self._tab_state.get(self._active_path) or {}
+            failed_document = failed_state.get("editor_document")
+            if isinstance(failed_document, QTextDocument):
+                failed_document.setModified(True)
+                self._save_recovery_for_state(self._active_path, failed_state)
+        session_state.migrate_document_edit_backends(mapping)
         for i in range(self._tab_bar.count()):
             key = self._tab_bar.tabData(i)
             new = mapping.get(key)
@@ -4642,13 +4999,35 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._panel.recent.migrate_paths(mapping)
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
+        if _snapshot_failed:
+            self.statusBar().showMessage(
+                "Office 編輯器未回應；檔案路徑已更新，最後可確認的內容已保留為草稿。",
+                8000,
+            )
 
     def _on_browser_paths_deleted(
-        self, paths: list, *, _snapshot_ready: bool = False
+        self,
+        paths: list,
+        *,
+        _snapshot_ready: bool = False,
+        _snapshot_failed: bool = False,
     ):
         """Close clean deleted files while preserving every dirty draft."""
         stable_paths = list(paths)
         deleted_keys = {str(path) for path in stable_paths}
+        if not _snapshot_ready and self._wysiwyg_snapshot_busy:
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._on_browser_paths_deleted(
+                    stable_paths, _snapshot_ready=True
+                ),
+                purpose="處理已刪除文件",
+                on_failure=lambda: self._on_browser_paths_deleted(
+                    stable_paths,
+                    _snapshot_ready=True,
+                    _snapshot_failed=True,
+                ),
+            )
+            return
         if (
             not _snapshot_ready
             and self._active_path in deleted_keys
@@ -4659,11 +5038,26 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     stable_paths, _snapshot_ready=True
                 ),
                 purpose="處理已刪除文件",
+                on_failure=lambda: self._on_browser_paths_deleted(
+                    stable_paths,
+                    _snapshot_ready=True,
+                    _snapshot_failed=True,
+                ),
             )
             return
+        if _snapshot_failed and self._active_path in deleted_keys:
+            failed_state = self._tab_state.get(self._active_path) or {}
+            failed_document = failed_state.get("editor_document")
+            if isinstance(failed_document, QTextDocument):
+                # The visible page may contain a debounce-pending edit that a
+                # non-responsive WebEngine could not return. Preserve the tab
+                # and its last confirmed shadow instead of treating it clean
+                # and closing the only remaining editing surface.
+                failed_document.setModified(True)
         for path in stable_paths:
             key = str(path)
             idx = self._index_of_path(key)
+            forget_backend = idx < 0
             if idx >= 0:
                 if key == self._active_path and self._edit_mode:
                     self._stash_active_editor_state(snapshot=False)
@@ -4683,13 +5077,22 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     self._refresh_tab_labels()
                     continue
                 self._recovery_store.discard(key)
-                self._on_tab_close(
+                pending_recovery = bool(state.get("pending_recovery"))
+                closed = self._on_tab_close(
                     idx,
                     _snapshot_ready=_snapshot_ready and key == self._active_path,
                 )
+                forget_backend = closed and not pending_recovery
+            if forget_backend:
+                session_state.forget_document_edit_backends(path)
         self._panel.recent.remove_paths(stable_paths)
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
+        if _snapshot_failed:
+            self.statusBar().showMessage(
+                "Office 編輯器未回應；已刪除檔案的最後可確認內容仍保留在未儲存草稿中。",
+                8000,
+            )
 
     # --- file operations reused from other panels (e.g. the 標籤 tab) ---
     # These delegate to the file browser's public wrappers so a file acted on
@@ -4757,13 +5160,31 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _apply_zoom(self, factor: float):
         self._pdf_zoom_sync_timer.stop()
         self._pending_pdf_wheel_zoom = None
-        session_state.apply_zoom(self, factor)
+        target = clamp_zoom_factor(factor)
+        active_office = (
+            self._wysiwyg_view is not None
+            and self._stack.currentWidget() is self._wysiwyg_view
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        )
+        if active_office:
+            self._content_zoom = target
+            self._wysiwyg_view.page().setZoomFactor(target)
+            self.statusBar().showMessage(
+                f"縮放：{round(target * 100)}%", 2000
+            )
+            self._pending_office_zoom = target
+            self._office_zoom_sync_timer.start()
+            return
+
+        if self._pending_office_zoom is not None:
+            self._commit_office_zoom()
+        session_state.apply_zoom(self, target)
 
     def _zoom_in(self):
-        self._apply_zoom(self._content_zoom + 0.1)
+        self._apply_zoom(step_zoom_factor(self._content_zoom, 1))
 
     def _zoom_out(self):
-        self._apply_zoom(self._content_zoom - 0.1)
+        self._apply_zoom(step_zoom_factor(self._content_zoom, -1))
 
     def _zoom_reset(self):
         self._apply_zoom(1.0)
@@ -5633,6 +6054,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._renderer.scroll_to_annotation(ann_id)
 
     def _export_pdf(self):
+        if (
+            self._edit_mode
+            and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: export_actions.export_pdf(self),
+                purpose="匯出 PDF",
+            )
+            return
         export_actions.export_pdf(self)
 
     def _export_pptx(self):

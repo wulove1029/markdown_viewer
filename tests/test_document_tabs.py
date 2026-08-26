@@ -13,7 +13,7 @@ from app.document_tabs import (
     DocumentTabStrip,
     disambiguated_tab_labels,
 )
-from app.theme import DARK
+from app.theme import DARK, LIGHT
 
 
 def _add_tab(bar: DocumentTabBar, label: str, path: str) -> int:
@@ -54,7 +54,10 @@ def test_many_tabs_keep_readable_width_and_active_tab_visible(qapp):
     try:
         for index in range(14):
             name = f"CoilSync_封閉LAN_需求分析_{index:02}.md"
-            _add_tab(strip.tab_bar, name, f"E:/outputs/{name}")
+            tab_index = _add_tab(strip.tab_bar, name, f"E:/outputs/{name}")
+            strip.tab_bar.set_mode_badge(
+                tab_index, "office" if index % 2 else "markdown"
+            )
 
         strip.resize(900, 36)
         strip.show()
@@ -109,7 +112,12 @@ def test_close_buttons_only_show_for_active_or_hovered_and_middle_click(qapp):
     bar.tabCloseRequested.connect(closed.append)
     try:
         for index in range(3):
-            _add_tab(bar, f"document-{index}.md", f"E:/notes/document-{index}.md")
+            tab_index = _add_tab(
+                bar, f"document-{index}.md", f"E:/notes/document-{index}.md"
+            )
+            bar.set_mode_badge(
+                tab_index, "office" if index == 1 else "markdown"
+            )
 
         bar.resize(620, 36)
         bar.show()
@@ -152,6 +160,88 @@ def test_close_buttons_only_show_for_active_or_hovered_and_middle_click(qapp):
         bar.close()
 
 
+def test_mode_badges_are_colored_theme_aware_and_move_with_tabs(qapp):
+    bar = DocumentTabBar()
+    try:
+        first = _add_tab(bar, "first.md", "E:/notes/first.md")
+        second = _add_tab(bar, "second.md", "E:/notes/second.md")
+        plain_width = bar.tabSizeHint(first).width()
+
+        bar.set_mode_badge(first, "office")
+        bar.set_mode_badge(second, "markdown")
+        bar.resize(420, 36)
+        bar.show()
+        qapp.processEvents()
+
+        assert bar.mode_badge(first) == "office"
+        assert bar.mode_badge_text(first) == "Office"
+        assert bar.mode_badge(second) == "markdown"
+        assert bar.mode_badge_text(second) == "MD"
+        assert bar.tabSizeHint(first).width() > plain_width
+        assert bar.tabIcon(first).isNull() is False
+        assert bar.tabIcon(second).isNull() is False
+        assert bar.tabButton(first, QTabBar.ButtonPosition.LeftSide) is None
+        assert _close_button(bar, first).objectName() == "documentTabCloseButton"
+        assert bar.tabRect(first).width() == bar.tabSizeHint(first).width()
+
+        office_light = bar.tabIcon(first).pixmap(bar.iconSize()).toImage()
+        markdown_light = bar.tabIcon(second).pixmap(bar.iconSize()).toImage()
+        assert office_light.pixelColor(23, 3).name() == LIGHT.accent_soft
+        assert markdown_light.pixelColor(23, 3).name() == LIGHT.surface_alt
+        office_light_colors = {
+            office_light.pixelColor(x, y).name()
+            for x in range(office_light.width())
+            for y in range(office_light.height())
+        }
+        markdown_light_colors = {
+            markdown_light.pixelColor(x, y).name()
+            for x in range(markdown_light.width())
+            for y in range(markdown_light.height())
+        }
+        assert LIGHT.accent in office_light_colors
+        assert LIGHT.success in markdown_light_colors
+
+        bar.apply_theme(DARK)
+        office_dark = bar.tabIcon(first).pixmap(bar.iconSize()).toImage()
+        markdown_dark = bar.tabIcon(second).pixmap(bar.iconSize()).toImage()
+        assert office_dark.pixelColor(23, 3).name() == DARK.accent_soft
+        assert markdown_dark.pixelColor(23, 3).name() == DARK.surface_alt
+        office_dark_colors = {
+            office_dark.pixelColor(x, y).name()
+            for x in range(office_dark.width())
+            for y in range(office_dark.height())
+        }
+        markdown_dark_colors = {
+            markdown_dark.pixelColor(x, y).name()
+            for x in range(markdown_dark.width())
+            for y in range(markdown_dark.height())
+        }
+        assert DARK.accent in office_dark_colors
+        assert DARK.success in markdown_dark_colors
+
+        bar.moveTab(first, second)
+        qapp.processEvents()
+        assert [bar.tabData(i) for i in range(2)] == [
+            "E:/notes/second.md",
+            "E:/notes/first.md",
+        ]
+        assert [bar.mode_badge(i) for i in range(2)] == [
+            "markdown",
+            "office",
+        ]
+
+        bar.removeTab(0)
+        assert bar.tabData(0) == "E:/notes/first.md"
+        assert bar.mode_badge(0) == "office"
+
+        bar.set_mode_badge(0, None)
+        assert bar.mode_badge(0) is None
+        assert bar.mode_badge_text(0) == ""
+        assert bar.tabIcon(0).isNull() is True
+    finally:
+        bar.close()
+
+
 def test_all_tabs_menu_searches_live_order_and_selects_by_path(qapp):
     strip = DocumentTabStrip()
     try:
@@ -160,13 +250,20 @@ def test_all_tabs_menu_searches_live_order_and_selects_by_path(qapp):
             name = f"document-{index}.md"
             path = f"E:/notes/{name}"
             paths.append(path)
-            _add_tab(strip.tab_bar, name, path)
+            tab_index = _add_tab(strip.tab_bar, name, path)
+            strip.tab_bar.set_mode_badge(
+                tab_index, "office" if index % 2 else "markdown"
+            )
         strip.tab_bar.setCurrentIndex(2)
 
         menu = strip.build_tabs_menu()
         assert menu.parent() is None
         tab_actions = [action for action in menu.actions() if action.data()]
         assert [action.data() for action in tab_actions] == paths
+        assert [action.text() for action in tab_actions[:2]] == [
+            "[MD] document-0.md",
+            "[Office] document-1.md",
+        ]
         assert [action.isChecked() for action in tab_actions] == [
             False,
             False,

@@ -426,6 +426,8 @@ def test_open_path_adds_tab_and_reuses_existing(make_window, md_files):
     win.open_path(str(first))
     assert win._tab_bar.count() == 1
     assert win._tab_bar.tabData(0) == str(first)
+    assert win._tab_bar.tabText(0) == "first.md"
+    assert win._tab_bar.mode_badge_text(0) == "MD"
     assert win._renderer.loaded_paths[-1] == first
 
     win.open_path(str(second))
@@ -436,6 +438,45 @@ def test_open_path_adds_tab_and_reuses_existing(make_window, md_files):
     assert win._tab_bar.count() == 2
     assert win._tab_bar.currentIndex() == 0
     assert win._renderer.loaded_paths[-1] == first
+
+
+def test_markdown_editor_menu_routes_follow_current_file_kind(
+    make_window, md_files, tmp_path
+):
+    markdown, _second = md_files
+    text_file = tmp_path / "plain.txt"
+    pdf_file = tmp_path / "plain.pdf"
+    text_file.write_text("plain text", encoding="utf-8")
+    pdf_file.write_bytes(b"%PDF-1.4\n")
+    win = make_window()
+
+    win._update_native_edit_actions()
+    assert not win._source_edit_action.isEnabled()
+    assert not win._source_split_action.isEnabled()
+    assert not win._office_edit_action.isEnabled()
+
+    win.open_path(str(markdown))
+    win._update_native_edit_actions()
+    assert win._tab_bar.mode_badge(win._tab_bar.currentIndex()) == "markdown"
+    assert win._source_edit_action.isEnabled()
+    assert win._source_split_action.isEnabled()
+    assert win._office_edit_action.isEnabled()
+
+    win.open_path(str(text_file))
+    win._update_native_edit_actions()
+    assert win._tab_bar.tabText(win._tab_bar.currentIndex()) == "plain.txt"
+    assert win._tab_bar.mode_badge(win._tab_bar.currentIndex()) is None
+    assert not win._source_edit_action.isEnabled()
+    assert not win._source_split_action.isEnabled()
+    assert not win._office_edit_action.isEnabled()
+
+    win.open_path(str(pdf_file))
+    win._update_native_edit_actions()
+    assert win._tab_bar.tabText(win._tab_bar.currentIndex()) == "plain.pdf"
+    assert win._tab_bar.mode_badge(win._tab_bar.currentIndex()) is None
+    assert not win._source_edit_action.isEnabled()
+    assert not win._source_split_action.isEnabled()
+    assert not win._office_edit_action.isEnabled()
 
 
 def test_pdf_outline_is_async_and_stale_results_do_not_replace_current_toc(
@@ -535,6 +576,26 @@ def test_pdf_wheel_zoom_syncs_shared_zoom_and_saved_preference(
     assert win._pdf_view.zoom_calls[-1] == (1.6, None)
     assert float(settings.value("content_zoom")) == pytest.approx(1.6)
     assert win._pdf_zoom_sync_timer.isActive() is False
+
+
+def test_keyboard_zoom_uses_fast_discrete_stops(make_window):
+    settings = window_mod.QSettings(_ORG, _APP)
+    win = make_window()
+
+    win._zoom_in()
+    win._zoom_in()
+    win._zoom_in()
+
+    assert win._content_zoom == pytest.approx(1.5)
+    assert win._renderer._zoom == pytest.approx(1.5)
+    assert win._edit_preview._zoom == pytest.approx(1.5)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.5)
+
+    win._apply_zoom(1.17)
+    win._zoom_out()
+    assert win._content_zoom == pytest.approx(1.1)
+    win._zoom_in()
+    assert win._content_zoom == pytest.approx(1.25)
 
 
 def test_idle_zoom_commit_does_not_cancel_a_new_pdf_wheel_frame(
@@ -999,22 +1060,32 @@ def test_duplicate_tab_names_disambiguate_keep_dirty_marker_and_recompute(
 
     win.open_path(str(first))
     assert win._tab_bar.tabText(0) == "README.md"
+    assert win._tab_bar.mode_badge_text(0) == "MD"
     win.open_path(str(second))
     assert [win._tab_bar.tabText(index) for index in range(2)] == [
         "README.md · project-a/docs",
         "README.md · project-b/docs",
     ]
-    assert win._tab_bar.tabToolTip(0) == str(first)
-    assert win._tab_bar.tabToolTip(1) == str(second)
+    assert [win._tab_bar.mode_badge_text(index) for index in range(2)] == [
+        "MD",
+        "MD",
+    ]
+    assert win._tab_bar.tabToolTip(0) == f"{first}\n工作區：Markdown"
+    assert win._tab_bar.tabToolTip(1) == f"{second}\n工作區：Markdown"
+    assert win._tab_bar.accessibleTabName(0).startswith("Markdown 工作區，")
 
     win._edit_mode = True
     win._editor.document().setModified(True)
     win._update_dirty_ui()
-    assert win._tab_bar.tabText(1) == "● README.md · project-b/docs"
+    assert (
+        win._tab_bar.tabText(1)
+        == "● README.md · project-b/docs"
+    )
 
     win._editor.document().setModified(False)
     win._on_tab_close(1)
     assert win._tab_bar.tabText(0) == "README.md"
+    assert win._tab_bar.mode_badge_text(0) == "MD"
 
 
 def test_all_tabs_menu_selects_live_path_after_reorder(
@@ -1261,6 +1332,9 @@ def test_browser_migration_repoints_open_tabs_and_active_file(
     win = make_window()
     win.open_path(str(first))
     win.open_path(str(second))
+    window_mod.session_state.remember_document_edit_backend(
+        second, edit_backend.WYSIWYG_BACKEND
+    )
 
     renamed = second.with_name("renamed.md")
     second.rename(renamed)
@@ -1268,10 +1342,15 @@ def test_browser_migration_repoints_open_tabs_and_active_file(
 
     assert win._tab_bar.tabData(1) == str(renamed)
     assert win._tab_bar.tabText(1) == "renamed.md"
+    assert win._tab_bar.mode_badge_text(1) == "MD"
     assert win._active_path == str(renamed)
     assert win._current_file == renamed
     assert str(renamed) in win._tab_state
     assert str(second) not in win._tab_state
+    assert window_mod.session_state.load_document_edit_backend(second) is None
+    assert window_mod.session_state.load_document_edit_backend(renamed) == (
+        edit_backend.WYSIWYG_BACKEND
+    )
 
 
 def test_browser_delete_closes_matching_tab(make_window, md_files):
@@ -1279,6 +1358,9 @@ def test_browser_delete_closes_matching_tab(make_window, md_files):
     win = make_window()
     win.open_path(str(first))
     win.open_path(str(second))
+    window_mod.session_state.remember_document_edit_backend(
+        second, edit_backend.WYSIWYG_BACKEND
+    )
 
     second.unlink()
     win._on_browser_paths_deleted([str(second)])
@@ -1286,6 +1368,7 @@ def test_browser_delete_closes_matching_tab(make_window, md_files):
     assert win._tab_bar.count() == 1
     assert win._tab_bar.tabData(0) == str(first)
     assert str(second) not in win._tab_state
+    assert window_mod.session_state.load_document_edit_backend(second) is None
 
 
 def test_open_path_ipc_entry_adds_to_existing_window(make_window, md_files):
@@ -1335,6 +1418,52 @@ def test_daily_note_creates_then_reopens_same_tab_in_edit_mode(
     assert win._current_file == note
     assert win._view_mode == "edit"
     assert win._tab_bar.count() == 1
+
+
+def test_existing_daily_note_uses_its_remembered_source_editor(
+    make_window, tmp_path
+):
+    daily_folder = tmp_path / "Daily Notes"
+    daily_folder.mkdir()
+    note = daily_folder / "2026-07-11.md"
+    note.write_text("existing", encoding="utf-8")
+    window_mod.QSettings(_ORG, _APP).setValue(
+        "daily_notes_folder", str(daily_folder)
+    )
+    window_mod.session_state.remember_document_edit_backend(
+        note, edit_backend.SOURCE_BACKEND
+    )
+    win = make_window()
+    win._edit_backend = edit_backend.WYSIWYG_BACKEND
+
+    win._open_daily_note(datetime(2026, 7, 11, 7, 6))
+
+    assert win._current_file == note
+    assert win._active_edit_backend == edit_backend.SOURCE_BACKEND
+    assert win._stack.currentWidget() is win._editor_split
+
+
+def test_existing_daily_note_uses_its_remembered_office_editor(
+    make_window, tmp_path
+):
+    daily_folder = tmp_path / "Daily Notes"
+    daily_folder.mkdir()
+    note = daily_folder / "2026-07-11.md"
+    note.write_text("existing", encoding="utf-8")
+    window_mod.QSettings(_ORG, _APP).setValue(
+        "daily_notes_folder", str(daily_folder)
+    )
+    window_mod.session_state.remember_document_edit_backend(
+        note, edit_backend.WYSIWYG_BACKEND
+    )
+    win = make_window()
+    win._edit_backend = edit_backend.SOURCE_BACKEND
+
+    win._open_daily_note(datetime(2026, 7, 11, 7, 6))
+
+    assert win._current_file == note
+    assert win._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+    assert win._stack.currentWidget() is win._wysiwyg_view
 
 
 def test_insert_template_from_configured_folder_at_cursor(
@@ -2718,7 +2847,7 @@ def test_new_note_creates_opens_and_edits(make_window, tmp_path, monkeypatch):
     )
 
     class _FakeDialog:
-        def __init__(self, folder, theme, parent=None):
+        def __init__(self, folder, theme, parent=None, **_kwargs):
             self._folder = Path(folder)
             self._path = None
 
@@ -2754,7 +2883,7 @@ def test_new_note_falls_back_to_first_library_root(
     folders = []
 
     class _CancelDialog:
-        def __init__(self, folder, theme, parent=None):
+        def __init__(self, folder, theme, parent=None, **_kwargs):
             folders.append(Path(folder))
 
         def exec(self):
@@ -2770,6 +2899,33 @@ def test_new_note_falls_back_to_first_library_root(
     assert folders == [tmp_path]
     assert win._tab_bar.count() == 0
     assert list(tmp_path.iterdir()) == []
+
+
+def test_file_tree_new_note_uses_the_same_dialog_for_the_requested_folder(
+    make_window, tmp_path, monkeypatch
+):
+    win = make_window()
+    requested = tmp_path / "nested"
+    requested.mkdir()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+    folders = []
+
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            folders.append(Path(folder))
+
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
+
+    win._panel.file_browser.on_new_note_requested(str(requested))
+
+    assert folders == [requested]
+    assert win._tab_bar.count() == 0
 
 
 def test_new_note_without_any_folder_asks_and_cancels_cleanly(
@@ -3207,9 +3363,8 @@ def test_image_button_via_toolbar_click(make_window, tmp_path, monkeypatch):
 
 
 # ---------------- new .md notes open in split mode ----------------
-def test_new_md_note_opens_in_split_mode(make_window, tmp_path):
+def test_new_md_note_uses_original_markdown_split_by_default(make_window, tmp_path):
     win = make_window()
-    win._edit_backend = edit_backend.SPLIT_BACKEND  # exercise the split-editor path
     note = tmp_path / "fresh.md"
     note.write_text("", encoding="utf-8")
 
@@ -3223,16 +3378,17 @@ def test_new_md_note_opens_in_split_mode(make_window, tmp_path):
     assert win.focusWidget() is win._editor
 
 
-def test_new_md_note_opens_directly_in_wysiwyg_by_default(make_window, tmp_path):
-    """New notes follow the global default backend, which is now WYSIWYG."""
+def test_new_md_note_can_open_directly_in_explicit_office_route(make_window, tmp_path):
     win = make_window()
     note = tmp_path / "fresh-wysiwyg.md"
     note.write_text("", encoding="utf-8")
 
-    win._on_browser_note_created(str(note))
+    win._on_browser_note_created(
+        str(note), backend=edit_backend.WYSIWYG_BACKEND
+    )
 
     assert win._current_kind == "markdown"
-    assert win._view_mode == "split"
+    assert win._view_mode == "edit"
     assert win._active_edit_backend == edit_backend.WYSIWYG_BACKEND
     assert win._stack.currentWidget() is win._wysiwyg_view
 

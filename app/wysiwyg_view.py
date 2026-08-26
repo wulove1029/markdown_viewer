@@ -16,18 +16,80 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
-from PySide6.QtCore import QFile, QIODevice, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import (
+    QFile,
+    QIODevice,
+    QObject,
+    QSettings,
+    QUrl,
+    Signal,
+    Slot,
+)
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .text_positions import py_to_qt_position, qt_to_py_position
+from .theme import get_theme
 
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
 _LANG_MAP = {"zh_TW": "zh_TW", "en_US": "en_US"}
+
+_SETTINGS_ORG = "markdown-viewer"
+_SETTINGS_APP = "MarkdownViewer"
+_EDITOR_THEME_KEY = "wysiwyg_editor_theme"
+_CODE_THEME_KEY = "wysiwyg_code_theme"
+_MERMAID_THEME_KEY = "wysiwyg_mermaid_theme"
+
+_EDITOR_THEMES = frozenset(
+    {
+        "Auto",
+        "Light",
+        "Solarized",
+        "Warm Light",
+        "Dim Light",
+        "One Dark",
+        "Github Dark",
+        "Nord",
+        "Monokai",
+        "Dracula",
+    }
+)
+_DARK_EDITOR_THEMES = frozenset(
+    {"One Dark", "Github Dark", "Nord", "Monokai", "Dracula"}
+)
+_CODE_THEMES = frozenset(
+    {
+        "Auto",
+        "Github",
+        "Solarized Light",
+        "Material Light",
+        "Quiet Light",
+        "One Light",
+        "Dracula",
+        "Monokai",
+        "One Dark",
+        "Solarized Dark",
+        "Material Dark",
+    }
+)
+_MERMAID_THEMES = frozenset(
+    {
+        "Auto",
+        "Light",
+        "Forest",
+        "Ocean",
+        "Sunset",
+        "Dark",
+        "Dracula",
+        "Monokai",
+        "Nord",
+    }
+)
 
 
 def _document_session_id(path: str | Path | None) -> str:
@@ -68,6 +130,7 @@ class _WysiwygBridge(QObject):
     viewReadySig = Signal()
     escRequestedSig = Signal()
     toolbarActionSig = Signal(str)
+    zoomRequestedSig = Signal(int)
     contextMenuRequestedSig = Signal(int, int)
 
     def __init__(self, view: "WysiwygView") -> None:
@@ -157,6 +220,22 @@ class _WysiwygBridge(QObject):
     def toolbarAction(self, name: str) -> None:
         self.toolbarActionSig.emit(name)
 
+    @Slot(int)
+    def zoomRequested(self, steps: int) -> None:
+        self.zoomRequestedSig.emit(steps)
+
+    @Slot(str)
+    def changeEditorTheme(self, value: str) -> None:
+        self._view._on_editor_theme_changed(value)
+
+    @Slot(str)
+    def changeCodeTheme(self, value: str) -> None:
+        self._view._on_code_theme_changed(value)
+
+    @Slot(str)
+    def changeMermaidTheme(self, value: str) -> None:
+        self._view._on_mermaid_theme_changed(value)
+
     @Slot(int, int)
     def contextMenuRequested(self, x: int, y: int) -> None:
         self.contextMenuRequestedSig.emit(x, y)
@@ -178,6 +257,9 @@ class WysiwygView(QWebEngineView):
     # Host-specific toolbar button click (export, attachments, source switch,
     # graph and other Qt-owned workflows).
     toolbar_action = Signal(str)
+    # Coalesced Ctrl/meta+wheel gesture from the Office host page. Positive
+    # values zoom in; negative values zoom out.
+    zoom_requested = Signal(int)
     # v4: right-click inside the Vditor surface; (x, y) are viewport-relative
     # pixels from the JS "contextmenu" event, which map 1:1 onto this
     # widget's local coordinates (no scroll offset -- Vditor's own toolbar
@@ -201,6 +283,7 @@ class WysiwygView(QWebEngineView):
         self._bridge.viewReadySig.connect(self._on_view_ready)
         self._bridge.escRequestedSig.connect(self.esc_requested)
         self._bridge.toolbarActionSig.connect(self.toolbar_action)
+        self._bridge.zoomRequestedSig.connect(self.zoom_requested)
         self._bridge.contextMenuRequestedSig.connect(self.context_menu_requested)
 
         self._channel = QWebChannel(self)
@@ -217,6 +300,16 @@ class WysiwygView(QWebEngineView):
         self._live_revision = 0
         self._resync_in_flight = False
         self._pending_theme_name = "light"
+        theme_settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        self._editor_theme_preference = self._read_theme_preference(
+            theme_settings, _EDITOR_THEME_KEY, _EDITOR_THEMES
+        )
+        self._code_theme_preference = self._read_theme_preference(
+            theme_settings, _CODE_THEME_KEY, _CODE_THEMES
+        )
+        self._mermaid_theme_preference = self._read_theme_preference(
+            theme_settings, _MERMAID_THEME_KEY, _MERMAID_THEMES
+        )
         self._boot_generation: int | None = None
         self._boot_markdown: str | None = None
         self._boot_base_url = ""
@@ -248,16 +341,131 @@ class WysiwygView(QWebEngineView):
         self.page().setHtml(html, self._base_url)
 
     @staticmethod
-    def _theme_options(name: str) -> dict[str, str]:
-        """Return IDs from Office Viewer's exact 4.2 theme catalog."""
-        dark = name == "dark"
+    def _read_theme_preference(
+        settings: QSettings, key: str, allowed: frozenset[str]
+    ) -> str | None:
+        raw = settings.value(key, None)
+        value = str(raw).strip() if raw is not None else ""
+        if value in allowed:
+            return value
+        if value:
+            settings.remove(key)
+            settings.sync()
+        return None
+
+    def _persist_theme_preference(
+        self, key: str, value: str, allowed: frozenset[str]
+    ) -> str | None:
+        value = str(value or "").strip()
+        if value not in allowed:
+            return None
+        settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
+        settings.setValue(key, value)
+        settings.sync()
+        return value
+
+    def _theme_options(self, name: str) -> dict[str, str]:
+        """Return validated IDs from Office Viewer's exact 4.2 catalog."""
+        app_dark = name == "dark"
+        editor_theme = self._editor_theme_preference or "Auto"
+        if editor_theme == "Auto":
+            effective_dark = app_dark
+        else:
+            effective_dark = editor_theme in _DARK_EDITOR_THEMES
+
         return {
-            "editorTheme": "One Dark" if dark else "Light",
-            "theme": "dark" if dark else "classic",
-            "codeMirrorTheme": "One Dark" if dark else "Github",
-            # Auto follows the selected editor theme and is the 4.2 default.
-            "mermaidTheme": "Auto",
+            "editorTheme": editor_theme,
+            "theme": "dark" if effective_dark else "classic",
+            "codeMirrorTheme": self._code_theme_preference or "Auto",
+            "mermaidTheme": self._mermaid_theme_preference or "Auto",
         }
+
+    @staticmethod
+    def _host_theme_payload(name: str) -> dict[str, object]:
+        """Build the complete VS Code token surface consumed by Auto.css."""
+        theme = get_theme("dark" if name == "dark" else "light")
+        tokens = {
+            "--vscode-badge-background": theme.accent,
+            "--vscode-charts-blue": theme.accent,
+            "--vscode-charts-foreground": theme.text,
+            "--vscode-charts-green": theme.success,
+            "--vscode-charts-orange": theme.warning,
+            "--vscode-charts-purple": theme.accent_hover,
+            "--vscode-charts-red": theme.danger,
+            "--vscode-charts-yellow": theme.warning,
+            "--vscode-descriptionForeground": theme.text_muted,
+            "--vscode-dropdown-background": theme.surface,
+            "--vscode-editor-background": theme.surface,
+            "--vscode-editorCursor-foreground": theme.accent,
+            "--vscode-editor-foldBackground": theme.accent_soft,
+            "--vscode-editor-foreground": theme.text,
+            "--vscode-editorGroupHeader-tabsBackground": theme.surface_alt,
+            "--vscode-editorGutter-foldingControlForeground": theme.text_muted,
+            "--vscode-editor-inactiveSelectionBackground": theme.surface_hover,
+            "--vscode-editor-lineHighlightBackground": theme.surface_hover,
+            "--vscode-editorLineNumber-activeForeground": theme.text,
+            "--vscode-editorLineNumber-foreground": theme.text_subtle,
+            "--vscode-editor-selectionBackground": theme.accent_soft,
+            "--vscode-editor-selectionHighlightBackground": theme.surface_hover,
+            "--vscode-editorWidget-background": theme.surface,
+            "--vscode-errorForeground": theme.danger,
+            "--vscode-focusBorder": theme.accent,
+            "--vscode-foreground": theme.text,
+            "--vscode-icon-foreground": theme.text_muted,
+            "--vscode-input-background": theme.surface,
+            "--vscode-input-placeholderForeground": theme.text_subtle,
+            "--vscode-keybindingTable-headerBackground": theme.surface_alt,
+            "--vscode-list-focusHighlightForeground": theme.accent,
+            "--vscode-list-hoverBackground": theme.surface_hover,
+            "--vscode-menu-background": theme.surface,
+            "--vscode-menu-selectionBackground": theme.surface_hover,
+            "--vscode-panel-border": theme.border,
+            "--vscode-scrollbarSlider-background": theme.border,
+            "--vscode-scrollbarSlider-hoverBackground": theme.text_subtle,
+            "--vscode-sideBar-background": theme.surface_alt,
+            "--vscode-sideBarSectionHeader-background": theme.surface_alt,
+            "--vscode-symbolIcon-enumeratorForeground": theme.warning,
+            "--vscode-symbolIcon-keywordForeground": theme.accent,
+            "--vscode-symbolIcon-numberForeground": theme.warning,
+            "--vscode-symbolIcon-operatorForeground": theme.text_muted,
+            "--vscode-symbolIcon-stringForeground": theme.success,
+            "--vscode-tab-inactiveForeground": theme.text_muted,
+            "--vscode-textBlockQuote-background": theme.surface_alt,
+            "--vscode-textBlockQuote-border": theme.border,
+            "--vscode-textCodeBlock-background": theme.code_bg,
+            "--vscode-textLink-foreground": theme.accent,
+            "--vscode-textPreformat-foreground": theme.code_text,
+            "--vscode-textSeparator-foreground": theme.border,
+            "--vscode-widget-border": theme.border,
+            "--vscode-widget-shadow": theme.shadow,
+        }
+        return {"kind": theme.name, "tokens": tokens}
+
+    def _on_editor_theme_changed(self, value: str) -> None:
+        saved = self._persist_theme_preference(
+            _EDITOR_THEME_KEY, value, _EDITOR_THEMES
+        )
+        if saved is None:
+            return
+        self._editor_theme_preference = saved
+        # The exact core applies the skin immediately. Sync its content theme
+        # as well, without changing the newly selected preference.
+        if self._ready:
+            self._apply_theme_name(self._pending_theme_name)
+
+    def _on_code_theme_changed(self, value: str) -> None:
+        saved = self._persist_theme_preference(
+            _CODE_THEME_KEY, value, _CODE_THEMES
+        )
+        if saved is not None:
+            self._code_theme_preference = saved
+
+    def _on_mermaid_theme_changed(self, value: str) -> None:
+        saved = self._persist_theme_preference(
+            _MERMAID_THEME_KEY, value, _MERMAID_THEMES
+        )
+        if saved is not None:
+            self._mermaid_theme_preference = saved
 
     def _claim_initial_config(self) -> str:
         """Snapshot queued state for Vditor's first constructor invocation.
@@ -288,6 +496,7 @@ class WysiwygView(QWebEngineView):
             "value": markdown,
             "generation": int(generation),
             "documentBaseUrl": base_url,
+            "hostTheme": self._host_theme_payload(self._boot_theme_name),
             # Keep all constructor-owned settings in one extensible object.
             # Per-document fields such as documentCacheId can be added here
             # without another bespoke host-page handshake.
@@ -589,6 +798,56 @@ class WysiwygView(QWebEngineView):
         )
         self.page().runJavaScript(js, callback)
 
+    def prepare_pdf_export(self, callback) -> None:
+        """Build a chrome-free print sibling and report its full CSS size.
+
+        *callback* receives ``{"ok": True, "width": float, "height": float}``
+        or ``None``. The sibling remains active until ``finish_pdf_export()``
+        so ``QWebEnginePage.printToPdf`` can render the same prepared DOM.
+        """
+        if not self._ready:
+            callback(None)
+            return
+
+        def prepared(result) -> None:
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except (TypeError, ValueError):
+                    result = None
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                callback(None)
+                return
+            try:
+                width = float(result["width"])
+                height = float(result["height"])
+            except (KeyError, TypeError, ValueError):
+                callback(None)
+                return
+            if (
+                not math.isfinite(width)
+                or not math.isfinite(height)
+                or width <= 0
+                or height <= 0
+            ):
+                callback(None)
+                return
+            callback({"ok": True, "width": width, "height": height})
+
+        self.page().runJavaScript(
+            "window.__wysiwygGlue ? "
+            "JSON.stringify(window.__wysiwygGlue.preparePrint()) : null",
+            prepared,
+        )
+
+    def finish_pdf_export(self) -> None:
+        """Remove the prepared print sibling; safe to call repeatedly."""
+        if not self._ready:
+            return
+        self.page().runJavaScript(
+            "window.__wysiwygGlue && window.__wysiwygGlue.finishPrint();"
+        )
+
     def flush_pending_edits(self) -> None:
         """Force any debounced-but-unsent edit to push immediately (pre-save)."""
         self.page().runJavaScript(
@@ -713,16 +972,22 @@ class WysiwygView(QWebEngineView):
 
     def _apply_theme_name(self, name: str) -> None:
         options = self._theme_options(name)
+        host_theme = self._host_theme_payload(name)
         js = (
-            "(function(){var v=window.__wysiwygGlue && window.__wysiwygGlue._state.vditor;"
-            "if(!v){return;}try{"
-            "if(v.setEditorTheme){v.setEditorTheme(%s);}"
+            "(function(){var g=window.__wysiwygGlue;"
+            "if(!g){return;}try{"
+            "if(g.applyHostTheme){g.applyHostTheme(%s);}"
+            "var v=g._state&&g._state.vditor;if(!v){return;}"
             "if(v.setTheme){v.setTheme(%s,%s);}"
+            "if(v.setEditorTheme){v.setEditorTheme(%s);}"
+            "if(v.setMermaidTheme){v.setMermaidTheme(%s);}"
             "}catch(e){}})();"
             % (
-                json.dumps(options["editorTheme"]),
+                json.dumps(host_theme, ensure_ascii=False),
                 json.dumps(options["theme"]),
                 json.dumps(options["codeMirrorTheme"]),
+                json.dumps(options["editorTheme"]),
+                json.dumps(options["mermaidTheme"]),
             )
         )
         self.page().runJavaScript(js)

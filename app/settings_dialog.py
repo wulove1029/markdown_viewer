@@ -210,22 +210,27 @@ class SettingsDialog(QDialog):
         self._update_cb.setChecked(_bool_from_qsettings(raw))
         form.addRow("", self._update_cb)
 
-        # Default WYSIWYG-vs-split edit backend (opt-in; per-tab overrides
-        # via the toolbar toggle / Ctrl+Shift+W do not touch this default).
+        # Default for creation flows that do not ask explicitly.  The source
+        # editor is the safe default; users can still choose Office from the
+        # toolbar, Edit menu, shortcut, or new-note dialog.
         current_backend = normalize_backend(
             settings.value(EDIT_BACKEND_KEY, DEFAULT_BACKEND)
         )
         self._edit_backend_combo = QComboBox()
-        self._edit_backend_combo.addItem("所見即所得（WYSIWYG）", WYSIWYG_BACKEND)
-        self._edit_backend_combo.addItem("分割檢視（純文字編輯器）", SPLIT_BACKEND)
-        self._edit_backend_combo.setCurrentIndex(
-            0 if current_backend == WYSIWYG_BACKEND else 1
+        self._edit_backend_combo.addItem(
+            "原始 Markdown（純文字，建議）", SPLIT_BACKEND
         )
-        form.addRow("預設編輯後端", self._edit_backend_combo)
+        self._edit_backend_combo.addItem(
+            "Office 視覺編輯器（WYSIWYG）", WYSIWYG_BACKEND
+        )
+        self._edit_backend_combo.setCurrentIndex(
+            1 if current_backend == WYSIWYG_BACKEND else 0
+        )
+        form.addRow("新筆記預設編輯器", self._edit_backend_combo)
         backend_hint = QLabel(
-            "WYSIWYG 對 wiki 連結、callout、front matter 等非標準語法支援有限，"
-            "且可能調整既有排版；可隨時用工具列按鈕或 Ctrl+Shift+W 切換。"
-            "純文字（.txt）一律使用分割檢視。"
+            "兩種方式都讀寫標準 .md 純文字；原始 Markdown 直接編輯文字、不經"
+            "視覺轉換。Office 視覺編輯可能整理排版，遇到 wiki-links、callouts"
+            " 或 front matter 時會先警告。純文字（.txt）一律使用原始編輯器。"
         )
         backend_hint.setWordWrap(True)
         form.addRow("", backend_hint)
@@ -236,17 +241,17 @@ class SettingsDialog(QDialog):
         )
         self._preview_dblclick_combo = QComboBox()
         self._preview_dblclick_combo.addItem(
-            "直接進入所見即所得（雙擊點一下就編輯）", PREVIEW_DOUBLE_CLICK_WYSIWYG
-        )
-        self._preview_dblclick_combo.addItem(
             "維持原本行為（雙擊僅選取文字）", PREVIEW_DOUBLE_CLICK_INLINE
         )
+        self._preview_dblclick_combo.addItem(
+            "直接進入 Office 視覺編輯器", PREVIEW_DOUBLE_CLICK_WYSIWYG
+        )
         self._preview_dblclick_combo.setCurrentIndex(
-            0 if current_dblclick == PREVIEW_DOUBLE_CLICK_WYSIWYG else 1
+            1 if current_dblclick == PREVIEW_DOUBLE_CLICK_WYSIWYG else 0
         )
         form.addRow("檢視模式雙擊文件", self._preview_dblclick_combo)
         dblclick_hint = QLabel(
-            "三擊仍可就地編輯單一區塊（見上方設定），此處只決定「雙擊」的行為；"
+            "三擊仍可就地編輯單一區塊；此處只決定「雙擊」的行為；"
             "僅 Markdown 檔生效，.txt 與 PDF 不受影響。"
         )
         dblclick_hint.setWordWrap(True)
