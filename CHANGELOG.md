@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-08-27
+
 ### Added
 - Markdown 編輯拆成兩條清楚入口：`Ctrl+E`／鉛筆固定使用原始 Markdown，`Ctrl+Shift+E` 使用原始碼並排預覽，`Ctrl+Shift+W`／圖層按鈕固定使用 Office 視覺編輯器；兩種模式都只讀寫標準 `.md` 純文字。
 - 新建 Markdown 筆記可直接選擇原始 Markdown 或 Office 視覺編輯；工具列與 Markdown 分頁上的彩色 `MD`／`Office` 小標籤會同步顯示目前模式，背景分頁也能直接辨認。
