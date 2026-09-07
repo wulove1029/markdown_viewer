@@ -368,6 +368,48 @@ QMessageBox QLabel, QInputDialog QLabel, QDialog QLabel {{
     background: transparent;
     color: {theme.text};
 }}
+QDialog QTabWidget::pane {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    top: -1px;
+}}
+QDialog QTabBar {{
+    background: transparent;
+    border: none;
+}}
+QDialog QTabBar::tab {{
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: {theme.text_muted};
+    min-height: 32px;
+    padding: 0 14px;
+}}
+QDialog QTabBar::tab:hover {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QDialog QTabBar::tab:selected {{
+    background: {theme.accent_soft};
+    border-bottom: 2px solid {theme.accent};
+    color: {theme.text};
+}}
+QDialog QGroupBox {{
+    border: 1px solid {theme.border};
+    border-radius: 6px;
+    color: {theme.text};
+    margin-top: 16px;
+    padding-top: 10px;
+}}
+QDialog QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    top: 2px;
+    padding: 0 4px;
+    color: {theme.text_muted};
+}}
 QComboBox {{
     background: {theme.surface};
     border: 1px solid {theme.border};
