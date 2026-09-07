@@ -417,7 +417,9 @@ class MainWindow(QMainWindow):
         )
         self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
         self._renderer.home_action_requested.connect(self._home_action)
-        self._content_zoom = float(settings.value("content_zoom", 1.0) or 1.0)
+        self._content_zoom, self._pdf_zoom = (
+            session_state.load_zoom_preferences(settings)
+        )
         self._renderer.set_zoom(self._content_zoom)
         self._renderer.active_anchor_changed.connect(
             self._panel.toc.set_active_anchor
@@ -545,9 +547,9 @@ class MainWindow(QMainWindow):
 
         # Native PDF viewer (outline + search + remembered page).
         self._pdf_view = PdfView()
-        # PdfView is constructed after the shared content zoom is restored.
-        # Apply it now so the first PDF does not incorrectly start at 100%.
-        self._pdf_view.set_zoom_factor(self._content_zoom)
+        # PDF zoom is remembered apart from text content zoom (page scale vs
+        # font scale). Apply it now so the first PDF does not start at 100%.
+        self._pdf_view.set_zoom_factor(self._pdf_zoom)
         self._pdf_view.page_changed.connect(self._on_pdf_page_changed)
         self._pdf_view.search_count_changed.connect(self._on_pdf_search_count)
         self._pdf_view.highlight_requested.connect(self._on_pdf_highlight_requested)
@@ -1726,11 +1728,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _on_pdf_wheel_zoom_changed(self, factor: float):
         if self._current_kind != "pdf":
             return
-        self._content_zoom = max(0.5, min(3.0, float(factor)))
+        self._pdf_zoom = clamp_zoom_factor(factor)
         self.statusBar().showMessage(
-            f"縮放：{round(self._content_zoom * 100)}%", 2000
+            f"縮放：{round(self._pdf_zoom * 100)}%", 2000
         )
-        self._pending_pdf_wheel_zoom = self._content_zoom
+        self._pending_pdf_wheel_zoom = self._pdf_zoom
         self._pdf_zoom_sync_timer.start()
 
     def _commit_office_zoom(self):
@@ -1750,7 +1752,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             # PdfView already owns the live wheel zoom. Do not send the same
             # value back into it: a newly-arrived frame may be pending while
             # this older idle timer fires, and set_zoom_factor would cancel it.
-            session_state.apply_zoom(self, factor, sync_pdf=False)
+            session_state.apply_pdf_zoom(self, factor, sync_view=False)
 
     def _flush_pdf_zoom_pipeline(self):
         """Persist the last deferred zoom frame before a view transition."""
@@ -5208,9 +5210,23 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if path:
                 self._open_file(path)
 
+    def _active_zoom(self) -> float:
+        """The zoom the View menu and Ctrl+=/- act on: PDF or text content."""
+        if self._current_kind == "pdf":
+            return self._pdf_zoom
+        return self._content_zoom
+
     def _apply_zoom(self, factor: float):
-        self._pdf_zoom_sync_timer.stop()
-        self._pending_pdf_wheel_zoom = None
+        """Zoom whatever is on screen: the PDF, or the text content views."""
+        if self._current_kind == "pdf":
+            self._pdf_zoom_sync_timer.stop()
+            self._pending_pdf_wheel_zoom = None
+            session_state.apply_pdf_zoom(self, factor)
+            return
+        self._apply_content_zoom(factor)
+
+    def _apply_content_zoom(self, factor: float):
+        """Zoom Markdown / text / Office views; PDF zoom is left alone."""
         target = clamp_zoom_factor(factor)
         active_office = (
             self._wysiwyg_view is not None
@@ -5232,10 +5248,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.apply_zoom(self, target)
 
     def _zoom_in(self):
-        self._apply_zoom(step_zoom_factor(self._content_zoom, 1))
+        self._apply_zoom(step_zoom_factor(self._active_zoom(), 1))
 
     def _zoom_out(self):
-        self._apply_zoom(step_zoom_factor(self._content_zoom, -1))
+        self._apply_zoom(step_zoom_factor(self._active_zoom(), -1))
 
     def _zoom_reset(self):
         self._apply_zoom(1.0)

@@ -97,6 +97,11 @@ class TestSettingsDialogConstruction:
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.25)
         assert dlg._zoom_combo.currentData() == pytest.approx(1.25, abs=0.01)
 
+    def test_off_stop_zoom_shows_nearest_instead_of_100(self, qapp):
+        dlg = SettingsDialog(None, current_theme="light", current_zoom=0.513)
+        # 0.513 is below every offered stop; the lowest one (80%) is nearest.
+        assert dlg._zoom_combo.currentData() == pytest.approx(0.8, abs=0.01)
+
     def test_note_folders_default_below_first_library(self, qapp, tmp_path):
         dlg = SettingsDialog(None)
 

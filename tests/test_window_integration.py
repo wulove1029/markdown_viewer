@@ -546,37 +546,99 @@ def test_pdf_outline_is_async_and_stale_results_do_not_replace_current_toc(
     assert win._pdf_view.outline_calls == 0
 
 
-def test_pdf_wheel_zoom_syncs_shared_zoom_and_saved_preference(
+def test_pdf_wheel_zoom_is_remembered_apart_from_text_content_zoom(
     make_window, tmp_path
 ):
     settings = window_mod.QSettings(_ORG, _APP)
-    settings.setValue("content_zoom", 1.4)
+    settings.setValue("content_zoom", 1.25)
+    settings.setValue("pdf_zoom", 1.4)
     pdf = tmp_path / "zoom.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
 
     win = make_window()
     assert win._pdf_view.zoom_calls[-1] == (1.4, None)
+    assert win._renderer._zoom == pytest.approx(1.25)
     win.open_path(str(pdf))
 
     # Real PdfView applies the anchored zoom locally before emitting the signal.
     win._pdf_view.set_zoom_factor(1.6)
     win._pdf_view.zoom_changed.emit(1.6)
 
-    assert win._content_zoom == pytest.approx(1.6)
-    assert win._renderer._zoom == pytest.approx(1.4)
-    assert win._edit_preview._zoom == pytest.approx(1.4)
+    assert win._pdf_zoom == pytest.approx(1.6)
+    assert win._content_zoom == pytest.approx(1.25)
     assert win._pdf_view.zoom_calls[-1] == (1.6, None)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.4)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.4)
     assert win.statusBar().currentMessage() == "縮放：160%"
     assert win._pdf_zoom_sync_timer.isActive()
 
     win._commit_pdf_wheel_zoom()
 
-    assert win._renderer._zoom == pytest.approx(1.6)
-    assert win._edit_preview._zoom == pytest.approx(1.6)
+    # Persisted for the PDF only; Markdown keeps its own zoom.
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.6)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.25)
+    assert win._renderer._zoom == pytest.approx(1.25)
+    assert win._edit_preview._zoom == pytest.approx(1.25)
     assert win._pdf_view.zoom_calls[-1] == (1.6, None)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
     assert win._pdf_zoom_sync_timer.isActive() is False
+
+
+def test_legacy_shared_zoom_leaked_from_pdf_moves_to_pdf_key(make_window):
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.remove("pdf_zoom")
+    # A continuous factor like this could only have come from PDF Ctrl+wheel.
+    settings.setValue("content_zoom", 0.5131581182307068)
+
+    win = make_window()
+
+    assert win._content_zoom == pytest.approx(1.0)
+    assert win._renderer._zoom == pytest.approx(1.0)
+    assert win._pdf_zoom == pytest.approx(0.5131581182307068)
+    assert win._pdf_view.zoom_calls[-1][0] == pytest.approx(0.5131581182307068)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.0)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(0.5131581182307068)
+
+
+def test_legacy_shared_zoom_on_a_stop_seeds_both_keys(make_window):
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.remove("pdf_zoom")
+    settings.setValue("content_zoom", 1.25)
+
+    win = make_window()
+
+    assert win._content_zoom == pytest.approx(1.25)
+    assert win._pdf_zoom == pytest.approx(1.25)
+
+
+def test_keyboard_zoom_targets_the_document_kind_on_screen(
+    make_window, md_files, tmp_path
+):
+    markdown, _second_markdown = md_files
+    pdf = tmp_path / "keys.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    settings = window_mod.QSettings(_ORG, _APP)
+    settings.setValue("content_zoom", 1.0)
+    settings.setValue("pdf_zoom", 1.0)
+    win = make_window()
+
+    win.open_path(str(pdf))
+    win._zoom_in()
+    assert win._pdf_zoom == pytest.approx(1.1)
+    assert win._pdf_view.zoom_calls[-1] == (1.1, None)
+    assert win._content_zoom == pytest.approx(1.0)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.1)
+    assert float(settings.value("content_zoom")) == pytest.approx(1.0)
+
+    win.open_path(str(markdown))
+    win._zoom_out()
+    assert win._content_zoom == pytest.approx(0.9)
+    assert win._renderer._zoom == pytest.approx(0.9)
+    assert win._pdf_zoom == pytest.approx(1.1)
+    assert float(settings.value("content_zoom")) == pytest.approx(0.9)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.1)
+
+    win._zoom_reset()
+    assert win._content_zoom == pytest.approx(1.0)
+    assert win._pdf_zoom == pytest.approx(1.1)
 
 
 def test_keyboard_zoom_uses_fast_discrete_stops(make_window):
@@ -615,13 +677,13 @@ def test_idle_zoom_commit_does_not_cancel_a_new_pdf_wheel_frame(
     win._commit_pdf_wheel_zoom()
 
     assert win._pdf_view.pending_wheel_zoom == pytest.approx(1.2)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.1)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.1)
 
     win._pdf_view.flush_pending_wheel_zoom()
     win._commit_pdf_wheel_zoom()
     assert win._pdf_view.pending_wheel_zoom is None
-    assert win._content_zoom == pytest.approx(1.2)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.2)
+    assert win._pdf_zoom == pytest.approx(1.2)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.2)
 
 
 def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
@@ -643,8 +705,8 @@ def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
         first_pdf,
         "pdf",
     )
-    assert win._content_zoom == pytest.approx(1.6)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
+    assert win._pdf_zoom == pytest.approx(1.6)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.6)
     assert win._pending_pdf_wheel_zoom is None
     assert win._pdf_zoom_sync_timer.isActive() is False
 
@@ -655,8 +717,8 @@ def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
         second_pdf,
         "pdf",
     )
-    assert win._content_zoom == pytest.approx(1.7)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.7)
+    assert win._pdf_zoom == pytest.approx(1.7)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.7)
 
     win._pdf_view.pending_wheel_zoom = 1.8
     win.open_path(str(markdown))
@@ -666,10 +728,12 @@ def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
         "pdf",
     )
     assert win._current_kind == "markdown"
-    assert win._content_zoom == pytest.approx(1.8)
-    assert win._renderer._zoom == pytest.approx(1.8)
-    assert win._edit_preview._zoom == pytest.approx(1.8)
-    assert float(settings.value("content_zoom")) == pytest.approx(1.8)
+    assert win._pdf_zoom == pytest.approx(1.8)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.8)
+    # The Markdown that follows keeps its own zoom.
+    assert win._content_zoom == pytest.approx(1.0)
+    assert win._renderer._zoom == pytest.approx(1.0)
+    assert win._edit_preview._zoom == pytest.approx(1.0)
     assert win._pending_pdf_wheel_zoom is None
     assert win._pdf_zoom_sync_timer.isActive() is False
 
@@ -687,7 +751,7 @@ def test_pending_pdf_wheel_zoom_flushes_before_empty_state_and_close(
     emptied._on_tab_close(0)
     assert emptied._current_kind == ""
     assert emptied._pdf_view.flush_wheel_zoom_calls == 1
-    assert float(settings.value("content_zoom")) == pytest.approx(1.6)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.6)
     assert emptied._pending_pdf_wheel_zoom is None
     assert emptied._pdf_zoom_sync_timer.isActive() is False
 
@@ -696,7 +760,7 @@ def test_pending_pdf_wheel_zoom_flushes_before_empty_state_and_close(
     closed._pdf_view.pending_wheel_zoom = 1.7
     closed.close()
     assert closed._pdf_view.flush_wheel_zoom_calls == 1
-    assert float(settings.value("content_zoom")) == pytest.approx(1.7)
+    assert float(settings.value("pdf_zoom")) == pytest.approx(1.7)
     assert closed._pending_pdf_wheel_zoom is None
     assert closed._pdf_zoom_sync_timer.isActive() is False
 
@@ -1273,7 +1337,7 @@ def test_detaching_active_pdf_carries_the_last_pending_wheel_zoom(
     detached_win = detached[0]
     assert win._pdf_view.flush_wheel_zoom_calls >= 1
     assert detached_win._current_kind == "pdf"
-    assert detached_win._content_zoom == pytest.approx(1.6)
+    assert detached_win._pdf_zoom == pytest.approx(1.6)
     assert detached_win._pdf_view.zoom_calls[0] == (1.6, None)
     detached_win.close()
 

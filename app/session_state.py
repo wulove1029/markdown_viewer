@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QDialog
 
-from .content_zoom import clamp_zoom_factor
+from .content_zoom import ZOOM_FACTORS, clamp_zoom_factor
 from .edit_backend import (
     SETTINGS_KEY as EDIT_BACKEND_KEY,
     SPLIT_BACKEND,
@@ -24,6 +24,12 @@ from .settings_dialog import SettingsDialog
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+
+# Text content (Markdown / plain text / Office) and PDF zoom are remembered
+# separately: text zoom scales the font, PDF zoom scales the page, so a PDF
+# shrunk to fit the window must not shrink every Markdown file afterwards.
+CONTENT_ZOOM_KEY = "content_zoom"
+PDF_ZOOM_KEY = "pdf_zoom"
 
 DOCUMENT_EDIT_BACKENDS_KEY = "document_edit_backends_v1"
 _DOCUMENT_EDIT_BACKENDS_LIMIT = 300
@@ -274,7 +280,7 @@ def open_preferences(window):
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return
     r = dialog.results
-    window._apply_zoom(r["content_zoom"])
+    window._apply_content_zoom(r["content_zoom"])
     new_theme = r.get("theme", window._theme_name)
     if new_theme != window._theme_name:
         window._theme_name = new_theme
@@ -313,22 +319,56 @@ def toggle_annotation_side_notes(window, checked=None):
     window._refresh_icons()
 
 
+def _is_zoom_stop(value: float) -> bool:
+    return any(abs(value - stop) < 1e-6 for stop in ZOOM_FACTORS)
+
+
+def load_zoom_preferences(settings: QSettings) -> tuple[float, float]:
+    """Return ``(content_zoom, pdf_zoom)``, migrating the old shared value.
+
+    Before PDF zoom had its own key, a PDF Ctrl+wheel zoom was written into
+    ``content_zoom`` as a continuous factor and then applied to every Markdown
+    file. Such a leaked value never matches a keyboard/preference stop, so on
+    first run with this version it moves over to the PDF key and text content
+    goes back to 100%.
+    """
+    content = clamp_zoom_factor(settings.value(CONTENT_ZOOM_KEY, 1.0) or 1.0)
+    if settings.contains(PDF_ZOOM_KEY):
+        pdf = clamp_zoom_factor(settings.value(PDF_ZOOM_KEY, 1.0) or 1.0)
+    elif _is_zoom_stop(content):
+        pdf = content
+    else:
+        pdf, content = content, 1.0
+        settings.setValue(CONTENT_ZOOM_KEY, content)
+        settings.setValue(PDF_ZOOM_KEY, pdf)
+    return content, pdf
+
+
 def apply_zoom(
     window,
     factor: float,
     *,
-    sync_pdf: bool = True,
     sync_wysiwyg: bool = True,
 ):
+    """Apply and persist the text content zoom (Markdown / text / Office)."""
     window._content_zoom = window._renderer.set_zoom(clamp_zoom_factor(factor))
     window._edit_preview.set_zoom(window._content_zoom)
-    if sync_pdf and window._current_kind == "pdf":
-        window._pdf_view.set_zoom_factor(window._content_zoom)
     if sync_wysiwyg and window._wysiwyg_view is not None:
         window._wysiwyg_view.page().setZoomFactor(window._content_zoom)
-    QSettings(_ORG, _APP).setValue("content_zoom", window._content_zoom)
+    QSettings(_ORG, _APP).setValue(CONTENT_ZOOM_KEY, window._content_zoom)
     window.statusBar().showMessage(
         f"縮放：{round(window._content_zoom * 100)}%", 2000
+    )
+
+
+def apply_pdf_zoom(window, factor: float, *, sync_view: bool = True):
+    """Apply and persist the PDF zoom without touching text content zoom."""
+    window._pdf_zoom = clamp_zoom_factor(factor)
+    if sync_view:
+        window._pdf_view.set_zoom_factor(window._pdf_zoom)
+    QSettings(_ORG, _APP).setValue(PDF_ZOOM_KEY, window._pdf_zoom)
+    window.statusBar().showMessage(
+        f"縮放：{round(window._pdf_zoom * 100)}%", 2000
     )
 
 

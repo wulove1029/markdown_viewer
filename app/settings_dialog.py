@@ -153,11 +153,12 @@ class SettingsDialog(QDialog):
         self._zoom_combo = QComboBox()
         for pct in _ZOOM_OPTIONS:
             self._zoom_combo.addItem(f"{pct}%", pct / 100)
-        current_pct = round(self._current_zoom * 100)
-        zoom_idx = next(
-            (i for i in range(self._zoom_combo.count())
-             if round(self._zoom_combo.itemData(i) * 100) == current_pct),
-            2,  # fallback 100%
+        # Show the nearest stop rather than silently pretending 100%: an
+        # off-stop value would otherwise be hidden from the user and then
+        # overwritten by the displayed one on OK.
+        zoom_idx = min(
+            range(self._zoom_combo.count()),
+            key=lambda i: abs(self._zoom_combo.itemData(i) - self._current_zoom),
         )
         self._zoom_combo.setCurrentIndex(zoom_idx)
         form.addRow("內容縮放", self._zoom_combo)
