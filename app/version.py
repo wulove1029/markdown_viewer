@@ -1,11 +1,10 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.30.0"
+VERSION = "1.30.1"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "主工具列改為文字模式選單，可直接切換閱讀、Markdown、並排預覽與 Office 編輯；外觀偏好新增預覽行寬與行距，空白工作台改為可開檔的首頁。",
-    "加快第二次啟動、文件樹建立與 PDF 重複開啟；標籤未變更時不再重寫索引，Markdown 快取改為有容量上限的 LRU。",
-    "修正淺色介面下模式下拉選單黑底深色字、選項無法辨識的問題。",
+    "修正深色模式下「偏好設定」對話框分頁內容白底、文字看不見的問題；分頁列與群組框現在跟隨主題。",
+    "（1.30.0）主工具列改為文字模式選單，外觀偏好新增預覽行寬與行距，空白工作台改為首頁；加快第二次啟動、文件樹建立與 PDF 重複開啟。",
 ]
 
 GITHUB_OWNER = "wulove1029"
