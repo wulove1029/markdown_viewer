@@ -1,10 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.30.1"
+VERSION = "1.30.2"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "修正深色模式下「偏好設定」對話框分頁內容白底、文字看不見的問題；分頁列與群組框現在跟隨主題。",
-    "（1.30.0）主工具列改為文字模式選單，外觀偏好新增預覽行寬與行距，空白工作台改為首頁；加快第二次啟動、文件樹建立與 PDF 重複開啟。",
+    "修正 PDF 的 Ctrl+滾輪縮放會影響 Markdown 的問題：PDF 與文字內容縮放現在各自獨立記憶，Ctrl+=／- 只作用於目前畫面上的文件類型。",
+    "首次啟動會把舊設定中 PDF 留下的縮放值搬到 PDF 專用設定，Markdown 縮放還原為 100%。",
+    "偏好設定的「內容縮放」在目前值不在級距內時顯示最接近的級距，不再固定顯示 100%。",
 ]
 
 GITHUB_OWNER = "wulove1029"
