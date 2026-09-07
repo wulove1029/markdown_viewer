@@ -3,6 +3,7 @@
 import json
 import math
 import urllib.parse
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -30,6 +31,7 @@ from .annotation_bridge import AnnotationBridge
 from .attachment_security import attachment_open_policy
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
 from .md_converter import convert, convert_text, state_page_html
+from .md_converter import RenderCancelled
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
 
@@ -119,14 +121,9 @@ def _pending_scroll_target(
 # through acceptNavigationRequest instead of silently dropping them. Must run
 # before the QApplication / web engine starts — this import happens at module
 # load, ahead of QApplication() in both main.py and the app's entry points.
-if not QWebEngineUrlScheme.schemeByName(b"wikilink").name():
-    _wikilink_scheme = QWebEngineUrlScheme(b"wikilink")
-    _wikilink_scheme.setFlags(
-        QWebEngineUrlScheme.Flag.LocalScheme
-        | QWebEngineUrlScheme.Flag.LocalAccessAllowed
-        | QWebEngineUrlScheme.Flag.CorsEnabled
-    )
-    QWebEngineUrlScheme.registerScheme(_wikilink_scheme)
+from .url_schemes import register_document_schemes
+
+register_document_schemes()
 
 
 class _DocumentPage(QWebEnginePage):
@@ -139,6 +136,11 @@ class _DocumentPage(QWebEnginePage):
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
         scheme = url.scheme()
+        if scheme == "https" and url.host() == "markdown-viewer.invalid":
+            if (self._view._current_path is None and
+                    nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked):
+                self._view.home_action_requested.emit(url.path().removeprefix("/home/"))
+            return False
         # The wikilink scheme is always ours — intercept it regardless of how
         # the navigation was triggered (real click, JS, etc.).
         if scheme == "wikilink":
@@ -196,6 +198,7 @@ class _MarkdownRenderWorker(QRunnable):
         text: str | None = None,
         theme: str = "light",
         title: str = "preview",
+        cancel: threading.Event | None = None,
     ):
         super().__init__()
         self.generation = generation
@@ -203,16 +206,23 @@ class _MarkdownRenderWorker(QRunnable):
         self.text = text
         self.theme = theme
         self.title = title
+        self.cancel = cancel
         self.signals = _RenderSignals()
 
     def run(self):
         try:
+            if self.cancel is not None and self.cancel.is_set():
+                return
+            # Only parser work holds its lock; disk IO must remain outside it.
             if self.path is not None:
-                html, headings = convert(self.path, self.theme)
+                html, headings = convert(self.path, self.theme, cancel=self.cancel)
                 source = self.path
             else:
-                html, headings = convert_text(self.text or "", self.theme, self.title)
+                html, headings = convert_text(self.text or "", self.theme, self.title,
+                                              cancel=self.cancel)
                 source = None
+        except RenderCancelled:
+            return
         except Exception as exc:
             label = self.path.name if self.path is not None else self.title
             html = state_page_html(
@@ -223,10 +233,12 @@ class _MarkdownRenderWorker(QRunnable):
             )
             headings = []
             source = self.path
-        self.signals.ready.emit(self.generation, source, html, headings)
+        if self.cancel is None or not self.cancel.is_set():
+            self.signals.ready.emit(self.generation, source, html, headings)
 
 
 class RendererView(QWebEngineView):
+    home_action_requested = Signal(str)
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
@@ -296,6 +308,10 @@ class RendererView(QWebEngineView):
         self.show_empty()
 
     def _next_render_generation(self) -> int:
+        previous = getattr(self, "_render_cancel", None)
+        if previous is not None:
+            previous.set()
+        self._render_cancel = threading.Event()
         self._render_generation += 1
         return self._render_generation
 
@@ -433,13 +449,16 @@ class RendererView(QWebEngineView):
         self._pending_scroll_generation = None
         self._pending_ratio = None
         self._spy_timer.stop()
-        self.setHtml(
-            self._state_html(
-                "開啟文件",
-                "拖放 Markdown 或 PDF 檔案到視窗，或使用開啟按鈕選擇檔案。",
-                "尚未載入",
-            )
+        html = self._state_html(
+            "接續你的閱讀與思考",
+            "拖入 Markdown、文字或 PDF 文件，開始閱讀；需要寫作時，再切換編輯模式。",
+            "你的文件工作台",
         )
+        actions = ('<nav class="home-actions" aria-label="開始使用">'
+                   '<a href="https://markdown-viewer.invalid/home/open">開啟文件 <kbd>Ctrl+O</kbd></a>'
+                   '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
+                   '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>')
+        self.setHtml(html.replace("</main>", actions + "</main>"))
         if self._on_headings_ready:
             self._on_headings_ready([])
 
@@ -491,7 +510,8 @@ class RendererView(QWebEngineView):
             self.load(QUrl.fromLocalFile(str(path)))
             return
 
-        worker = _MarkdownRenderWorker(generation, path=path, theme=self._theme)
+        worker = _MarkdownRenderWorker(generation, path=path, theme=self._theme,
+                                       cancel=self._render_cancel)
         worker.signals.ready.connect(self._on_file_render_ready)
         self._render_pool.start(worker)
 
@@ -574,7 +594,7 @@ class RendererView(QWebEngineView):
         )
         self._pending_text_base_url = base_url
         worker = _MarkdownRenderWorker(
-            generation, text=text, theme=theme, title=title
+            generation, text=text, theme=theme, title=title, cancel=self._render_cancel
         )
         worker.signals.ready.connect(self._on_text_render_ready)
         self._render_pool.start(worker)

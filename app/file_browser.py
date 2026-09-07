@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from time import perf_counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -19,6 +20,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThreadPool,
+    QTimer,
     QUrl,
     Signal,
     Slot,
@@ -674,6 +676,10 @@ class FileBrowserView(QWidget):
         self._scan_generation = 0
         self._scan_token: _ScanToken | None = None
         self._scan_inflight = False
+        self._build_iterator = None
+        self._build_timer = QTimer(self)
+        self._build_timer.setSingleShot(True)
+        self._build_timer.timeout.connect(self._advance_build)
         # Cancelled when the widget is destroyed so a scan still running does
         # not hold up teardown (the pool waits for its jobs on destruction).
         self._lifetime_token = _ScanToken()
@@ -964,7 +970,7 @@ class FileBrowserView(QWidget):
         return bool(self._filter.text().strip() or self._active_tag)
 
     def _sync_expanded_from_tree(self):
-        if not self._built or self._last_filtering:
+        if not self._built or self._last_filtering or self._build_iterator is not None:
             return
         expanded = set()
         iterator = QTreeWidgetItemIterator(self._tree)
@@ -1024,6 +1030,10 @@ class FileBrowserView(QWidget):
 
     def _refresh_list(self):
         self._sync_expanded_from_tree()
+        self._build_timer.stop()
+        if self._build_iterator is not None:
+            self._build_iterator.close()
+            self._build_iterator = None
         self._rebuild_tag_map()
         self._excluded_folders = load_excluded_folders()
         self._transient_folders = {
@@ -1106,64 +1116,97 @@ class FileBrowserView(QWidget):
         self._apply_scan(generation, request, results)
 
     def _apply_scan(self, generation: int, request: _ScanRequest, results):
+        if generation != self._scan_generation:
+            return
+        self._build_timer.stop()
+        if self._build_iterator is not None:
+            self._build_iterator.close()
+        current = self._tree.currentItem()
+        self._build_selection = current.data(0, _PATH_ROLE) if current else None
+        self._build_scroll = self._tree.verticalScrollBar().value()
+        self._build_iterator = self._scan_steps(generation, request, results)
+        self._scan_inflight = True
+        self._status.setText("正在整理文件清單…")
+        self._advance_build()
+
+    def _advance_build(self):
+        if self._build_iterator is None:
+            return
+        start = perf_counter()
+        self._tree.setUpdatesEnabled(False)
+        try:
+            while True:
+                next(self._build_iterator)
+                if self._background_scan and perf_counter() - start >= .006:
+                    self._build_timer.start(0)
+                    return
+        except StopIteration:
+            self._build_iterator = None
+            self._scan_inflight = False
+            if self._build_selection and self._pending_select is None:
+                self._select_path(Path(self._build_selection))
+                self._tree.verticalScrollBar().setValue(self._build_scroll)
+            self._replay_pending()
+        finally:
+            self._tree.setUpdatesEnabled(True)
+
+    def _scan_steps(self, generation: int, request: _ScanRequest, results):
         """Build the tree rows from a finished scan (UI thread only)."""
         if generation != self._scan_generation:
             return
-        self._scan_inflight = False
         filtering = request.filtering
         query = request.query
-        self._tree.setUpdatesEnabled(False)
-        try:
-            self._tree.clear()
-            total_shown = 0
-            missing_count = 0
-            for scan in results:
-                lib = scan.library
-                root_item = QTreeWidgetItem([lib.name])
-                font = QFont()
-                font.setBold(True)
-                root_item.setFont(0, font)
-                root_item.setIcon(0, self._library_icon())
-                root_item.setToolTip(0, lib.path)
-                root_item.setData(0, _PATH_ROLE, lib.path)
-                root_item.setData(0, _LIBRARY_ROLE, lib.id)
-                root_item.setData(0, _IS_DIR_ROLE, True)
+        self._tree.clear()
+        total_shown = 0
+        missing_count = 0
+        for scan in results:
+            lib = scan.library
+            root_item = QTreeWidgetItem([lib.name])
+            font = QFont()
+            font.setBold(True)
+            root_item.setFont(0, font)
+            root_item.setIcon(0, self._library_icon())
+            root_item.setToolTip(0, lib.path)
+            root_item.setData(0, _PATH_ROLE, lib.path)
+            root_item.setData(0, _LIBRARY_ROLE, lib.id)
+            root_item.setData(0, _IS_DIR_ROLE, True)
 
-                if not scan.exists:
-                    missing_count += 1
-                    if not filtering:
-                        root_item.setText(0, f"{lib.name}（找不到資料夾）")
-                        root_item.setForeground(0, QColor(self._theme.text_muted))
-                        root_item.setData(0, _TEXT_TONE_ROLE, _TEXT_TONE_MUTED)
-                        missing = QTreeWidgetItem([lib.path])
-                        missing.setIcon(0, self._folder_icon(False))
-                        missing.setFlags(
-                            missing.flags() & ~Qt.ItemFlag.ItemIsEnabled
-                        )
-                        root_item.addChild(missing)
-                        self._tree.addTopLevelItem(root_item)
-                    continue
+            if not scan.exists:
+                missing_count += 1
+                if not filtering:
+                    root_item.setText(0, f"{lib.name}（找不到資料夾）")
+                    root_item.setForeground(0, QColor(self._theme.text_muted))
+                    root_item.setData(0, _TEXT_TONE_ROLE, _TEXT_TONE_MUTED)
+                    missing = QTreeWidgetItem([lib.path])
+                    missing.setIcon(0, self._folder_icon(False))
+                    missing.setFlags(
+                        missing.flags() & ~Qt.ItemFlag.ItemIsEnabled
+                    )
+                    root_item.addChild(missing)
+                    self._tree.addTopLevelItem(root_item)
+                continue
 
-                self._build_items(root_item, scan.children)
-                count = scan.count
-                total_shown += count
-                if filtering and count == 0:
-                    continue
-                root_item.setText(0, f"{lib.name}（{count}）")
-                self._tree.addTopLevelItem(root_item)
+            if filtering and scan.count == 0:
+                continue
+            yield from self._build_item_steps(root_item, scan.children)
+            count = scan.count
+            total_shown += count
+            if filtering and count == 0:
+                continue
+            root_item.setText(0, f"{lib.name}（{count}）")
+            self._tree.addTopLevelItem(root_item)
+            yield
 
-            if total_shown == 0:
-                if request.active_tag:
-                    self._add_empty_item("沒有符合標籤的檔案")
-                elif query:
-                    self._add_empty_item("沒有符合搜尋的文件")
+        if total_shown == 0:
+            if request.active_tag:
+                self._add_empty_item("沒有符合標籤的檔案")
+            elif query:
+                self._add_empty_item("沒有符合搜尋的文件")
 
-            if filtering:
-                self._tree.expandAll()
-            else:
-                self._apply_expanded()
-        finally:
-            self._tree.setUpdatesEnabled(True)
+        if filtering:
+            self._tree.expandAll()
+        else:
+            self._apply_expanded()
 
         missing_text = f"，{missing_count} 個來源找不到" if missing_count else ""
         self._status.setText(
@@ -1171,9 +1214,12 @@ class FileBrowserView(QWidget):
         )
         self._built = True
         self._last_filtering = filtering
-        self._replay_pending()
 
     def _build_items(self, parent_item: QTreeWidgetItem, nodes) -> None:
+        for _ in self._build_item_steps(parent_item, nodes):
+            pass
+
+    def _build_item_steps(self, parent_item: QTreeWidgetItem, nodes):
         """Turn scan nodes into tree rows under *parent_item* (recursive)."""
         folder_icon = self._folder_icon(False)
         folder_font = QFont()
@@ -1186,11 +1232,13 @@ class FileBrowserView(QWidget):
             if node.is_dir:
                 child.setIcon(0, folder_icon)
                 child.setFont(0, folder_font)
-                self._build_items(child, node.children)
             else:
                 child.setIcon(0, self._file_icon(node.path))
                 child.setData(0, _TAGS_ROLE, node.tags)
             parent_item.addChild(child)
+            yield
+            if node.is_dir:
+                yield from self._build_item_steps(child, node.children)
 
     def _replay_pending(self) -> None:
         """Apply tree-state / navigate / select requests that arrived mid-scan."""

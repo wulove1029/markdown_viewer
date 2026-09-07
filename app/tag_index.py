@@ -38,6 +38,7 @@ class TagIndex:
 
     def update(self, md_path, doc, front_tags=None, body_tags=None):
         key = str(Path(md_path).resolve())
+        previous = self._data.get(key)
         annot_tags = sorted({t for a in doc.annotations for t in a.tags})
         front_tags = sorted(set(front_tags or []))
         body_tags = sorted(set(body_tags or []))
@@ -56,7 +57,8 @@ class TagIndex:
                 "body_tags": body_tags,
                 "count": len(doc.annotations),
             }
-        self._save()
+        if self._data.get(key) != previous:
+            self._save()
 
     def _entry_tags(self, entry: dict) -> set[str]:
         return (

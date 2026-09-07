@@ -32,6 +32,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -415,6 +416,7 @@ class MainWindow(QMainWindow):
             on_headings_ready=self._panel.toc.update_headings
         )
         self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
+        self._renderer.home_action_requested.connect(self._home_action)
         self._content_zoom = float(settings.value("content_zoom", 1.0) or 1.0)
         self._renderer.set_zoom(self._content_zoom)
         self._renderer.active_anchor_changed.connect(
@@ -930,6 +932,14 @@ class MainWindow(QMainWindow):
             self._toggle_office_mode,
         )
         self._wysiwyg_btn.setCheckable(True)
+        self._reading_mode_combo = QComboBox()
+        self._reading_mode_combo.setObjectName("readingModeSelector")
+        self._reading_mode_combo.setAccessibleName("文件閱讀與編輯模式")
+        self._reading_mode_combo.setMinimumWidth(132)
+        for label, mode in (("閱讀", "preview"), ("Markdown", "edit"),
+                            ("並排預覽", "split"), ("Office 編輯", "office")):
+            self._reading_mode_combo.addItem(label, mode)
+        self._reading_mode_combo.activated.connect(self._select_reading_mode)
         self._editor_mode_badge = QLabel("")
         self._editor_mode_badge.setObjectName("editorModeBadge")
         self._editor_mode_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -963,13 +973,19 @@ class MainWindow(QMainWindow):
             )
 
         title_wrap = QWidget()
+        title_wrap.setMinimumWidth(0)
+        title_wrap.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         title_layout = QVBoxLayout(title_wrap)
         title_layout.setContentsMargins(10, 0, 10, 0)
         title_layout.setSpacing(0)
 
         self._toolbar_title = QLabel("Markdown Viewer")
+        self._toolbar_title.setMinimumWidth(0)
+        self._toolbar_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._toolbar_title.setObjectName("toolbarTitle")
         self._toolbar_subtitle = QLabel("尚未載入文件")
+        self._toolbar_subtitle.setMinimumWidth(0)
+        self._toolbar_subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self._toolbar_subtitle.setObjectName("toolbarSubtitle")
 
         title_layout.addStretch()
@@ -980,17 +996,44 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._sidebar_btn)
         layout.addWidget(self._open_btn)
         layout.addWidget(self._search_btn)
-        layout.addWidget(self._reload_btn)
-        layout.addWidget(self._edit_btn)
-        layout.addWidget(self._wysiwyg_btn)
+        # Existing buttons remain available to shortcuts and shared state code.
+        for button in (self._reload_btn, self._edit_btn, self._wysiwyg_btn):
+            button.setParent(toolbar)
+            button.hide()
+        layout.addWidget(title_wrap, stretch=1)
+        layout.addWidget(self._reading_mode_combo)
         layout.addWidget(self._editor_mode_badge)
         layout.addWidget(self._mermaid_btn)
         layout.addWidget(self._export_btn)
         layout.addWidget(self._side_notes_btn)
         layout.addWidget(self._highlight_btn)
-        layout.addWidget(title_wrap, stretch=1)
         layout.addWidget(self._toolbar_utilities)
         return toolbar
+
+    def _select_reading_mode(self, index):
+        mode = self._reading_mode_combo.itemData(index)
+        if mode == "office":
+            self._open_office_editor()
+        elif mode == view_mode.PREVIEW:
+            self._request_view_mode(mode)
+        elif self._edit_mode and self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._request_view_mode(mode)
+        else:
+            self._open_source_editor(mode)
+        # A cancelled safety prompt must restore the actual mode label.
+        self._refresh_icons()
+
+    def _home_action(self, action):
+        if self._current_file is not None:
+            return
+        if action == "open":
+            self._panel_open_file()
+        elif action == "quick":
+            self._quick_open()
+        elif action == "recent":
+            if not self._panel.isVisible():
+                self._toggle_sidebar()
+            self._panel.switch_to(1)
 
     def _toolbar_button(self, icon_name: str, tooltip: str, callback) -> QPushButton:
         button = QPushButton()
@@ -1033,6 +1076,8 @@ QLabel#editorModeBadge {{
 """
         )
         self._tab_strip.apply_theme(self._theme)
+        from .theme import apply_combo_popup_theme
+        apply_combo_popup_theme(self._reading_mode_combo, self._theme)
         self._search_bar.setStyleSheet(self._search_style())
         self._panel.apply_theme(self._theme)
         self._splitter.setStyleSheet(
@@ -1144,6 +1189,12 @@ QSplitter::handle:hover {{
     def _refresh_icons(self):
         icon_color = self._theme.text_muted
         disabled_color = self._theme.text_subtle
+        mode = ("office" if self._edit_mode and
+                self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+                else self._view_mode)
+        self._reading_mode_combo.setCurrentIndex(max(0, self._reading_mode_combo.findData(mode)))
+        self._reading_mode_combo.setEnabled(self._current_kind == "markdown")
+        self._mermaid_btn.setVisible(self._current_kind == "markdown" and self._edit_mode)
         self._wysiwyg_btn.setEnabled(self._current_kind == "markdown")
         self._wysiwyg_btn.setChecked(
             self._edit_mode

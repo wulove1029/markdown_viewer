@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Literal
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
 ThemeName = Literal["light", "dark"]
 
-TOOLBAR_HEIGHT = 48
+TOOLBAR_HEIGHT = 56
 HIT_TARGET = 44
 PANEL_WIDTH = 280
 
@@ -60,16 +60,16 @@ class Theme:
 
 LIGHT = Theme(
     name="light",
-    window="#f7f7f4",
+    window="#f4f5f7",
     surface="#ffffff",
-    surface_alt="#efefeb",
+    surface_alt="#eef0f3",
     surface_hover="#e9eefc",
     surface_active="#dce6ff",
-    border="#d7d8d2",
-    text="#1d1f23",
+    border="#e0e4ea",
+    text="#273343",
     text_muted="#515760",
     text_subtle="#707780",
-    accent="#315fbd",
+    accent="#456b9e",
     accent_hover="#244f9f",
     accent_soft="#dce6ff",
     accent_text="#ffffff",
@@ -83,13 +83,13 @@ LIGHT = Theme(
 
 DARK = Theme(
     name="dark",
-    window="#171b22",
-    surface="#20252d",
-    surface_alt="#252b34",
+    window="#191e26",
+    surface="#202731",
+    surface_alt="#272f3b",
     surface_hover="#2e3a4c",
     surface_active="#34486a",
-    border="#3a414c",
-    text="#f2f5f8",
+    border="#343e4d",
+    text="#e1e7ef",
     text_muted="#c1c8d2",
     text_subtle="#8f98a6",
     accent="#8fb4ff",
@@ -109,6 +109,40 @@ def get_theme(name: ThemeName) -> Theme:
     if name == "dark":
         return DARK
     return LIGHT
+
+
+def apply_combo_popup_theme(combo, theme: Theme) -> None:
+    """Give the popup its own opaque surface, outside toolbar transparency."""
+    view = combo.view()
+    palette = QPalette(view.palette())
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive,
+                  QPalette.ColorGroup.Disabled):
+        for role, color in (
+            (QPalette.ColorRole.Base, theme.surface),
+            (QPalette.ColorRole.Window, theme.surface),
+            (QPalette.ColorRole.Text, theme.text),
+            (QPalette.ColorRole.WindowText, theme.text),
+            (QPalette.ColorRole.Highlight, theme.accent_soft),
+            (QPalette.ColorRole.HighlightedText, theme.text),
+        ):
+            palette.setColor(group, role, QColor(color))
+    for widget in (view, view.viewport(), view.window()):
+        widget.setPalette(palette)
+        widget.setAutoFillBackground(True)
+    # A parent's toolbar QWidget rule also matches the private popup and its
+    # viewport. Local styles take precedence over that transparent background.
+    view.window().setStyleSheet(f"background-color: {theme.surface}; color: {theme.text};")
+    view.setStyleSheet(f"""
+QAbstractItemView {{
+    background-color: {theme.surface}; color: {theme.text};
+    border: 1px solid {theme.border}; outline: none;
+    selection-background-color: {theme.accent_soft};
+    selection-color: {theme.text};
+}}
+QAbstractItemView::item {{ min-height: 32px; padding: 2px 12px; }}
+QAbstractItemView::item:selected {{ background-color: {theme.accent_soft}; color: {theme.text}; }}
+""")
+    view.viewport().setStyleSheet(f"background-color: {theme.surface};")
 
 
 ICONS: dict[str, str] = {
@@ -505,6 +539,12 @@ QWidget#topToolbar QPushButton:disabled, QFrame#topToolbar QPushButton:disabled 
 
 def panel_stylesheet(theme: Theme) -> str:
     return f"""
+QTabBar QToolButton {{
+    background: {theme.surface};
+    color: {theme.text_muted};
+    border: 1px solid {theme.border};
+}}
+QTabBar QToolButton:hover {{ background: {theme.surface_hover}; }}
 QWidget#panel, QFrame#panel, QWidget#leftPanel, QFrame#leftPanel {{
     background: {theme.surface};
     border-right: 1px solid {theme.border};

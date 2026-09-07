@@ -19,6 +19,7 @@ from .edit_backend import (
 )
 from .file_types import document_kind, is_markdown, is_supported_document
 from .md_converter import set_user_css
+from .reading_style import WIDTH_KEY, SPACING_KEY, reading_css
 from .settings_dialog import SettingsDialog
 
 _ORG = "markdown-viewer"
@@ -248,7 +249,9 @@ def load_user_css(window, reload: bool = False):
             css = Path(path).read_text(encoding="utf-8")
         except OSError:
             css = ""
-    set_user_css(css)
+    settings = QSettings(_ORG, _APP)
+    set_user_css(reading_css(settings.value(WIDTH_KEY, "comfortable"),
+                             settings.value(SPACING_KEY, "comfortable")) + "\n" + css)
     if (
         reload
         and window._current_file
@@ -256,6 +259,10 @@ def load_user_css(window, reload: bool = False):
         and not window._edit_mode
     ):
         window._renderer.reload_current()
+    elif (reload and window._current_file and is_markdown(window._current_file)
+          and window._edit_mode and getattr(window, "_view_mode", "") == "split"
+          and getattr(window, "_active_edit_backend", "") != WYSIWYG_BACKEND):
+        window._update_preview()
 
 
 def open_preferences(window):

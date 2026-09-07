@@ -1,11 +1,10 @@
-/* Token-aware Markdown preview theme */
-.home-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-.home-actions a { display: inline-flex; align-items: center; gap: 12px; padding: 12px 18px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
-  text-decoration: none; color: var(--text); }
-.home-actions a:first-child { background: var(--accent); color: var(--surface); }
-.home-actions a:hover { border-color: var(--accent); }
-.home-actions a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+<!DOCTYPE html>
+<html lang="zh-Hant" class="theme-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>閱讀工作台</title>
+<style>/* Token-aware Markdown preview theme */
 :root {
   --page-bg: #f4f5f7;
   --surface: #ffffff;
@@ -644,3 +643,199 @@ mark.annot.is-active {
     display: none !important;
   }
 }
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.highlight .hll { background-color: #ffffcc }
+.highlight { background: #282C34; color: #ABB2BF }
+.highlight .c { color: #7F848E } /* Comment */
+.highlight .err { color: #ABB2BF } /* Error */
+.highlight .esc { color: #ABB2BF } /* Escape */
+.highlight .g { color: #ABB2BF } /* Generic */
+.highlight .k { color: #C678DD } /* Keyword */
+.highlight .l { color: #ABB2BF } /* Literal */
+.highlight .n { color: #E06C75 } /* Name */
+.highlight .o { color: #56B6C2 } /* Operator */
+.highlight .x { color: #ABB2BF } /* Other */
+.highlight .p { color: #ABB2BF } /* Punctuation */
+.highlight .ch { color: #7F848E } /* Comment.Hashbang */
+.highlight .cm { color: #7F848E } /* Comment.Multiline */
+.highlight .cp { color: #7F848E } /* Comment.Preproc */
+.highlight .cpf { color: #7F848E } /* Comment.PreprocFile */
+.highlight .c1 { color: #7F848E } /* Comment.Single */
+.highlight .cs { color: #7F848E } /* Comment.Special */
+.highlight .gd { color: #E06C75 } /* Generic.Deleted */
+.highlight .ge { color: #ABB2BF; font-style: italic } /* Generic.Emph */
+.highlight .ges { color: #ABB2BF } /* Generic.EmphStrong */
+.highlight .gr { color: #E06C75 } /* Generic.Error */
+.highlight .gh { color: #ABB2BF; font-weight: bold } /* Generic.Heading */
+.highlight .gi { color: #98C379 } /* Generic.Inserted */
+.highlight .go { color: #E06C75 } /* Generic.Output */
+.highlight .gp { color: #ABB2BF } /* Generic.Prompt */
+.highlight .gs { color: #ABB2BF; font-weight: bold } /* Generic.Strong */
+.highlight .gu { color: #ABB2BF; font-weight: bold } /* Generic.Subheading */
+.highlight .gt { color: #E06C75 } /* Generic.Traceback */
+.highlight .kc { color: #E5C07B } /* Keyword.Constant */
+.highlight .kd { color: #C678DD } /* Keyword.Declaration */
+.highlight .kn { color: #C678DD } /* Keyword.Namespace */
+.highlight .kp { color: #C678DD } /* Keyword.Pseudo */
+.highlight .kr { color: #C678DD } /* Keyword.Reserved */
+.highlight .kt { color: #E5C07B } /* Keyword.Type */
+.highlight .ld { color: #ABB2BF } /* Literal.Date */
+.highlight .m { color: #D19A66 } /* Literal.Number */
+.highlight .s { color: #98C379 } /* Literal.String */
+.highlight .na { color: #E06C75 } /* Name.Attribute */
+.highlight .nb { color: #E5C07B } /* Name.Builtin */
+.highlight .nc { color: #E5C07B } /* Name.Class */
+.highlight .no { color: #E06C75 } /* Name.Constant */
+.highlight .nd { color: #61AFEF } /* Name.Decorator */
+.highlight .ni { color: #E06C75 } /* Name.Entity */
+.highlight .ne { color: #E06C75 } /* Name.Exception */
+.highlight .nf { color: #61AFEF; font-weight: bold } /* Name.Function */
+.highlight .nl { color: #E06C75 } /* Name.Label */
+.highlight .nn { color: #E06C75 } /* Name.Namespace */
+.highlight .nx { color: #E06C75 } /* Name.Other */
+.highlight .py { color: #E06C75 } /* Name.Property */
+.highlight .nt { color: #E06C75 } /* Name.Tag */
+.highlight .nv { color: #E06C75 } /* Name.Variable */
+.highlight .ow { color: #56B6C2 } /* Operator.Word */
+.highlight .pm { color: #ABB2BF } /* Punctuation.Marker */
+.highlight .w { color: #ABB2BF } /* Text.Whitespace */
+.highlight .mb { color: #D19A66 } /* Literal.Number.Bin */
+.highlight .mf { color: #D19A66 } /* Literal.Number.Float */
+.highlight .mh { color: #D19A66 } /* Literal.Number.Hex */
+.highlight .mi { color: #D19A66 } /* Literal.Number.Integer */
+.highlight .mo { color: #D19A66 } /* Literal.Number.Oct */
+.highlight .sa { color: #98C379 } /* Literal.String.Affix */
+.highlight .sb { color: #98C379 } /* Literal.String.Backtick */
+.highlight .sc { color: #98C379 } /* Literal.String.Char */
+.highlight .dl { color: #98C379 } /* Literal.String.Delimiter */
+.highlight .sd { color: #98C379 } /* Literal.String.Doc */
+.highlight .s2 { color: #98C379 } /* Literal.String.Double */
+.highlight .se { color: #98C379 } /* Literal.String.Escape */
+.highlight .sh { color: #98C379 } /* Literal.String.Heredoc */
+.highlight .si { color: #98C379 } /* Literal.String.Interpol */
+.highlight .sx { color: #98C379 } /* Literal.String.Other */
+.highlight .sr { color: #98C379 } /* Literal.String.Regex */
+.highlight .s1 { color: #98C379 } /* Literal.String.Single */
+.highlight .ss { color: #98C379 } /* Literal.String.Symbol */
+.highlight .bp { color: #E5C07B } /* Name.Builtin.Pseudo */
+.highlight .fm { color: #56B6C2; font-weight: bold } /* Name.Function.Magic */
+.highlight .vc { color: #E06C75 } /* Name.Variable.Class */
+.highlight .vg { color: #E06C75 } /* Name.Variable.Global */
+.highlight .vi { color: #E06C75 } /* Name.Variable.Instance */
+.highlight .vm { color: #E06C75 } /* Name.Variable.Magic */
+.highlight .il { color: #D19A66 } /* Literal.Number.Integer.Long */
+a.wikilink { text-decoration: none; border-bottom: 1px dashed currentColor; }a.wikilink:hover { border-bottom-style: solid; }
+
+.callout { border: 1px solid rgba(128,128,128,.25); border-left: 4px solid var(--cl, #888);
+    border-radius: 6px; padding: 8px 14px; margin: 14px 0; background: var(--cl-bg, rgba(128,128,128,.06)); }
+.callout .callout-title { display: block; font-weight: 700; margin-bottom: 2px; color: var(--cl, #666); }
+.callout > :first-child:not(.callout-title) { margin-top: 0; }
+.callout > p:last-child { margin-bottom: 0; }
+.callout-note,.callout-info,.callout-important { --cl: #3b82f6; --cl-bg: rgba(59,130,246,.08); }
+.callout-tip,.callout-hint,.callout-success,.callout-done,.callout-check { --cl: #10b981; --cl-bg: rgba(16,185,129,.08); }
+.callout-warning,.callout-caution,.callout-attention,.callout-todo { --cl: #f59e0b; --cl-bg: rgba(245,158,11,.10); }
+.callout-danger,.callout-error,.callout-bug,.callout-failure,.callout-fail,.callout-missing { --cl: #ef4444; --cl-bg: rgba(239,68,68,.08); }
+.callout-question,.callout-faq,.callout-help { --cl: #8b5cf6; --cl-bg: rgba(139,92,246,.08); }
+.callout-quote,.callout-cite,.callout-abstract,.callout-summary,.callout-tldr,.callout-example { --cl: #6b7280; --cl-bg: rgba(107,114,128,.08); }
+kbd { background: rgba(128,128,128,.18); border: 1px solid rgba(128,128,128,.35); border-radius: 4px;
+    padding: 1px 5px; font-size: .85em; font-family: "Cascadia Code", Consolas, monospace; }
+details { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.frontmatter { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 8px 14px;
+    margin: 0 0 18px; background: rgba(128,128,128,.05); font-size: .9em; }
+.frontmatter .fm-row { display: flex; gap: 10px; padding: 2px 0; }
+.frontmatter .fm-key { min-width: 90px; font-weight: 600; opacity: .8; }
+.frontmatter .fm-val { flex: 1; }
+.frontmatter .fm-tag { display: inline-block; background: rgba(128,128,128,.15);
+    border-radius: 10px; padding: 0 8px; margin: 0 4px 2px 0; font-size: .9em; }
+</style>
+<style>@media screen { body { --reading-width: 860px; --reading-line-height: 1.85; } }
+</style>
+</head>
+<body class="theme-dark">
+<h1 id="把注意力留給內容" data-src-start="0" data-src-end="0">把注意力留給內容</h1>
+<p data-src-start="2" data-src-end="2">閱讀、整理與寫作，都從一份清楚的文件開始。</p>
+<h2 id="今天的工作" data-src-start="4" data-src-end="4">今天的工作</h2>
+<p data-src-start="6" data-src-end="6">這是一個安靜的文件工作台。左側整理文件，中央保留舒適的閱讀空間；需要編輯時，從上方切換 <strong>Markdown、並排預覽或 Office</strong>。</p>
+<blockquote data-src-start="8" data-src-end="8">
+<p>好的閱讀體驗，是每次回來都能接續原本的思路。</p>
+</blockquote>
+<h3 id="升級重點" data-src-start="10" data-src-end="10">升級重點</h3>
+<table data-src-start="12" data-src-end="16">
+<thead>
+<tr>
+<th>項目</th>
+<th>改善方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>開啟文件</td>
+<td>減少重複載入，保留常用文件快取</td>
+</tr>
+<tr>
+<td>操作回饋</td>
+<td>清楚的模式切換，穩定的閱讀位置</td>
+</tr>
+<tr>
+<td>視覺層次</td>
+<td>柔和底色、舒適行距、克制的工具列</td>
+</tr>
+</tbody>
+</table>
+<ul class="contains-task-list" data-src-start="18" data-src-end="20">
+<li class="task-list-item enabled"><input data-line="18" class="task-list-item-checkbox" checked="checked"  type="checkbox"> 閱讀優先的版面</li>
+<li class="task-list-item enabled"><input data-line="19" class="task-list-item-checkbox" checked="checked"  type="checkbox"> 亮色與暗色主題</li>
+<li class="task-list-item enabled"><input data-line="20" class="task-list-item-checkbox"  type="checkbox"> 整理下一份文件</li>
+</ul>
+<h2 id="程式碼與筆記" data-src-start="22" data-src-end="22">程式碼與筆記</h2>
+<pre data-src-start="24" data-src-end="27"><code class="language-python"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">read_document</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+</pre></div>
+</code></pre>
+
+
+<style>
+div.highlight { position: relative; }
+div.highlight .copy-btn {
+    position: absolute; top: 6px; right: 6px; opacity: 0;
+    transition: opacity .15s; font-size: 12px; padding: 2px 8px;
+    border-radius: 6px; border: 1px solid rgba(127,127,127,.4);
+    background: rgba(127,127,127,.15); color: inherit; cursor: pointer;
+}
+div.highlight:hover .copy-btn { opacity: 1; }
+div.highlight .copy-btn:hover { background: rgba(127,127,127,.3); }
+</style>
+<script>
+(function () {
+  function ready(fn) {
+    if (document.readyState !== 'loading') { fn(); }
+    else { document.addEventListener('DOMContentLoaded', fn); }
+  }
+  ready(function () {
+    document.querySelectorAll('div.highlight').forEach(function (block) {
+      if (block.querySelector('.copy-btn')) { return; }
+      var btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '複製';
+      btn.addEventListener('click', function () {
+        var pre = block.querySelector('pre');
+        var text = pre ? pre.innerText : '';
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = '已複製';
+          setTimeout(function () { btn.textContent = '複製'; }, 1500);
+        }).catch(function () { btn.textContent = '失敗'; });
+      });
+      block.appendChild(btn);
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -55,6 +55,7 @@ class _Bridge(QObject):
 
 
 class _FakeRenderer(QWidget):
+    home_action_requested = Signal(str)
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)

@@ -1,18 +1,18 @@
 """Entry point for Markdown Viewer."""
 
+from __future__ import annotations
+
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QStandardPaths
+from PySide6.QtCore import Qt, QStandardPaths, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
-from app import session_state
 from app.version import VERSION
-from app.window import MainWindow
 
 log = logging.getLogger("markdown_viewer")
 
@@ -77,7 +77,9 @@ def _try_send_to_running_instance(path_to_send: str) -> bool:
         return False
     # Send the absolute path (or empty string for "just raise window").
     socket.write(path_to_send.encode("utf-8"))
-    socket.waitForBytesWritten(1000)
+    if not socket.waitForBytesWritten(1000):
+        # A connected server owns the session; never start another primary.
+        log.warning("IPC write did not complete")
     socket.disconnectFromServer()
     return True
 
@@ -90,23 +92,48 @@ def _setup_ipc_server(window: MainWindow) -> QLocalServer:
             conn = server.nextPendingConnection()
             if conn is None:
                 continue
-            # Wait briefly for the data to arrive.
-            if conn.waitForReadyRead(1000):
-                raw = conn.readAll().data().decode("utf-8", errors="replace")
-            else:
-                raw = ""
-            conn.close()
+            _receive_connection(conn)
 
-            log.info("IPC received path: %r", raw)
-            path = raw.strip()
-            if path:
-                window.open_path(path)
-            # Bring the window to the foreground regardless.
-            window.setWindowState(
-                window.windowState() & ~Qt.WindowState.WindowMinimized
-            )
-            window.raise_()
-            window.activateWindow()
+    def _receive_connection(conn):
+        # EOF frames one UTF-8 path, including an empty activation request.
+        # Compatible with older clients; fragmented writes never open half a path.
+        payload = bytearray()
+        finished = False
+        timer = QTimer(conn)
+        timer.setSingleShot(True)
+
+        def read():
+            payload.extend(bytes(conn.readAll()))
+            if len(payload) > 64 * 1024:
+                finish(False)
+
+        def finish(deliver=True):
+            nonlocal finished
+            if finished:
+                return
+            finished = True
+            timer.stop()
+            payload.extend(bytes(conn.readAll()))
+            if deliver and len(payload) <= 64 * 1024:
+                try:
+                    path = payload.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    path = ""
+                if path:
+                    window.open_path(path)
+                window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+                window.raise_()
+                window.activateWindow()
+            conn.close()
+            conn.deleteLater()
+
+        conn.readyRead.connect(read)
+        conn.disconnected.connect(finish)
+        timer.timeout.connect(lambda: finish(False))
+        timer.start(5000)
+        read()
+        if conn.state() == QLocalSocket.LocalSocketState.UnconnectedState:
+            finish()
 
     server = QLocalServer(window)
     # Remove any stale server left by a previous crash.
@@ -120,6 +147,8 @@ def _setup_ipc_server(window: MainWindow) -> QLocalServer:
 
 
 def main():
+    from app.url_schemes import register_document_schemes
+    register_document_schemes()
     # Crisper rendering on Windows fractional display scaling (125%, 150%).
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -144,6 +173,9 @@ def main():
     # --------------------------------------------------------------------
 
     app.setWindowIcon(_find_icon())
+
+    from app import session_state
+    from app.window import MainWindow
 
     window = MainWindow()
     window.setWindowIcon(_find_icon())

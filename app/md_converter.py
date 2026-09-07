@@ -1,6 +1,8 @@
 """Markdown to self-contained HTML converter."""
 
 import codecs
+from collections import OrderedDict
+import sys
 from dataclasses import dataclass
 from html import escape
 import json
@@ -731,7 +733,11 @@ class RenderedBody:
     math: bool
 
 
-def render_body(text: str) -> RenderedBody:
+class RenderCancelled(Exception):
+    """Obsolete preview discarded before parser work."""
+
+
+def render_body(text: str, *, cancel=None) -> RenderedBody:
     """Render raw Markdown *text* to the ``<body>`` fragment of a preview.
 
     This is the theme-independent half of :func:`convert_text`: the returned
@@ -739,6 +745,8 @@ def render_body(text: str) -> RenderedBody:
     result can be wrapped for light or dark, or spliced into a live page.
     """
     with _CONVERT_LOCK:
+        if cancel is not None and cancel.is_set():
+            raise RenderCancelled()
         # Render the full text (front_matter_plugin strips the YAML from the output
         # but the source line numbers stay intact, so task-list data-line is correct).
         front, _body = parse_front_matter(text)
@@ -759,11 +767,24 @@ def render_body(text: str) -> RenderedBody:
 # no theme in the key, because the body fragment is theme-independent; the
 # per-theme document chrome is re-applied by _wrap on every call. Cleared when
 # the user stylesheet changes.
-_CONVERT_CACHE: dict = {}
+_CONVERT_CACHE: dict = OrderedDict()
 _CONVERT_CACHE_MAX = 32
+_CONVERT_CACHE_BYTES = 64 * 1024 * 1024
 
 
-def _cached_body(path: Path) -> tuple[RenderedBody | None, str | None]:
+def _body_bytes(rendered):
+    return (sys.getsizeof(rendered.body) + sys.getsizeof(rendered.headings)
+            + sum(sys.getsizeof(h) + sum(sys.getsizeof(v) for v in h)
+                  for h in rendered.headings))
+
+
+def _body_signature(path):
+    stat = path.stat()
+    return (str(path.resolve()), stat.st_mtime_ns, stat.st_size,
+            stat.st_ctime_ns, stat.st_ino)
+
+
+def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str | None]:
     """Return (rendered_body, error_message) for *path*, using ``_CONVERT_CACHE``.
 
     Exactly one of the two is ``None``. Shared by :func:`convert` and
@@ -779,9 +800,11 @@ def _cached_body(path: Path) -> tuple[RenderedBody | None, str | None]:
     if stat.st_size > 10 * 1024 * 1024:
         return None, f"檔案超過 10MB，無法預覽：{path.name}"
 
-    cache_key = (str(path), stat.st_mtime_ns)
+    cache_key = _body_signature(path)
     with _CONVERT_LOCK:
-        cached = _CONVERT_CACHE.get(cache_key)
+        cached = _CONVERT_CACHE.pop(cache_key, None)
+        if cached is not None:
+            _CONVERT_CACHE[cache_key] = cached
     if cached is not None:
         return cached, None
 
@@ -789,18 +812,30 @@ def _cached_body(path: Path) -> tuple[RenderedBody | None, str | None]:
     if result is None:
         return None, f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}"
     text, _ = result
-    rendered = render_body(text)
+    rendered = render_body(text, cancel=cancel)
+    try:
+        if _body_signature(path) != cache_key:
+            return rendered, None  # never cache a file changed while reading
+    except OSError:
+        return rendered, None
     with _CONVERT_LOCK:
+        for old_key in list(_CONVERT_CACHE):
+            if old_key[0] == cache_key[0]:
+                _CONVERT_CACHE.pop(old_key)
+        size = _body_bytes(rendered)
+        if size > _CONVERT_CACHE_BYTES:
+            return rendered, None
         _CONVERT_CACHE[cache_key] = rendered
-        if len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX:
+        while (len(_CONVERT_CACHE) > _CONVERT_CACHE_MAX or
+               sum(_body_bytes(body) for body in _CONVERT_CACHE.values()) > _CONVERT_CACHE_BYTES):
             _CONVERT_CACHE.pop(next(iter(_CONVERT_CACHE)))
     return rendered, None
 
 
-def convert(filepath: str | Path, theme: str = "light") -> tuple[str, list[tuple[int, str, str]]]:
+def convert(filepath: str | Path, theme: str = "light", *, cancel=None) -> tuple[str, list[tuple[int, str, str]]]:
     """Return (html, headings). headings = list of (level, text, anchor_id)."""
     path = Path(filepath)
-    rendered, error = _cached_body(path)
+    rendered, error = _cached_body(path, cancel=cancel)
     if rendered is None:
         return _error_page(error or "", theme), []
     with _CONVERT_LOCK:
@@ -827,7 +862,7 @@ def convert_body(filepath: str | Path) -> RenderedBody | None:
 
 
 def convert_text(
-    text: str, theme: str = "light", title: str = "preview"
+    text: str, theme: str = "light", title: str = "preview", *, cancel=None
 ) -> tuple[str, list[tuple[int, str, str]]]:
     """Render raw Markdown *text* to a self-contained HTML document.
 
@@ -835,7 +870,7 @@ def convert_text(
     which has unsaved buffer text rather than a file on disk.
     """
     with _CONVERT_LOCK:
-        rendered = render_body(text)
+        rendered = render_body(text, cancel=cancel)
         return (
             _wrap(
                 rendered.body,

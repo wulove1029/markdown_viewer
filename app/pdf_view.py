@@ -37,6 +37,7 @@ from PySide6.QtCore import (
     Qt,
     QThreadPool,
     QTimer,
+    QSizeF,
     Signal,
 )
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPixmap
@@ -69,6 +70,7 @@ def _pymupdf():
 
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
+from . import pdf_metadata_cache
 from .pdf_render_scheduler import PdfRenderScheduler, PdfRenderSpec
 from .theme import LIGHT, Theme
 
@@ -296,6 +298,7 @@ class PdfView(QAbstractScrollArea):
         # reload (button / external change) of an unlocked PDF doesn't re-prompt.
         candidate = self._password if path == self._path else ""
         self._path = path
+        self._geometry_signature = pdf_metadata_cache.signature(path)
         self._search_index = -1
         self._search_results = []
         self._search.setSearchString("")
@@ -390,7 +393,14 @@ class PdfView(QAbstractScrollArea):
         if status != QPdfDocument.Status.Ready:
             return
         count = self._doc.pageCount()
-        self._page_sizes = [self._doc.pagePointSize(i) for i in range(count)]
+        key = getattr(self, "_geometry_signature", None)
+        cached = pdf_metadata_cache.get_sizes(key, count)
+        if cached is not None:
+            self._page_sizes = [QSizeF(w, h) for w, h in cached]
+        else:
+            self._page_sizes = [self._doc.pagePointSize(i) for i in range(count)]
+            if self._path and pdf_metadata_cache.signature(self._path) == key:
+                pdf_metadata_cache.put_sizes(key, self._page_sizes)
         self._cache.clear()
         self._text_bounds.clear()
         self._page_texts.clear()

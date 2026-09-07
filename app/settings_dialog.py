@@ -58,6 +58,7 @@ from .translate import (
     provider_info,
 )
 from .version import VERSION
+from .reading_style import WIDTH_KEY, SPACING_KEY
 
 # ── constants (must match window.py originals) ──────────────────────────
 
@@ -160,6 +161,19 @@ class SettingsDialog(QDialog):
         )
         self._zoom_combo.setCurrentIndex(zoom_idx)
         form.addRow("內容縮放", self._zoom_combo)
+
+        self._reading_width_combo = QComboBox()
+        for label, value in (("舒適閱讀", "comfortable"), ("寬版文件", "wide"), ("填滿視窗", "full")):
+            self._reading_width_combo.addItem(label, value)
+        self._reading_width_combo.setCurrentIndex(max(0, self._reading_width_combo.findData(
+            settings.value(WIDTH_KEY, "comfortable"))))
+        form.addRow("預覽行寬", self._reading_width_combo)
+        self._reading_spacing_combo = QComboBox()
+        for label, value in (("緊湊", "compact"), ("舒適", "comfortable"), ("寬鬆", "relaxed")):
+            self._reading_spacing_combo.addItem(label, value)
+        spacing_index = self._reading_spacing_combo.findData(settings.value(SPACING_KEY, "comfortable"))
+        self._reading_spacing_combo.setCurrentIndex(spacing_index if spacing_index >= 0 else 1)
+        form.addRow("預覽行距", self._reading_spacing_combo)
 
         return page
 
@@ -479,6 +493,9 @@ class SettingsDialog(QDialog):
         self.results["content_zoom"] = zoom
         settings.setValue("theme", theme)
         settings.setValue("content_zoom", zoom)
+        for key, combo in ((WIDTH_KEY, self._reading_width_combo), (SPACING_KEY, self._reading_spacing_combo)):
+            settings.setValue(key, combo.currentData())
+            self.results[key] = combo.currentData()
 
         # Export
         pdf_size = self._pdf_size_combo.currentData()
