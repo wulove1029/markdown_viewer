@@ -58,3 +58,10 @@
 - 2026-09-08：`3f9122f` opus review 通過（無毀檔路徑）；4 小項修正 `4344911`（刪除前確認連帶回覆、備份唯一檔名、例外包裝、鎖檔文字），全套 1659 passed。PDF 註解功能本輪完成；未做：卡片「…」選單、螢光本身內容就地編輯。
 - 2026-09-08：使用者回饋卡片拖動延遲＋引線殘影。`e32579e`：引線髒區舊∪新外擴 3 px、移除 QGraphicsDropShadowEffect 改自繪陰影、拖動只 move；60 次拖動平均 3.4 ms／最大 5.2 ms；全套 1664 passed。截圖無殘影。派 review。
 - 2026-09-08：`e32579e` review 通過（重跑拖動 3.0–3.4 ms 平均）。WA_TranslucentBackground 在實體視窗判低風險，待使用者肉眼複驗。
+
+## 發布 1.32.0（2026-09-08）
+
+- 本機 PyInstaller 打包 smoke 三項 PASS（frozen render worker 握手、3 MB Markdown 子程序生命週期、PDF 複本），紀錄 `2026-09-08-release-1.32.0-smoke.md`。
+- `b0f2da5` Bump version to 1.32.0；tag `v1.32.0` 觸發 GitHub Actions run 34202887762，成功。
+- Release 資產 `MarkdownViewer_Setup_v1.32.0.exe` 173,456,763 bytes，digest `sha256:eaac7db3…bd0081`；以 `app.updater` 從 1.31.0 檢查→串流下載（2648 次進度回呼，19 s）→SHA-256 相符，未安裝。
+- 尚未做：實機安裝 1.32.0（含 UAC）與更新對話框實體操作。
