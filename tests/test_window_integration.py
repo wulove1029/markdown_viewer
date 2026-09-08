@@ -5,9 +5,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QSettings, Qt, Signal
+from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtTest import QTest
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from app import edit_backend
@@ -178,6 +179,7 @@ class _FakePdfView(QWidget):
     highlight_requested = Signal(object)
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)
+    embedded_annotations_ready = Signal(int, object, object)
     zoom_changed = Signal(float)
     translate_requested = Signal(str)
 
@@ -321,6 +323,7 @@ class _FakePanel(QWidget):
         self.backlinks = _Noop()
         self.pdf_notes = _Noop()
         self.pdf_highlights = _Noop()
+        self.pdf_embedded_annotations = _Noop()
         self.tags = _Tags()
         self.current_tab = None
         self.search_opened = False
@@ -2944,6 +2947,205 @@ def test_tab_switch_between_md_and_txt_restores_views(
     assert win._editor._plain_text_mode is False
 
 
+# ---------------- Home page "new note" action ----------------
+def test_home_action_new_opens_new_note_dialog_on_real_home(
+    make_window, monkeypatch
+):
+    win = make_window()
+    assert win._current_file is None
+    calls = []
+    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+
+    win._home_action("new")
+
+    assert calls == [True]
+
+
+def test_home_action_new_ignored_while_a_document_is_open(
+    make_window, md_files, monkeypatch
+):
+    win = make_window()
+    win.open_path(str(md_files[0]))
+    assert win._current_file is not None
+    calls = []
+    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+
+    win._home_action("new")
+
+    assert calls == []
+
+
+def test_home_action_new_ignored_during_pending_recovery(
+    make_window, tmp_path, monkeypatch
+):
+    # _load_document sets self._current_file before ever showing the pending
+    # recovery holding page, so the same guard that blocks "new" while a
+    # document is open also covers this state.
+    win = make_window()
+    path = tmp_path / "recoverable.md"
+    path.write_text("# Recoverable\n", encoding="utf-8")
+    win._add_tab(path, "markdown")
+    win._tab_state.setdefault(str(path), {})["pending_recovery"] = True
+    win._activate_tab(0)
+    assert win._current_file is not None
+    calls = []
+    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+
+    win._home_action("new")
+
+    assert calls == []
+
+
+def test_home_actions_html_lists_new_note_first_with_ctrl_n_hint():
+    from app.renderer import _home_actions_html
+
+    html = _home_actions_html()
+
+    assert "home/new" in html
+    assert "Ctrl+N" in html
+    assert "新增筆記" in html
+    # The primary action (new note) must appear before the other entries so
+    # it reads as the workspace's main call to action.
+    assert html.index("home/new") < html.index("home/open")
+    assert html.index("home/new") < html.index("home/recent")
+    assert html.index("home/new") < html.index("home/quick")
+
+
+def test_home_action_new_on_a_brand_new_setup_opens_dialog_and_creates(
+    make_window, tmp_path, monkeypatch
+):
+    """Acceptance case 1: fresh setup, no library -- one click from the home
+    page opens the merged dialog with no folder pre-filled, and picking a
+    location there (never a separate up-front folder picker) creates the
+    note."""
+    win = make_window()
+    assert win._current_file is None
+    win._panel.file_browser.selected_directory = lambda: None
+    win._panel.file_browser.library_roots = lambda: []
+    seen_folders = []
+
+    class _BrowseThenCreateDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            seen_folders.append(folder)
+            self._folder = folder
+
+        def exec(self):
+            from app import file_ops
+
+            # Simulate the user picking tmp_path inside the dialog's own
+            # 瀏覽… button, then hitting 建立.
+            self._path = file_ops.create_document(tmp_path, "first-note", ".md")
+            return window_mod.QDialog.DialogCode.Accepted
+
+        def created_path(self):
+            return self._path
+
+        def selected_editor_backend(self):
+            return edit_backend.SOURCE_BACKEND
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _BrowseThenCreateDialog)
+
+    win._home_action("new")
+
+    assert seen_folders == [None]  # opened with no location, not a stray popup
+    created = tmp_path / "first-note.md"
+    assert created.exists()
+    assert win._current_file == created
+
+
+# ---------------- _DocumentPage.acceptNavigationRequest guard ----------------
+# Unit tests for the interception logic itself. A real QWebEngineView can be
+# constructed offscreen, but this only needs the page's navigation-request
+# handler and a stand-in for its ``_view`` attribute -- no Chromium
+# navigation, rendering, or RUN_WEBENGINE_TESTS is required.
+class _FakeDocumentPageView(QObject):
+    home_action_requested = Signal(str)
+    wikilink_clicked = Signal(str)
+    local_doc_clicked = Signal(str)
+
+    def __init__(self, current_path=None):
+        super().__init__()
+        self._current_path = current_path
+
+
+def _make_document_page(current_path=None):
+    from app.renderer import _DocumentPage
+
+    view = _FakeDocumentPageView(current_path)
+    page = _DocumentPage(view)
+    events = []
+    view.home_action_requested.connect(events.append)
+    return page, events
+
+
+def test_accept_navigation_request_fires_home_new_on_real_home_link_click(qapp):
+    page, events = _make_document_page(current_path=None)
+
+    accepted = page.acceptNavigationRequest(
+        QUrl("https://markdown-viewer.invalid/home/new"),
+        QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
+        True,
+    )
+
+    assert events == ["new"]
+    # The scheme is always intercepted (never handed to the page itself).
+    assert accepted is False
+
+
+def test_accept_navigation_request_ignores_same_url_inside_an_open_document(qapp):
+    # _current_path set (a real document tab is active) must block the home
+    # action even for a literal same-URL link inside that document's body.
+    page, events = _make_document_page(current_path="C:/notes/doc.md")
+
+    page.acceptNavigationRequest(
+        QUrl("https://markdown-viewer.invalid/home/new"),
+        QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
+        True,
+    )
+
+    assert events == []
+
+
+def test_accept_navigation_request_ignores_non_click_navigation(qapp):
+    # A programmatic / stale (queued, no-longer-relevant) navigation must
+    # never retrigger "new", even while the home page is genuinely showing.
+    page, events = _make_document_page(current_path=None)
+
+    for nav_type in (
+        QWebEnginePage.NavigationType.NavigationTypeTyped,
+        QWebEnginePage.NavigationType.NavigationTypeOther,
+        QWebEnginePage.NavigationType.NavigationTypeReload,
+        QWebEnginePage.NavigationType.NavigationTypeBackForward,
+    ):
+        page.acceptNavigationRequest(
+            QUrl("https://markdown-viewer.invalid/home/new"), nav_type, True
+        )
+
+    assert events == []
+
+
+def test_pending_recovery_page_never_emits_a_home_new_link_to_click():
+    # show_pending_recovery() clears _current_path to None just like the real
+    # home page (_home_action's window-level guard alone would not stop a
+    # click there), so the actual protection is that its HTML never includes
+    # the home-actions nav in the first place -- there is no "home/new" href
+    # for acceptNavigationRequest to ever see a click on. Lock that in
+    # directly against the source rather than duplicating the (a)/(b)/(c)
+    # navigation-type tests above.
+    import inspect
+
+    from app.renderer import RendererView
+
+    pending_recovery_src = inspect.getsource(RendererView.show_pending_recovery)
+    show_empty_src = inspect.getsource(RendererView.show_empty)
+
+    assert "_home_actions_html" not in pending_recovery_src
+    assert "home-actions" not in pending_recovery_src
+    # Sanity check the assertion is meaningful: the real home page does wire
+    # the actions nav, so this isn't just testing an unrelated method.
+    assert "_home_actions_html" in show_empty_src
+
+
 # ---------------- Ctrl+N new note ----------------
 def test_new_note_creates_opens_and_edits(make_window, tmp_path, monkeypatch):
     win = make_window()
@@ -3035,9 +3237,13 @@ def test_file_tree_new_note_uses_the_same_dialog_for_the_requested_folder(
     assert win._tab_bar.count() == 0
 
 
-def test_new_note_without_any_folder_asks_and_cancels_cleanly(
+def test_new_note_without_any_folder_opens_dialog_with_no_folder_selected(
     make_window, monkeypatch
 ):
+    # No library, no selection, no remembered location: the dialog itself
+    # must open (with folder=None) so the user browses inside the same
+    # window, instead of a separate QFileDialog popping up first and the
+    # merged dialog defaulting to the program directory.
     win = make_window()
     win._panel.file_browser.selected_directory = lambda: None
     win._panel.file_browser.library_roots = lambda: []
@@ -3047,16 +3253,137 @@ def test_new_note_without_any_folder_asks_and_cancels_cleanly(
         "getExistingDirectory",
         staticmethod(lambda *a, **k: (asked.append(True), "")[1]),
     )
+    seen_folders = []
 
-    def _fail_dialog(*_a, **_k):
-        raise AssertionError("dialog must not open without a folder")
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            seen_folders.append(folder)
 
-    monkeypatch.setattr(window_mod, "NewNoteDialog", _fail_dialog)
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
 
     win._new_note()
 
-    assert asked == [True]
+    assert seen_folders == [None]
+    assert asked == []  # no separate folder picker before the merged dialog
     assert win._tab_bar.count() == 0
+
+
+def test_new_note_prefers_last_successful_location_over_library_root(
+    make_window, tmp_path, monkeypatch
+):
+    last = tmp_path / "last"
+    last.mkdir()
+    library_root = tmp_path / "library"
+    library_root.mkdir()
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: None
+    win._panel.file_browser.library_roots = lambda: [library_root]
+    window_mod.QSettings(_ORG, _APP).setValue(
+        "last_new_note_folder", str(last)
+    )
+    folders = []
+
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            folders.append(Path(folder))
+
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
+
+    win._new_note()
+
+    assert folders == [last]
+
+
+def test_new_note_falls_back_when_last_location_no_longer_exists(
+    make_window, tmp_path, monkeypatch
+):
+    missing_last = tmp_path / "gone"
+    library_root = tmp_path / "library"
+    library_root.mkdir()
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: None
+    win._panel.file_browser.library_roots = lambda: [library_root]
+    window_mod.QSettings(_ORG, _APP).setValue(
+        "last_new_note_folder", str(missing_last)
+    )
+    folders = []
+
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            folders.append(Path(folder))
+
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
+
+    win._new_note()
+
+    assert folders == [library_root]
+
+
+def test_new_note_remembers_folder_only_after_successful_creation(
+    make_window, tmp_path, monkeypatch
+):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+
+    class _FakeDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            self._folder = Path(folder)
+
+        def exec(self):
+            from app import file_ops
+
+            self._path = file_ops.create_document(self._folder, "note", ".md")
+            return window_mod.QDialog.DialogCode.Accepted
+
+        def created_path(self):
+            return self._path
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _FakeDialog)
+
+    win._new_note()
+
+    settings = window_mod.QSettings(_ORG, _APP)
+    assert Path(settings.value("last_new_note_folder")) == tmp_path
+
+
+def test_new_note_cancel_does_not_remember_folder(make_window, tmp_path, monkeypatch):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+
+    class _CancelDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            pass
+
+        def exec(self):
+            return window_mod.QDialog.DialogCode.Rejected
+
+        def created_path(self):
+            return None
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _CancelDialog)
+
+    win._new_note()
+
+    settings = window_mod.QSettings(_ORG, _APP)
+    assert settings.value("last_new_note_folder", "") in ("", None)
 
 
 # ---------------- Markdown format toolbar ----------------
@@ -3511,6 +3838,81 @@ def test_new_txt_note_opens_plain_editor_not_split(make_window, tmp_path):
     assert win._view_mode == "edit"
     assert win._editor._plain_text_mode is True
     assert not win._edit_preview.isVisibleTo(win._editor_split)
+
+
+def test_new_md_source_note_save_and_reopen_round_trips(
+    make_window, tmp_path, monkeypatch
+):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+
+    class _FakeDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            self._folder = Path(folder)
+
+        def exec(self):
+            from app import file_ops
+
+            self._path = file_ops.create_document(self._folder, "note", ".md")
+            return window_mod.QDialog.DialogCode.Accepted
+
+        def created_path(self):
+            return self._path
+
+        def selected_editor_backend(self):
+            return edit_backend.SOURCE_BACKEND
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _FakeDialog)
+    win._new_note()
+
+    created = tmp_path / "note.md"
+    assert win._current_file == created
+    assert win._edit_mode is True
+    win._editor.selectAll()
+    win._editor.insertPlainText("# Hello\n\nBody text")
+    assert win._save_edits() is True
+
+    win._close_current_tab()
+    win.open_path(str(created))
+    win._toggle_edit_mode()
+    assert win._editor.toPlainText() == "# Hello\n\nBody text"
+    assert created.read_text(encoding="utf-8") == "# Hello\n\nBody text"
+
+
+def test_new_txt_note_save_and_reopen_round_trips(make_window, tmp_path, monkeypatch):
+    win = make_window()
+    win._panel.file_browser.selected_directory = lambda: tmp_path
+
+    class _FakeDialog:
+        def __init__(self, folder, theme, parent=None, **_kwargs):
+            self._folder = Path(folder)
+
+        def exec(self):
+            from app import file_ops
+
+            self._path = file_ops.create_document(self._folder, "note", ".txt")
+            return window_mod.QDialog.DialogCode.Accepted
+
+        def created_path(self):
+            return self._path
+
+        def selected_editor_backend(self):
+            return edit_backend.SOURCE_BACKEND
+
+    monkeypatch.setattr(window_mod, "NewNoteDialog", _FakeDialog)
+    win._new_note()
+
+    created = tmp_path / "note.txt"
+    assert win._current_kind == "text"
+    assert win._edit_mode is True
+    win._editor.selectAll()
+    win._editor.insertPlainText("plain text body")
+    assert win._save_edits() is True
+
+    win._close_current_tab()
+    win.open_path(str(created))
+    assert win._editor.toPlainText() == "plain text body"
+    assert created.read_text(encoding="utf-8") == "plain text body"
 
 
 def test_opening_existing_md_stays_in_preview(make_window, md_files):

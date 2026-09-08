@@ -276,86 +276,86 @@
     "long_prose/5mb_blocks_long_prose/100kb": {
       "small_request_latency_ms": {
         "n": 3,
-        "p50_ms": 36.28660000003947,
-        "p95_ms": 45.24989999981699,
+        "p50_ms": 31.571199999234523,
+        "p95_ms": 36.481999999523396,
         "p95_note": "nearest-rank; equals max when n < 20",
-        "max_ms": 45.24989999981699,
-        "min_ms": 33.55599999986225,
+        "max_ms": 36.481999999523396,
+        "min_ms": 29.83940000012808,
         "samples_ms": [
-          33.55599999986225,
-          36.28660000003947,
-          45.24989999981699
+          29.83940000012808,
+          31.571199999234523,
+          36.481999999523396
         ]
       },
-      "small_blocked_until_big_finished_fraction": 1.0,
+      "small_blocked_until_big_finished_fraction": 0.0,
       "raw_samples": [
         {
-          "small_request_latency_ms": 33.55599999986225,
-          "big_convert_ms": 3169.2341999996643,
-          "big_started_before_small_request_ms": 10.512900000321679,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 29.83940000012808,
+          "big_convert_ms": 2740.5024999998204,
+          "big_started_before_small_request_ms": 10.578700000223762,
+          "big_still_running_when_small_finished": true
         },
         {
-          "small_request_latency_ms": 36.28660000003947,
-          "big_convert_ms": 3188.809400000082,
-          "big_started_before_small_request_ms": 10.466299999734474,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 31.571199999234523,
+          "big_convert_ms": 2772.674000000734,
+          "big_started_before_small_request_ms": 10.654500000782718,
+          "big_still_running_when_small_finished": true
         },
         {
-          "small_request_latency_ms": 45.24989999981699,
-          "big_convert_ms": 3131.871100000353,
-          "big_started_before_small_request_ms": 10.688700000173412,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 36.481999999523396,
+          "big_convert_ms": 3472.719500000494,
+          "big_started_before_small_request_ms": 10.738900000433205,
+          "big_still_running_when_small_finished": true
         }
       ]
     },
     "long_prose/10mb_blocks_long_prose/100kb": {
       "small_request_latency_ms": {
         "n": 3,
-        "p50_ms": 36.085300000195275,
-        "p95_ms": 45.96770000034667,
+        "p50_ms": 39.189400000395835,
+        "p95_ms": 40.937400000075286,
         "p95_note": "nearest-rank; equals max when n < 20",
-        "max_ms": 45.96770000034667,
-        "min_ms": 29.94249999983367,
+        "max_ms": 40.937400000075286,
+        "min_ms": 32.99990000050457,
         "samples_ms": [
-          29.94249999983367,
-          36.085300000195275,
-          45.96770000034667
+          32.99990000050457,
+          39.189400000395835,
+          40.937400000075286
         ]
       },
-      "small_blocked_until_big_finished_fraction": 1.0,
+      "small_blocked_until_big_finished_fraction": 0.0,
       "raw_samples": [
         {
-          "small_request_latency_ms": 29.94249999983367,
-          "big_convert_ms": 9095.92879999991,
-          "big_started_before_small_request_ms": 10.327899999992951,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 32.99990000050457,
+          "big_convert_ms": 10314.805699999852,
+          "big_started_before_small_request_ms": 10.513999999602675,
+          "big_still_running_when_small_finished": true
         },
         {
-          "small_request_latency_ms": 36.085300000195275,
-          "big_convert_ms": 8870.46139999984,
-          "big_started_before_small_request_ms": 10.641599999871687,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 39.189400000395835,
+          "big_convert_ms": 8869.936100000814,
+          "big_started_before_small_request_ms": 10.798899999826972,
+          "big_still_running_when_small_finished": true
         },
         {
-          "small_request_latency_ms": 45.96770000034667,
-          "big_convert_ms": 9174.273999999969,
-          "big_started_before_small_request_ms": 10.547500000029686,
-          "big_still_running_when_small_finished": false
+          "small_request_latency_ms": 40.937400000075286,
+          "big_convert_ms": 9899.657500000103,
+          "big_started_before_small_request_ms": 10.75479999963136,
+          "big_still_running_when_small_finished": true
         }
       ]
     },
     "solo_baseline_long_prose/100kb": {
       "n": 3,
-      "p50_ms": 34.854100000302424,
-      "p95_ms": 42.58620000018709,
+      "p50_ms": 33.46539999984088,
+      "p95_ms": 41.310099999464,
       "p95_note": "nearest-rank; equals max when n < 20",
-      "max_ms": 42.58620000018709,
-      "min_ms": 30.673600000227452,
+      "max_ms": 41.310099999464,
+      "min_ms": 32.97099999963393,
       "samples_ms": [
-        42.58620000018709,
-        30.673600000227452,
-        34.854100000302424
+        41.310099999464,
+        33.46539999984088,
+        32.97099999963393
       ]
     }
   },
@@ -775,6 +775,8 @@
     "Cold subprocess timings may hit the OS file-system cache from this same benchmark run's earlier fixture writes/reads; not a true cold-disk measurement.",
     "QT_QPA_PLATFORM=offscreen is used throughout; WebEngine numbers reflect local setHtml() navigation on a headless surface, not a real on-screen first paint -- needs a manual Windows check.",
     "body_render_ms conflates markdown-it parsing and Pygments/anchor HTML generation because app/md_converter.py has no internal stage boundary between them (see ConverterInstrumentation docstring).",
-    "This tool never imports app.renderer's QThreadPool worker directly to avoid depending on GUI wiring under change; GUI heartbeat/contention tests reproduce the same shared _CONVERT_LOCK usage pattern instead."
-  ]
+    "This tool never imports app.renderer's QThreadPool worker directly to avoid depending on GUI wiring under change; GUI heartbeat/contention tests reproduce the same shared _CONVERT_LOCK usage pattern instead.",
+    "parser_lock_contention was re-measured on 2026-09-08 after fixing the tool's big_still_running_when_small_finished flag (it used to be sampled after thread.join(), so the derived blocked-fraction was always 1.0). Only that section was re-run (contention-reps 3); every other section in this file is from the original after-run earlier the same day, same machine, same fixtures."
+  ],
+  "parser_lock_contention_rerun_note": "re-run 2026-09-08 with the fixed flag; command in docs/upgrades/2026-09-08-next-large-markdown.md"
 }

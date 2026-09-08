@@ -70,6 +70,7 @@ _PARTIAL_CSS = """
     padding: 8px 14px; margin: 0 0 16px 0; font-size: .95em; }
 .partial-preview-notice .ppn-title { font-weight: 700; display: block; }
 .partial-preview-notice .ppn-scope { opacity: .85; }
+.partial-preview-notice .ppn-search { display: block; margin-top: 6px; font-weight: 700; }
 """
 _FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}\n{_PARTIAL_CSS}"
 
@@ -84,7 +85,10 @@ _FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}\n{_
 MAX_PREVIEW_BYTES = 10 * 1024 * 1024
 #: At or above this size the parse moves to a killable child process, so a
 #: newer document never waits behind it. Below it the in-process parse is
-#: short enough (<= ~90 ms) that process startup would cost more than it saves.
+#: short enough that process startup would cost more than it saves: ~90 ms for
+#: ordinary prose, and roughly 3x that (~250-300 ms) for the syntax-dense
+#: shapes in the benchmark (many code fences drive Pygments per block), which
+#: is still under the 1 s "switch to a small file" budget.
 SUBPROCESS_MIN_BYTES = 256 * 1024
 #: At or above this size the full render is too slow to be the first thing the
 #: reader sees, so a block-boundary prefix is rendered first ("fast text

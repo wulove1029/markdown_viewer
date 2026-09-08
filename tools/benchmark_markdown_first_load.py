@@ -413,6 +413,11 @@ def parser_lock_contention_once(md_converter, big_path: Path, small_path: Path) 
     t_small_request = time.perf_counter()
     md_converter.convert(small_path)
     small_elapsed_ms = (time.perf_counter() - t_small_request) * 1000
+    # Sampled here, *before* the join below: reading big_done after the join
+    # would always report False and make the derived
+    # "small_blocked_until_big_finished_fraction" a constant 1.0 regardless of
+    # what the code under test does (fixed 2026-09-08, batch 3 review).
+    big_running_at_small_return = not big_done.is_set()
     # Bounded, not the parser's own worst case: if the big convert() hasn't
     # finished in 60s something is wrong (all fixtures finish in low tens of
     # seconds), and we'd rather report "still running" honestly than hang.
@@ -422,7 +427,7 @@ def parser_lock_contention_once(md_converter, big_path: Path, small_path: Path) 
         "small_request_latency_ms": small_elapsed_ms,
         "big_convert_ms": big_elapsed.get("ms"),
         "big_started_before_small_request_ms": (t_small_request - t_launch) * 1000,
-        "big_still_running_when_small_finished": not big_done.is_set(),
+        "big_still_running_when_small_finished": big_running_at_small_return,
     }
 
 

@@ -162,6 +162,23 @@ from .url_schemes import register_document_schemes
 register_document_schemes()
 
 
+def _home_actions_html() -> str:
+    """Home-page action links, intercepted by :class:`_DocumentPage`.
+
+    "新增筆記" is the primary action (listed first, tagged with its Ctrl+N
+    shortcut) so a blank workspace can go straight into writing; open,
+    recent, and quick-open stay available beside it.
+    """
+    return (
+        '<nav class="home-actions" aria-label="開始使用">'
+        '<a class="home-action-primary" href="https://markdown-viewer.invalid/home/new">'
+        "新增筆記 <kbd>Ctrl+N</kbd></a>"
+        '<a href="https://markdown-viewer.invalid/home/open">開啟文件 <kbd>Ctrl+O</kbd></a>'
+        '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
+        '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>'
+    )
+
+
 class _DocumentPage(QWebEnginePage):
     """Intercept link clicks: wiki-links and cross-note links open in-app,
     external links open in the system browser, in-page anchors scroll."""
@@ -224,7 +241,7 @@ class _RenderSignals(QObject):
     # Fast text reading: a block-boundary prefix of a very large document,
     # emitted before ``ready`` so there is something to read while the full
     # preview finishes in the render worker process.
-    partial_ready = Signal(int, object, str, list)
+    partial_ready = Signal(int, object, str, list, int)
 
 
 class _MarkdownRenderWorker(QRunnable):
@@ -274,8 +291,9 @@ class _MarkdownRenderWorker(QRunnable):
         html = md_converter.wrap_body(rendered, path.stem, self.theme)
         if self._cancelled():
             return
+        percent = max(1, round(_prefix_bytes * 100 / max(size, 1)))
         self.signals.partial_ready.emit(self.generation, path, html,
-                                        list(rendered.headings))
+                                        list(rendered.headings), percent)
 
     def run(self):
         try:
@@ -328,6 +346,9 @@ class RendererView(QWebEngineView):
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
     translate_requested = Signal(str)  # selected text to translate
+    # (search text, percent of the document loaded) when a search misses only
+    # because fast text reading has not loaded the rest of the document yet.
+    partial_search_missed = Signal(str, int)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -347,6 +368,7 @@ class RendererView(QWebEngineView):
         # Fast text reading state: True while the page shows a labelled prefix
         # of a large document instead of the whole thing.
         self._partial_preview_active = False
+        self._partial_scope_percent = 0
         self._partial_restore: dict | None = None
         self._pending_export: tuple | None = None
         # Scroll ratio to re-apply once a live-preview (text) render loads, so
@@ -407,6 +429,7 @@ class RendererView(QWebEngineView):
         self._source_line_reveal = None
         self._loaded_markdown_generation = None
         self._partial_preview_active = False
+        self._partial_scope_percent = 0
         self._partial_restore = None
         pending_export = getattr(self, "_pending_export", None)
         if pending_export is not None:
@@ -566,10 +589,7 @@ class RendererView(QWebEngineView):
             "拖入 Markdown、文字或 PDF 文件，開始閱讀；需要寫作時，再切換編輯模式。",
             "你的文件工作台",
         )
-        actions = ('<nav class="home-actions" aria-label="開始使用">'
-                   '<a href="https://markdown-viewer.invalid/home/open">開啟文件 <kbd>Ctrl+O</kbd></a>'
-                   '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
-                   '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>')
+        actions = _home_actions_html()
         self.setHtml(html.replace("</main>", actions + "</main>"))
         if self._on_headings_ready:
             self._on_headings_ready([])
@@ -665,7 +685,7 @@ class RendererView(QWebEngineView):
         return self._partial_preview_active
 
     def _on_file_partial_ready(self, generation: int, source, html: str,
-                               headings: list):
+                               headings: list, percent: int = 0):
         """Show the fast-text-reading prefix while the full render continues."""
         if self._stale_render(generation, source):
             return
@@ -680,6 +700,7 @@ class RendererView(QWebEngineView):
             "pending_find": self._pending_find,
         }
         self._partial_preview_active = True
+        self._partial_scope_percent = int(percent)
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
         html = _html_with_render_generation(html, generation)
         self.page().setHtml(html, base_url)
@@ -705,6 +726,7 @@ class RendererView(QWebEngineView):
                 self._pending_scroll_generation = generation
         self._partial_restore = None
         self._partial_preview_active = False
+        self._partial_scope_percent = 0
         if (
             self._pending_scroll is not None
             and self._pending_scroll_generation == generation
@@ -1013,6 +1035,10 @@ class RendererView(QWebEngineView):
         generation = self._render_generation
 
         def finished(result):
+            if not result and getattr(self, "_partial_preview_active", False):
+                # Never fail silently on a partially loaded document: say what
+                # is loaded and search again once the full preview arrives.
+                self._notify_partial_search_miss(text)
             if result_callback is not None:
                 result_callback(result)
             # A library result may request its source block while an earlier
@@ -1024,6 +1050,30 @@ class RendererView(QWebEngineView):
 
         # Passing resultCallback=None into PySide6 findText crashes the process.
         self.page().findText(text, QWebEnginePage.FindFlag(0), finished)
+
+    def _notify_partial_search_miss(self, text: str) -> bool:
+        """Explain a "not found" that is really "not loaded yet".
+
+        Returns True when the miss was caused by fast text reading, in which
+        case the search is re-armed for the full document.
+        """
+        if not getattr(self, "_partial_preview_active", False) or not text:
+            return False
+        percent = getattr(self, "_partial_scope_percent", 0) or 0
+        message = (
+            f"找不到「{text}」。目前只載入這份文件的前 {percent}%"
+            "（快速文字閱讀）；完整預覽載入完成後會自動再搜尋一次。"
+        )
+        self.page().runJavaScript(
+            "(function(){var n=document.querySelector('.partial-preview-notice');"
+            "if(!n){return;}var m=n.querySelector('.ppn-search');"
+            "if(!m){m=document.createElement('span');m.className='ppn-search';"
+            "n.appendChild(m);}m.textContent=" + json.dumps(message, ensure_ascii=False) + ";})()"
+        )
+        # Re-run the same search against the whole document when it loads.
+        self._pending_find = (self._render_generation, text)
+        self.partial_search_missed.emit(text, int(percent))
+        return True
 
     def reveal_source_line_after_load(self, line_number: int):
         """Reveal a source block after this render loads, or immediately if ready.

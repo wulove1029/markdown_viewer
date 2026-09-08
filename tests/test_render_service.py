@@ -4,6 +4,7 @@ These tests start real child processes: the whole point of the design is that
 an in-flight parse can be stopped, which cannot be shown with a fake.
 """
 
+import os
 import socket
 import subprocess
 import sys
@@ -199,18 +200,66 @@ def test_worker_command_uses_the_frozen_executable_flag(monkeypatch):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", r"C:\App\MarkdownViewer.exe")
 
-    cmd, env = render_service._worker_command(4321, "ab" * 32)
+    cmd, env = render_service._worker_command(4321)
 
-    assert cmd == [r"C:\App\MarkdownViewer.exe", "--render-worker", "4321", "ab" * 32]
+    assert cmd == [r"C:\App\MarkdownViewer.exe", "--render-worker", "4321"]
     assert env[render_service.DISABLE_ENV] == "1"  # no grandchildren
 
 
 def test_source_worker_command_runs_the_module():
-    cmd, env = render_service._worker_command(4321, "cd" * 32)
+    cmd, env = render_service._worker_command(4321)
 
     assert cmd[:4] == [sys.executable, "-X", "utf8", "-m"]
     assert cmd[4] == "app.render_worker"
     assert str(ROOT) in env["PYTHONPATH"]
+
+
+def test_the_token_never_appears_in_the_child_command_line():
+    cmd, _env = render_service._worker_command(4321)
+
+    # Any local process can read a command line, so only the port is public.
+    assert all(len(arg) < 32 or not _looks_like_hex(arg) for arg in cmd)
+
+
+def _looks_like_hex(value: str) -> bool:
+    try:
+        bytes.fromhex(value)
+    except ValueError:
+        return False
+    return True
+
+
+def test_a_wrong_token_is_rejected_without_unpickling_anything(monkeypatch):
+    """A stranger that connects first must be killed before any pickle.loads."""
+    svc = render_service.RenderService()
+    impostor = (
+        "import socket,sys;"
+        "port=int(sys.argv[1]);"
+        "s=socket.create_connection(('127.0.0.1', port));"
+        "s.sendall(bytes(32));"          # 32 bytes that are not the token
+        "s.recv(1)"
+    )
+
+    def fake_command(port):
+        return [sys.executable, "-c", impostor, str(port)], dict(os.environ)
+
+    monkeypatch.setattr(render_service, "_worker_command", fake_command)
+    monkeypatch.setattr(render_service, "recv_frame", lambda *a, **kw: pytest.fail(
+        "the parent must not read a frame from an unauthenticated peer"))
+    try:
+        with pytest.raises(render_service.RenderWorkerError) as excinfo:
+            svc._spawn()
+        assert "token mismatch" in str(excinfo.value)
+        assert svc._live == set()
+    finally:
+        svc.shutdown()
+
+
+def test_the_child_reads_its_token_from_stdin(service):
+    body, error = service.render(text="# handshake")
+
+    assert error is None and body is not None
+    assert service._idle is not None  # the handshake succeeded
 
 
 def test_frozen_style_argv_entry_point_serves_a_render():
@@ -227,11 +276,14 @@ def test_frozen_style_argv_entry_point_serves_a_render():
     port = server.getsockname()[1]
     proc = subprocess.Popen(
         [sys.executable, "-X", "utf8", str(ROOT / "main.py"),
-         "--render-worker", str(port), token.hex()],
-        cwd=str(ROOT), stdin=subprocess.DEVNULL,
+         "--render-worker", str(port)],
+        cwd=str(ROOT), stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
+        proc.stdin.write(token)
+        proc.stdin.flush()
+        proc.stdin.close()
         sock, _addr = server.accept()
         server.close()
         sock.settimeout(60)

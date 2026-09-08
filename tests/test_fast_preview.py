@@ -182,12 +182,22 @@ class _StubPage:
     def __init__(self):
         self.pages = []
         self.pdfs = []
+        self.scripts = []
+        self.finds = []
 
     def setHtml(self, html, base_url=None):
         self.pages.append(html)
 
     def printToPdf(self, path, layout):
         self.pdfs.append(path)
+
+    def runJavaScript(self, script, callback=None):
+        self.scripts.append(script)
+
+    def findText(self, text, flags=None, callback=None):
+        self.finds.append(text)
+        if callback is not None:
+            callback(False)
 
 
 class _StubRenderer:
@@ -200,7 +210,16 @@ class _StubRenderer:
     _on_file_render_ready = _R._on_file_render_ready
     is_partial_preview = _R.is_partial_preview
     export_pdf = _R.export_pdf
+    find_text = _R.find_text
+    _notify_partial_search_miss = _R._notify_partial_search_miss
     del _R
+
+    class _Signal:
+        def __init__(self):
+            self.emitted = []
+
+        def emit(self, *args):
+            self.emitted.append(args)
 
     def __init__(self, path, generation=7):
         self._render_generation = generation
@@ -214,10 +233,16 @@ class _StubRenderer:
         self._on_headings_ready = None
         self._pending_export = None
         self._pdf_callback = None
+        self._partial_scope_percent = 0
+        self._source_line_reveal = None
+        self.partial_search_missed = self._Signal()
         self._page = _StubPage()
 
     def page(self):
         return self._page
+
+    def _cancel_source_line_reveal(self):
+        self._source_line_reveal = None
 
 
 def test_partial_page_does_not_swallow_a_pending_search_or_scroll(tmp_path):
@@ -228,7 +253,7 @@ def test_partial_page_does_not_swallow_a_pending_search_or_scroll(tmp_path):
     view._pending_scroll_generation = 7
     view._pending_find = (7, "needle")
 
-    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [])
+    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [], 10)
     assert view.is_partial_preview()
     # The partial page's own load consumes them (it looks like a normal load).
     view._pending_scroll = None
@@ -249,7 +274,7 @@ def test_full_page_keeps_the_reader_where_they_scrolled_in_the_prefix(tmp_path):
     path.write_text("# x\n", encoding="utf-8")
     view = _StubRenderer(path)
 
-    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [])
+    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [], 10)
     view._scroll_y = 900  # the reader scrolled inside the prefix
 
     view._on_file_render_ready(7, path, "<html><head></head><body>full</body></html>", [])
@@ -264,8 +289,8 @@ def test_stale_partial_view_never_touches_the_page(tmp_path):
     other.write_text("# y\n", encoding="utf-8")
     view = _StubRenderer(path)
 
-    view._on_file_partial_ready(6, path, "<html></html>", [])       # old generation
-    view._on_file_partial_ready(7, other, "<html></html>", [])      # other document
+    view._on_file_partial_ready(6, path, "<html></html>", [], 10)   # old generation
+    view._on_file_partial_ready(7, other, "<html></html>", [], 10)  # other document
 
     assert view._page.pages == []
     assert not view.is_partial_preview()
@@ -275,9 +300,38 @@ def test_pdf_export_waits_for_the_full_document(tmp_path):
     path = tmp_path / "big.md"
     path.write_text("# x\n", encoding="utf-8")
     view = _StubRenderer(path)
-    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [])
+    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>", [], 10)
 
     view.export_pdf(tmp_path / "out.pdf", None, object())
 
     assert view._page.pdfs == []          # never export the truncated prefix
     assert view._pending_export is not None
+
+
+def test_search_miss_on_a_partial_page_explains_the_loaded_range(tmp_path):
+    path = tmp_path / "big.md"
+    path.write_text("# x\n", encoding="utf-8")
+    view = _StubRenderer(path)
+    view._on_file_partial_ready(7, path, "<html><head></head><body>p</body></html>",
+                                [], 10)
+
+    view.find_text("後段關鍵字")
+
+    script = view._page.scripts[-1]
+    assert "ppn-search" in script
+    assert "只載入這份文件的前 10%" in script
+    # The same search is re-armed so the full document answers it.
+    assert view._pending_find == (7, "後段關鍵字")
+    assert view.partial_search_missed.emitted == [("後段關鍵字", 10)]
+
+
+def test_search_miss_on_a_complete_page_is_left_alone(tmp_path):
+    path = tmp_path / "doc.md"
+    path.write_text("# x\n", encoding="utf-8")
+    view = _StubRenderer(path)
+
+    view.find_text("nothing")
+
+    assert view._page.scripts == []
+    assert view._pending_find is None
+    assert view.partial_search_missed.emitted == []

@@ -1,0 +1,271 @@
+{
+  "generated_at": "2026-09-08T12:18:05",
+  "environment": {
+    "python": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "win32",
+    "platform_detail": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "cpu_count": 20,
+    "qt_qpa_platform": "offscreen",
+    "packaged": false,
+    "pyside6": "6.11.0",
+    "qt": "6.11.0"
+  },
+  "config": {
+    "output": "tmp\\bench\\contention-inprocess.json",
+    "tmp_dir": "E:\\markdown_viewer\\.claude\\worktrees\\batch3-large-markdown\\tmp\\bench",
+    "sizes": "100kb,5mb",
+    "categories": "long_prose",
+    "warm_reps": 1,
+    "switch_reps": 1,
+    "contention_reps": 3,
+    "gui_reps": 3,
+    "webengine_reps": 3,
+    "memory_iterations": 20,
+    "first_readable_reps": 1,
+    "cancel_switch_reps": 1,
+    "cold_timeout_s": 180.0,
+    "skip_cold": true,
+    "skip_webengine": true,
+    "skip_gui": true,
+    "skip_memory": true,
+    "quick": false
+  },
+  "seed": 20260908,
+  "sizes_bytes": {
+    "100kb": 100000,
+    "1mb": 1000000,
+    "5mb": 5000000,
+    "10mb": 10000000
+  },
+  "stress_categories": [
+    "big_table",
+    "code_heavy",
+    "long_paragraph",
+    "math_mermaid"
+  ],
+  "baseline_small_case": [
+    "long_prose",
+    "100kb"
+  ],
+  "cold_subprocess": {},
+  "warm_reopen": {
+    "long_prose/100kb": {
+      "convert_total_ms": {
+        "n": 1,
+        "p50_ms": 31.0312999999951,
+        "p95_ms": 31.0312999999951,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 31.0312999999951,
+        "min_ms": 31.0312999999951,
+        "samples_ms": [
+          31.0312999999951
+        ]
+      },
+      "decode_ms": {
+        "n": 1,
+        "p50_ms": 0.16070000037871068,
+        "p95_ms": 0.16070000037871068,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 0.16070000037871068,
+        "min_ms": 0.16070000037871068,
+        "samples_ms": [
+          0.16070000037871068
+        ]
+      },
+      "body_render_ms": {
+        "n": 1,
+        "p50_ms": 30.26159999990341,
+        "p95_ms": 30.26159999990341,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 30.26159999990341,
+        "min_ms": 30.26159999990341,
+        "samples_ms": [
+          30.26159999990341
+        ]
+      }
+    },
+    "long_prose/5mb": {
+      "convert_total_ms": {
+        "n": 1,
+        "p50_ms": 2247.631699999147,
+        "p95_ms": 2247.631699999147,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 2247.631699999147,
+        "min_ms": 2247.631699999147,
+        "samples_ms": [
+          2247.631699999147
+        ]
+      },
+      "decode_ms": {
+        "n": 1,
+        "p50_ms": 5.900699999983772,
+        "p95_ms": 5.900699999983772,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 5.900699999983772,
+        "min_ms": 5.900699999983772,
+        "samples_ms": [
+          5.900699999983772
+        ]
+      },
+      "body_render_ms": {
+        "n": 1,
+        "p50_ms": 2223.2906999997795,
+        "p95_ms": 2223.2906999997795,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 2223.2906999997795,
+        "min_ms": 2223.2906999997795,
+        "samples_ms": [
+          2223.2906999997795
+        ]
+      }
+    }
+  },
+  "sequential_switch": {
+    "long_prose/5mb_to_long_prose/100kb": {
+      "n": 1,
+      "p50_ms": 38.48370000014256,
+      "p95_ms": 38.48370000014256,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 38.48370000014256,
+      "min_ms": 38.48370000014256,
+      "samples_ms": [
+        38.48370000014256
+      ]
+    },
+    "solo_baseline_long_prose/100kb": {
+      "n": 1,
+      "p50_ms": 53.469399999812595,
+      "p95_ms": 53.469399999812595,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 53.469399999812595,
+      "min_ms": 53.469399999812595,
+      "samples_ms": [
+        53.469399999812595
+      ]
+    }
+  },
+  "parser_lock_contention": {
+    "long_prose/5mb_blocks_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 3,
+        "p50_ms": 3160.9644999998636,
+        "p95_ms": 3224.507199999607,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 3224.507199999607,
+        "min_ms": 3109.5146000006935,
+        "samples_ms": [
+          3109.5146000006935,
+          3224.507199999607,
+          3160.9644999998636
+        ]
+      },
+      "small_blocked_until_big_finished_fraction": 1.0,
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 3109.5146000006935,
+          "big_convert_ms": 3093.8562999999704,
+          "big_started_before_small_request_ms": 28.250299999854178,
+          "big_still_running_when_small_finished": false
+        },
+        {
+          "small_request_latency_ms": 3224.507199999607,
+          "big_convert_ms": 3242.8078000002643,
+          "big_started_before_small_request_ms": 30.492100000628852,
+          "big_still_running_when_small_finished": false
+        },
+        {
+          "small_request_latency_ms": 3160.9644999998636,
+          "big_convert_ms": 3138.463500000398,
+          "big_started_before_small_request_ms": 28.518699999949604,
+          "big_still_running_when_small_finished": false
+        }
+      ]
+    },
+    "solo_baseline_long_prose/100kb": {
+      "n": 3,
+      "p50_ms": 38.53479999997944,
+      "p95_ms": 40.802999999868916,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 40.802999999868916,
+      "min_ms": 36.78070000023581,
+      "samples_ms": [
+        38.53479999997944,
+        40.802999999868916,
+        36.78070000023581
+      ]
+    }
+  },
+  "first_readable": {
+    "long_prose/100kb": {
+      "n": 1,
+      "p50_ms": 50.24169999978767,
+      "p95_ms": 50.24169999978767,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 50.24169999978767,
+      "min_ms": 50.24169999978767,
+      "samples_ms": [
+        50.24169999978767
+      ],
+      "mode": "full_render",
+      "covered_fraction": 1.0
+    },
+    "long_prose/5mb": {
+      "n": 1,
+      "p50_ms": 232.89740000018355,
+      "p95_ms": 232.89740000018355,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 232.89740000018355,
+      "min_ms": 232.89740000018355,
+      "samples_ms": [
+        232.89740000018355
+      ],
+      "mode": "fast_text_prefix",
+      "covered_fraction": 0.1048678
+    }
+  },
+  "cancel_switch": {
+    "long_prose/5mb_cancelled_then_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 1,
+        "p50_ms": 3087.2599999993326,
+        "p95_ms": 3087.2599999993326,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 3087.2599999993326,
+        "min_ms": 3087.2599999993326,
+        "samples_ms": [
+          3087.2599999993326
+        ]
+      },
+      "big_stop_after_cancel_ms": {
+        "n": 1,
+        "p50_ms": 3077.431400000023,
+        "p95_ms": 3077.431400000023,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 3077.431400000023,
+        "min_ms": 3077.431400000023,
+        "samples_ms": [
+          3077.431400000023
+        ]
+      },
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 3087.2599999993326,
+          "big_outcome": "completed",
+          "big_stop_after_cancel_ms": 3077.431400000023,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 0
+        }
+      ]
+    }
+  },
+  "gui_heartbeat": {},
+  "webengine": {},
+  "memory": {},
+  "limitations": [
+    "Cold subprocess timings may hit the OS file-system cache from this same benchmark run's earlier fixture writes/reads; not a true cold-disk measurement.",
+    "QT_QPA_PLATFORM=offscreen is used throughout; WebEngine numbers reflect local setHtml() navigation on a headless surface, not a real on-screen first paint -- needs a manual Windows check.",
+    "body_render_ms conflates markdown-it parsing and Pygments/anchor HTML generation because app/md_converter.py has no internal stage boundary between them (see ConverterInstrumentation docstring).",
+    "This tool never imports app.renderer's QThreadPool worker directly to avoid depending on GUI wiring under change; GUI heartbeat/contention tests reproduce the same shared _CONVERT_LOCK usage pattern instead."
+  ]
+}

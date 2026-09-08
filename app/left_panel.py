@@ -27,6 +27,7 @@ class LeftPanel(QWidget):
     def __init__(self, on_file_selected, on_anchor_clicked,
                  annotation_callbacks, pdf_note_callbacks=None,
                  pdf_highlight_callbacks=None,
+                 pdf_embedded_annotation_callbacks=None,
                  on_tag_selected=None, search_roots_provider=None,
                  on_search_result=None,
                  on_manage_tags=None, tag_color_for=None,
@@ -94,6 +95,7 @@ class LeftPanel(QWidget):
         self._annotations = AnnotationsPanel(annotation_callbacks)
         self._pdf_markup = PdfMarkupPanel(
             pdf_note_callbacks or {}, pdf_highlight_callbacks or {},
+            embedded_annotation_callbacks=pdf_embedded_annotation_callbacks or {},
             on_doc_tags_changed=on_doc_tags_changed,
         )
         # The "標註" tab swaps between Markdown annotations and PDF markup
@@ -174,6 +176,10 @@ class LeftPanel(QWidget):
     @property
     def pdf_highlights(self):
         return self._pdf_markup.highlights
+
+    @property
+    def pdf_embedded_annotations(self):
+        return self._pdf_markup.embedded_annotations
 
     @property
     def tags(self) -> TagsPanel:

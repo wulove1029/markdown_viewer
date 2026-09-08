@@ -17,6 +17,11 @@ a socket is.  The child is launched as ``python -m app.render_worker`` from
 source and as ``MarkdownViewer.exe --render-worker`` when frozen.
 
 Only the parent process caches results; the child is stateless per request.
+
+From source the child imports markdown-it and Pygments only (no Qt).  In a
+frozen build the child *is* the app executable, so ``main.py``'s module-level
+imports pull in Qt before the worker entry point runs -- the frozen child is
+therefore heavier and slower to start than the source-mode one.
 """
 
 from __future__ import annotations
@@ -42,6 +47,9 @@ DISABLE_ENV = "MDV_DISABLE_RENDER_SUBPROCESS"
 
 _HEADER = struct.Struct("!Q")
 _TOKEN_BYTES = 32
+# Generous on purpose: a 10 MB document (MAX_PREVIEW_BYTES) can produce a
+# body fragment several times its own size. It is a sanity bound against a
+# corrupt length prefix, not a memory budget.
 _MAX_FRAME_BYTES = 256 * 1024 * 1024
 _HANDSHAKE_TIMEOUT_S = 30.0
 _REQUEST_TIMEOUT_S = 180.0
@@ -127,16 +135,19 @@ class _Worker:
             pass
 
 
-def _worker_command(port: int, token_hex: str) -> tuple[list[str], dict]:
+def _worker_command(port: int) -> tuple[list[str], dict]:
+    """Argv for the child. The token is NEVER an argument: any local process
+    can read another process's command line, so it goes over the child's stdin
+    (see _spawn) and only the port is public."""
     root = Path(__file__).resolve().parents[1]
     env = dict(os.environ)
     env[DISABLE_ENV] = "1"  # a child never spawns grandchildren
     env.setdefault("PYTHONIOENCODING", "utf-8")
     if getattr(sys, "frozen", False):
-        return [sys.executable, "--render-worker", str(port), token_hex], env
+        return [sys.executable, "--render-worker", str(port)], env
     env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
     return (
-        [sys.executable, "-X", "utf8", "-m", "app.render_worker", str(port), token_hex],
+        [sys.executable, "-X", "utf8", "-m", "app.render_worker", str(port)],
         env,
     )
 
@@ -202,19 +213,27 @@ class RenderService:
             server.listen(1)
             server.settimeout(_HANDSHAKE_TIMEOUT_S)
             port = server.getsockname()[1]
-            cmd, env = _worker_command(port, token.hex())
+            cmd, env = _worker_command(port)
             creationflags = 0
             if sys.platform == "win32":
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(
                 cmd,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=str(Path(__file__).resolve().parents[1]),
                 env=env,
                 creationflags=creationflags,
             )
+            try:
+                # Hand the shared secret over a private pipe, then close it.
+                proc.stdin.write(token)
+                proc.stdin.flush()
+                proc.stdin.close()
+            except OSError as exc:
+                proc.kill()
+                raise RenderWorkerError(f"render worker stdin failed: {exc}") from exc
             try:
                 sock, _addr = server.accept()
             except (socket.timeout, OSError) as exc:
@@ -231,8 +250,13 @@ class RenderService:
             proc.kill()
             raise RenderWorkerError(f"render worker handshake failed: {exc}") from exc
         if not hmac.compare_digest(greeting, token):
+            # Reject before a single byte is unpickled.
             sock.close()
             proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:  # pragma: no cover - already reaped
+                pass
             raise RenderWorkerError("render worker handshake token mismatch")
         worker = _Worker(proc, sock)
         with self._lock:

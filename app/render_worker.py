@@ -1,9 +1,14 @@
 """Child process that renders Markdown for :mod:`app.render_service`.
 
-Runs as ``python -m app.render_worker <port> <token-hex>`` from source and as
-``MarkdownViewer.exe --render-worker <port> <token-hex>`` when frozen (see
-``main.py``).  Imports no Qt: the whole point is a small, killable process
-holding only ``markdown-it`` and Pygments.
+Runs as ``python -m app.render_worker <port>`` from source and as
+``MarkdownViewer.exe --render-worker <port>`` when frozen (see
+``main.py``).  The 32-byte handshake token is read from stdin, never from
+argv, because any local process can read another process's command line.
+
+Imports no Qt of its own -- the point is a small, killable process holding
+only ``markdown-it`` and Pygments.  (In a frozen build the executable is
+``main.py``, whose module-level imports do pull in Qt before this entry point
+runs, so the frozen child is heavier than the source-mode one.)
 """
 
 from __future__ import annotations
@@ -67,8 +72,30 @@ def _serve_connection(sock: socket.socket) -> None:
         send_frame(sock, {"ok": True, "body": body})
 
 
-def serve(port: int, token_hex: str) -> int:
-    token = bytes.fromhex(token_hex)
+def read_token(size: int = 32) -> bytes:
+    """Read the shared secret from stdin (never from argv, which is public).
+
+    Frozen windowed builds can leave ``sys.stdin`` as ``None`` even though the
+    parent gave us a real pipe, so fall back to file descriptor 0.
+    """
+    stream = getattr(sys.stdin, "buffer", None)
+    if stream is None:
+        stream = os.fdopen(0, "rb", closefd=False)
+    data = b""
+    while len(data) < size:
+        chunk = stream.read(size - len(data))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
+
+def serve(port: int, token: bytes | None = None) -> int:
+    if token is None:
+        token = read_token()
+    if len(token) != 32:
+        print("render worker: missing stdin token", file=sys.stderr)
+        return 2
     sock = socket.create_connection(("127.0.0.1", int(port)), timeout=30)
     try:
         sock.sendall(token)
@@ -85,12 +112,13 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "--render-worker":
         argv = argv[1:]
-    if len(argv) < 2:
-        print("usage: app.render_worker <port> <token-hex>", file=sys.stderr)
+    if not argv:
+        print("usage: app.render_worker <port>  (token arrives on stdin)",
+              file=sys.stderr)
         return 2
     # Belt and braces: a worker must never spawn its own worker.
     os.environ["MDV_DISABLE_RENDER_SUBPROCESS"] = "1"
-    return serve(int(argv[0]), argv[1])
+    return serve(int(argv[0]))
 
 
 if __name__ == "__main__":  # pragma: no cover - process entry point
