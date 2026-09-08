@@ -5,9 +5,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QSettings, Qt, Signal
+from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtTest import QTest
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QPushButton, QWidget
 
 from app import edit_backend
@@ -3031,6 +3032,99 @@ def test_home_action_new_on_a_brand_new_setup_opens_dialog_and_creates(
     created = tmp_path / "first-note.md"
     assert created.exists()
     assert win._current_file == created
+
+
+# ---------------- _DocumentPage.acceptNavigationRequest guard ----------------
+# Unit tests for the interception logic itself. A real QWebEngineView can be
+# constructed offscreen, but this only needs the page's navigation-request
+# handler and a stand-in for its ``_view`` attribute -- no Chromium
+# navigation, rendering, or RUN_WEBENGINE_TESTS is required.
+class _FakeDocumentPageView(QObject):
+    home_action_requested = Signal(str)
+    wikilink_clicked = Signal(str)
+    local_doc_clicked = Signal(str)
+
+    def __init__(self, current_path=None):
+        super().__init__()
+        self._current_path = current_path
+
+
+def _make_document_page(current_path=None):
+    from app.renderer import _DocumentPage
+
+    view = _FakeDocumentPageView(current_path)
+    page = _DocumentPage(view)
+    events = []
+    view.home_action_requested.connect(events.append)
+    return page, events
+
+
+def test_accept_navigation_request_fires_home_new_on_real_home_link_click(qapp):
+    page, events = _make_document_page(current_path=None)
+
+    accepted = page.acceptNavigationRequest(
+        QUrl("https://markdown-viewer.invalid/home/new"),
+        QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
+        True,
+    )
+
+    assert events == ["new"]
+    # The scheme is always intercepted (never handed to the page itself).
+    assert accepted is False
+
+
+def test_accept_navigation_request_ignores_same_url_inside_an_open_document(qapp):
+    # _current_path set (a real document tab is active) must block the home
+    # action even for a literal same-URL link inside that document's body.
+    page, events = _make_document_page(current_path="C:/notes/doc.md")
+
+    page.acceptNavigationRequest(
+        QUrl("https://markdown-viewer.invalid/home/new"),
+        QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
+        True,
+    )
+
+    assert events == []
+
+
+def test_accept_navigation_request_ignores_non_click_navigation(qapp):
+    # A programmatic / stale (queued, no-longer-relevant) navigation must
+    # never retrigger "new", even while the home page is genuinely showing.
+    page, events = _make_document_page(current_path=None)
+
+    for nav_type in (
+        QWebEnginePage.NavigationType.NavigationTypeTyped,
+        QWebEnginePage.NavigationType.NavigationTypeOther,
+        QWebEnginePage.NavigationType.NavigationTypeReload,
+        QWebEnginePage.NavigationType.NavigationTypeBackForward,
+    ):
+        page.acceptNavigationRequest(
+            QUrl("https://markdown-viewer.invalid/home/new"), nav_type, True
+        )
+
+    assert events == []
+
+
+def test_pending_recovery_page_never_emits_a_home_new_link_to_click():
+    # show_pending_recovery() clears _current_path to None just like the real
+    # home page (_home_action's window-level guard alone would not stop a
+    # click there), so the actual protection is that its HTML never includes
+    # the home-actions nav in the first place -- there is no "home/new" href
+    # for acceptNavigationRequest to ever see a click on. Lock that in
+    # directly against the source rather than duplicating the (a)/(b)/(c)
+    # navigation-type tests above.
+    import inspect
+
+    from app.renderer import RendererView
+
+    pending_recovery_src = inspect.getsource(RendererView.show_pending_recovery)
+    show_empty_src = inspect.getsource(RendererView.show_empty)
+
+    assert "_home_actions_html" not in pending_recovery_src
+    assert "home-actions" not in pending_recovery_src
+    # Sanity check the assertion is meaningful: the real home page does wire
+    # the actions nav, so this isn't just testing an unrelated method.
+    assert "_home_actions_html" in show_empty_src
 
 
 # ---------------- Ctrl+N new note ----------------

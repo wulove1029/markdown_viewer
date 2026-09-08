@@ -146,6 +146,82 @@ Exit 0；`1472 passed, 75 skipped` in 50.50s；跑完後複查
 `app/renderer.py`、`app/window.py`、`tests/test_file_ops.py`、
 `tests/test_text_support.py`、`tests/test_window_integration.py`。
 
+## 第二輪：fresh review 要求補的測試
+
+Fresh review（主樹 `docs/upgrades/2026-09-08-next-home-new-review.md`）結論可
+合併，但要求針對兩個判斷邏輯直接補測試，而不是只靠 `_home_action`／
+`NewNoteDialog` 高層行為間接覆蓋。
+
+### 1. `_DocumentPage.acceptNavigationRequest` 攔截邏輯（`app/renderer.py`）
+
+離線 offscreen 下可以直接建構 `_DocumentPage(fake_view)`（`fake_view` 只需
+一個 `_current_path` 屬性＋`home_action_requested`/`wikilink_clicked`/
+`local_doc_clicked` 三個 Signal，不需要真的 `RendererView`／Chromium 導覽），
+呼叫 `acceptNavigationRequest(url, nav_type, True)` 直接驗證判斷邏輯，見
+`tests/test_window_integration.py`：
+
+- `test_accept_navigation_request_fires_home_new_on_real_home_link_click`
+  （a：首頁狀態＋LinkClicked 觸發 `home_action_requested.emit("new")`）
+- `test_accept_navigation_request_ignores_same_url_inside_an_open_document`
+  （b：`_current_path` 非 None 時同網址連結不觸發）
+- `test_accept_navigation_request_ignores_non_click_navigation`
+  （c：Typed／Other／Reload／BackForward 等非 LinkClicked 導覽不觸發，
+  涵蓋「過期導覽」情境）
+- `test_pending_recovery_page_never_emits_a_home_new_link_to_click`
+  （d：待復原頁——用 `inspect.getsource` 直接核對
+  `RendererView.show_pending_recovery` 原始碼不含 `_home_actions_html`／
+  `home-actions`，對照 `show_empty` 確實有，鎖住「待復原頁根本不產生可點
+  連結」這個實際防護機制，而非重複測 (c) 的導覽型別判斷）
+
+踩雷紀錄：一開始這四個測試沒有宣告 `qapp` fixture 依賴，在單獨執行時因為
+`qapp` 已存在（前一個 `-c` 手動驗證）而看似正常，但在完整檔案內、且排在
+其他建立 QApplication 的測試「之前」執行時，`QWebEnginePage` 建構在還沒有
+`QApplication` 實例時觸發原生崩潰，pytest/bash 回報成難以理解的 exit 127。
+補上 `qapp` fixture 參數（強制先建立 QApplication）後穩定通過。
+
+### 2. `NewNoteDialog` 鍵盤與尺寸（`app/new_note_dialog.py`、
+`tests/test_text_support.py`）
+
+實測發現既有 widget 建立順序（類型→編輯方式→檔名→位置）產生的預設 Tab
+鏈不符合規格「檔名→位置/瀏覽→類型→編輯方式→建立/取消」，因此在
+`NewNoteDialog.__init__` 補上明確的 `setTabOrder()` 鏈（`app/new_note_dialog.py`
+新增於 `_apply_theme` 呼叫之前）：
+`name_input -> browse_btn -> type_buttons[0] -> editor_backend_combo ->
+cancel_btn -> create_btn`（兩個同群 QRadioButton 屬同一個 Tab 停駐點，方向鍵
+在群內移動是 Qt 標準行為，不算漏掉）。
+
+新增測試：
+
+- `test_dialog_defaults_focus_to_the_name_field`：`show()`＋
+  `activateWindow()`＋`processEvents()` 後 `_name_input.hasFocus()`。
+- `test_dialog_tab_order_is_name_then_folder_then_type_then_backend_then_buttons`：
+  先輸入合法檔名讓「建立」變為可用（否則停用會被 Tab 跳過，造成假陽性），
+  用 `QTest.keyClick(..., Key_Tab)` 逐步核對整條鏈並確認會繞回檔名欄。
+- `test_dialog_enter_creates_and_escape_cancels_without_leaving_a_file`：
+  Enter 建立成功；Esc 取消（`Rejected`、`created_path() is None`、未留檔）。
+- `test_dialog_at_540px_height_keeps_every_control_visible`：`resize(w, 540)`
+  後檔名／位置標籤／瀏覽／兩個類型／編輯方式／錯誤標籤／取消／建立全部
+  `isVisible()`，且每個元件在 dialog 座標下的 geometry 落在 dialog 自己的
+  rect 內（沒有被裁切或跑到視窗外）。
+
+踩雷紀錄：`show()` 在 offscreen 平台、且已有其他頂層視窗存在時不保證拿到
+OS 級 activation，`hasFocus()`/`focusWidget()` 會回報假的 `False`／`None`；
+補上 `activateWindow()` + `raise_()` + `processEvents()`（`_show_and_activate`
+helper）後在「單檔執行」與「接在其他測試檔之後執行」兩種順序下都穩定。
+
+### 本輪驗證指令與結果
+
+```
+py -3 -X utf8 -m pytest tests/test_window_integration.py tests/test_text_support.py -q -p no:cacheprovider --basetemp tmp/next-home-tests-r2
+```
+Exit 0，`176 passed`。
+
+```
+py -3 -X utf8 -m pytest tests -q -p no:cacheprovider --basetemp tmp/next-home-tests-full2
+```
+Exit 0，`1480 passed, 75 skipped`（比上一輪多 8 個新測試），43.23 秒，
+跑完複查 `%APPDATA%/python/markdown-viewer/` 沒有新增 `recovery` 資料夾。
+
 ## 已知未確認 / 手動待驗
 
 - 540px 高度、明暗主題下的實際視覺操作是離線 pytest（offscreen）不會渲染

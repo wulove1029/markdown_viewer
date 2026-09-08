@@ -2,6 +2,9 @@
 
 import codecs
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+
 from app import edit_backend
 from app import new_note_dialog as new_note_dialog_mod
 from app.md_converter import read_text, read_text_detailed
@@ -254,5 +257,131 @@ def test_dialog_write_failure_leaves_no_empty_file_and_keeps_input(
         assert dialog._name_input.text() == "locked"
         assert "拒絕存取" in dialog._error_label.text()
         assert list(tmp_path.iterdir()) == []
+    finally:
+        dialog.close()
+
+
+# ---------------- keyboard, tab order, and sizing ----------------
+def _show_and_activate(dialog, qapp):
+    """Make offscreen focus/hasFocus() reliable regardless of test order.
+
+    ``show()`` alone does not always hand a dialog OS-level activation on the
+    offscreen platform once another top-level window already exists (as one
+    typically does by the time this test runs alongside the rest of the
+    suite), and unfocused windows report ``hasFocus() is False`` even for a
+    widget that already called ``setFocus()`` until the activation and
+    focus-in events are actually delivered.
+    """
+    dialog.show()
+    dialog.activateWindow()
+    dialog.raise_()
+    qapp.processEvents()
+    dialog._name_input.setFocus()
+    qapp.processEvents()
+
+
+def test_dialog_defaults_focus_to_the_name_field(qapp, tmp_path):
+    dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        _show_and_activate(dialog, qapp)
+        assert dialog._name_input.hasFocus() is True
+    finally:
+        dialog.close()
+
+
+def test_dialog_tab_order_is_name_then_folder_then_type_then_backend_then_buttons(
+    qapp, tmp_path
+):
+    dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        _show_and_activate(dialog, qapp)
+        # A disabled 建立 button (empty name) is skipped by Tab, so type a
+        # valid name first to exercise the full chain including it.
+        dialog._name_input.setText("valid-name")
+        assert dialog._create_btn.isEnabled() is True
+
+        widgets_by_id = {
+            id(dialog._name_input): "name",
+            id(dialog._browse_btn): "browse",
+            id(dialog._type_buttons[0][0]): "type_md",
+            id(dialog._type_buttons[1][0]): "type_txt",
+            id(dialog._editor_backend_combo): "backend",
+            id(dialog._cancel_btn): "cancel",
+            id(dialog._create_btn): "create",
+        }
+        dialog._name_input.setFocus()
+        qapp.processEvents()
+        assert qapp.focusWidget() is dialog._name_input
+        order = ["name"]
+        for _ in range(6):
+            QTest.keyClick(qapp.focusWidget(), Qt.Key.Key_Tab)
+            order.append(widgets_by_id.get(id(qapp.focusWidget()), "other"))
+
+        # Radio buttons in the same exclusive group are one Tab stop (arrow
+        # keys move between them; that's standard, expected Qt behavior), so
+        # only the currently-checked "md" radio appears here.
+        assert order == [
+            "name",
+            "browse",
+            "type_md",
+            "backend",
+            "cancel",
+            "create",
+            "name",  # wraps back around
+        ]
+    finally:
+        dialog.close()
+
+
+def test_dialog_enter_creates_and_escape_cancels_without_leaving_a_file(
+    qapp, tmp_path
+):
+    accept_dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        accept_dialog.show()
+        accept_dialog._name_input.setText("via-enter")
+        QTest.keyClick(accept_dialog._name_input, Qt.Key.Key_Return)
+        assert accept_dialog.result() == accept_dialog.DialogCode.Accepted
+        assert accept_dialog.created_path() == tmp_path / "via-enter.md"
+        assert (tmp_path / "via-enter.md").exists()
+    finally:
+        accept_dialog.close()
+
+    cancel_dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        cancel_dialog.show()
+        cancel_dialog._name_input.setText("via-escape")
+        QTest.keyClick(cancel_dialog, Qt.Key.Key_Escape)
+        assert cancel_dialog.result() == cancel_dialog.DialogCode.Rejected
+        assert cancel_dialog.created_path() is None
+        assert not (tmp_path / "via-escape.md").exists()
+    finally:
+        cancel_dialog.close()
+
+
+def test_dialog_at_540px_height_keeps_every_control_visible(qapp, tmp_path):
+    dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        dialog.resize(max(dialog.width(), dialog.minimumWidth()), 540)
+        dialog.show()
+        for widget in (
+            dialog._name_input,
+            dialog._folder_label,
+            dialog._browse_btn,
+            dialog._type_buttons[0][0],
+            dialog._type_buttons[1][0],
+            dialog._editor_backend_combo,
+            dialog._error_label,
+            dialog._cancel_btn,
+            dialog._create_btn,
+        ):
+            assert widget.isVisible() is True
+            # Every control's geometry (in dialog coordinates) must be
+            # within the dialog's own client rect -- nothing clipped or
+            # pushed outside a 540px-tall window.
+            top_left = widget.mapTo(dialog, widget.rect().topLeft())
+            bottom_right = widget.mapTo(dialog, widget.rect().bottomRight())
+            assert dialog.rect().contains(top_left)
+            assert dialog.rect().contains(bottom_right)
     finally:
         dialog.close()

@@ -153,6 +153,18 @@ class NewNoteDialog(QDialog):
         button_row.addWidget(self._create_btn)
         layout.addLayout(button_row)
 
+        # The widgets are added to the layout in a different order (type,
+        # then editor backend, then name, then folder) than the order a user
+        # actually fills them in, so the default creation-order tab chain
+        # would not match. Wire an explicit chain: 檔名 -> 位置/瀏覽 -> 類型
+        # -> 編輯方式 -> 取消/建立.
+        self.setTabOrder(self._name_input, self._browse_btn)
+        self.setTabOrder(self._browse_btn, self._type_buttons[0][0])
+        self.setTabOrder(self._type_buttons[0][0], self._type_buttons[1][0])
+        self.setTabOrder(self._type_buttons[1][0], self._editor_backend_combo)
+        self.setTabOrder(self._editor_backend_combo, self._cancel_btn)
+        self.setTabOrder(self._cancel_btn, self._create_btn)
+
         self._apply_theme(theme)
         self._revalidate()
         self._name_input.setFocus()
