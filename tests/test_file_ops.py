@@ -54,6 +54,25 @@ def test_create_document_refuses_existing_and_invalid_names(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["note.txt"]
 
 
+def test_create_document_uses_exclusive_create_against_a_race(tmp_path, monkeypatch):
+    """A file created *after* the preflight check must never be overwritten.
+
+    ``create_document`` first does a friendly ``exists()`` check, then must
+    still create the file exclusively so a competing writer that wins the
+    race between that check and the real write is never silently clobbered.
+    """
+    target = tmp_path / "note.md"
+    target.write_bytes(b"someone else's content")
+    # Simulate the TOCTOU window: the preflight check reports "free" even
+    # though the file already exists by the time the real write happens.
+    monkeypatch.setattr(file_ops.Path, "exists", lambda self: False)
+
+    with pytest.raises(OSError):
+        file_ops.create_document(tmp_path, "note", ".md")
+
+    assert target.read_bytes() == b"someone else's content"
+
+
 def test_create_folder(tmp_path):
     created = file_ops.create_folder(tmp_path, "inbox")
     assert created.is_dir()
