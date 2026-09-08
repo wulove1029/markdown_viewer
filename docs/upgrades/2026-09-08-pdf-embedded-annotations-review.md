@@ -191,3 +191,84 @@ close-time stall risk.
 全套：`py -3 -X utf8 -m pytest tests -q -p no:cacheprovider --basetemp tmp/pdf-annot-review4` → **1634 passed, 75 skipped**，exit 0。
 
 ### 結論：通過（PASS）。三項先前 FAIL 均已修正並有對應測試覆蓋，全套測試綠燈。
+
+
+---
+
+## 獨立驗收 #5 — commit 3f9122f（寫回 PDF 註解），2026-09-08
+
+驗收者未參與實作，僅依條件查證，未修改程式碼。真實檔 `C:\Users\USER01\Desktop\dm00293821.pdf`
+驗收前後 size=1031891、mtime_ns=1788842411806000200 完全一致（實測皆用 tmp 複本）。
+
+### 1. 只用增量儲存 — PASS
+`app/pdf_annotation_writer.py:122-135` `_save_incremental()` 是唯一寫入點，
+`incremental=True` + `encryption=PDF_ENCRYPT_KEEP`；`add_reply`/`edit_annotation`/
+`delete_annotation` 三條路徑都經過它。全 app 目錄下 `doc.save(` 僅此一處
+（`pdf_view.py:1866` 是 `painter.save()`）。無 `saveIncr`、無寫暫存再 `os.replace`。
+fixture 實測：寫入後原 1132 bytes 前綴 byte-for-byte 相同，僅尾端追加 946 bytes。
+
+### 2. 失敗處理 — PASS
+- 唯讀（`os.chmod 0o444`）：`writable_reason` 回「檔案為唯讀，無法寫入註解」，
+  `add_reply` 拋 `AnnotationWriteError`，檔案 bytes 不變。
+- 獨占 handle（`CreateFileW` dwShareMode=0）：拋 `AnnotationWriteError`
+  （訊息為「無法讀取此 PDF…」，語意略偏但型別正確），bytes 不變。
+- 加密 PDF（AES-256 有密碼）：`writable_reason` 回「此 PDF 已加密，無法寫入註解」，
+  `pdf_annotation_card.set_write_blocked()` 停用輸入框與送出鈕並把原因放進 placeholder/tooltip。
+- UI 端 `window.py:_perform_pdf_annotation_write` 先寫入成功才 re-read + 重開卡片；
+  `pdf_annotation_card._submit_reply` 明確不先回顯文字，失敗時卡片與側欄都不會出現該回覆。
+
+### 3. 備份 — PASS（有 2 個命名瑕疵）
+`session_backup_dir()` = `tempfile.mkdtemp(prefix="mdviewer-pdf-annot-")`；
+`cleanup_session_backups()` 只 `rmtree` 自己那個目錄，於 `window.closeEvent` 呼叫。
+`backup()` 在 `add_reply`/`edit_annotation`/`delete_annotation` 每次寫入前都呼叫（非只第一次，實測第二次寫入後備份內容有更新）。
+瑕疵：檔名 `{stem}-{pid}{suffix}` 會被同 session 後續寫入覆蓋（只保留最後一次寫入前狀態），
+且不同目錄同名 PDF 會互相覆蓋。
+
+### 4. 作者與權限 — PASS（刪除有連鎖行為需知會使用者）
+`_owned_by()` 比對 `/T` 與目前作者名；非本人編輯／刪除皆被拒且 bytes 不變（實測）。
+卡片端 `_ReplyRow(editable=...)`＋`view.set_annotation_author()` 換名後舊列 `begin_edit()` 回 False。
+刪除用 `page.delete_annot(annot)`。**實測：刪除父註解時 MuPDF 連帶刪掉所有 /IRT 指向它的回覆**
+（xref 5,8,11,13 → 只剩無關的 8,11），不會產生孤兒回覆；但別人寫的回覆也會被一併刪除，
+且刪除沒有確認對話框。
+
+### 5. /IRT 正確性 — PASS
+fixture：新 xref 8，`IRT=5 0 R`、`T=Alice`、`Contents`、`M=D:2026...`、`Subtype=/Text`、
+`Rect=[72 754 88 770]`（與父 rect 左上同點）。`RT` 未寫出（PDF 預設即 /R，Acrobat 相容）。
+真實檔 tmp 複本：父 xref 367（USER01 的 Highlight），新回覆 xref 428，
+`IRT=367 0 R`、`T=USER01`、`Contents=review reply`、`M=D:20260908141109`、
+`Rect=[234.217 612.65 250.217 628.65]`（父 rect x0=234.217，同位置）；
+重新 extract 後 thread 為 367 →〔369, 428〕。
+
+### 6. 與 QPdfDocument 共存 — PASS
+offscreen `QPdfDocument.load()` 真實檔複本（22 頁, Status.Ready）保持載入，
+同時 `add_reply` 成功（+1790 bytes，前綴不變），事後 `doc.status()` 仍 Ready、頁數不變。
+`window.py:4812` 在寫入成功後立刻 `self._loaded_signature = self._file_signature(path)`，
+而 `_on_file_changed`（window.py:5786）比對 `(st_mtime_ns, st_size)` 相同即 return，
+故自家儲存不會觸發外部修改提示。overlay 為自繪，不需重載 QPdfDocument。
+
+### 7. 卡片 — PASS
+拖曳限制：`_on_drag()` → `clamp()` 以 parent（viewport）rect 夾住，
+測試 `test_a_drag_is_clamped_inside_the_viewport`。位置以 page-point offset 記憶
+（`pdf_view._remember_card_offset/_dragged_position`，除以 `_scale`），
+測試 `test_dragging_a_card_is_remembered_across_a_zoom`；`load` 時 `_card_offsets.clear()`（僅本 session）。
+Esc／點別處關閉：`test_escape_and_a_click_elsewhere_close_the_card`。
+配色全部走 `Theme` token，唯一硬編碼是陰影 `QColor(0,0,0,70)`（alpha 陰影，兩主題皆可）；
+`apply_theme` 也套用到 auto cards。
+
+### 8. 測試 — PASS
+`tests/test_pdf_embedded_annotations.py tests/test_pdf_view.py tests/test_window_integration.py`：
+247 passed，exit 0。全套 `tests`：1652 passed, 75 skipped，exit 0。
+
+### 挑錯清單（依嚴重度）
+1. 中：刪除自己的父註解會靜默連帶刪除其他人寫的 /IRT 回覆，且無確認對話框。建議加確認並提示會刪幾則回覆。
+2. 低：備份檔名 `{stem}-{pid}.pdf` 會被同一 session 的後續寫入／同名不同目錄的檔案覆蓋，只保留最後一份。
+3. 低：`add_reply`/`edit_annotation` 中 `_locate`、`add_text_annot`、`xref_set_key` 未包在
+   `AnnotationWriteError` 轉換內，罕見的 pymupdf 例外會以原始型別逸出，`window._perform_pdf_annotation_write`
+   只攔 `AnnotationWriteError`，可能整個崩掉（不會毀檔）。
+4. 低：獨占鎖住的檔案錯誤訊息是「無法讀取此 PDF」而非「被其他程式鎖住」，使用者較難理解。
+5. 低：權限僅比對作者字串，同名使用者可互改；`writable_reason` 只在開檔時算一次（寫入時仍會再驗，無風險）。
+
+### 結論
+**通過**。沒有找到可毀損使用者 PDF 的路徑（唯一寫入為增量 append，前綴不變，寫前有備份，
+失敗不改 UI 狀態）；commit message 的宣稱（增量、備份、事前拒絕、作者限制、
+QPdfDocument 共存、signature 戳記）逐條實測皆屬實。建議修第 1 項後再對外宣稱刪除功能完備。
