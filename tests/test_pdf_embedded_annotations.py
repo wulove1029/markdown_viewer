@@ -1202,3 +1202,340 @@ def test_real_file_card_fits_its_content_without_a_scrollbar(qapp):
     assert card._scroll.verticalScrollBar().maximum() == 0
     assert not card._scroll.verticalScrollBar().isVisible()
     view.deleteLater()
+
+
+# --------------------------------------------------------------------------
+# Writing replies/edits back into the PDF (incremental saves only)
+# --------------------------------------------------------------------------
+
+import os  # noqa: E402
+import shutil  # noqa: E402
+import stat  # noqa: E402
+
+from app import pdf_annotation_writer as writer  # noqa: E402
+from app.pdf_annotation_writer import AnnotationWriteError  # noqa: E402
+
+AUTHOR = "USER01"
+OTHER = "SomebodyElse"
+
+
+def test_writable_reason_is_none_for_an_ordinary_pdf(threaded_pdf):
+    assert writer.writable_reason(threaded_pdf) is None
+
+
+def test_read_only_and_missing_and_encrypted_files_are_refused(tmp_path, threaded_pdf):
+    missing = tmp_path / "nope.pdf"
+    assert "不存在" in writer.writable_reason(missing)
+    assert writer.writable_reason(None)
+
+    read_only = tmp_path / "ro.pdf"
+    shutil.copy(threaded_pdf, read_only)
+    os.chmod(read_only, stat.S_IREAD)
+    try:
+        assert "唯讀" in writer.writable_reason(read_only)
+        with pytest.raises(AnnotationWriteError):
+            writer.add_reply(read_only, 1, "nope", AUTHOR)
+    finally:
+        os.chmod(read_only, stat.S_IWRITE | stat.S_IREAD)
+
+    encrypted = tmp_path / "locked.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.save(
+        str(encrypted),
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        owner_pw="owner",
+        user_pw="user",
+    )
+    doc.close()
+    assert "加密" in writer.writable_reason(encrypted)
+
+
+def test_adding_a_reply_appends_an_irt_text_annotation(threaded_pdf):
+    before = threaded_pdf.read_bytes()
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+    new_xref = writer.add_reply(threaded_pdf, parent.xref, "第二則回覆", AUTHOR)
+
+    after = threaded_pdf.read_bytes()
+    # Incremental: the original bytes are a prefix of the new file.
+    assert after[: len(before)] == before
+    assert len(after) > len(before)
+    assert after.count(b"%%EOF") > before.count(b"%%EOF")
+
+    entries = extract_embedded_annotations(threaded_pdf)
+    added = next(e for e in entries if e.xref == new_xref)
+    assert added.kind == "Text"
+    assert added.in_reply_to == parent.xref
+    assert added.content == "第二則回覆"
+    assert added.author == AUTHOR
+    assert len(build_annotation_threads(entries)[0][1]) == 2
+
+
+def test_a_write_backs_the_file_up_first(threaded_pdf):
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+    original = threaded_pdf.read_bytes()
+    writer.add_reply(threaded_pdf, parent.xref, "備份測試", AUTHOR)
+    copies = list(writer.session_backup_dir().glob("*.pdf"))
+    assert copies
+    assert any(c.read_bytes() == original for c in copies)
+
+
+def test_empty_reply_text_is_refused(threaded_pdf):
+    with pytest.raises(AnnotationWriteError):
+        writer.add_reply(threaded_pdf, 1, "   ", AUTHOR)
+
+
+def test_editing_and_deleting_are_limited_to_your_own_annotations(threaded_pdf):
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+    mine = writer.add_reply(threaded_pdf, parent.xref, "我的回覆", AUTHOR)
+
+    writer.edit_annotation(threaded_pdf, mine, "改過了", AUTHOR)
+    entries = extract_embedded_annotations(threaded_pdf)
+    assert next(e for e in entries if e.xref == mine).content == "改過了"
+
+    with pytest.raises(AnnotationWriteError, match="只能編輯"):
+        writer.edit_annotation(threaded_pdf, mine, "不是我", OTHER)
+    with pytest.raises(AnnotationWriteError, match="只能刪除"):
+        writer.delete_annotation(threaded_pdf, mine, OTHER)
+
+    writer.delete_annotation(threaded_pdf, mine, AUTHOR)
+    assert all(
+        e.xref != mine for e in extract_embedded_annotations(threaded_pdf)
+    )
+
+
+def test_owns_compares_the_author_name():
+    entry = EmbeddedAnnotation(page=0, kind="Text", author="USER01")
+    assert writer.owns(entry, "USER01")
+    assert not writer.owns(entry, "someone")
+    assert not writer.owns(entry, "")
+
+
+def test_default_author_prefers_the_environment(monkeypatch):
+    monkeypatch.setenv("USERNAME", "EnvUser")
+    assert writer.default_author() == "EnvUser"
+
+
+# --------------------------------------------------------------------------
+# Card chrome, the reply box, and dragging
+# --------------------------------------------------------------------------
+
+def test_card_has_a_close_button_and_a_reply_box(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    assert card.close_button().text() == "×"
+    assert card.reply_edit().placeholderText() == "新增回覆…"
+    assert card.reply_edit().isEnabled()
+    card.close_button().click()
+    assert not card.isVisible()
+    view.deleteLater()
+
+
+def test_a_blocked_document_disables_the_reply_box_with_the_reason(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    view.set_annotation_write_blocked("檔案為唯讀，無法寫入註解")
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    assert not card.reply_edit().isEnabled()
+    assert "唯讀" in card.reply_edit().placeholderText()
+    # Enter in a blocked box must not ask for a write.
+    asked = []
+    view.annotation_reply_requested.connect(lambda *a: asked.append(a))
+    card.reply_edit().setText("nope")
+    card._submit_reply()
+    assert asked == []
+    view.deleteLater()
+
+
+def test_submitting_a_reply_asks_the_window_and_does_not_echo_it(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    asked = []
+    view.annotation_reply_requested.connect(lambda e, t: asked.append((e.xref, t)))
+    card.reply_edit().setText("新回覆")
+    card._submit_reply()
+    assert asked == [(parent.xref, "新回覆")]
+    # The thread still shows only what is actually in the file.
+    assert len(card.reply_rows()) == 1
+    view.deleteLater()
+
+
+def test_only_your_own_replies_are_editable_in_the_card(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    view.set_annotation_author("USER01")
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    row = view.annotation_card().reply_rows()[0]
+    assert row.begin_edit()  # the fixture's reply is authored by USER01
+
+    view.set_annotation_author("SomebodyElse")
+    _click(view, _marker_point(view, parent))
+    assert not view.annotation_card().reply_rows()[0].begin_edit()
+    view.deleteLater()
+
+
+def test_dragging_a_card_is_remembered_across_a_zoom(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+
+    target = QPoint(40, 300)
+    card._on_drag(target)
+    card.moved.emit()
+    dragged = card.pos()
+    assert dragged != QPoint(0, 0)
+    assert parent.xref in view._card_offsets
+
+    view.set_zoom_factor(1.6)
+    ox = view.horizontalScrollBar().value()
+    oy = view.verticalScrollBar().value()
+    expected = view._dragged_position(parent, ox, oy)
+    assert expected is not None
+    assert card.pos() == card.clamp(expected, view.viewport().rect())
+    view.deleteLater()
+
+
+def test_a_drag_is_clamped_inside_the_viewport(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    card._on_drag(QPoint(-500, -500))
+    assert view.viewport().rect().contains(card.geometry())
+    card._on_drag(QPoint(9000, 9000))
+    assert view.viewport().rect().contains(card.geometry())
+    view.deleteLater()
+
+
+# --------------------------------------------------------------------------
+# Window: a failed write must never look like a success
+# --------------------------------------------------------------------------
+
+class _WriteWindow:
+    """The slice of MainWindow the annotation-write handlers actually touch."""
+
+    def __init__(self, path, view):
+        self._current_kind = "pdf"
+        self._current_file = Path(path)
+        self._pdf_view = view
+        self._pdf_embedded_annotations = extract_embedded_annotations(path)
+        self._loaded_signature = "old"
+        self.warnings = []
+        self.messages = []
+        self.panel_refreshes = 0
+        self._perform_pdf_annotation_write = (
+            window_mod.MainWindow._perform_pdf_annotation_write.__get__(
+                self, window_mod.MainWindow
+            )
+        )
+
+    def _pdf_annotation_author(self):
+        return AUTHOR
+
+    def _file_signature(self, _path):
+        return "new"
+
+    def _refresh_pdf_embedded_annotations_panel(self):
+        self.panel_refreshes += 1
+
+    def statusBar(self):
+        window = self
+
+        class _Bar:
+            def showMessage(self, text, *_a):
+                window.messages.append(text)
+
+        return _Bar()
+
+
+def _bind(window, name):
+    return getattr(window_mod.MainWindow, name).__get__(window, window_mod.MainWindow)
+
+
+def test_a_failed_write_reports_the_reason_and_adds_nothing(
+    qapp, threaded_pdf, monkeypatch
+):
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "warning",
+        lambda *args, **kwargs: win.warnings.append(args[-1]),
+    )
+    monkeypatch.setattr(
+        writer,
+        "add_reply",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AnnotationWriteError("檔案被其他程式鎖住，無法儲存註解")
+        ),
+    )
+    before = list(win._pdf_embedded_annotations)
+    parent = next(e for e in before if e.kind == "Highlight")
+
+    assert _bind(win, "_pdf_annotation_reply")(parent, "不會被寫入") is False
+    assert win.warnings and "鎖住" in win.warnings[0]
+    assert any("未寫入" in m for m in win.messages)
+    assert [e.xref for e in win._pdf_embedded_annotations] == [e.xref for e in before]
+    assert win.panel_refreshes == 0
+    assert win._loaded_signature == "old"  # no watcher suppression on failure
+    view.deleteLater()
+
+
+def test_a_successful_write_re_reads_the_file_and_reopens_the_card(
+    qapp, threaded_pdf, monkeypatch
+):
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", lambda *a, **k: None)
+    parent = next(e for e in win._pdf_embedded_annotations if e.kind == "Highlight")
+
+    assert _bind(win, "_pdf_annotation_reply")(parent, "寫入成功") is True
+    contents = [e.content for e in win._pdf_embedded_annotations]
+    assert "寫入成功" in contents
+    assert win.panel_refreshes == 1
+    # Our own save must not trigger the "externally modified" prompt.
+    assert win._loaded_signature == "new"
+    assert view.annotation_card().isVisible()
+    view.deleteLater()
+
+
+def test_deleting_a_reply_focuses_the_parent_card(qapp, threaded_pdf, monkeypatch):
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", lambda *a, **k: None)
+    parent = next(e for e in win._pdf_embedded_annotations if e.kind == "Highlight")
+    reply = next(e for e in win._pdf_embedded_annotations if e.is_reply)
+
+    assert _bind(win, "_pdf_annotation_delete")(reply) is True
+    assert all(e.xref != reply.xref for e in win._pdf_embedded_annotations)
+    assert view.annotation_card().entry().xref == parent.xref
+    view.deleteLater()
+
+
+@requires_real_pdf
+def test_real_file_round_trips_a_reply_on_a_copy_never_the_original(qapp, tmp_path):
+    """The real Acrobat file is copied first; the Desktop original is read-only."""
+    original_bytes = REAL_ACROBAT_PDF.read_bytes()
+    work = tmp_path / "real-copy.pdf"
+    shutil.copy(REAL_ACROBAT_PDF, work)
+
+    assert writer.writable_reason(work) is None
+    new_xref = writer.add_reply(work, 367, "自動測試回覆", AUTHOR)
+    entries = extract_embedded_annotations(work)
+    added = next(e for e in entries if e.xref == new_xref)
+    assert added.in_reply_to == 367 and added.content == "自動測試回覆"
+    assert len(build_annotation_threads(entries)[0][1]) == 2
+    # The file on the Desktop was never touched.
+    assert REAL_ACROBAT_PDF.read_bytes() == original_bytes

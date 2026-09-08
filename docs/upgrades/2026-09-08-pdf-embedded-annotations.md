@@ -246,3 +246,56 @@ PDF 底左原點，若不乘 `page.transformation_matrix`，卡片會垂直鏡�
 
 驗證：指定 3 檔 229 passed；全套 1634 passed／75 skipped，exit 0。重截的
 `pdf-annot-popup.png` 卡片高 210 px（內容需 208）、捲軸 `maximum()==0`、引線清楚。
+
+## Acrobat 風格卡片＋回覆寫回 PDF（2026-09-08 第四輪）
+
+### 外觀（`app/pdf_annotation_card.py` 重寫）
+
+圓角 8 px、1 px 主題邊框、`QGraphicsDropShadowEffect`（blur 18、offset 0/3）。
+版面：標題列（作者粗體＋時間＋右側「×」）／內容區／回覆列表（每則作者粗體＋
+時間＋內容，不再用「↳ 註解」）／底部「新增回覆…」`QLineEdit` 加「送出」鈕。
+移除預設 `QFrame` 框線（`Shape.NoFrame`），全部顏色走主題 token，深色可讀。
+引線保留。
+
+### 拖動與位置記憶
+
+標題列 `_CardHeader` 可拖動，`clamp()` 限制在 viewport 內。放開後
+`PdfView._remember_card_offset()` 以**頁點**（除以 scale）記下相對註解 rect
+左上角的位移，存進 `_card_offsets`；之後不論捲動、切頁或縮放，
+`_dragged_position()` 都以同一相對位置重新定位。換檔（`load()`）才清空。
+不寫回 PDF 的 `/Popup /Rect`。
+
+### 寫回 PDF（新檔 `app/pdf_annotation_writer.py`）
+
+`add_reply()`／`edit_annotation()`／`delete_annotation()`，一律
+`doc.save(path, incremental=True, encryption=PDF_ENCRYPT_KEEP)`，**絕不整檔重寫**。
+回覆是 `page.add_text_annot()` 加 `/IRT`、`/T`、`/Contents`、`/M`，顏色沿用父註解。
+寫入前 `writable_reason()` 檢查：不存在／唯讀（`os.access(W_OK)`）／加密
+（`needs_pass` 或 `is_encrypted`）／`can_save_incrementally()` 為否，任一成立就
+回傳中文原因，UI 用它停用輸入框並顯示在 placeholder。每次寫入前先把原檔
+複製到 `mdviewer-pdf-annot-*` 暫存目錄（`closeEvent` 清除）。
+`PermissionError` 等失敗一律轉成 `AnnotationWriteError`，由
+`MainWindow._perform_pdf_annotation_write()` 以 `QMessageBox.warning` ＋狀態列
+呈現；**失敗時不更新任何 UI 狀態**（卡片不會出現那則回覆，
+`_loaded_signature` 也不動）。成功後才重新擷取註解、更新 overlay／側欄／卡片，
+並把 `_loaded_signature` 設成新簽章，避免檔案監看器跳「已被外部修改」。
+編輯／刪除以 `/T` 比對作者，只能動自己建立的。作者名走新設定
+`pdf_annotation_author`（設定選單「PDF 註解作者…」），預設 `USERNAME`／`USER`
+環境變數或 `os.getlogin()`。
+
+### QPdfDocument 與 sharing violation 實測
+
+在本機（Windows 11、PySide6 6.11）實測：`QPdfDocument` 已載入同一份 PDF 時，
+PyMuPDF 的 `doc.save(incremental=True)` **可以成功**（Qt 以共享寫入開檔）。
+因此**不需要**先 `QPdfDocument.close()` 再重載，也就不會有頁碼／捲動／縮放
+被重置的問題。頁面內容本來就沒變，只有註解變，而註解是本程式自繪的，所以
+不必重新 raster。
+
+### 驗證
+
+新增 21 個測試（增量儲存的 bytes 前綴不變與多一個 `%%EOF`、IRT 正確、備份
+存在、唯讀／加密／不存在拒絕、只能改自己的、卡片有 × 與輸入框、blocked 時
+Enter 不送出、送出不先回填 UI、只有自己的回覆可編輯、拖動記憶跨縮放、拖動
+夾在 viewport 內、寫入失敗不改 UI、成功後重讀並重開卡片、刪除回覆聚焦父卡片、
+真實檔先複製到 tmp 再寫且驗證 Desktop 原檔 bytes 不變）。
+指定 3 檔 229 passed；全套 1652 passed／75 skipped，exit 0。

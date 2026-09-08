@@ -181,6 +181,9 @@ class _FakePdfView(QWidget):
     outline_ready = Signal(int, object, object)
     embedded_annotations_ready = Signal(int, object, object)
     embedded_annotation_selected = Signal(object)
+    annotation_reply_requested = Signal(object, str)
+    annotation_edit_requested = Signal(object, str)
+    annotation_delete_requested = Signal(object)
     zoom_changed = Signal(float)
     translate_requested = Signal(str)
 
@@ -196,6 +199,11 @@ class _FakePdfView(QWidget):
         self.embedded_annotations = []
         self.flashed_annotations = []
         self.cards_shown = []
+        self.annotation_author = ""
+        self.annotation_write_blocked = ""
+        self._fake_card = type(
+            "_FakeCard", (), {"clear_reply_input": lambda self: None}
+        )()
 
     def set_embedded_annotations(self, entries):
         self.embedded_annotations = list(entries or [])
@@ -206,6 +214,15 @@ class _FakePdfView(QWidget):
     def show_annotation_card(self, entry):
         self.cards_shown.append(entry)
         return True
+
+    def set_annotation_author(self, author):
+        self.annotation_author = author
+
+    def set_annotation_write_blocked(self, reason):
+        self.annotation_write_blocked = reason
+
+    def annotation_card(self):
+        return self._fake_card
 
     def close_annotation_card(self):
         self.cards_shown.append(None)

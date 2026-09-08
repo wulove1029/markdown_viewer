@@ -111,6 +111,8 @@ from .note_templates import (
 )
 from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
+from . import pdf_annotation_writer
+from .pdf_embedded_annotations import extract_embedded_annotations
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
 from .renderer import RendererView
@@ -160,6 +162,7 @@ from .version import RELEASE_NOTES, VERSION
 
 _ORG = "markdown-viewer"
 _APP = "MarkdownViewer"
+_PDF_ANNOTATION_AUTHOR_KEY = "pdf_annotation_author"
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
 _RECENT_TEMPLATES_KEY = "recent_editor_templates"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
@@ -576,6 +579,13 @@ class MainWindow(QMainWindow):
         self._pdf_view.embedded_annotation_selected.connect(
             self._on_pdf_embedded_annotation_clicked
         )
+        self._pdf_view.annotation_reply_requested.connect(
+            self._pdf_annotation_reply
+        )
+        self._pdf_view.annotation_edit_requested.connect(self._pdf_annotation_edit)
+        self._pdf_view.annotation_delete_requested.connect(
+            self._pdf_annotation_delete
+        )
         self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
         self._pdf_view.translate_requested.connect(self._translate_selection)
         # Wheel zoom is already applied locally by PdfView. Defer the heavier
@@ -801,6 +811,9 @@ class MainWindow(QMainWindow):
 
         settings_menu = bar.addMenu("設定(&S)")
         settings_menu.addAction(act("偏好設定…", self._open_preferences))
+        settings_menu.addAction(
+            act("PDF 註解作者…", self._edit_pdf_annotation_author)
+        )
 
         help_menu = bar.addMenu("說明(&H)")
         help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
@@ -4577,6 +4590,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # list immediately so nothing stale lingers in the panel meanwhile.
         self._pdf_embedded_annotations = []
         self._refresh_pdf_embedded_annotations_panel()
+        self._refresh_pdf_annotation_write_state()
         # Resume where the reader left off.
         page = self._pdf_pages_map().get(str(path), 0)
         self._pdf_view.restore_page(int(page))
@@ -4741,6 +4755,98 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # Open the same card the on-page marker opens, so the comment text is
         # readable next to the passage instead of only in the list.
         self._pdf_view.show_annotation_card(entry)
+
+    # --- writing replies/edits back into the PDF (incremental saves only) ---
+    def _pdf_annotation_author(self) -> str:
+        configured = str(
+            QSettings(_ORG, _APP).value(_PDF_ANNOTATION_AUTHOR_KEY, "") or ""
+        ).strip()
+        return configured or pdf_annotation_writer.default_author()
+
+    def _edit_pdf_annotation_author(self):
+        name, ok = QInputDialog.getText(
+            self,
+            "PDF 註解作者",
+            "新增 PDF 註解時使用的作者名稱：",
+            text=self._pdf_annotation_author(),
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            return
+        QSettings(_ORG, _APP).setValue(_PDF_ANNOTATION_AUTHOR_KEY, name)
+        self._pdf_view.set_annotation_author(name)
+        self.statusBar().showMessage(f"PDF 註解作者已設為「{name}」", 3000)
+
+    def _refresh_pdf_annotation_write_state(self):
+        """Tell the view whether this PDF can take new annotations, and why not.
+
+        Checked when the document opens so the reply box is disabled with a
+        reason rather than swallowing a comment that could never be saved.
+        """
+        self._pdf_view.set_annotation_author(self._pdf_annotation_author())
+        if self._current_kind != "pdf" or self._current_file is None:
+            self._pdf_view.set_annotation_write_blocked("尚未開啟 PDF")
+            return
+        reason = pdf_annotation_writer.writable_reason(self._current_file) or ""
+        self._pdf_view.set_annotation_write_blocked(reason)
+
+    def _perform_pdf_annotation_write(self, action, focus_xref) -> bool:
+        """Run one write, then re-read the file and re-open the card.
+
+        Nothing is echoed into the UI before the save succeeds: on failure the
+        reply simply never appears, and the reason (with the session backup
+        that was taken first) is reported instead.
+        """
+        if self._current_kind != "pdf" or self._current_file is None:
+            return False
+        path = self._current_file
+        try:
+            action(path, self._pdf_annotation_author())
+        except pdf_annotation_writer.AnnotationWriteError as exc:
+            QMessageBox.warning(self, "無法寫入 PDF 註解", str(exc))
+            self.statusBar().showMessage(f"註解未寫入：{exc}", 6000)
+            return False
+        # Our own save: keep the file watcher from offering to reload.
+        self._loaded_signature = self._file_signature(path)
+        self._pdf_embedded_annotations = extract_embedded_annotations(path)
+        self._refresh_pdf_embedded_annotations_panel()
+        self._pdf_view.annotation_card().clear_reply_input()
+        entry = next(
+            (e for e in self._pdf_embedded_annotations if e.xref == focus_xref),
+            None,
+        )
+        if entry is not None:
+            self._pdf_view.show_annotation_card(entry)
+        self.statusBar().showMessage("已寫入 PDF 註解", 3000)
+        return True
+
+    def _pdf_annotation_reply(self, entry, text: str) -> bool:
+        return self._perform_pdf_annotation_write(
+            lambda path, author: pdf_annotation_writer.add_reply(
+                path, entry.xref, text, author
+            ),
+            entry.xref,
+        )
+
+    def _pdf_annotation_edit(self, entry, text: str) -> bool:
+        focus = entry.in_reply_to if entry.in_reply_to is not None else entry.xref
+        return self._perform_pdf_annotation_write(
+            lambda path, author: pdf_annotation_writer.edit_annotation(
+                path, entry.xref, text, author
+            ),
+            focus,
+        )
+
+    def _pdf_annotation_delete(self, entry) -> bool:
+        focus = entry.in_reply_to if entry.in_reply_to is not None else entry.xref
+        return self._perform_pdf_annotation_write(
+            lambda path, author: pdf_annotation_writer.delete_annotation(
+                path, entry.xref, author
+            ),
+            focus,
+        )
 
     def _on_pdf_embedded_annotation_clicked(self, entry):
         """Mirror an on-page annotation click into the sidebar list.
@@ -6547,6 +6653,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def closeEvent(self, event):
         self._flush_pdf_zoom_pipeline()
+        # The pre-write copies of edited PDFs are a crash aid, not a feature;
+        # they go away with the session.
+        pdf_annotation_writer.cleanup_session_backups()
         if self._deferred_update_close_approved:
             self._deferred_update_close_approved = False
             super().closeEvent(event)

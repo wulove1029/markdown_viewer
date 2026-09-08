@@ -30,6 +30,8 @@ from pathlib import Path
 from PySide6.QtCore import (
     QElapsedTimer,
     QEvent,
+    QRect,
+    QSize,
     QObject,
     QPoint,
     QPointF,
@@ -188,6 +190,9 @@ class PdfView(QAbstractScrollArea):
     outline_ready = Signal(int, object, object)  # generation, path, entries
     embedded_annotations_ready = Signal(int, object, object)  # generation, path, entries
     embedded_annotation_selected = Signal(object)  # EmbeddedAnnotation clicked on page
+    annotation_reply_requested = Signal(object, str)   # parent entry, reply text
+    annotation_edit_requested = Signal(object, str)    # entry, new text
+    annotation_delete_requested = Signal(object)       # entry
     zoom_changed = Signal(float)  # user-initiated wheel zoom
     translate_requested = Signal(str)  # selected text to translate
 
@@ -310,8 +315,12 @@ class PdfView(QAbstractScrollArea):
         self._flash_timer.timeout.connect(self._clear_annotation_flash)
         # One non-modal card at a time, stacked on the viewport so the reader
         # can see the marked text and the comment together.
-        self._annotation_card = PdfAnnotationCard(self.viewport())
-        self._annotation_card.apply_theme(self._theme)
+        self._annotation_author = ""
+        self._annotation_write_blocked = ""
+        # Where the reader dragged a card, as an offset from its annotation in
+        # page points, so the card returns to the same spot at any zoom.
+        self._card_offsets: dict[int, tuple[float, float]] = {}
+        self._annotation_card = self._new_card()
         # Acrobat shows a /Popup whose /Open is true as soon as the file is
         # opened; those cards live alongside the click-opened one. Dismissing
         # one is remembered for the session so it does not pop back on scroll.
@@ -388,6 +397,7 @@ class PdfView(QAbstractScrollArea):
         self.selection_changed.emit(False)
         self._highlights = []
         self._popup_dismissed.clear()
+        self._card_offsets.clear()
         self.set_embedded_annotations([])
         self._cache.clear()
         self._text_bounds.clear()
@@ -1673,9 +1683,15 @@ class PdfView(QAbstractScrollArea):
         anchor = pdf_annotation_overlay.card_anchor(
             entry, self._screen_mapper(entry.page, ox, oy), replies
         )
-        self._annotation_card.show_for(
-            entry, replies, anchor.toRect(), self.viewport().rect()
-        )
+        dragged = self._dragged_position(entry, ox, oy)
+        if dragged is not None:
+            self._annotation_card.show_pinned(
+                entry, replies, QRect(dragged, QSize(1, 1)), self.viewport().rect()
+            )
+        else:
+            self._annotation_card.show_for(
+                entry, replies, anchor.toRect(), self.viewport().rect()
+            )
         return True
 
     def _reposition_annotation_card(self) -> None:
@@ -1696,16 +1712,78 @@ class PdfView(QAbstractScrollArea):
             return
         ox = self.horizontalScrollBar().value()
         oy = self.verticalScrollBar().value()
+        replies = self._embedded_replies.get(entry.xref, ())
+        dragged = self._dragged_position(entry, ox, oy)
+        if dragged is not None:
+            card.show_pinned(
+                entry, replies, QRect(dragged, QSize(1, 1)), self.viewport().rect()
+            )
+            return
         anchor = pdf_annotation_overlay.card_anchor(
-            entry,
-            self._screen_mapper(entry.page, ox, oy),
-            self._embedded_replies.get(entry.xref, ()),
+            entry, self._screen_mapper(entry.page, ox, oy), replies
         )
-        card.show_for(
-            entry,
-            self._embedded_replies.get(entry.xref, ()),
-            anchor.toRect(),
-            self.viewport().rect(),
+        card.show_for(entry, replies, anchor.toRect(), self.viewport().rect())
+
+    def _new_card(self) -> PdfAnnotationCard:
+        """Build a card wired to this view's write-request signals."""
+        card = PdfAnnotationCard(self.viewport())
+        card.apply_theme(self._theme)
+        card.set_author(self._annotation_author)
+        card.set_write_blocked(self._annotation_write_blocked)
+        card.reply_submitted.connect(self.annotation_reply_requested.emit)
+        card.edit_submitted.connect(self.annotation_edit_requested.emit)
+        card.delete_requested.connect(self.annotation_delete_requested.emit)
+        card.moved.connect(lambda c=card: self._remember_card_offset(c))
+        return card
+
+    def set_annotation_author(self, author: str) -> None:
+        """Whose annotations may be edited or deleted from a card."""
+        self._annotation_author = str(author or "").strip()
+        for card in self._all_cards():
+            card.set_author(self._annotation_author)
+
+    def set_annotation_write_blocked(self, reason: str) -> None:
+        """Disable the reply boxes, showing *reason* (empty re-enables them)."""
+        self._annotation_write_blocked = str(reason or "")
+        for card in self._all_cards():
+            card.set_write_blocked(self._annotation_write_blocked)
+
+    def annotation_author(self) -> str:
+        return self._annotation_author
+
+    def _all_cards(self):
+        cards = [getattr(self, "_annotation_card", None)]
+        cards.extend(getattr(self, "_auto_cards", {}).values())
+        return [c for c in cards if c is not None]
+
+    def _annotation_origin(self, entry, ox: int, oy: int):
+        """Top-left of the annotation's own rect, in viewport pixels."""
+        box = self._screen_mapper(entry.page, ox, oy)(*entry.rect)
+        return box.topLeft()
+
+    def _remember_card_offset(self, card) -> None:
+        entry = card.entry()
+        if entry is None or not entry.xref or not self._page_tops:
+            return
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        origin = self._annotation_origin(entry, ox, oy)
+        scale = self._scale or 1.0
+        self._card_offsets[entry.xref] = (
+            (card.x() - origin.x()) / scale,
+            (card.y() - origin.y()) / scale,
+        )
+
+    def _dragged_position(self, entry, ox: int, oy: int):
+        """Where the reader last dragged this annotation's card, or None."""
+        offset = self._card_offsets.get(entry.xref)
+        if offset is None:
+            return None
+        origin = self._annotation_origin(entry, ox, oy)
+        scale = self._scale or 1.0
+        return QPoint(
+            int(origin.x() + offset[0] * scale),
+            int(origin.y() + offset[1] * scale),
         )
 
     def auto_cards(self) -> dict:
@@ -1740,16 +1818,21 @@ class PdfView(QAbstractScrollArea):
         for xref, entry in wanted.items():
             card = cards.get(xref)
             if card is None:
-                card = PdfAnnotationCard(self.viewport())
-                card.apply_theme(self._theme)
+                card = self._new_card()
                 card.closed.connect(
                     lambda x=xref: self._on_auto_card_dismissed(x)
                 )
                 cards[xref] = card
+            dragged = self._dragged_position(entry, ox, oy)
+            where = (
+                QRect(dragged, QSize(1, 1))
+                if dragged is not None
+                else self._popup_screen_rect(entry, ox, oy)
+            )
             card.show_pinned(
                 entry,
                 self._embedded_replies.get(xref, ()),
-                self._popup_screen_rect(entry, ox, oy),
+                where,
                 self.viewport().rect(),
             )
 
