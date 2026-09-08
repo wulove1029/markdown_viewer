@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import doc_tags as doc_tags_facade
+from .pdf_embedded_annotations_panel import PdfEmbeddedAnnotationsPanel
 from .pdf_notes_panel import PdfNotesPanel
 from .theme import LIGHT, Theme, collection_stylesheet
 
@@ -184,6 +185,7 @@ class PdfMarkupPanel(QWidget):
         self,
         note_callbacks: dict,
         highlight_callbacks: dict,
+        embedded_annotation_callbacks: dict | None = None,
         on_doc_tags_changed=None,
         parent=None,
     ):
@@ -214,8 +216,12 @@ class PdfMarkupPanel(QWidget):
         self._tabs.setDocumentMode(True)
         self._highlights = PdfHighlightsPanel(highlight_callbacks or {})
         self._notes = PdfNotesPanel(note_callbacks or {})
+        self._embedded_annotations = PdfEmbeddedAnnotationsPanel(
+            embedded_annotation_callbacks or {}
+        )
         self._tabs.addTab(self._highlights, "螢光")
         self._tabs.addTab(self._notes, "頁註")
+        self._tabs.addTab(self._embedded_annotations, "內嵌註解")
         layout.addWidget(self._tabs)
         self._set_doc_tags_enabled(False)
         self.apply_theme(LIGHT)
@@ -279,6 +285,10 @@ class PdfMarkupPanel(QWidget):
     def notes(self) -> PdfNotesPanel:
         return self._notes
 
+    @property
+    def embedded_annotations(self) -> PdfEmbeddedAnnotationsPanel:
+        return self._embedded_annotations
+
     def apply_theme(self, theme: Theme):
         self._theme = theme
         self._doc_tags_box.setStyleSheet(f"background: {theme.surface};")
@@ -301,3 +311,4 @@ class PdfMarkupPanel(QWidget):
         )
         self._highlights.apply_theme(theme)
         self._notes.apply_theme(theme)
+        self._embedded_annotations.apply_theme(theme)

@@ -121,6 +121,11 @@ class PdfRenderScheduler(QObject):
             return False
 
         options = QPdfDocumentRenderOptions()
+        # Draw Acrobat-authored annotation appearances (highlight/box/etc.)
+        # directly on the page raster. This is independent of the app's own
+        # highlight overlay, which is drawn separately in PdfView and never
+        # stored as a PDF annotation, so the two cannot visually collide.
+        options.setRenderFlags(QPdfDocumentRenderOptions.RenderFlag.Annotations)
         image_size = QSize(*spec.page_px)
         if spec.content_rect is not None:
             x, y, width, height = spec.content_rect
