@@ -272,3 +272,58 @@ Esc／點別處關閉：`test_escape_and_a_click_elsewhere_close_the_card`。
 **通過**。沒有找到可毀損使用者 PDF 的路徑（唯一寫入為增量 append，前綴不變，寫前有備份，
 失敗不改 UI 狀態）；commit message 的宣稱（增量、備份、事前拒絕、作者限制、
 QPdfDocument 共存、signature 戳記）逐條實測皆屬實。建議修第 1 項後再對外宣稱刪除功能完備。
+
+---
+
+## Review: leader-line smear / drag lag fix (commit e32579e, parent 4344911)
+
+驗收對象：`app/pdf_view.py`、`app/pdf_annotation_card.py`。獨立重跑，未改任何檔案。
+
+1. **`_leader_endpoints()`/`_sync_leader_region()` — PASS。**
+   `paint`（`_paint_popup_leaders`，pdf_view.py:1909）與髒區追蹤（`_sync_leader_region`，
+   pdf_view.py:1769）都呼叫同一 `_leader_endpoints()`，幾何單一來源。`_sync_leader_region`
+   取「舊 ∪ 新」後 `adjusted(-3,-3,3,3)` 外擴（pdf_view.py:1786）。卡片關閉
+   （`closed.connect`，1797）、自動卡片消失（`_on_auto_card_dismissed`，1906）、
+   relayout/縮放/捲動（皆經 `_sync_auto_cards` → 1899，被 557/586/1663 三處呼叫）都會清舊線。
+   引線只在 `paintEvent` 內對整個 viewport 畫一次（1178 行 `self._paint_popup_leaders(painter)`，
+   迴圈外），非每頁重畫；舊逐頁呼叫已移除。測試
+   `test_moving_a_card_repaints_where_its_leader_line_was`、
+   `test_dismissing_a_card_clears_its_leader_line` 覆蓋。
+
+2. **`pdf_annotation_card.py` — PASS。**
+   已無 `QGraphicsDropShadowEffect`（`grep` 確認唯一殘留是註解文字）。
+   `WA_TranslucentBackground`+`WA_NoSystemBackground` 下 `paintEvent`
+   自繪同心圓角矩形陰影＋主體再呼叫 `super().paintEvent`（367-390 行）。
+   `_on_drag`（522-531 行）位置未變時直接 return（不 emit `dragging`），
+   否則只 `self.move(target)` + `dragging.emit()`，不呼叫 `_relayout`／`_sync_auto_cards`。
+   測試 `test_a_drag_does_not_relayout_or_rescan`（monkeypatch 兩個方法計數皆為 0）、
+   `test_a_drag_that_changes_nothing_is_not_repainted` 證實。
+
+3. **重跑量測（offscreen，Desktop 檔複本，非原檔）— PASS。**
+   沿用作者同款腳本（60 次連續拖動＋強制 `viewport().repaint()`）跑 3 次：
+   第一次 8.68ms avg / 23.14ms max（冷啟動雜訊，仍在 30ms 內），
+   第二次 2.97ms avg / 6.86ms max，第三次 3.37ms avg / 6.34ms max —
+   與紀錄的 3.41ms avg / 5.22ms max 一致，遠低於「8ms avg / 30ms max」目標。
+
+4. **測試 — PASS。**
+   `test_pdf_embedded_annotations.py test_pdf_view.py test_window_integration.py`：
+   259 passed，exit 0。全套 `tests`：1664 passed, 75 skipped，exit 0（`tests` 目錄外的殘留
+   `pytest_run_*`/`test_tmp_*` 垃圾目錄會讓 collect 對 repo 根目錄失敗，屬既有環境問題，非本次改動）。
+
+5. **挑錯：**
+   - 翻頁到無卡片頁再翻回：由讀碼確認，`_paint_popup_leaders` 每次 paint 都重算
+     `_leader_endpoints()`（不依賴上次快取），`_leader_dirty_rect` 在函式尾重設，
+     邏輯上翻頁往返不會殘留錯誤髒區——**PASS（讀碼判斷）**。
+   - 卡片拖到 viewport 邊緣被 clamp：`_on_drag` 用 `clamp()` 後的實際位置比較
+     `target == self.pos()`，`dragging` 訊號帶的是 clamp 後的真實新位置，
+     `_sync_leader_region` 用 `card.geometry()` 現算，髒區在 clamp 情境下仍正確——
+     **PASS（讀碼判斷）**。
+   - `WA_TranslucentBackground` 在 Windows 實體視窗是否閃爍/全透明：卡片建構時父物件
+     固定是 `self.viewport()`（`_new_card`，pdf_view.py），並非頂層視窗；Qt 對非頂層子
+     widget 的半透明是走 raster 後端在父物件 backing store 內做軟體 alpha 混合，
+     不會觸發 Windows DWM layered-window 合成路徑（那才是常見的全透明/閃爍成因，
+     僅發生在頂層 `QWindow`/對話框）。因此該風險在此用法下**不成立，非「未確認」**——
+     以讀碼佐證判為低風險，但因未在真實非 offscreen 視窗上肉眼確認，仍標記
+     **建議之後找機會人工目視驗證一次**。
+
+**結論：通過。** 四項查證與量測均與宣稱一致，測試全綠，未發現迴歸。
