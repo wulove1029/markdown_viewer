@@ -539,8 +539,9 @@ class PdfView(QAbstractScrollArea):
         self._content_w = content_w
         self._content_h = y - self.PAGE_SPACING + self.PAGE_MARGIN
         self._update_scrollbars()
-        # Zoom/resize moves the page under the popup cards; keep them attached.
+        # Zoom/resize moves the page under the cards; keep them attached.
         self._sync_auto_cards()
+        self._reposition_annotation_card()
 
     def _update_scrollbars(self) -> None:
         vp = self.viewport().size()
@@ -1676,6 +1677,36 @@ class PdfView(QAbstractScrollArea):
             entry, replies, anchor.toRect(), self.viewport().rect()
         )
         return True
+
+    def _reposition_annotation_card(self) -> None:
+        """Keep the click-opened card attached to its mark after a zoom.
+
+        Scrolling dismisses the card, but a zoom or a window resize re-lays the
+        page underneath it; without this the card would sit at a stale spot
+        pointing at nothing.
+        """
+        card = getattr(self, "_annotation_card", None)
+        if card is None or not card.isVisible():
+            return
+        entry = card.entry()
+        if entry is None or not self._page_tops:
+            return
+        if not (0 <= entry.page < len(self._page_tops)):
+            card.dismiss()
+            return
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        anchor = pdf_annotation_overlay.card_anchor(
+            entry,
+            self._screen_mapper(entry.page, ox, oy),
+            self._embedded_replies.get(entry.xref, ()),
+        )
+        card.show_for(
+            entry,
+            self._embedded_replies.get(entry.xref, ()),
+            anchor.toRect(),
+            self.viewport().rect(),
+        )
 
     def auto_cards(self) -> dict:
         """The self-opening ``/Popup`` cards currently on screen, by xref."""

@@ -826,7 +826,7 @@ def test_real_acrobat_file_threads_and_hides_the_reply_icon():
 # On-page comment markers and the popup card
 # --------------------------------------------------------------------------
 
-from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, QRect, Qt  # noqa: E402
 from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QLabel  # noqa: E402
 
@@ -1069,4 +1069,136 @@ def test_real_file_marks_the_commented_highlight_and_opens_its_popup(qapp):
     cards = view.auto_cards()
     assert list(cards) == [367]
     assert any("測試用" in t for t in _card_texts(cards[367]))
+    view.deleteLater()
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups: card sizing, zoom tracking, sidebar write-back
+# --------------------------------------------------------------------------
+
+def test_card_grows_to_fit_its_content_instead_of_scrolling(qapp, threaded_pdf):
+    """Short comments must never land on the minimum height with a scrollbar."""
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    assert card.isVisible()
+    needed = card.content_height_for(card.width())
+    assert card.height() >= needed
+    assert card.height() > 70  # not stuck on the floor
+    assert card._scroll.verticalScrollBar().maximum() == 0
+    assert not card._scroll.verticalScrollBar().isVisible()
+    view.deleteLater()
+
+
+def test_rebuilding_a_card_measures_its_new_rows(qapp, threaded_pdf):
+    """Regression: the second build measured as empty and collapsed to 70px."""
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    replies = view._embedded_replies.get(parent.xref, ())
+    card = view.annotation_card()
+    bounds = view.viewport().rect()
+    heights = []
+    for _ in range(3):
+        card.show_for(parent, replies, QRect(10, 10, 10, 10), bounds)
+        heights.append(card.height())
+    assert len(set(heights)) == 1
+    assert heights[0] > 70
+    view.deleteLater()
+
+
+def test_a_long_thread_scrolls_instead_of_covering_the_page(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    long_reply = EmbeddedAnnotation(
+        page=0, kind="Text", xref=999, in_reply_to=parent.xref,
+        author="USER01", content="長篇回覆 " * 300,
+    )
+    card = view.annotation_card()
+    bounds = view.viewport().rect()
+    card.show_for(parent, [long_reply], QRect(10, 10, 10, 10), bounds)
+    assert card.height() <= card.max_height_for(bounds)
+    assert card.height() <= int(bounds.height() * 0.6) + 1
+    view.deleteLater()
+
+
+def test_zooming_keeps_the_card_attached_to_its_mark(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    before_card = card.pos()
+    before_anchor = _marker_point(view, parent)
+
+    view.set_zoom_factor(1.8)
+    assert card.isVisible()
+    after_anchor = _marker_point(view, parent)
+    assert after_anchor != before_anchor  # the mark really did move
+    assert card.pos() != before_card  # ...and the card followed it
+    view.deleteLater()
+
+
+def test_page_click_selects_the_sidebar_row_only_when_the_panel_is_open():
+    """The write-back must not expand a sidebar the reader collapsed."""
+
+    class _Panel:
+        def __init__(self, visible):
+            self._visible = visible
+            self.shown = 0
+            self.selected = []
+            self.pdf_embedded_annotations = self
+
+        def isVisible(self):
+            return self._visible
+
+        def show_pdf_embedded_annotations(self):
+            self.shown += 1
+
+        def select_annotation(self, entry):
+            self.selected.append(entry)
+            return True
+
+    entry = EmbeddedAnnotation(page=0, kind="Highlight", xref=367)
+
+    open_panel = _Panel(True)
+    win = type("W", (), {"_panel": open_panel})()
+    window_mod.MainWindow._on_pdf_embedded_annotation_clicked(win, entry)
+    assert open_panel.shown == 1
+    assert open_panel.selected == [entry]
+
+    hidden_panel = _Panel(False)
+    win = type("W", (), {"_panel": hidden_panel})()
+    window_mod.MainWindow._on_pdf_embedded_annotation_clicked(win, entry)
+    assert hidden_panel.shown == 0
+    assert hidden_panel.selected == []
+
+    # A None entry (defensive: a stale signal) must not touch the panel.
+    window_mod.MainWindow._on_pdf_embedded_annotation_clicked(
+        type("W", (), {"_panel": open_panel})(), None
+    )
+    assert open_panel.shown == 1
+
+
+def test_panel_select_annotation_matches_by_xref(qapp, threaded_pdf):
+    panel = PdfEmbeddedAnnotationsPanel()
+    entries = extract_embedded_annotations(threaded_pdf)
+    panel.set_annotations(entries)
+    reply = next(e for e in entries if e.is_reply)
+    assert panel.select_annotation(reply)
+    assert panel._list.currentItem().data(Qt.ItemDataRole.UserRole).xref == reply.xref
+    assert not panel.select_annotation(
+        EmbeddedAnnotation(page=0, kind="Text", xref=123456)
+    )
+    panel.deleteLater()
+
+
+@requires_real_pdf
+def test_real_file_card_fits_its_content_without_a_scrollbar(qapp):
+    entries = extract_embedded_annotations(REAL_ACROBAT_PDF)
+    view = _laid_out_view(REAL_ACROBAT_PDF, entries)
+    card = view.auto_cards()[367]
+    assert card.height() >= card.content_height_for(card.width())
+    assert card.height() > 70
+    assert card._scroll.verticalScrollBar().maximum() == 0
+    assert not card._scroll.verticalScrollBar().isVisible()
     view.deleteLater()

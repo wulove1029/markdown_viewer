@@ -226,3 +226,23 @@ rect 右上角外側（`marker_rect()`，`right+2`、`top-55%`）畫一個固定
 `add_highlight_annot()` 預設不建 `/Popup`，要 `annot.set_popup(rect)` 才會有
 `popup_xref`；`Open` 只能用 `xref_set_key` 直接寫。另外 Popup 的 `/Rect` 是
 PDF 底左原點，若不乘 `page.transformation_matrix`，卡片會垂直鏡射到頁尾。
+
+## Fresh review 三項修正（2026-09-08 第三輪）
+
+1. **卡片高度卡在 70 px 並出捲軸**（`app/pdf_annotation_card.py`）：根因不是
+   `setFixedWidth` 後讀 `sizeHint()` 太早，而是 `_rebuild()` 重建的 QLabel 在
+   加入 layout 後要等下一輪事件迴圈才會被 show，而**隱藏的 widget 對 layout
+   的尺寸貢獻為 0**，所以第二次以後的重建一律量到「空的」。修法：`_add()` 加入
+   後立刻 `widget.show()`，`_clear()` 先 `setParent(None)` 再 `deleteLater()`；
+   高度改由新的 `content_height_for(width)`（固定寬度後 `layout().activate()`
+   ＋`adjustSize()`）算出，上限為 `max_height_for()`＝`min(320, viewport 高 60%)`，
+   超過才捲動，並在會捲動時扣掉捲軸寬度重新換行。
+2. **手動卡片不跟隨縮放**：新增 `PdfView._reposition_annotation_card()`，與
+   自動卡片同一條 `_relayout()` 路徑，縮放／resize 後依 anchor 重新定位（頁碼
+   失效才關閉）。
+3. **側欄回寫沒有測試**：補 `_on_pdf_embedded_annotation_clicked` 的測試（側欄
+   展開時切分頁並選取；未展開時完全不動側欄；entry 為 None 也不動），以及
+   `PdfEmbeddedAnnotationsPanel.select_annotation()` 以 xref 比對的測試。
+
+驗證：指定 3 檔 229 passed；全套 1634 passed／75 skipped，exit 0。重截的
+`pdf-annot-popup.png` 卡片高 210 px（內容需 208）、捲軸 `maximum()==0`、引線清楚。

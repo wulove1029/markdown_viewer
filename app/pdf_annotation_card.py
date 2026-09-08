@@ -120,6 +120,9 @@ class PdfAnnotationCard(QFrame):
             item = self._content_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Unparent before the deferred delete, so a widget awaiting
+                # deletion cannot be measured as part of the next layout.
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _label(self, text: str, *, muted=False, indent=0, bold=False) -> QLabel:
@@ -135,28 +138,55 @@ class PdfAnnotationCard(QFrame):
             label.setStyleSheet(style)
         return label
 
+    def _add(self, widget) -> None:
+        """Add a row and un-hide it immediately.
+
+        A widget added to a layout is only shown on the next event-loop turn,
+        and a still-hidden widget contributes nothing to the layout's size —
+        which made a rebuilt card measure as empty and collapse onto its
+        minimum height with a scrollbar over two lines of text.
+        """
+        self._content_layout.addWidget(widget)
+        widget.show()
+
     def _rebuild(self, entry, replies) -> None:
         self._clear()
-        self._content_layout.addWidget(
-            self._label(header_text(entry), muted=True, bold=True)
-        )
+        self._add(self._label(header_text(entry), muted=True, bold=True))
         if entry.note_text and entry.marked_text:
             # Both exist: quote the marked passage, then the comment about it.
-            self._content_layout.addWidget(
-                self._label(f"「{entry.marked_text}」", muted=True)
-            )
-        self._content_layout.addWidget(self._label(body_text(entry)))
+            self._add(self._label(f"「{entry.marked_text}」", muted=True))
+        self._add(self._label(body_text(entry)))
         for reply in replies or ():
-            line = header_text(reply)
-            self._content_layout.addWidget(
-                self._label(f"↳ {line}", muted=True, indent=14)
-            )
-            self._content_layout.addWidget(
-                self._label(
-                    summary_text(reply) or "（無文字內容）", indent=14
-                )
+            self._add(self._label(f"↳ {header_text(reply)}", muted=True, indent=14))
+            self._add(
+                self._label(summary_text(reply) or "（無文字內容）", indent=14)
             )
         self._content_layout.addStretch(1)
+
+    def content_height_for(self, width: int) -> int:
+        """Height the built content needs when laid out at *width* pixels.
+
+        Word-wrapped labels only report a useful sizeHint once the layout has
+        run at the final width. Reading sizeHint() straight after
+        setFixedWidth() returns the pre-layout guess (a couple of dozen
+        pixels), which is what pinned every card at its 70px floor and put a
+        scrollbar on two lines of text.
+        """
+        inner = max(60, int(width) - 2 * self.frameWidth())
+        self._content.setFixedWidth(inner)
+        layout = self._content.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
+        self._content.adjustSize()
+        return max(
+            self._content.sizeHint().height(), self._content.minimumSizeHint().height()
+        )
+
+    def max_height_for(self, bounds: QRect) -> int:
+        """Cap a card at 60% of the view, so a long thread scrolls instead."""
+        limit = int(bounds.height() * 0.6) if bounds.height() > 0 else CARD_MAX_HEIGHT
+        return max(70, min(CARD_MAX_HEIGHT, limit))
 
     def _resize_for(self, entry, replies, bounds: QRect) -> tuple[int, int]:
         self._entry = entry
@@ -164,9 +194,14 @@ class PdfAnnotationCard(QFrame):
         self._rebuild(entry, self._replies)
         width = min(CARD_WIDTH, max(180, bounds.width() - 2 * _GAP))
         self.setFixedWidth(width)
-        height = min(
-            CARD_MAX_HEIGHT, max(70, self._content.sizeHint().height() + 4)
-        )
+        limit = self.max_height_for(bounds)
+        needed = self.content_height_for(width) + 2 * self.frameWidth()
+        if needed > limit:
+            # It will scroll after all: re-wrap in the width the scrollbar
+            # leaves behind, so the last column of text is not clipped.
+            bar = self._scroll.verticalScrollBar().sizeHint().width()
+            needed = self.content_height_for(width - bar) + 2 * self.frameWidth()
+        height = min(limit, max(70, needed))
         self.setFixedHeight(height)
         return width, height
 
