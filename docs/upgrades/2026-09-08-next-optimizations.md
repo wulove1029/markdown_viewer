@@ -50,3 +50,6 @@
 - 已知限制：5 MB 完整預覽冷開較基線慢約 6%（子程序啟動）；256 KB 以下小檔仍共用 in-process parser lock；縮排式 code block 未納入前綴切割邊界；`partial_search_missed` 訊號尚未接到 window.py。
 - 2026-09-08：使用者以 Desktop\dm00293821.pdf（真實 Acrobat 註解）實測：PDFium Annotations 旗標把 IRT 回覆的 Text 圖示畫成隨縮放放大的紫色方塊。修正 `f64891f`：改自繪 overlay（app/pdf_annotation_overlay.py）、回覆不畫、討論串面板、分頁計數與狀態列提示；全套 1614 passed。截圖確認 200% 只剩橘色高亮。派 review。
 - 2026-09-08：`f64891f` review 通過（全套 1614 passed）；面板截圖確認父／回覆縮排。非阻塞備註：overlay 未按頁分桶、FreeText／Ink 自繪品質未用真實檔驗證。
+- 2026-09-08：使用者指出頁面看不到備註文字（Acrobat 會自動顯示 Popup 卡片）。`c41b8b8`：有內容／回覆的標記加 16 px 泡泡標記、點擊彈出卡片、Popup /Open=true 自動顯示於 popup_rect（需乘 transformation_matrix）並畫引線、側欄雙向同步；全套 1627 passed。截圖確認標記與卡片；卡片短內容仍出捲軸，交 review 判定。
+- 2026-09-08：review 不通過 3 項（卡片高度算錯出捲軸、手動卡片縮放不跟隨、側欄回寫無測試）。`d934b0e` 修正：QLabel 加入後立即 show 再以固定寬度算高、縮放後共用 relayout 重定位、補測試；全套 1634 passed。截圖確認卡片 210 px 無捲軸、引線可見。複驗中。
+- 2026-09-08：`d934b0e` 複驗三項 PASS，全套 1634 passed。PDF 註解功能待使用者實機確認（卡片自動彈出、引線、中文顯示、側欄雙向同步）。

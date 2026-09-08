@@ -148,3 +148,46 @@ close-time stall risk.
 - 深色主題下 FreeText 自繪固定白底（不用 theme.surface），與其餘深色 UI 對比強烈；判斷為刻意的紙本便條視覺效果，非硬編碼顏色 bug，但值得留意是否為預期效果。
 
 ### 結論：通過（PASS），有兩項非阻塞性觀察待未來優化（效能分桶、FreeText/Ink 視覺保真度未實測）。
+
+---
+
+## 複查：commit c41b8b8（PDF 內嵌註解泡泡標記／彈出卡片）
+
+1. **(a)(b)(c)(d) 各有對應測試，行為驗證方式正確** — `tests/test_pdf_embedded_annotations.py`：
+   - (a) `test_marker_is_drawn_only_for_annotations_that_carry_a_comment`／`test_marker_keeps_a_fixed_pixel_size_and_stays_outside_the_markup`／`test_marker_is_painted_for_a_commented_highlight_but_not_a_bare_one` 驗證固定 16px、不隨縮放、位於 rect 右上外側、純螢光無內容不畫。
+   - (b) `test_clicking_an_annotation_opens_a_card_with_its_replies`／`test_escape_and_a_click_elsewhere_close_the_card`／`test_scrolling_away_closes_the_card`／`test_clicking_a_reply_opens_the_card_of_the_annotation_it_answers` 驗證點擊開卡、Esc／點別處／捲動關閉、回覆掛回父卡。
+   - (c) `test_popup_open_and_rect_are_extracted`／`test_an_open_popup_shows_its_card_without_a_click`／`test_a_closed_popup_does_not_open_by_itself`／`test_dismissing_an_open_popup_keeps_it_shut_for_the_session`／`test_real_file_marks_the_commented_highlight_and_opens_its_popup`（用真實檔 xref 367/369）驗證自動彈出與「本 session 不再彈」。
+   - (d) 僅測到「側欄點擊開卡」（`test_window_activation_jumps_to_page_with_rect_when_available` 等斷言 `("card", xref)`）；**「頁面點擊回寫側欄選取」完全沒有測試**——`window._on_pdf_embedded_annotation_clicked` 與 `PdfEmbeddedAnnotationsPanel.select_annotation` 在 `git diff` 與全文搜尋中均無任何測試引用，屬宣稱做了但未驗證的部分（讀碼判斷邏輯本身合理：`if entry is None or not self._panel.isVisible(): return`）。
+   - `popup_rect` 座標轉換：以真實檔 xref 367 算出 `entry.rect=(234.2, 213.2, 127.6, 13.1)`、`popup_rect=(574.9, 213.8, 183.9, 124.4)`（皆為左上原點）——y 值與 highlight 幾乎同高、x 在頁面右側，換算後會落在 viewport 右上而非頁尾，**PASS**，未見座標轉換錯誤。
+
+2. **FAIL** — 卡片高度自適應邏輯有真實 bug。`app/pdf_annotation_card.py::_resize_for()` 在 `setFixedWidth(width)` 之後立刻讀 `self._content.sizeHint()`，但此時 Qt 尚未完成一次以新寬度為準的 layout pass，`sizeHint()` 回傳的值明顯錯誤地過小。用真實檔（xref 367 highlight + 369 回覆，4 行內容）經 `PdfView` 完整流程重現：`card.size()=(300,70)`（卡到了 min-height 70 的下限），但 `card._content.sizeHint()=(24,22)`——與 4 個 label 實際需要的高度（每行 28px＋間距，總計約 140–160px）完全對不上，導致內容被硬壓進 70px 高的視窗，捲軸因而出現。這正是使用者截圖 `pdf-annot-popup.png`（`crop1.png`：70px 高、可見垂直捲軸、內容被切）所顯示的問題。以獨立建構 `PdfAnnotationCard()`（不掛在 `PdfView.viewport()` 下）測試同樣資料卻得到正確的 212px（無捲軸），代表 bug 與卡片被安裝為 viewport 子 widget 後的樣式表/字型/timing 有關，非資料問題。**判定：短內容仍可能被錯�置底捲軸，不符合「應依內容自適應高度，超過最大才捲動」的需求，需修。**
+
+3. **部分 FAIL** — 生命週期：卡片是 `PdfView.viewport()` 的子 widget（非頂層），`reset()`／`set_embedded_annotations([])` 會呼叫 `close_annotation_card()`+`_sync_auto_cards()` 清掉手動卡與所有自動卡（`deleteLater()`），切換文件正確清空；視窗關閉靠 Qt 父子關係自動釋放，無特殊處理但足夠。`_relayout()`（縮放/resize 觸發）只呼叫 `_sync_auto_cards()`，**未對手動點開的 `self._annotation_card` 做任何跟隨或關閉**：實測開啟手動卡後 `set_zoom_factor(1.0→1.8)`，卡片 `pos()` 完全不變（`QPoint(681,406)` 前後相同）且仍 `isVisible()==True`，而底下的頁面內容/標記已經按新縮放重排，造成卡片與標註在縮放後視覺上脫節——不符合「relayout／縮放後位置是否跟隨」的預期，且沒有測試涵蓋這個情境。自動彈出卡（`/Open=true`）在捲動時會被 `scrollContentsBy()` 內的 `close_annotation_card()`——**注意此函式只關閉 `_annotation_card`（手動卡），不影響 `_auto_cards`**，自動卡走的是 `_sync_auto_cards()` 的 `_popup_dismissed` 集合機制；`test_dismissing_an_open_popup_keeps_it_shut_for_the_session` 證實捲動/縮放/relayout 都不會使已手動 dismiss 的自動卡復活，也不會使未 dismiss 的自動卡消失（`_sync_auto_cards` 依 `popup_open`／`_popup_dismissed`／頁碼有效性決定去留，捲動不在條件內），此部分符合「使用者主動關閉才不再彈，捲動不算主動關閉」的需求。**結論：自動卡生命週期符合需求（PASS）；手動卡在縮放時的位置跟隨/關閉是缺口（FAIL）。**
+
+4. **PASS** — `_paint_popup_leaders()` 只在 `self._auto_cards` 非空且 `card.isVisible()` 為真時才畫每條引線；顏色取 `entry.color`（無則 `#ffb300`）、`pen.setWidthF(1.0)` 確為 1px；終點用 `card.geometry()` 現在的實際座標（`geometry.left(), geometry.center().y()`），卡片被貼齊右側後 `show_pinned()` 已把 `card` 移到 clamp 後的位置，`_paint_popup_leaders` 之後讀到的是新位置，引線終點仍正確指向卡片左緣。
+
+5. **PASS** — `PdfAnnotationCard.apply_theme()` 全用 `theme.surface`／`theme.border`／`theme.text`／`theme.text_muted`，無硬編碼白底黑字；`_paint_free_text`（PDF 頁面上的 FreeText 註解自繪，非本次卡片元件）仍用固定白底 `QColor(255,255,255,210)`，題目已明確排除此例外。深色截圖（見第 7 點）卡片背景深色、文字白色，清晰可讀。
+
+6. **PASS** — 子集：`251 passed`，exit 0（`test_pdf_embedded_annotations.py test_pdf_view.py test_pdf_highlights.py test_pdf_async_rendering.py test_window_integration.py`，`--basetemp tmp/pdf-annot-review3`）。全套：`1627 passed, 75 skipped`，exit 0（`--basetemp tmp/pdf-annot-review3-full`）。
+
+7. **完成（有時序瑕疵）** — 截圖 `pdf-annot-popup-dark.png`（1100×900，offscreen + 真實檔、獨立 `PdfView` 進程，未觸碰使用者 QSettings/RecoveryStore）。畫面可見：深色底、highlight 疊色、橘色泡泡標記、1px 橘色引線、深色卡片背景＋白字（可讀）。**瑕疵**：頁面本身的 PDF 點陣圖未渲染出來（背景仍是白色矩形而非文件內容），推測是本腳本 `processEvents()` 次數不足以讓非同步渲染排程器跑完，屬本次驗收腳本的時序問題，不代表 commit 本身有渲染缺陷（第 6 點的完整測試套件並未發現任何渲染相關失敗）。
+
+### 挑錯清單（本輪新增）
+- 卡片高度計算在真實使用路徑下會錯誤地卡在 70px 下限並跑出捲軸，即使內容不算長（第 2 點，已用真實檔重現，非臆測）。
+- 手動點開的卡片在使用者縮放頁面時既不重新定位也不關閉，會與標註脫節；且完全沒有測試涵蓋這條路徑（第 3 點）。
+- 需求 (d) 的「頁面點擊回寫側欄選取」邏輯已寫但零測試覆蓋，屬於「做了但沒驗證」（第 1 點）。
+- 深色截圖因驗收腳本本身的非同步渲染等待不足，頁面內容未顯示（腳本瑕疵，非 commit 缺陷，已於第 7 點註明）。
+
+### 結論：不通過（FAIL）。需修：(1) `pdf_annotation_card.py::_resize_for` 的高度估算 bug（短內容仍跑出捲軸）；(2) 手動卡在縮放後的跟隨或關閉；(3) 補上「頁面點擊回寫側欄」的測試。其餘各點（自動彈出生命週期、引線、深色主題、座標轉換、既有測試套件）驗證通過。
+
+---
+
+## 複驗：commit d934b0e（針對三項 FAIL 的修正）
+
+1. **PASS** — 卡片高度：真實檔 xref367+369 掛在 `PdfView.viewport()` 下重現先前流程，`card.size()=(300,210)`（不再卡 70px 下限），`verticalScrollBar().maximum()==0`；連續 `show_annotation_card()` 3 次高度皆為 `(300,210)`，一致無漂移。根因（`_add()` 立即 `widget.show()`＋`content_height_for()` 於固定寬度下 `layout.activate()` 再讀 `sizeHint()`）修法合理，`test_rebuilding_a_card_measures_its_new_rows`／`test_real_file_card_fits_its_content_without_a_scrollbar` 覆蓋此情境。
+2. **PASS** — 手動卡縮放跟隨：實測 `set_zoom_factor(1.0→1.8)` 後 `pos()` 由 `(681,406)` 變為 `(775,469)`，隨 anchor 移動且仍 `isVisible()`；`_reposition_annotation_card()` 已接到 `_relayout()`，並在標註所在頁消失時 `dismiss()`。`test_zooming_keeps_the_card_attached_to_its_mark` 驗證同一行為。
+3. **PASS** — `_on_pdf_embedded_annotation_clicked`／`select_annotation` 新增測試驗的是行為：面板開啟時呼叫 `show_pdf_embedded_annotations()`+`select_annotation(entry)`；面板隱藏時兩者皆不呼叫；`entry=None` 時不動面板；`PdfEmbeddedAnnotationsPanel.select_annotation` 用真實 thread 資料按 xref 匹配並回傳 True/False。
+
+全套：`py -3 -X utf8 -m pytest tests -q -p no:cacheprovider --basetemp tmp/pdf-annot-review4` → **1634 passed, 75 skipped**，exit 0。
+
+### 結論：通過（PASS）。三項先前 FAIL 均已修正並有對應測試覆蓋，全套測試綠燈。
