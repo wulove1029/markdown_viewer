@@ -1,0 +1,4 @@
+drag frames: 60
+average move->repaint: 3.41 ms
+max move->repaint: 5.22 ms
+min move->repaint: 2.17 ms

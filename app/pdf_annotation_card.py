@@ -19,11 +19,10 @@ The card never touches the PDF itself: it emits what the reader asked for and
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -40,6 +39,11 @@ from .theme import LIGHT, Theme
 CARD_WIDTH = 300
 CARD_MAX_HEIGHT = 360
 _GAP = 8
+# Room inside the widget for the hand-painted drop shadow. A
+# QGraphicsDropShadowEffect re-rasterises the whole card on every move,
+# which made dragging visibly lag; three cheap rounded rects do not.
+SHADOW_PX = 6
+_RADIUS = 8.0
 
 
 def _pretty_date(raw: str) -> str:
@@ -195,6 +199,7 @@ class PdfAnnotationCard(QFrame):
 
     closed = Signal()
     moved = Signal()
+    dragging = Signal()
     reply_submitted = Signal(object, str)     # parent entry, text
     edit_submitted = Signal(object, str)      # entry, new text
     delete_requested = Signal(object)         # entry
@@ -204,6 +209,10 @@ class PdfAnnotationCard(QFrame):
         self.setObjectName("pdfAnnotationCard")
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # The frame paints its own rounded body and shadow, so the widget
+        # itself must not fill its rectangle.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self._theme: Theme = LIGHT
         self._entry = None
         self._replies: list = []
@@ -212,7 +221,9 @@ class PdfAnnotationCard(QFrame):
         self._author: str = ""
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setContentsMargins(
+            SHADOW_PX, SHADOW_PX, SHADOW_PX, SHADOW_PX
+        )
         outer.setSpacing(0)
 
         # --- title row -----------------------------------------------------
@@ -267,12 +278,6 @@ class PdfAnnotationCard(QFrame):
         footer_layout.addWidget(self._send_button)
         outer.addWidget(self._footer)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 70))
-        self.setGraphicsEffect(shadow)
-
         self.apply_theme(LIGHT)
         self.hide()
 
@@ -313,8 +318,7 @@ class PdfAnnotationCard(QFrame):
     def apply_theme(self, theme: Theme) -> None:
         self._theme = theme
         self.setStyleSheet(
-            f"#pdfAnnotationCard {{ background: {theme.surface};"
-            f" border: 1px solid {theme.border}; border-radius: 8px; }}"
+            "#pdfAnnotationCard { background: transparent; border: none; }"
             f"#pdfAnnotationCard QLabel {{ background: transparent;"
             f" color: {theme.text}; }}"
             f"#pdfAnnotationCard QScrollArea {{ background: transparent;"
@@ -341,6 +345,32 @@ class PdfAnnotationCard(QFrame):
         )
         if self._entry is not None:
             self._rebuild(self._entry, self._replies)
+
+    def body_rect(self) -> QRectF:
+        """The visible card, inside the margin reserved for its shadow."""
+        return QRectF(self.rect()).adjusted(
+            SHADOW_PX, SHADOW_PX, -SHADOW_PX, -SHADOW_PX
+        )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        body = self.body_rect()
+        # A few concentric translucent rounded rects read as a soft shadow and
+        # cost a fraction of a millisecond, unlike a blur effect.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for step in range(SHADOW_PX, 0, -1):
+            painter.setBrush(QColor(0, 0, 0, 6 + 2 * (SHADOW_PX - step)))
+            painter.drawRoundedRect(
+                body.adjusted(-step, -step + 1.0, step, step + 1.0),
+                _RADIUS + step,
+                _RADIUS + step,
+            )
+        painter.setBrush(QColor(self._theme.surface))
+        painter.setPen(QPen(QColor(self._theme.border), 1.0))
+        painter.drawRoundedRect(body.adjusted(0.5, 0.5, -0.5, -0.5), _RADIUS, _RADIUS)
+        painter.end()
+        super().paintEvent(event)
 
     def _clear(self) -> None:
         self._reply_rows = []
@@ -405,7 +435,7 @@ class PdfAnnotationCard(QFrame):
         setFixedWidth() returns the pre-layout guess, which is what pinned
         every card at its minimum height with a scrollbar over two lines.
         """
-        inner = max(60, int(width) - 2 * self.frameWidth())
+        inner = max(60, int(width) - 2 * SHADOW_PX)
         self._content.setFixedWidth(inner)
         layout = self._content.layout()
         if layout is not None:
@@ -421,7 +451,7 @@ class PdfAnnotationCard(QFrame):
         return (
             self._header.sizeHint().height()
             + self._footer.sizeHint().height()
-            + 2 * self.frameWidth()
+            + 2 * SHADOW_PX
         )
 
     def max_height_for(self, bounds: QRect) -> int:
@@ -492,7 +522,13 @@ class PdfAnnotationCard(QFrame):
     def _on_drag(self, position: QPoint) -> None:
         parent = self.parentWidget()
         bounds = parent.rect() if parent is not None else self.geometry()
-        self.move(self.clamp(position, bounds))
+        target = self.clamp(position, bounds)
+        if target == self.pos():
+            return
+        # Only the card moves here: no relayout, no annotation rescan. The
+        # view repaints just the leader line's dirty region in response.
+        self.move(target)
+        self.dragging.emit()
 
     # ------------------------------------------------------------------ reply
     def _submit_reply(self) -> None:

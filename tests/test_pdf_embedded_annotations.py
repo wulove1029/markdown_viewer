@@ -1691,3 +1691,90 @@ def test_a_locked_save_reports_the_lock(threaded_pdf, monkeypatch):
     monkeypatch.setattr(pymupdf.Document, "save", refuse)
     with pytest.raises(AnnotationWriteError, match=writer.LOCKED_MESSAGE):
         writer.add_reply(threaded_pdf, parent.xref, "text", AUTHOR)
+
+
+# --------------------------------------------------------------------------
+# Dragging: no leader-line smear, no per-move relayout, no blur effect
+# --------------------------------------------------------------------------
+
+def _popup_view(qapp_unused, tmp_path):
+    path = tmp_path / "open-popup.pdf"
+    _make_open_popup_pdf(path, is_open=True)
+    view = _laid_out_view(path)
+    card = next(iter(view.auto_cards().values()))
+    return view, card
+
+
+def test_moving_a_card_repaints_where_its_leader_line_was(qapp, tmp_path, monkeypatch):
+    """The line lives on the viewport, so a moved card must dirty both spots."""
+    view, card = _popup_view(qapp, tmp_path)
+    view.viewport().repaint()
+    before = view.leader_dirty_rect()
+    assert not before.isNull()
+
+    updates = []
+    viewport = view.viewport()
+    original = viewport.update
+    monkeypatch.setattr(
+        viewport, "update", lambda *args: updates.append(args) or original(*args)
+    )
+
+    card._on_drag(QPoint(40, 620))
+    after = view.leader_dirty_rect()
+    assert after != before
+
+    rects = [a[0] for a in updates if a and isinstance(a[0], QRect)]
+    assert rects, "the drag must repaint a region, not nothing"
+    covering = [r for r in rects if r.contains(before) and r.contains(after)]
+    assert covering, f"no update covered both {before} and {after}: {rects}"
+    view.deleteLater()
+
+
+def test_dismissing_a_card_clears_its_leader_line(qapp, tmp_path):
+    view, card = _popup_view(qapp, tmp_path)
+    view.viewport().repaint()
+    assert not view.leader_dirty_rect().isNull()
+    card.dismiss()
+    assert view.leader_dirty_rect().isNull()
+    view.viewport().repaint()
+    assert view.leader_dirty_rect().isNull()
+    view.deleteLater()
+
+
+def test_a_drag_does_not_relayout_or_rescan(qapp, tmp_path, monkeypatch):
+    view, card = _popup_view(qapp, tmp_path)
+    calls = {"relayout": 0, "sync": 0}
+    monkeypatch.setattr(
+        type(view), "_relayout",
+        lambda self: calls.__setitem__("relayout", calls["relayout"] + 1),
+    )
+    monkeypatch.setattr(
+        type(view), "_sync_auto_cards",
+        lambda self: calls.__setitem__("sync", calls["sync"] + 1),
+    )
+    for i in range(5):
+        card._on_drag(QPoint(200 + i * 10, 300))
+    assert calls == {"relayout": 0, "sync": 0}
+    view.deleteLater()
+
+
+def test_a_drag_that_changes_nothing_is_not_repainted(qapp, tmp_path):
+    view, card = _popup_view(qapp, tmp_path)
+    emitted = []
+    card.dragging.connect(lambda: emitted.append(1))
+    card._on_drag(card.pos())
+    assert emitted == []
+    view.deleteLater()
+
+
+def test_the_card_paints_its_own_shadow_instead_of_a_blur_effect(qapp, tmp_path):
+    """QGraphicsDropShadowEffect re-rasterises the card on every move."""
+    from app.pdf_annotation_card import SHADOW_PX
+
+    view, card = _popup_view(qapp, tmp_path)
+    assert card.graphicsEffect() is None
+    body = card.body_rect()
+    assert body.left() == SHADOW_PX
+    assert body.top() == SHADOW_PX
+    assert body.width() == card.width() - 2 * SHADOW_PX
+    view.deleteLater()

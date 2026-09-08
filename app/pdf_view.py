@@ -326,6 +326,10 @@ class PdfView(QAbstractScrollArea):
         # one is remembered for the session so it does not pop back on scroll.
         self._auto_cards: dict[int, PdfAnnotationCard] = {}
         self._popup_dismissed: set[int] = set()
+        # Leader lines are painted on the viewport, not inside the card, so a
+        # card that moves leaves the old line behind unless the pixels it used
+        # are explicitly repainted. This is the region last painted.
+        self._leader_dirty_rect = QRect()
 
         # --- highlighter ---
         self._highlights: list = []  # PdfHighlight (drawing copy; window owns truth)
@@ -1171,6 +1175,7 @@ class PdfView(QAbstractScrollArea):
                 painter, p, sx, sy, w, h
             ) or content_page_seen
             self._paint_overlays(painter, p, ox, oy)
+        self._paint_popup_leaders(painter)
         painter.end()
         self._schedule_render_dispatch()
         if (
@@ -1218,7 +1223,6 @@ class PdfView(QAbstractScrollArea):
                 flash_xref=self._flash_annotation_xref,
                 theme_text=self._theme.text,
             )
-            self._paint_popup_leaders(painter, p, ox, oy)
         # saved highlights
         for hl in self._highlights:
             if hl.page != p:
@@ -1724,6 +1728,61 @@ class PdfView(QAbstractScrollArea):
         )
         card.show_for(entry, replies, anchor.toRect(), self.viewport().rect())
 
+    def leader_dirty_rect(self) -> QRect:
+        """The viewport region the leader lines occupied when last painted."""
+        return QRect(self._leader_dirty_rect)
+
+    def _leader_endpoints(self):
+        """(start, end) viewport points for every visible popup leader line."""
+        pairs = []
+        cards = getattr(self, "_auto_cards", None)
+        if not cards or not self._page_tops:
+            return pairs
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        by_xref = {e.xref: e for e in self._embedded_annotations if e.xref}
+        for xref, card in cards.items():
+            entry = by_xref.get(xref)
+            if entry is None or not card.isVisible():
+                continue
+            if not (0 <= entry.page < len(self._page_tops)):
+                continue
+            x, y, w, h = entry.rect
+            box = self._screen_mapper(entry.page, ox, oy)(x, y, w, h)
+            geometry = card.geometry()
+            pairs.append(
+                (
+                    QPointF(box.right(), box.top()),
+                    QPointF(geometry.left(), geometry.center().y()),
+                    entry.color or "#ffb300",
+                )
+            )
+        return pairs
+
+    def _leader_bounds(self) -> QRect:
+        bounds = QRect()
+        for start, end, _color in self._leader_endpoints():
+            segment = QRectF(start, end).normalized().toRect()
+            bounds = segment if bounds.isNull() else bounds.united(segment)
+        return bounds
+
+    def _sync_leader_region(self) -> None:
+        """Repaint wherever a leader line was, and wherever it now is.
+
+        Without the union of the two, dragging a card smears its old line
+        across the page in disconnected fragments: only the card's own
+        rectangle gets repainted as it moves.
+        """
+        previous = self._leader_dirty_rect
+        current = self._leader_bounds()
+        self._leader_dirty_rect = current
+        region = current
+        if not previous.isNull():
+            region = previous if region.isNull() else region.united(previous)
+        if region.isNull():
+            return
+        self.viewport().update(region.adjusted(-3, -3, 3, 3))
+
     def _new_card(self) -> PdfAnnotationCard:
         """Build a card wired to this view's write-request signals."""
         card = PdfAnnotationCard(self.viewport())
@@ -1734,6 +1793,8 @@ class PdfView(QAbstractScrollArea):
         card.edit_submitted.connect(self.annotation_edit_requested.emit)
         card.delete_requested.connect(self.annotation_delete_requested.emit)
         card.moved.connect(lambda c=card: self._remember_card_offset(c))
+        card.dragging.connect(self._sync_leader_region)
+        card.closed.connect(self._sync_leader_region)
         return card
 
     def set_annotation_author(self, author: str) -> None:
@@ -1835,43 +1896,38 @@ class PdfView(QAbstractScrollArea):
                 where,
                 self.viewport().rect(),
             )
+        self._sync_leader_region()
 
     def _on_auto_card_dismissed(self, xref: int) -> None:
         self._popup_dismissed.add(int(xref))
         card = self._auto_cards.pop(int(xref), None)
         if card is not None:
             card.deleteLater()
+        self._sync_leader_region()
         self.viewport().update()
 
-    def _paint_popup_leaders(self, painter, page: int, ox: int, oy: int) -> None:
-        """Thin connector from an annotation to its self-opened popup card.
+    def _paint_popup_leaders(self, painter) -> None:
+        """Thin connectors from annotations to their self-opened popup cards.
 
-        Without it a card parked off the page margin (where Acrobat puts them)
-        reads as unrelated to the passage it belongs to.
+        Without them a card parked off the page margin (where Acrobat puts
+        them) reads as unrelated to the passage it belongs to. Drawn once for
+        the whole viewport, from the same geometry the dirty-region tracking
+        uses, so the two can never disagree about where the line is.
         """
-        if not self._auto_cards:
+        segments = self._leader_endpoints()
+        if not segments:
             return
-        to_screen = self._screen_mapper(page, ox, oy)
-        for xref, card in self._auto_cards.items():
-            entry = next(
-                (e for e in self._embedded_annotations if e.xref == xref), None
-            )
-            if entry is None or entry.page != page or not card.isVisible():
-                continue
-            x, y, w, h = entry.rect
-            box = to_screen(x, y, w, h)
-            geometry = card.geometry()
-            start = QPointF(box.right(), box.top())
-            end = QPointF(geometry.left(), geometry.center().y())
-            painter.save()
-            color = QColor(entry.color or "#ffb300")
-            color.setAlpha(190)
-            pen = QPen(color)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for start, end, color in segments:
+            pen_color = QColor(color)
+            pen_color.setAlpha(190)
+            pen = QPen(pen_color)
             pen.setWidthF(1.0)
             painter.setPen(pen)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             painter.drawLine(start, end)
-            painter.restore()
+        painter.restore()
+        self._leader_dirty_rect = self._leader_bounds()
 
     def _parent_annotation(self, entry):
         """The annotation *entry* replies to, or *entry* itself."""

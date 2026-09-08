@@ -323,3 +323,30 @@ Enter 不送出、送出不先回填 UI、只有自己的回覆可編輯、拖�
 計數、每次寫入各留一份備份且內容不同、三個寫入函式的 RuntimeError 都被包起來、
 鎖住與解析失敗的訊息區分、儲存時 PermissionError 的訊息）。
 指定 2 檔 243 passed；全套 1659 passed／75 skipped，exit 0。
+
+## 拖動延遲與引線殘影（2026-09-08 第六輪）
+
+使用者實機回饋：拖動卡片會延遲，且舊的橘色引線在頁面上留下一段段斷線殘影。
+
+1. **殘影**：引線畫在 viewport 上，卡片移動時 Qt 只重繪卡片本身的矩形，
+   舊引線像素留在頁面上。改法：`PdfView._leader_endpoints()` 成為引線幾何的
+   單一來源（paint 與髒區共用，不可能不一致），`_leader_bounds()` 算外接矩形，
+   `_sync_leader_region()` 用「舊 ∪ 新、各外擴 3 px」呼叫
+   `viewport().update(rect)`。卡片的新 `dragging` signal（每次真的移動才發）
+   與 `closed` 都接到它，`_sync_auto_cards()` 與 `_on_auto_card_dismissed()`
+   也會呼叫。`paintEvent` 本來就會先 `fillRect` 底色再畫頁面 raster 與 overlay，
+   所以髒區內會完整重畫；引線改成在頁面迴圈之後統一畫一次。
+2. **延遲**：移除 `QGraphicsDropShadowEffect`（每次移動都重新光柵化整張卡片）。
+   卡片改為 `WA_TranslucentBackground` ＋ 自繪：`paintEvent` 先畫 6 層遞減
+   alpha 的圓角矩形當柔和陰影，再畫主體（主題 surface ＋ 1 px border ＋ 圓角
+   8 px），版面留 `SHADOW_PX = 6` 邊距。拖動只做 `move()` ＋ 引線髒區更新，
+   不碰 `_relayout()`、不重掃註解（有測試鎖住）；位置沒變就不發 signal。
+3. **量測**（offscreen、真實檔複本、60 次連續拖動，每次含強制 repaint）：
+   平均 3.41 ms、最大 5.22 ms、最小 2.17 ms，達標（目標平均 < 8 ms、最大 < 30 ms）。
+   紀錄檔：`docs/upgrades/evidence-2026-09-08/pdf-annot-drag-benchmark.txt`。
+
+驗證：新增 5 個測試（移動後 update 區域同時涵蓋舊線與新線、關閉卡片清掉引線、
+拖動不觸發 relayout／rescan、位置沒變不重繪、卡片無 graphicsEffect 且
+body_rect 內縮 SHADOW_PX）。指定 2 檔 104 passed；全套 1664 passed／75 skipped，
+exit 0。截圖 `pdf-annot-card-v3.png`：卡片拖到頁面中央，只有一條乾淨的引線，
+無殘影。
