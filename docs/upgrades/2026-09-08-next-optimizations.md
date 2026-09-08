@@ -48,3 +48,5 @@
 - 實體 GUI：更新下載非模態視窗的隱藏／叫回、Esc 與 X 只隱藏；新增筆記對話框在高 DPI 亮暗主題；PDF 註解面板用真實 Acrobat 產生的 PDF。
 - 真正執行安裝程式（含 UAC）。
 - 已知限制：5 MB 完整預覽冷開較基線慢約 6%（子程序啟動）；256 KB 以下小檔仍共用 in-process parser lock；縮排式 code block 未納入前綴切割邊界；`partial_search_missed` 訊號尚未接到 window.py。
+- 2026-09-08：使用者以 Desktop\dm00293821.pdf（真實 Acrobat 註解）實測：PDFium Annotations 旗標把 IRT 回覆的 Text 圖示畫成隨縮放放大的紫色方塊。修正 `f64891f`：改自繪 overlay（app/pdf_annotation_overlay.py）、回覆不畫、討論串面板、分頁計數與狀態列提示；全套 1614 passed。截圖確認 200% 只剩橘色高亮。派 review。
+- 2026-09-08：`f64891f` review 通過（全套 1614 passed）；面板截圖確認父／回覆縮排。非阻塞備註：overlay 未按頁分桶、FreeText／Ink 自繪品質未用真實檔驗證。
