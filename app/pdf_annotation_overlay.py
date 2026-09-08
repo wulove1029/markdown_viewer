@@ -23,6 +23,9 @@ from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 # A sticky-note icon is /NoZoom in practice: constant on screen, regardless of
 # the zoom factor. 18 logical px reads clearly without covering the text line.
 ICON_PX = 18.0
+# The bubble pinned beside a commented highlight/box. Same idea, one size down
+# so it reads as an attached marker rather than an annotation of its own.
+MARKER_PX = 16.0
 _DEFAULT_COLOR = "#ffd54f"
 _MIN_STROKE_PX = 1.2
 
@@ -65,16 +68,75 @@ def icon_rect(entry, to_screen) -> QRectF:
     return QRectF(anchor.left(), anchor.top(), ICON_PX, ICON_PX)
 
 
-def hit_rects(entry, to_screen) -> list[QRectF]:
+# Markup kinds that mark up the page itself rather than being an icon: a
+# comment attached to one of these is otherwise invisible on the page.
+_MARKER_KINDS = {
+    "Highlight",
+    "Underline",
+    "StrikeOut",
+    "Squiggly",
+    "Square",
+    "Circle",
+    "Ink",
+    "Line",
+    "Polygon",
+    "PolyLine",
+    "FreeText",
+}
+
+
+def replies_by_parent(entries) -> dict:
+    """Map a parent annotation's xref to the replies that answer it."""
+    known = {e.xref for e in (entries or []) if e.xref}
+    grouped: dict[int, list] = {}
+    for entry in entries or []:
+        parent = getattr(entry, "in_reply_to", None)
+        if parent is not None and parent in known:
+            grouped.setdefault(parent, []).append(entry)
+    return grouped
+
+
+def has_comment(entry, replies=()) -> bool:
+    """True when the annotation carries text of its own or has replies."""
+    return bool(getattr(entry, "note_text", "") or replies)
+
+
+def wants_marker(entry, replies=()) -> bool:
+    """Should a comment bubble be drawn beside this annotation?
+
+    A bare highlight with nothing written on it needs no marker — the colour
+    already says everything it has to say. One that carries a note, or that
+    somebody replied to, otherwise looks identical to it, which is exactly the
+    "where did the comment go?" problem this marker solves.
+    """
+    return entry.kind in _MARKER_KINDS and has_comment(entry, replies)
+
+
+def marker_rect(entry, to_screen) -> QRectF:
+    """Fixed-size bubble box just outside the annotation's top-right corner.
+
+    Placed outside the geometry on purpose: sitting on top of the marked words
+    would hide the very text the comment is about.
+    """
+    x, y, w, h = entry.rect
+    box = to_screen(x, y, w, h)
+    return QRectF(box.right() + 2.0, box.top() - MARKER_PX * 0.55, MARKER_PX, MARKER_PX)
+
+
+def hit_rects(entry, to_screen, replies=()) -> list[QRectF]:
     """On-screen boxes that count as "the mouse is over this annotation"."""
     if entry.kind == "Text":
         return [icon_rect(entry, to_screen)]
+    boxes: list[QRectF] = []
     if entry.quads:
-        return [to_screen(*q) for q in entry.quads]
-    x, y, w, h = entry.rect
-    if w <= 0 and h <= 0:
-        return []
-    return [to_screen(x, y, w, h)]
+        boxes = [to_screen(*q) for q in entry.quads]
+    else:
+        x, y, w, h = entry.rect
+        if w > 0 or h > 0:
+            boxes = [to_screen(x, y, w, h)]
+    if wants_marker(entry, replies):
+        boxes.append(marker_rect(entry, to_screen))
+    return boxes
 
 
 def _stroke_pen(color: QColor, width: float, alpha: int) -> QPen:
@@ -210,10 +272,21 @@ def _paint_free_text(painter: QPainter, entry, to_screen, scale: float, theme_te
 
 def _paint_sticky_icon(painter: QPainter, entry, to_screen) -> None:
     """A small speech-bubble marker of constant on-screen size."""
-    box = icon_rect(entry, to_screen)
+    _paint_bubble(painter, icon_rect(entry, to_screen), _color(entry, "#ffb300"),
+                  _alpha(entry, 235))
+
+
+def _paint_comment_marker(painter: QPainter, entry, to_screen) -> None:
+    """The bubble pinned beside a highlight/box that carries a comment."""
     color = _color(entry, "#ffb300")
+    # The marker must stay legible even when the markup itself is a 40%-opaque
+    # highlight, so it does not inherit /CA.
+    _paint_bubble(painter, marker_rect(entry, to_screen), color, 255)
+
+
+def _paint_bubble(painter: QPainter, box: QRectF, color: QColor, alpha: int) -> None:
     fill = QColor(color)
-    fill.setAlpha(_alpha(entry, 235))
+    fill.setAlpha(alpha)
     body = QRectF(box.left(), box.top(), box.width(), box.height() * 0.78)
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -257,6 +330,7 @@ def paint_embedded_annotations(
 ) -> int:
     """Draw every embedded annotation of *page*; return how many were drawn."""
     drawn = 0
+    replies = replies_by_parent(entries)
     for entry in visible_annotations(entries, page):
         painter.save()
         try:
@@ -272,6 +346,8 @@ def paint_embedded_annotations(
             else:
                 painter.restore()
                 continue
+            if wants_marker(entry, replies.get(entry.xref, ())):
+                _paint_comment_marker(painter, entry, to_screen)
             drawn += 1
         finally:
             if painter.isActive():
@@ -283,7 +359,7 @@ def paint_embedded_annotations(
 
 def _paint_flash(painter: QPainter, entry, to_screen) -> None:
     """A short-lived focus ring drawn after a sidebar click."""
-    boxes = hit_rects(entry, to_screen)
+    boxes = hit_rects(entry, to_screen)[:1]
     if not boxes:
         return
     painter.save()
@@ -298,8 +374,18 @@ def _paint_flash(painter: QPainter, entry, to_screen) -> None:
 
 def annotation_at(entries, page: int, pos, to_screen):
     """Topmost annotation whose on-screen geometry contains viewport *pos*."""
+    replies = replies_by_parent(entries)
+    point = QPointF(pos)
     for entry in reversed(visible_annotations(entries, page)):
-        for box in hit_rects(entry, to_screen):
-            if box.contains(QPointF(pos)):
+        for box in hit_rects(entry, to_screen, replies.get(entry.xref, ())):
+            if box.contains(point):
                 return entry
     return None
+
+
+def card_anchor(entry, to_screen, replies=()) -> QRectF:
+    """The on-screen box a popup card should be pinned next to."""
+    if wants_marker(entry, replies):
+        return marker_rect(entry, to_screen)
+    boxes = hit_rects(entry, to_screen, replies)
+    return boxes[0] if boxes else QRectF()

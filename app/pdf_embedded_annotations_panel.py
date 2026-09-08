@@ -135,6 +135,19 @@ class PdfEmbeddedAnnotationsPanel(QWidget):
             item.setIcon(_swatch_icon(entry.color, self._theme.border))
         self._list.addItem(item)
 
+    def select_annotation(self, entry) -> bool:
+        """Highlight the row for *entry* (matched by xref) and scroll to it."""
+        if entry is None:
+            return False
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            candidate = item.data(Qt.ItemDataRole.UserRole)
+            if candidate is not None and candidate.xref == entry.xref:
+                self._list.setCurrentItem(item)
+                self._list.scrollToItem(item)
+                return True
+        return False
+
     def count(self) -> int:
         """How many embedded annotations this panel is showing (replies too)."""
         return len(self._annotations)

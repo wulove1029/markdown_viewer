@@ -95,6 +95,11 @@ class EmbeddedAnnotation:
     icon: str = ""
     vertices: list[tuple[float, float]] = field(default_factory=list)
     ink: list[list[tuple[float, float]]] = field(default_factory=list)
+    # Acrobat's /Popup companion object: whether the author left the note card
+    # open, and where they parked it (page points, top-left origin). Acrobat
+    # shows such a card on open, so the app does too.
+    popup_open: bool = False
+    popup_rect: tuple[float, float, float, float] | None = None
 
     @property
     def is_reply(self) -> bool:
@@ -212,13 +217,45 @@ def _in_reply_to(doc, xref: int) -> int | None:
     return parent if parent > 0 else None
 
 
-def _popup_content(doc, xref: int) -> str:
-    """Note text stored on the annotation's ``/Popup`` object, if any."""
+def _popup_xref(doc, xref: int) -> int | None:
     raw = str(_xref_key(doc, xref, "Popup") or "").strip()
     match = re.match(r"^(\d+)\s+\d+\s+R$", raw)
-    if not match:
+    return int(match.group(1)) if match else None
+
+
+def _popup_content(doc, xref: int) -> str:
+    """Note text stored on the annotation's ``/Popup`` object, if any."""
+    popup = _popup_xref(doc, xref)
+    if popup is None:
         return ""
-    return _pdf_string(_xref_key(doc, int(match.group(1)), "Contents"))
+    return _pdf_string(_xref_key(doc, popup, "Contents"))
+
+
+def _popup_state(doc, page, xref: int):
+    """Return (open?, rect) for the annotation's ``/Popup`` companion.
+
+    The rect is converted into the page's top-left origin space, the same
+    convention every other geometry in this module uses, so the view can
+    project it with the ordinary page transform.
+    """
+    popup = _popup_xref(doc, xref)
+    if popup is None:
+        return False, None
+    is_open = str(_xref_key(doc, popup, "Open") or "").strip().lower() == "true"
+    raw = str(_xref_key(doc, popup, "Rect") or "").strip().strip("[]")
+    try:
+        x0, y0, x1, y1 = (float(v) for v in raw.split()[:4])
+    except (TypeError, ValueError):
+        return is_open, None
+    mupdf = _pymupdf()
+    if mupdf is None:
+        return is_open, None
+    try:
+        rect = mupdf.Rect(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        rect = rect * page.transformation_matrix
+    except Exception:
+        return is_open, None
+    return is_open, _rect_tuple(rect)
 
 
 def _marked_text(page, annot, quads) -> str:
@@ -314,6 +351,7 @@ def _extract_one_annotation(doc, page, annot) -> EmbeddedAnnotation | None:
 
     xref = int(getattr(annot, "xref", 0) or 0)
     content, marked = _resolve_content(doc, page, annot, info, type_name, quads)
+    popup_open, popup_rect = _popup_state(doc, page, xref) if xref else (False, None)
 
     return EmbeddedAnnotation(
         page=page.number,
@@ -332,6 +370,8 @@ def _extract_one_annotation(doc, page, annot) -> EmbeddedAnnotation | None:
         icon=icon,
         vertices=vertices,
         ink=ink,
+        popup_open=popup_open,
+        popup_rect=popup_rect,
     )
 
 

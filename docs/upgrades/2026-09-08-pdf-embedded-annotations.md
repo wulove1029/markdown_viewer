@@ -167,3 +167,62 @@ Acrobat 面板顯示的「文字反白」**不存在於檔案任何欄位**：�
 QuadPoints 通常比字行高出零點幾 pt，因此原本擷取到的「被標文字」多帶了下一
 行的開頭。改成先把 quad 垂直內縮 `min(h*0.2, 2pt)` 才取字，結果才等於使用者
 真正反白的那一行。
+
+## 「備註的文字呢？」— 頁面標記與註解卡片（2026-09-08 再追加）
+
+上一輪把回覆圖示拿掉後，頁面上只剩橘色螢光，完全看不出它帶有回覆「測試用」。
+本輪補上三層可見性：頁面標記 → 註解卡片 → 側欄同步。
+
+### 1. 頁面標記（`app/pdf_annotation_overlay.py`）
+
+`wants_marker()`：Highlight／Underline／StrikeOut／Squiggly／Square／Circle／
+Ink／Line／Polygon／PolyLine／FreeText 只要**有自己的註解文字或有回覆**，就在
+rect 右上角外側（`marker_rect()`，`right+2`、`top-55%`）畫一個固定 **16 px**
+的小對話泡泡，用註解的 `/C` 顏色、不套 `/CA`（40% 螢光上的標記才看得清）、
+不隨縮放放大、不蓋住被標文字。純螢光（無內容、無回覆）**不畫**標記。獨立
+便利貼維持原本 18 px 圖示。標記也計入 hit-test，所以點得到。
+
+### 2. 註解卡片（新檔 `app/pdf_annotation_card.py`）
+
+非模態 `QFrame`，疊在 `PdfView` viewport 上（不是 tooltip 也不是 dialog，
+可以邊看被標文字邊看註解）。內容：類型／作者／時間（PDF 日期格式化成
+`2026-09-08 12:39`）、註解文字（沒有就顯示「被標文字」加引號）、縮排列出
+每則回覆的作者／時間／內容。超長內容用 `QScrollArea`，樣式全走主題 token
+（深色可讀）。
+
+觸發與關閉：點圖示或註解本體開啟（點回覆會開它父註解的卡片）；Esc、點別處、
+捲動、切頁都關閉；同一時間只有一張手動卡片。
+
+### 3. Acrobat 的 `/Popup`：自動打開的卡片
+
+實測檔 xref 368 是 `Open=true` 的 Popup，Acrobat 開檔就把卡片畫在頁面右側。
+資料層補 `popup_open`／`popup_rect`（`/Popup` 的 `/Rect` 乘上
+`page.transformation_matrix` 轉成左上角原點）。`PdfView._sync_auto_cards()`
+在載入、捲動、縮放、重排時建立／定位／回收這些卡片；位置用 popup_rect 投影，
+超出 viewport 就夾到右側邊界。`_paint_popup_leaders()` 從註解 rect 右上畫一條
+1 px 註解色引線連到卡片左緣中點。使用者關掉後 xref 記進 `_popup_dismissed`，
+本次 session（同一份檔案）不再自動彈出，捲動／切頁／縮放都不會復活；換檔
+（`load()`）才清空。多張自動卡片可並存，與那一張手動卡片互不干擾。
+
+### 4. 側欄同步（`app/window.py`、`app/pdf_embedded_annotations_panel.py`）
+
+頁面點擊 → `PdfView.embedded_annotation_selected` → 若側欄**已展開**才切到
+「標註 → 內嵌註解」並用 `select_annotation()`（比對 xref）選取該列；不會強制
+展開被使用者收起的側欄。反向：側欄點擊除了跳頁與 flash，也開同一張卡片。
+
+### 驗證
+
+- 測試新增 15 個（標記只對有內容／有回覆出現、標記尺寸 0.5x/1x/4x 不變、
+  標記實際畫出像素、點擊開卡片且含回覆、Esc／點別處／捲動關閉、點回覆開父卡片、
+  卡片 header/body 退回被標文字、`Open=true` 自動顯示、`Open=false` 不顯示、
+  關閉後捲動＋縮放不復活、真實檔 xref 367 有標記且自動卡片含「測試用」）。
+  指定 5 檔 251 passed；全套 1627 passed／75 skipped，exit 0。
+- 截圖（offscreen、真實檔、100%）：`pdf-annot-popup.png` 為開檔未點擊狀態，
+  可見自動打開的卡片、引線與橘色標記；`pdf-annot-marker.png` 為關掉卡片後，
+  只剩螢光與右上角的小泡泡標記。中文在 offscreen 顯示為方框，屬字型問題。
+
+### 意外發現
+
+`add_highlight_annot()` 預設不建 `/Popup`，要 `annot.set_popup(rect)` 才會有
+`popup_xref`；`Open` 只能用 `xref_set_key` 直接寫。另外 Popup 的 `/Rect` 是
+PDF 底左原點，若不乘 `page.transformation_matrix`，卡片會垂直鏡射到頁尾。

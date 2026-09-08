@@ -41,7 +41,7 @@ from PySide6.QtCore import (
     QSizeF,
     Signal,
 )
-from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtPdf import QPdfDocument, QPdfSearchModel
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -71,6 +71,7 @@ def _pymupdf():
     return _pymupdf_module
 
 from . import pdf_annotation_overlay
+from .pdf_annotation_card import PdfAnnotationCard
 from .pdf_embedded_annotations import (
     build_annotation_threads,
     extract_embedded_annotations,
@@ -186,6 +187,7 @@ class PdfView(QAbstractScrollArea):
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)  # generation, path, entries
     embedded_annotations_ready = Signal(int, object, object)  # generation, path, entries
+    embedded_annotation_selected = Signal(object)  # EmbeddedAnnotation clicked on page
     zoom_changed = Signal(float)  # user-initiated wheel zoom
     translate_requested = Signal(str)  # selected text to translate
 
@@ -306,6 +308,15 @@ class PdfView(QAbstractScrollArea):
         self._flash_timer.setSingleShot(True)
         self._flash_timer.setInterval(1600)
         self._flash_timer.timeout.connect(self._clear_annotation_flash)
+        # One non-modal card at a time, stacked on the viewport so the reader
+        # can see the marked text and the comment together.
+        self._annotation_card = PdfAnnotationCard(self.viewport())
+        self._annotation_card.apply_theme(self._theme)
+        # Acrobat shows a /Popup whose /Open is true as soon as the file is
+        # opened; those cards live alongside the click-opened one. Dismissing
+        # one is remembered for the session so it does not pop back on scroll.
+        self._auto_cards: dict[int, PdfAnnotationCard] = {}
+        self._popup_dismissed: set[int] = set()
 
         # --- highlighter ---
         self._highlights: list = []  # PdfHighlight (drawing copy; window owns truth)
@@ -376,6 +387,7 @@ class PdfView(QAbstractScrollArea):
         self._clear_selection()
         self.selection_changed.emit(False)
         self._highlights = []
+        self._popup_dismissed.clear()
         self.set_embedded_annotations([])
         self._cache.clear()
         self._text_bounds.clear()
@@ -527,6 +539,8 @@ class PdfView(QAbstractScrollArea):
         self._content_w = content_w
         self._content_h = y - self.PAGE_SPACING + self.PAGE_MARGIN
         self._update_scrollbars()
+        # Zoom/resize moves the page under the popup cards; keep them attached.
+        self._sync_auto_cards()
 
     def _update_scrollbars(self) -> None:
         vp = self.viewport().size()
@@ -551,6 +565,10 @@ class PdfView(QAbstractScrollArea):
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
+        # The card is pinned to a spot on the page; once that spot moves the
+        # card would point at nothing, so scrolling dismisses it.
+        self.close_annotation_card()
+        self._sync_auto_cards()
         self._schedule_render_dispatch()
         self.viewport().update()
         cur = self.current_page()
@@ -1189,6 +1207,7 @@ class PdfView(QAbstractScrollArea):
                 flash_xref=self._flash_annotation_xref,
                 theme_text=self._theme.text,
             )
+            self._paint_popup_leaders(painter, p, ox, oy)
         # saved highlights
         for hl in self._highlights:
             if hl.page != p:
@@ -1387,6 +1406,18 @@ class PdfView(QAbstractScrollArea):
                 self.selection_changed.emit(True)
                 self.viewport().update()
                 return
+        # A click on an embedded annotation opens its card; it must not also
+        # start a text selection under the card that just appeared.
+        hit = self.embedded_annotation_at(pos)
+        if hit is not None:
+            self._clear_selection()
+            self.selection_changed.emit(False)
+            target = hit if hit.in_reply_to is None else self._parent_annotation(hit)
+            self.show_annotation_card(target)
+            self.flash_embedded_annotation(target.xref)
+            self.embedded_annotation_selected.emit(target)
+            return
+        self.close_annotation_card()
         page, pt = self._pos_to_page(pos)
         if page is None:
             self._clear_selection()
@@ -1520,6 +1551,10 @@ class PdfView(QAbstractScrollArea):
         self._dragging = False
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._annotation_card.isVisible():
+            self.close_annotation_card()
+            event.accept()
+            return
         if event.matches(QKeySequence.StandardKey.Copy) and self.copy_selection():
             event.accept()
             return
@@ -1609,6 +1644,8 @@ class PdfView(QAbstractScrollArea):
             for parent, replies in build_annotation_threads(self._embedded_annotations)
         }
         self._clear_annotation_flash()
+        self.close_annotation_card()
+        self._sync_auto_cards()
         self.viewport().update()
 
     def embedded_annotations(self) -> list:
@@ -1622,6 +1659,122 @@ class PdfView(QAbstractScrollArea):
         else:
             self._flash_timer.start()
         self.viewport().update()
+
+    def show_annotation_card(self, entry) -> bool:
+        """Open the non-modal card for *entry* beside its mark on the page."""
+        if entry is None or not self._page_tops:
+            return False
+        if not (0 <= entry.page < len(self._page_tops)):
+            return False
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        replies = self._embedded_replies.get(entry.xref, ())
+        anchor = pdf_annotation_overlay.card_anchor(
+            entry, self._screen_mapper(entry.page, ox, oy), replies
+        )
+        self._annotation_card.show_for(
+            entry, replies, anchor.toRect(), self.viewport().rect()
+        )
+        return True
+
+    def auto_cards(self) -> dict:
+        """The self-opening ``/Popup`` cards currently on screen, by xref."""
+        return dict(self._auto_cards)
+
+    def _popup_screen_rect(self, entry, ox: int, oy: int):
+        rect = entry.popup_rect or entry.rect
+        return self._screen_mapper(entry.page, ox, oy)(*rect).toRect()
+
+    def _sync_auto_cards(self) -> None:
+        """Create/position/retire the cards for annotations with /Open popups."""
+        cards = getattr(self, "_auto_cards", None)
+        if cards is None:
+            return
+        wanted = {}
+        if self._page_tops:
+            for entry in self._embedded_annotations:
+                if (
+                    entry.popup_open
+                    and entry.xref
+                    and entry.in_reply_to is None
+                    and entry.xref not in self._popup_dismissed
+                    and 0 <= entry.page < len(self._page_tops)
+                ):
+                    wanted[entry.xref] = entry
+        for xref in list(cards):
+            if xref not in wanted:
+                cards.pop(xref).deleteLater()
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        for xref, entry in wanted.items():
+            card = cards.get(xref)
+            if card is None:
+                card = PdfAnnotationCard(self.viewport())
+                card.apply_theme(self._theme)
+                card.closed.connect(
+                    lambda x=xref: self._on_auto_card_dismissed(x)
+                )
+                cards[xref] = card
+            card.show_pinned(
+                entry,
+                self._embedded_replies.get(xref, ()),
+                self._popup_screen_rect(entry, ox, oy),
+                self.viewport().rect(),
+            )
+
+    def _on_auto_card_dismissed(self, xref: int) -> None:
+        self._popup_dismissed.add(int(xref))
+        card = self._auto_cards.pop(int(xref), None)
+        if card is not None:
+            card.deleteLater()
+        self.viewport().update()
+
+    def _paint_popup_leaders(self, painter, page: int, ox: int, oy: int) -> None:
+        """Thin connector from an annotation to its self-opened popup card.
+
+        Without it a card parked off the page margin (where Acrobat puts them)
+        reads as unrelated to the passage it belongs to.
+        """
+        if not self._auto_cards:
+            return
+        to_screen = self._screen_mapper(page, ox, oy)
+        for xref, card in self._auto_cards.items():
+            entry = next(
+                (e for e in self._embedded_annotations if e.xref == xref), None
+            )
+            if entry is None or entry.page != page or not card.isVisible():
+                continue
+            x, y, w, h = entry.rect
+            box = to_screen(x, y, w, h)
+            geometry = card.geometry()
+            start = QPointF(box.right(), box.top())
+            end = QPointF(geometry.left(), geometry.center().y())
+            painter.save()
+            color = QColor(entry.color or "#ffb300")
+            color.setAlpha(190)
+            pen = QPen(color)
+            pen.setWidthF(1.0)
+            painter.setPen(pen)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.drawLine(start, end)
+            painter.restore()
+
+    def _parent_annotation(self, entry):
+        """The annotation *entry* replies to, or *entry* itself."""
+        if entry.in_reply_to is None:
+            return entry
+        for candidate in self._embedded_annotations:
+            if candidate.xref == entry.in_reply_to:
+                return candidate
+        return entry
+
+    def close_annotation_card(self) -> None:
+        card = getattr(self, "_annotation_card", None)
+        if card is not None and card.isVisible():
+            card.dismiss()
+
+    def annotation_card(self):
+        return self._annotation_card
 
     def _clear_annotation_flash(self) -> None:
         if self._flash_annotation_xref is None:
@@ -1870,4 +2023,7 @@ class PdfView(QAbstractScrollArea):
     def apply_theme(self, theme: Theme) -> None:
         self._theme = theme
         self._bg = QColor(theme.surface_alt)
+        self._annotation_card.apply_theme(theme)
+        for card in self._auto_cards.values():
+            card.apply_theme(theme)
         self.viewport().update()

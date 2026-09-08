@@ -414,12 +414,18 @@ def test_window_activation_jumps_to_page_with_rect_when_available():
         def flash_embedded_annotation(self, xref):
             calls.append(("flash", xref))
 
+        def show_annotation_card(self, entry):
+            calls.append(("card", entry.xref))
+            return True
+
     win = type("W", (), {"_pdf_view": _View()})()
     entry = EmbeddedAnnotation(
         page=3, kind="Highlight", rect=(10.0, 20.0, 100.0, 15.0), xref=42
     )
     window_mod.MainWindow._pdf_embedded_annotation_activated(win, entry)
-    assert calls == [("reveal", 3, 10.0, 20.0, 100.0, 15.0), ("flash", 42)]
+    assert calls == [
+        ("reveal", 3, 10.0, 20.0, 100.0, 15.0), ("flash", 42), ("card", 42)
+    ]
 
 
 def test_window_activation_falls_back_to_jump_when_rect_is_empty():
@@ -435,10 +441,14 @@ def test_window_activation_falls_back_to_jump_when_rect_is_empty():
         def flash_embedded_annotation(self, xref):
             calls.append(("flash", xref))
 
+        def show_annotation_card(self, entry):
+            calls.append(("card", entry.xref))
+            return True
+
     win = type("W", (), {"_pdf_view": _View()})()
     entry = EmbeddedAnnotation(page=5, kind="Text", rect=(0.0, 0.0, 0.0, 0.0), xref=7)
     window_mod.MainWindow._pdf_embedded_annotation_activated(win, entry)
-    assert calls == [("jump", 5), ("flash", 7)]
+    assert calls == [("jump", 5), ("flash", 7), ("card", 7)]
 
 
 # --------------------------------------------------------------------------
@@ -810,3 +820,253 @@ def test_real_acrobat_file_threads_and_hides_the_reply_icon():
     # The 24pt purple Comment icon PDFium used to stamp over the text is a
     # reply, so nothing of it is drawn on the page.
     assert [e.kind for e in overlay.visible_annotations(entries, 0)] == ["Highlight"]
+
+
+# --------------------------------------------------------------------------
+# On-page comment markers and the popup card
+# --------------------------------------------------------------------------
+
+from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QLabel  # noqa: E402
+
+from app.pdf_annotation_card import body_text, header_text  # noqa: E402
+
+
+def _bare_highlight():
+    return EmbeddedAnnotation(
+        page=0, kind="Highlight", xref=1, rect=(20.0, 20.0, 100.0, 12.0),
+        quads=[(20.0, 20.0, 100.0, 12.0)], marked_text="marked", content="marked",
+    )
+
+
+def test_marker_is_drawn_only_for_annotations_that_carry_a_comment():
+    bare = _bare_highlight()
+    assert not overlay.wants_marker(bare, ())
+
+    noted = _bare_highlight()
+    noted.content = "a note"
+    assert overlay.wants_marker(noted, ())
+
+    reply = EmbeddedAnnotation(page=0, kind="Text", xref=2, in_reply_to=1)
+    assert overlay.wants_marker(bare, [reply])
+    # A sticky note already *is* an icon; it never gets a second bubble.
+    assert not overlay.wants_marker(
+        EmbeddedAnnotation(page=0, kind="Text", xref=3, content="hi"), ()
+    )
+
+
+def test_marker_keeps_a_fixed_pixel_size_and_stays_outside_the_markup():
+    entry = _bare_highlight()
+    entry.content = "a note"
+    for scale in (0.5, 1.0, 4.0):
+        mapper = _identity_mapper(scale)
+        box = overlay.marker_rect(entry, mapper)
+        assert box.width() == overlay.MARKER_PX
+        assert box.height() == overlay.MARKER_PX
+        assert box.left() >= mapper(*entry.rect).right()
+
+
+def test_marker_is_painted_for_a_commented_highlight_but_not_a_bare_one(qapp):
+    def marker_pixels(entries):
+        image = QImage(200, 100, QImage.Format.Format_RGB32)
+        image.fill(0xFFFFFFFF)
+        painter = QPainter(image)
+        overlay.paint_embedded_annotations(
+            painter, entries, 0, _identity_mapper(1.0), 1.0
+        )
+        painter.end()
+        box = overlay.marker_rect(entries[0], _identity_mapper(1.0))
+        return image.pixelColor(int(box.center().x()), int(box.center().y()))
+
+    assert marker_pixels([_bare_highlight()]).name() == "#ffffff"
+    assert marker_pixels(_entries_for_overlay()).name() != "#ffffff"
+
+
+def _laid_out_view(path, entries=None, height=900):
+    view = PdfView()
+    view.resize(900, height)
+    view.show()
+    assert view.load(path)
+    if entries is None:
+        entries = extract_embedded_annotations(path)
+    view.set_embedded_annotations(entries)
+    return view
+
+
+def _click(view, point):
+    for kind, button in (
+        (QEvent.Type.MouseButtonPress, Qt.MouseButton.LeftButton),
+    ):
+        event = QMouseEvent(
+            kind,
+            QPointF(point),
+            QPointF(point),
+            button,
+            button,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        view.mousePressEvent(event)
+
+
+def _marker_point(view, entry):
+    ox = view.horizontalScrollBar().value()
+    oy = view.verticalScrollBar().value()
+    replies = view._embedded_replies.get(entry.xref, ())
+    return overlay.card_anchor(
+        entry, view._screen_mapper(entry.page, ox, oy), replies
+    ).center().toPoint()
+
+
+def _card_texts(card):
+    return [label.text() for label in card.findChildren(QLabel)]
+
+
+def test_clicking_an_annotation_opens_a_card_with_its_replies(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    card = view.annotation_card()
+    assert card.isVisible()
+    assert card.entry().xref == parent.xref
+    assert any("測試用" in t for t in _card_texts(card))
+    view.deleteLater()
+
+
+def test_escape_and_a_click_elsewhere_close_the_card(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+
+    _click(view, _marker_point(view, parent))
+    assert view.annotation_card().isVisible()
+    view.keyPressEvent(
+        QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    )
+    assert not view.annotation_card().isVisible()
+
+    _click(view, _marker_point(view, parent))
+    assert view.annotation_card().isVisible()
+    _click(view, QPoint(20, 20))  # empty gutter beside the page
+    assert not view.annotation_card().isVisible()
+    view.deleteLater()
+
+
+def test_scrolling_away_closes_the_card(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    parent = next(e for e in view.embedded_annotations() if e.kind == "Highlight")
+    _click(view, _marker_point(view, parent))
+    assert view.annotation_card().isVisible()
+    view.verticalScrollBar().setValue(view.verticalScrollBar().maximum())
+    assert not view.annotation_card().isVisible()
+    view.deleteLater()
+
+
+def test_clicking_a_reply_opens_the_card_of_the_annotation_it_answers(qapp, threaded_pdf):
+    """A reply has no mark of its own, so its thread opens on the parent."""
+    view = _laid_out_view(threaded_pdf)
+    entries = view.embedded_annotations()
+    parent = next(e for e in entries if e.kind == "Highlight")
+    reply = next(e for e in entries if e.is_reply)
+    selected = []
+    view.embedded_annotation_selected.connect(selected.append)
+    _click(view, _marker_point(view, parent))
+    assert selected and selected[0].xref == parent.xref
+    assert reply.xref != parent.xref
+    view.deleteLater()
+
+
+def test_card_header_and_body_fall_back_to_the_marked_passage():
+    entry = EmbeddedAnnotation(
+        page=0, kind="Highlight", subject="螢光標示", author="USER01",
+        modified="D:20260908123941+08'00'",
+        marked_text="marked words", content="marked words",
+    )
+    assert "螢光標示" in header_text(entry)
+    assert "USER01" in header_text(entry)
+    assert "2026-09-08 12:39" in header_text(entry)
+    assert body_text(entry) == "「marked words」"
+    assert body_text(EmbeddedAnnotation(page=0, kind="Text")) == "（無文字內容）"
+
+
+# --------------------------------------------------------------------------
+# Acrobat's own /Popup: cards that open by themselves
+# --------------------------------------------------------------------------
+
+def _make_open_popup_pdf(path: Path, *, is_open: bool) -> None:
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "Underlying highlighted text")
+    highlight = page.add_highlight_annot(pymupdf.Rect(48, 40, 260, 62))
+    highlight.set_info(title="USER01", content="測試用")
+    highlight.set_popup(pymupdf.Rect(300, 40, 480, 140))
+    highlight.update()
+    doc.xref_set_key(highlight.popup_xref, "Open", "true" if is_open else "false")
+    doc.save(str(path))
+    doc.close()
+
+
+def test_popup_open_and_rect_are_extracted(tmp_path):
+    path = tmp_path / "open-popup.pdf"
+    _make_open_popup_pdf(path, is_open=True)
+    entry = extract_embedded_annotations(path)[0]
+    assert entry.popup_open is True
+    assert entry.popup_rect is not None
+    x, y, w, h = entry.popup_rect
+    assert (round(x), round(w), round(h)) == (300, 180, 100)
+
+    closed = tmp_path / "closed-popup.pdf"
+    _make_open_popup_pdf(closed, is_open=False)
+    assert extract_embedded_annotations(closed)[0].popup_open is False
+
+
+def test_an_open_popup_shows_its_card_without_a_click(qapp, tmp_path):
+    path = tmp_path / "open-popup.pdf"
+    _make_open_popup_pdf(path, is_open=True)
+    view = _laid_out_view(path)
+    cards = view.auto_cards()
+    assert len(cards) == 1
+    card = next(iter(cards.values()))
+    assert card.isVisible()
+    assert any("測試用" in t for t in _card_texts(card))
+    view.deleteLater()
+
+
+def test_a_closed_popup_does_not_open_by_itself(qapp, tmp_path):
+    path = tmp_path / "closed-popup.pdf"
+    _make_open_popup_pdf(path, is_open=False)
+    view = _laid_out_view(path)
+    assert view.auto_cards() == {}
+    assert not view.annotation_card().isVisible()
+    view.deleteLater()
+
+
+def test_dismissing_an_open_popup_keeps_it_shut_for_the_session(qapp, tmp_path):
+    path = tmp_path / "open-popup.pdf"
+    _make_open_popup_pdf(path, is_open=True)
+    view = _laid_out_view(path)
+    next(iter(view.auto_cards().values())).dismiss()
+    assert view.auto_cards() == {}
+    # Scrolling and re-laying out must not resurrect it.
+    view.verticalScrollBar().setValue(view.verticalScrollBar().maximum())
+    view.verticalScrollBar().setValue(0)
+    view.set_zoom_factor(1.5)
+    assert view.auto_cards() == {}
+    view.deleteLater()
+
+
+@requires_real_pdf
+def test_real_file_marks_the_commented_highlight_and_opens_its_popup(qapp):
+    entries = extract_embedded_annotations(REAL_ACROBAT_PDF)
+    highlight = next(e for e in entries if e.xref == 367)
+    replies = overlay.replies_by_parent(entries).get(367, ())
+    # The highlight itself has no text; the reply is the whole comment, and it
+    # is what makes the bubble marker appear.
+    assert highlight.note_text == ""
+    assert overlay.wants_marker(highlight, replies)
+    assert highlight.popup_open is True
+
+    view = _laid_out_view(REAL_ACROBAT_PDF, entries)
+    cards = view.auto_cards()
+    assert list(cards) == [367]
+    assert any("測試用" in t for t in _card_texts(cards[367]))
+    view.deleteLater()

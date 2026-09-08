@@ -180,6 +180,7 @@ class _FakePdfView(QWidget):
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)
     embedded_annotations_ready = Signal(int, object, object)
+    embedded_annotation_selected = Signal(object)
     zoom_changed = Signal(float)
     translate_requested = Signal(str)
 
@@ -194,12 +195,20 @@ class _FakePdfView(QWidget):
         self.flush_wheel_zoom_contexts = []
         self.embedded_annotations = []
         self.flashed_annotations = []
+        self.cards_shown = []
 
     def set_embedded_annotations(self, entries):
         self.embedded_annotations = list(entries or [])
 
     def flash_embedded_annotation(self, xref):
         self.flashed_annotations.append(xref)
+
+    def show_annotation_card(self, entry):
+        self.cards_shown.append(entry)
+        return True
+
+    def close_annotation_card(self):
+        self.cards_shown.append(None)
 
     def load(self, path):
         self.loaded.append(Path(path))

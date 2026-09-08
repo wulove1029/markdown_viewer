@@ -573,6 +573,9 @@ class MainWindow(QMainWindow):
         self._pdf_view.embedded_annotations_ready.connect(
             self._on_pdf_embedded_annotations_ready
         )
+        self._pdf_view.embedded_annotation_selected.connect(
+            self._on_pdf_embedded_annotation_clicked
+        )
         self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
         self._pdf_view.translate_requested.connect(self._translate_selection)
         # Wheel zoom is already applied locally by PdfView. Defer the heavier
@@ -4735,6 +4738,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # answers so the click still points somewhere visible.
         target = entry.in_reply_to if entry.in_reply_to is not None else entry.xref
         self._pdf_view.flash_embedded_annotation(target)
+        # Open the same card the on-page marker opens, so the comment text is
+        # readable next to the passage instead of only in the list.
+        self._pdf_view.show_annotation_card(entry)
+
+    def _on_pdf_embedded_annotation_clicked(self, entry):
+        """Mirror an on-page annotation click into the sidebar list.
+
+        Only when the panel is already open: a click on the page must not
+        expand a sidebar the reader deliberately collapsed.
+        """
+        if entry is None or not self._panel.isVisible():
+            return
+        self._panel.show_pdf_embedded_annotations()
+        self._panel.pdf_embedded_annotations.select_annotation(entry)
 
     # --- wiki-links & backlinks ---
     def _search_roots(self) -> list[Path]:
