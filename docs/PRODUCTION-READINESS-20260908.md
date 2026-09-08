@@ -1,6 +1,8 @@
 # 1.31.0 消費者體驗升級驗收
 
-日期：2026-09-08。狀態：第一批程式、回歸與本機封裝驗收完成；安裝程式建置成功，尚未安裝或公開發布。
+日期：2026-09-08。狀態：第一批程式、回歸與封裝驗收完成；1.31.0已公開發布，未替使用者安裝。
+
+發布追蹤：已依 `DEVELOPMENT.md` 提交 `54b1850` 並推送 `v1.31.0`，GitHub Actions [34177168075](https://github.com/wulove1029/markdown_viewer/actions/runs/34177168075) 已成功。正式[Release與下載](https://github.com/wulove1029/markdown_viewer/releases/tag/v1.31.0)於2026-09-08 09:41:42（台北時間）發布，非草稿、非預發布。正式安裝檔由CI重新建置，與本機Python 3.14試包不同；應下載Release附件。
 
 安裝程式：`E:\markdown_viewer\installer_output\consumer-upgrade-1.31.0\MarkdownViewer_Setup_v1.31.0.exe`。執行目錄：`E:\markdown_viewer\dist\consumer-upgrade-1.31.0\MarkdownViewer`。
 
