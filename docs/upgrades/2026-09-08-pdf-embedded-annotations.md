@@ -299,3 +299,27 @@ Enter 不送出、送出不先回填 UI、只有自己的回覆可編輯、拖�
 夾在 viewport 內、寫入失敗不改 UI、成功後重讀並重開卡片、刪除回覆聚焦父卡片、
 真實檔先複製到 tmp 再寫且驗證 Desktop 原檔 bytes 不變）。
 指定 3 檔 229 passed；全套 1652 passed／75 skipped，exit 0。
+
+## Review 後的四個小修（2026-09-08 第五輪）
+
+1. **刪除會連帶砍掉回覆**：MuPDF 刪一個註解時會把整條 `/IRT` 鏈一起刪掉，包括
+   別人寫的回覆。`MainWindow._pdf_annotation_delete()` 改為先算
+   `_annotation_replies_to()`，有回覆就用 `_confirm_annotation_delete()` 跳
+   「將一併刪除 N 則回覆（其中 M 則為他人）。確定要刪除嗎？」，取消就不刪。
+   葉節點（沒有回覆）維持不詢問。
+2. **備份檔互相覆蓋**：`backup()` 檔名從 `{stem}-{pid}.pdf` 改為
+   `{stem}-{pid}-{HHMMSS}-{序號}.pdf`，每次寫入各留一份。
+3. **pymupdf 例外逸出**：新增 `_wrapped(what)` context manager，把
+   `add_reply`／`edit_annotation`／`delete_annotation` 內的 `_locate`、
+   `add_text_annot`、`xref_set_key`、`delete_annot` 等任何例外統一轉成
+   `AnnotationWriteError`（訊息為「建立回覆失敗／編輯註解失敗／刪除註解失敗：…」），
+   window 端只需處理一種例外。
+4. **鎖住 vs 解析失敗**：新增 `_is_locked()`（`PermissionError` 或
+   `OSError.winerror in (32, 33)`）與 `LOCKED_MESSAGE`；被獨占鎖住時
+   `writable_reason()` 與儲存失敗都回報「檔案正被其他程式使用，無法寫入」，
+   真正的解析失敗才說「無法讀取此 PDF」。
+
+驗證：新增 7 個測試（取消刪除不動檔案／確認後才刪、葉節點不詢問、他人回覆
+計數、每次寫入各留一份備份且內容不同、三個寫入函式的 RuntimeError 都被包起來、
+鎖住與解析失敗的訊息區分、儲存時 PermissionError 的訊息）。
+指定 2 檔 243 passed；全套 1659 passed／75 skipped，exit 0。

@@ -18,7 +18,9 @@ No Qt here: the whole module is testable without a widget.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
+import itertools
 import os
 from pathlib import Path
 import shutil
@@ -28,6 +30,9 @@ _PYMUPDF_UNSET = object()
 _pymupdf_module = _PYMUPDF_UNSET
 
 _session_backup_dir: Path | None = None
+# Every write keeps its own copy, so a sequence of edits can each be recovered
+# from the session directory rather than only the most recent one.
+_backup_counter = itertools.count(1)
 
 # Sticky notes this app writes are small and pinned beside the parent's mark.
 _REPLY_SIZE = 20.0
@@ -78,14 +83,51 @@ def cleanup_session_backups() -> None:
 
 
 def backup(path) -> Path | None:
-    """Copy *path* into the session backup directory before it is modified."""
+    """Copy *path* into the session backup directory before it is modified.
+
+    Each write gets its own numbered copy: a single ``{stem}-{pid}`` name would
+    have every edit overwrite the previous snapshot, which defeats the point of
+    keeping one at all.
+    """
     source = Path(path)
     try:
-        target = session_backup_dir() / f"{source.stem}-{os.getpid()}{source.suffix}"
+        stamp = datetime.now().strftime("%H%M%S")
+        target = session_backup_dir() / (
+            f"{source.stem}-{os.getpid()}-{stamp}-{next(_backup_counter):03d}"
+            f"{source.suffix}"
+        )
         shutil.copy2(source, target)
         return target
     except OSError:
         return None
+
+
+LOCKED_MESSAGE = "檔案正被其他程式使用，無法寫入"
+
+
+def _is_locked(exc: BaseException) -> bool:
+    """Whether *exc* means another program holds the file open exclusively."""
+    if isinstance(exc, PermissionError):
+        return True
+    return isinstance(exc, OSError) and getattr(exc, "winerror", None) in (32, 33)
+
+
+@contextmanager
+def _wrapped(what: str):
+    """Turn any pymupdf failure inside the block into an AnnotationWriteError.
+
+    The callers in ``MainWindow`` only handle ``AnnotationWriteError``; a raw
+    MuPDF ``RuntimeError`` escaping from here would reach the reader as an
+    unhandled traceback instead of a message.
+    """
+    try:
+        yield
+    except AnnotationWriteError:
+        raise
+    except Exception as exc:
+        if _is_locked(exc):
+            raise AnnotationWriteError(f"{LOCKED_MESSAGE}：{exc}") from exc
+        raise AnnotationWriteError(f"{what}失敗：{exc}") from exc
 
 
 def _pdf_now() -> str:
@@ -114,7 +156,11 @@ def writable_reason(path, password: str = "") -> str | None:
                 return "此 PDF 已加密，無法寫入註解"
             if not doc.can_save_incrementally():
                 return "此 PDF 不支援增量儲存，無法安全寫入註解"
-    except Exception:
+    except Exception as exc:
+        # A file another program holds open is a different (and recoverable)
+        # problem from a file this app cannot parse; say which one it is.
+        if _is_locked(exc):
+            return LOCKED_MESSAGE
         return "無法讀取此 PDF，無法寫入註解"
     return None
 
@@ -127,11 +173,9 @@ def _save_incremental(doc, path: Path) -> None:
             incremental=True,
             encryption=mupdf.PDF_ENCRYPT_KEEP,
         )
-    except PermissionError as exc:
-        raise AnnotationWriteError(
-            f"檔案被其他程式鎖住，無法儲存註解：{exc}"
-        ) from exc
     except Exception as exc:
+        if _is_locked(exc):
+            raise AnnotationWriteError(f"{LOCKED_MESSAGE}：{exc}") from exc
         raise AnnotationWriteError(f"儲存註解失敗：{exc}") from exc
 
 
@@ -190,28 +234,29 @@ def add_reply(
     backup(file_path)
     doc = _open_for_write(file_path, password)
     try:
-        page, parent = _locate(doc, int(parent_xref))
-        if parent is None:
-            raise AnnotationWriteError("找不到要回覆的註解")
-        rect = parent.rect
-        try:
-            colors = parent.colors or {}
-            stroke = colors.get("stroke") or colors.get("fill") or None
-        except Exception:
-            stroke = None
-        reply = page.add_text_annot(
-            (float(rect.x0), float(rect.y0)), body, icon="Comment"
-        )
-        reply.set_info(title=str(author or "").strip(), content=body)
-        if stroke:
+        with _wrapped("建立回覆"):
+            page, parent = _locate(doc, int(parent_xref))
+            if parent is None:
+                raise AnnotationWriteError("找不到要回覆的註解")
+            rect = parent.rect
             try:
-                reply.set_colors(stroke=tuple(float(c) for c in stroke[:3]))
+                colors = parent.colors or {}
+                stroke = colors.get("stroke") or colors.get("fill") or None
             except Exception:
-                pass
-        reply.update()
-        doc.xref_set_key(reply.xref, "IRT", f"{int(parent_xref)} 0 R")
-        doc.xref_set_key(reply.xref, "M", f"({_pdf_now()})")
-        new_xref = int(reply.xref)
+                stroke = None
+            reply = page.add_text_annot(
+                (float(rect.x0), float(rect.y0)), body, icon="Comment"
+            )
+            reply.set_info(title=str(author or "").strip(), content=body)
+            if stroke:
+                try:
+                    reply.set_colors(stroke=tuple(float(c) for c in stroke[:3]))
+                except Exception:
+                    pass
+            reply.update()
+            doc.xref_set_key(reply.xref, "IRT", f"{int(parent_xref)} 0 R")
+            doc.xref_set_key(reply.xref, "M", f"({_pdf_now()})")
+            new_xref = int(reply.xref)
         _save_incremental(doc, file_path)
         return new_xref
     finally:
@@ -233,19 +278,20 @@ def edit_annotation(
     backup(file_path)
     doc = _open_for_write(file_path, password)
     try:
-        _page, annot = _locate(doc, int(xref))
-        if annot is None:
-            raise AnnotationWriteError("找不到要編輯的註解")
-        if not _owned_by(annot, author):
-            raise AnnotationWriteError("只能編輯自己建立的註解")
-        annot.set_info(content=body)
-        annot.update()
-        doc.xref_set_key(int(xref), "M", f"({_pdf_now()})")
-        # /RC would otherwise keep showing the old text in Acrobat.
-        try:
-            doc.xref_set_key(int(xref), "RC", "null")
-        except Exception:
-            pass
+        with _wrapped("編輯註解"):
+            _page, annot = _locate(doc, int(xref))
+            if annot is None:
+                raise AnnotationWriteError("找不到要編輯的註解")
+            if not _owned_by(annot, author):
+                raise AnnotationWriteError("只能編輯自己建立的註解")
+            annot.set_info(content=body)
+            annot.update()
+            doc.xref_set_key(int(xref), "M", f"({_pdf_now()})")
+            # /RC would otherwise keep showing the old text in Acrobat.
+            try:
+                doc.xref_set_key(int(xref), "RC", "null")
+            except Exception:
+                pass
         _save_incremental(doc, file_path)
     finally:
         doc.close()
@@ -257,12 +303,13 @@ def delete_annotation(path, xref: int, author: str, password: str = "") -> None:
     backup(file_path)
     doc = _open_for_write(file_path, password)
     try:
-        page, annot = _locate(doc, int(xref))
-        if annot is None:
-            raise AnnotationWriteError("找不到要刪除的註解")
-        if not _owned_by(annot, author):
-            raise AnnotationWriteError("只能刪除自己建立的註解")
-        page.delete_annot(annot)
+        with _wrapped("刪除註解"):
+            page, annot = _locate(doc, int(xref))
+            if annot is None:
+                raise AnnotationWriteError("找不到要刪除的註解")
+            if not _owned_by(annot, author):
+                raise AnnotationWriteError("只能刪除自己建立的註解")
+            page.delete_annot(annot)
         _save_incremental(doc, file_path)
     finally:
         doc.close()

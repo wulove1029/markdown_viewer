@@ -4839,7 +4839,44 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             focus,
         )
 
+    def _annotation_replies_to(self, entry) -> list:
+        return [
+            e
+            for e in self._pdf_embedded_annotations
+            if e.in_reply_to == entry.xref
+        ]
+
+    def _confirm_annotation_delete(self, entry, replies) -> bool:
+        """Warn before a delete that takes other people's replies with it.
+
+        MuPDF removes an annotation's whole ``/IRT`` chain, so deleting a
+        comment of your own silently deletes every reply underneath it —
+        including replies somebody else wrote.
+        """
+        if not replies:
+            return True
+        author = self._pdf_annotation_author()
+        others = sum(
+            1 for r in replies if str(r.author or "").strip() != author.strip()
+        )
+        message = f"將一併刪除 {len(replies)} 則回覆"
+        if others:
+            message += f"（其中 {others} 則為他人）"
+        message += "。確定要刪除嗎？"
+        return (
+            QMessageBox.question(
+                self,
+                "刪除 PDF 註解",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        )
+
     def _pdf_annotation_delete(self, entry) -> bool:
+        replies = self._annotation_replies_to(entry)
+        if not self._confirm_annotation_delete(entry, replies):
+            return False
         focus = entry.in_reply_to if entry.in_reply_to is not None else entry.xref
         return self._perform_pdf_annotation_write(
             lambda path, author: pdf_annotation_writer.delete_annotation(

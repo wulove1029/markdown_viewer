@@ -1435,11 +1435,18 @@ class _WriteWindow:
         self.warnings = []
         self.messages = []
         self.panel_refreshes = 0
-        self._perform_pdf_annotation_write = (
-            window_mod.MainWindow._perform_pdf_annotation_write.__get__(
-                self, window_mod.MainWindow
+        for name in (
+            '_perform_pdf_annotation_write',
+            '_annotation_replies_to',
+            '_confirm_annotation_delete',
+        ):
+            setattr(
+                self,
+                name,
+                getattr(window_mod.MainWindow, name).__get__(
+                    self, window_mod.MainWindow
+                ),
             )
-        )
 
     def _pdf_annotation_author(self):
         return AUTHOR
@@ -1539,3 +1546,148 @@ def test_real_file_round_trips_a_reply_on_a_copy_never_the_original(qapp, tmp_pa
     assert len(build_annotation_threads(entries)[0][1]) == 2
     # The file on the Desktop was never touched.
     assert REAL_ACROBAT_PDF.read_bytes() == original_bytes
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups: cascade warning, per-write backups, wrapped failures
+# --------------------------------------------------------------------------
+
+def test_deleting_a_parent_warns_that_its_replies_go_too(
+    qapp, threaded_pdf, monkeypatch
+):
+    """MuPDF removes the whole /IRT chain, so the reader must be told."""
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", lambda *a, **k: None)
+    parent = next(e for e in win._pdf_embedded_annotations if e.kind == "Highlight")
+
+    asked = []
+    win._confirm_annotation_delete = lambda entry, replies: (
+        asked.append((entry.xref, [r.xref for r in replies])) or False
+    )
+    assert _bind(win, "_pdf_annotation_delete")(parent) is False
+    assert asked and asked[0][0] == parent.xref and len(asked[0][1]) == 1
+    # Cancelling really cancels: the parent is still in the file.
+    assert any(
+        e.xref == parent.xref for e in extract_embedded_annotations(threaded_pdf)
+    )
+
+    win._confirm_annotation_delete = lambda entry, replies: True
+    assert _bind(win, "_pdf_annotation_delete")(parent) is True
+    assert extract_embedded_annotations(threaded_pdf) == []
+    view.deleteLater()
+
+
+def test_a_reply_free_annotation_is_deleted_without_a_prompt(
+    qapp, threaded_pdf, monkeypatch
+):
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    monkeypatch.setattr(window_mod.QMessageBox, "warning", lambda *a, **k: None)
+    reply = next(e for e in win._pdf_embedded_annotations if e.is_reply)
+    calls = []
+    monkeypatch.setattr(
+        window_mod.QMessageBox,
+        "question",
+        lambda *a, **k: calls.append(a) or window_mod.QMessageBox.StandardButton.Yes,
+    )
+    assert _bind(win, "_pdf_annotation_delete")(reply) is True
+    assert calls == []  # a leaf annotation takes nothing with it
+    view.deleteLater()
+
+
+def test_the_cascade_warning_counts_other_peoples_replies(qapp, threaded_pdf):
+    view = _laid_out_view(threaded_pdf)
+    win = _WriteWindow(threaded_pdf, view)
+    parent = next(e for e in win._pdf_embedded_annotations if e.kind == "Highlight")
+    mine = EmbeddedAnnotation(
+        page=0, kind="Text", xref=901, in_reply_to=parent.xref, author=AUTHOR
+    )
+    theirs = EmbeddedAnnotation(
+        page=0, kind="Text", xref=902, in_reply_to=parent.xref, author=OTHER
+    )
+    win._pdf_embedded_annotations = win._pdf_embedded_annotations + [mine, theirs]
+    assert len(_bind(win, "_annotation_replies_to")(parent)) == 3
+
+    shown = []
+    with_question = window_mod.QMessageBox.question
+    try:
+        window_mod.QMessageBox.question = staticmethod(
+            lambda *a, **k: shown.append(a[2])
+            or window_mod.QMessageBox.StandardButton.No
+        )
+        assert _bind(win, "_confirm_annotation_delete")(
+            parent, _bind(win, "_annotation_replies_to")(parent)
+        ) is False
+    finally:
+        window_mod.QMessageBox.question = with_question
+    assert "3 則回覆" in shown[0]
+    assert "1 則為他人" in shown[0]  # the fixture's own reply is USER01 = AUTHOR
+    view.deleteLater()
+
+
+def test_every_write_keeps_its_own_backup_copy(threaded_pdf):
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+    before = len(list(writer.session_backup_dir().glob("*.pdf")))
+    first = writer.backup(threaded_pdf)
+    second = writer.backup(threaded_pdf)
+    assert first != second
+    assert first.exists() and second.exists()
+
+    writer.add_reply(threaded_pdf, parent.xref, "第一則", AUTHOR)
+    writer.add_reply(threaded_pdf, parent.xref, "第二則", AUTHOR)
+    after = list(writer.session_backup_dir().glob("*.pdf"))
+    assert len(after) - before >= 4
+    # The two write-time copies differ: the second saw the first reply.
+    assert len({c.read_bytes() for c in after}) > 1
+
+
+def test_pymupdf_failures_never_escape_as_raw_exceptions(threaded_pdf, monkeypatch):
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("mupdf exploded")
+
+    monkeypatch.setattr(writer, "_locate", boom)
+    with pytest.raises(AnnotationWriteError, match="建立回覆失敗"):
+        writer.add_reply(threaded_pdf, parent.xref, "text", AUTHOR)
+    with pytest.raises(AnnotationWriteError, match="編輯註解失敗"):
+        writer.edit_annotation(threaded_pdf, parent.xref, "text", AUTHOR)
+    with pytest.raises(AnnotationWriteError, match="刪除註解失敗"):
+        writer.delete_annotation(threaded_pdf, parent.xref, AUTHOR)
+
+
+def test_a_locked_file_says_so_instead_of_blaming_the_pdf(threaded_pdf, monkeypatch):
+    locked = PermissionError(13, "in use")
+    locked.winerror = 32
+
+    def refuse(*_args, **_kwargs):
+        raise locked
+
+    monkeypatch.setattr(writer._pymupdf(), "open", refuse)
+    assert writer.writable_reason(threaded_pdf) == writer.LOCKED_MESSAGE
+
+    parse_failure = RuntimeError("cannot recognize file format")
+
+    def broken(*_args, **_kwargs):
+        raise parse_failure
+
+    monkeypatch.setattr(writer._pymupdf(), "open", broken)
+    assert "無法讀取此 PDF" in writer.writable_reason(threaded_pdf)
+
+
+def test_a_locked_save_reports_the_lock(threaded_pdf, monkeypatch):
+    parent = next(
+        e for e in extract_embedded_annotations(threaded_pdf) if e.kind == "Highlight"
+    )
+
+    def refuse(self, *_args, **_kwargs):
+        raise PermissionError(13, "the file is open in another program")
+
+    monkeypatch.setattr(pymupdf.Document, "save", refuse)
+    with pytest.raises(AnnotationWriteError, match=writer.LOCKED_MESSAGE):
+        writer.add_reply(threaded_pdf, parent.xref, "text", AUTHOR)
