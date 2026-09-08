@@ -193,4 +193,11 @@ def main():
 
 
 if __name__ == "__main__":
+    # Killable Markdown render worker (see app/render_service.py). Must be
+    # handled before any Qt/window work: the frozen build re-launches this same
+    # executable with this flag instead of "python -m app.render_worker".
+    if len(sys.argv) > 1 and sys.argv[1] == "--render-worker":
+        from app.render_worker import main as _render_worker_main
+
+        sys.exit(_render_worker_main(sys.argv[1:]))
     main()

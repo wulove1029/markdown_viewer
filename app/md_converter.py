@@ -63,7 +63,39 @@ summary { cursor: pointer; font-weight: 600; }
 .frontmatter .fm-tag { display: inline-block; background: rgba(128,128,128,.15);
     border-radius: 10px; padding: 0 8px; margin: 0 4px 2px 0; font-size: .9em; }
 """
-_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}"
+_PARTIAL_CSS = """
+.partial-preview-notice { position: sticky; top: 0; z-index: 20;
+    border: 1px solid rgba(234,179,8,.45); border-left: 4px solid #eab308;
+    background: rgba(234,179,8,.12); border-radius: 6px;
+    padding: 8px 14px; margin: 0 0 16px 0; font-size: .95em; }
+.partial-preview-notice .ppn-title { font-weight: 700; display: block; }
+.partial-preview-notice .ppn-scope { opacity: .85; }
+"""
+_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}\n{_PARTIAL_CSS}"
+
+# ---------------------------------------------------------------------------
+# Large-document thresholds -- single source of truth (spec 3.C).
+# Values come from docs/upgrades/2026-09-08-next-baseline.md: 100 KB converts
+# in ~32 ms and 1 MB in ~292 ms in-process, while 5 MB takes ~2.35 s and holds
+# _CONVERT_LOCK for all of it.
+# ---------------------------------------------------------------------------
+
+#: Hard preview ceiling; bigger files get an error page instead of a render.
+MAX_PREVIEW_BYTES = 10 * 1024 * 1024
+#: At or above this size the parse moves to a killable child process, so a
+#: newer document never waits behind it. Below it the in-process parse is
+#: short enough (<= ~90 ms) that process startup would cost more than it saves.
+SUBPROCESS_MIN_BYTES = 256 * 1024
+#: At or above this size the full render is too slow to be the first thing the
+#: reader sees, so a block-boundary prefix is rendered first ("fast text
+#: reading") while the full preview finishes in the child process.
+FAST_PREVIEW_MIN_BYTES = 2 * 1024 * 1024
+#: Roughly how much of the document the fast preview renders (~220 ms of work).
+FAST_PREVIEW_PREFIX_BYTES = 512 * 1024
+#: Give up on the fast preview if no block boundary appears within this much
+#: text (one giant paragraph / table / fence): show the loading page instead of
+#: cutting a construct in half.
+FAST_PREVIEW_MAX_SCAN_BYTES = 4 * FAST_PREVIEW_PREFIX_BYTES
 
 # Optional user stylesheet (set from Preferences) appended after the bundled CSS
 # so it can override the defaults.
@@ -762,6 +794,139 @@ def render_body(text: str, *, cancel=None) -> RenderedBody:
         )
 
 
+_FENCE_RE = re.compile(r"^ {0,3}(?P<mark>`{3,}|~{3,})(?P<info>.*)$")
+_DETAILS_OPEN_ANY_RE = re.compile(r"^ {0,3}<details\b", re.IGNORECASE)
+_DETAILS_CLOSE_ANY_RE = re.compile(r"^ {0,3}</details>", re.IGNORECASE)
+
+
+def _line_bytes(line: str) -> int:
+    return len(line) if line.isascii() else len(line.encode("utf-8"))
+
+
+def fast_preview_split(
+    text: str,
+    max_bytes: int | None = None,
+    max_scan_bytes: int | None = None,
+) -> tuple[str, int]:
+    """Split *text* at the first block boundary at or after *max_bytes*.
+
+    Returns ``(prefix, prefix_bytes)``; ``prefix is text`` (and the full byte
+    count) means "no safe cut found" -- the caller must not claim a partial
+    render.  The cut is never a fixed line count: it is a blank line that sits
+    outside YAML front matter, fenced code, ``$$`` math and ``<details>``
+    blocks, which in CommonMark terminates the paragraph, list, table,
+    blockquote, footnote or reference definition above it.  Constructs that
+    reach past the cut anyway (link reference definitions and footnote bodies
+    defined later in the file) render as literal text in the prefix; that is
+    why the caller labels the result as a partial view.
+    """
+    if max_bytes is None:
+        max_bytes = FAST_PREVIEW_PREFIX_BYTES
+    if max_scan_bytes is None:
+        max_scan_bytes = max(max_bytes * 4, FAST_PREVIEW_MAX_SCAN_BYTES)
+    n = len(text)
+    pos = 0
+    total = 0
+    line_no = 0
+    fence: tuple[str, int] | None = None
+    in_front_matter = False
+    in_math = False
+    details_depth = 0
+    while pos < n:
+        newline = text.find("\n", pos)
+        end = n if newline < 0 else newline + 1
+        line = text[pos:end]
+        stripped = line.rstrip("\n").rstrip("\r")
+        bare = stripped.strip()
+        if line_no == 0 and bare == "---":
+            in_front_matter = True
+        elif in_front_matter:
+            if bare in ("---", "..."):
+                in_front_matter = False
+        elif fence is not None:
+            match = _FENCE_RE.match(stripped)
+            if (match and match.group("mark")[0] == fence[0]
+                    and len(match.group("mark")) >= fence[1]
+                    and not match.group("info").strip()):
+                fence = None
+        else:
+            match = _FENCE_RE.match(stripped)
+            if match:
+                fence = (match.group("mark")[0], len(match.group("mark")))
+            elif bare.startswith("$$") and not in_math:
+                # A one-line "$$ x $$" opens and closes on the same line.
+                if not (len(bare) > 4 and bare.endswith("$$")):
+                    in_math = True
+            elif in_math and bare.endswith("$$"):
+                in_math = False
+            elif _DETAILS_OPEN_ANY_RE.match(stripped):
+                details_depth += 1
+            elif _DETAILS_CLOSE_ANY_RE.match(stripped) and details_depth:
+                details_depth -= 1
+        total += _line_bytes(line)
+        pos = end
+        line_no += 1
+        if total >= max_bytes and not bare and fence is None and not in_front_matter \
+                and not in_math and not details_depth:
+            return text[:pos], total
+        if total >= max_scan_bytes:
+            break
+    return text, total
+
+
+def partial_preview_notice_html(loaded_bytes: int, total_bytes: int) -> str:
+    """The banner that states exactly how much of the document is on screen."""
+    total_bytes = max(int(total_bytes), 1)
+    loaded_bytes = max(min(int(loaded_bytes), total_bytes), 0)
+    percent = max(1, round(loaded_bytes * 100 / total_bytes))
+
+    def _kb(value: int) -> str:
+        if value >= 1024 * 1024:
+            return f"{value / (1024 * 1024):.1f} MB"
+        return f"{value / 1024:.0f} KB"
+
+    return (
+        '<aside class="partial-preview-notice" role="status">'
+        '<span class="ppn-title">快速文字閱讀：這是部分內容</span>'
+        f'<span class="ppn-scope">目前顯示文件開頭約 {percent}%'
+        f'（{_kb(loaded_bytes)} / {_kb(total_bytes)}），'
+        "完整預覽正在背景載入，完成後會自動接上。"
+        "在此之前，目錄、搜尋與行號定位只涵蓋已載入的區塊。</span>"
+        "</aside>"
+    )
+
+
+def render_partial_body(
+    text: str,
+    total_bytes: int | None = None,
+    *,
+    max_bytes: int | None = None,
+    cancel=None,
+) -> tuple[RenderedBody, int] | None:
+    """Render a block-boundary prefix of *text* as an explicitly partial view.
+
+    ``None`` means no honest prefix exists (a single huge paragraph, table or
+    code fence), in which case the caller keeps showing the loading page.
+    """
+    if total_bytes is None:
+        total_bytes = _line_bytes(text)
+    prefix, prefix_bytes = fast_preview_split(text, max_bytes)
+    if prefix is text or not prefix.strip():
+        return None
+    rendered = render_body(prefix, cancel=cancel)
+    body = partial_preview_notice_html(prefix_bytes, total_bytes) + rendered.body
+    return (
+        RenderedBody(
+            body=body,
+            headings=rendered.headings,
+            mermaid=rendered.mermaid,
+            code_copy=rendered.code_copy,
+            math=rendered.math,
+        ),
+        prefix_bytes,
+    )
+
+
 # Small cache so reopening an unchanged file (common when switching tabs/notes)
 # skips the parse + Pygments work. Holds RenderedBody keyed by (path, mtime) --
 # no theme in the key, because the body fragment is theme-independent; the
@@ -784,6 +949,40 @@ def _body_signature(path):
             stat.st_ctime_ns, stat.st_ino)
 
 
+def has_cached_body(path: Path) -> bool:
+    """True when :func:`_cached_body` would answer without parsing again."""
+    try:
+        key = _body_signature(path)
+    except OSError:
+        return False
+    with _CONVERT_LOCK:
+        return key in _CONVERT_CACHE
+
+
+def _remote_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str | None]:
+    """Render *path* in the killable child process.
+
+    ``(None, None)`` means "child unavailable, parse in-process"; a
+    :class:`RenderCancelled` is raised when the request went stale, after the
+    child has been killed -- that is what stops a 5 MB parse from holding the
+    parser while the reader is already looking at another document.
+    """
+    try:
+        from . import render_service
+    except Exception:  # pragma: no cover - import guard only
+        return None, None
+    if not render_service.service().enabled():
+        return None, None
+    try:
+        return render_service.render_remote(path=path, cancel=cancel)
+    except render_service.RenderWorkerCancelled:
+        raise RenderCancelled() from None
+    except render_service.RenderWorkerError:
+        return None, None
+    except Exception:  # pragma: no cover - never let IPC break a preview
+        return None, None
+
+
 def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str | None]:
     """Return (rendered_body, error_message) for *path*, using ``_CONVERT_CACHE``.
 
@@ -797,7 +996,7 @@ def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
         stat = path.stat()
     except OSError:
         return None, f"無法讀取檔案：{path.name}"
-    if stat.st_size > 10 * 1024 * 1024:
+    if stat.st_size > MAX_PREVIEW_BYTES:
         return None, f"檔案超過 10MB，無法預覽：{path.name}"
 
     cache_key = _body_signature(path)
@@ -808,11 +1007,18 @@ def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
     if cached is not None:
         return cached, None
 
-    result = read_text(path)
-    if result is None:
-        return None, f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}"
-    text, _ = result
-    rendered = render_body(text, cancel=cancel)
+    rendered = None
+    if stat.st_size >= SUBPROCESS_MIN_BYTES:
+        rendered, error = _remote_body(path, cancel=cancel)
+        if error is not None:
+            return None, error
+    if rendered is None:
+        # Small document, or the child process was unavailable: parse here.
+        result = read_text(path)
+        if result is None:
+            return None, f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}"
+        text, _ = result
+        rendered = render_body(text, cancel=cancel)
     try:
         if _body_signature(path) != cache_key:
             return rendered, None  # never cache a file changed while reading
@@ -838,16 +1044,30 @@ def convert(filepath: str | Path, theme: str = "light", *, cancel=None) -> tuple
     rendered, error = _cached_body(path, cancel=cancel)
     if rendered is None:
         return _error_page(error or "", theme), []
-    with _CONVERT_LOCK:
-        html = _wrap(
-            rendered.body,
-            path.stem,
-            theme,
-            mermaid=rendered.mermaid,
-            code_copy=rendered.code_copy,
-            math=rendered.math,
-        )
+    # No _CONVERT_LOCK here: _wrap only reads module-level CSS strings, and on
+    # a multi-megabyte body the string building would otherwise block the next
+    # document's parse for tens of milliseconds.
+    html = _wrap(
+        rendered.body,
+        path.stem,
+        theme,
+        mermaid=rendered.mermaid,
+        code_copy=rendered.code_copy,
+        math=rendered.math,
+    )
     return html, rendered.headings
+
+
+def wrap_body(rendered: RenderedBody, title: str, theme: str = "light") -> str:
+    """Wrap an already rendered body fragment into a full preview document."""
+    return _wrap(
+        rendered.body,
+        title,
+        theme,
+        mermaid=rendered.mermaid,
+        code_copy=rendered.code_copy,
+        math=rendered.math,
+    )
 
 
 def convert_body(filepath: str | Path) -> RenderedBody | None:
@@ -869,19 +1089,18 @@ def convert_text(
     Used both by ``convert`` (file path) and by the live edit-mode preview,
     which has unsaved buffer text rather than a file on disk.
     """
-    with _CONVERT_LOCK:
-        rendered = render_body(text, cancel=cancel)
-        return (
-            _wrap(
-                rendered.body,
-                title,
-                theme,
-                mermaid=rendered.mermaid,
-                code_copy=rendered.code_copy,
-                math=rendered.math,
-            ),
-            rendered.headings,
-        )
+    rendered = render_body(text, cancel=cancel)  # takes _CONVERT_LOCK itself
+    return (
+        _wrap(
+            rendered.body,
+            title,
+            theme,
+            mermaid=rendered.mermaid,
+            code_copy=rendered.code_copy,
+            math=rendered.math,
+        ),
+        rendered.headings,
+    )
 
 
 def _theme_class(theme: str) -> str:

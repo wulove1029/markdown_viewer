@@ -13,6 +13,8 @@ a = Analysis(
         ('ICON/icon.ico', 'ICON'),
     ] + collect_data_files('pptx') + collect_data_files('docx'),
     hiddenimports=[
+        'app.render_service',
+        'app.render_worker',
         'pygments.lexers._mapping',
         'pygments.formatters.html',
         'mdit_py_plugins.tasklists',
