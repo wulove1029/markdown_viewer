@@ -13,7 +13,7 @@
 | 0 | 大型 Markdown 基線量測工具與基線數據 | 完成並 commit（review PASS，已修預設輸出路徑） | `2026-09-08-next-baseline.md` |
 | 1 | 首頁新增入口 | 完成並合併 `efeae06`（review PASS，補測試後全套 1526 passed） | `2026-09-08-next-home-new.md` |
 | 2 | 更新下載流程 | 完成並 commit `26d17e0`（review 兩輪 PASS，全套 1503 passed） | `2026-09-08-next-update-download.md` |
-| 3 | 大型 Markdown 取消排程與首屏改善 | 進行中（分支 feature/large-markdown-render） | `2026-09-08-next-large-markdown.md` |
+| 3 | 大型 Markdown 取消排程與首屏改善 | 完成並合併 `8f5fc8b`（review PASS，修 token stdin／指標／搜尋提示後） | `2026-09-08-next-large-markdown.md` |
 
 每批：實作 agent → fresh review agent → 獨立 commit。狀態欄由主對話更新。
 
@@ -32,3 +32,19 @@
 - 2026-09-08：批次 0 交付：5 MB 長文冷轉換 p50 2.35 s、1 MB 292 ms、100 KB 32 ms；5 MB 解析中開 100 KB 需等 3.2 s（parser RLock 全程持有，取消無法中止 render）。已派 review；批次 3 以 opus 在分支 feature/large-markdown-render 開工（Agent 工具的 isolation worktree 因磁碟機代號大小寫問題失敗，改手動 git worktree）。
 - 2026-09-08：使用者新增需求：讀取 PDF 內嵌 Adobe 註解。Explore 確認 PdfView 用 QPdfDocument 自繪、PyMuPDF 僅做大綱、無現成註解讀取；已派 sonnet 在分支 feature/pdf-adobe-annotations 實作唯讀面板。
 - 2026-09-08：批次 1 合併 `efeae06`，主樹全套 1526 passed／75 skipped。批次 0 review PASS，修預設輸出路徑後 commit。
+- 2026-09-08：批次 1 worktree 目錄 .claude/worktrees/agent-aa205a789c883b4c9 被其他程序占用無法刪除（git 登錄已 prune、分支已刪），稍後手動刪目錄即可。
+- 2026-09-08：批次 4 PDF 註解 commit `e11abc4`（全套 1517 passed）；實作者發現既有 race（背景 PyMuPDF 執行緒偶爾抑制密碼提示），已派 review 判斷緩解是否可靠。
+- 2026-09-08：批次 3 交付 `959f1c0`：≥256 KB 走可 kill 的 loopback-socket worker process，≥2 MB 先渲染 512 KB 區塊邊界前綴。5 MB 首屏 2346→228 ms（快速模式，覆蓋 10.5%；完整預覽冷開 +6%）、5 MB 解析中開 100 KB 3215→36 ms、100 KB +0.7%、全套 1542 passed。未打包實測。已派 opus review（重點：pickle over socket 安全、程序回收、frozen 入口、部分載入資料安全）。注意該分支複製了基線工具舊版，合併時 tools/benchmark_markdown_first_load.py 會衝突，需保留主樹的預設輸出路徑與 p95 註記修正。
+- 2026-09-08：批次 4 review 可合併，修正 QThreadPool 改全域池與色塊顯示（`a9ac66c`），合併 `520fd01`。待人工：用真實 Acrobat 註解 PDF 實測。
+- 2026-09-08：批次 3 review 可合併但退回 4 項：token 走 argv 改 stdin、壞指標改在返回瞬間讀、部分載入搜尋要提示、註解與文件修正；並先 merge main 解決基線工具衝突。其餘已知限制（縮排 code block 邊界、256 MB frame 上限、封裝版未驗、5 MB 完整預覽冷開 +6%）記入紀錄。
+- 2026-09-08：批次 3 修正 `5bfa53f`（token 改 stdin、阻塞指標改返回瞬間取樣：新架構 blocked=0.0／31.6 ms，對照組 in-process blocked=1.0／3161 ms；部分載入搜尋提示；文件），合併 `8f5fc8b`。主樹全套 1592 passed／75 skipped，WebEngine 組 10 passed，無殘留 worker 程序與 recovery 殘留。
+
+## 最終狀態（2026-09-08）
+
+全部批次已合併到 main，本輪未推 tag、未發布。
+
+尚未驗證（需人工或封裝）：
+- PyInstaller 封裝版：render worker 走主 exe `--render-worker` 入口、frozen 下 stdin 取 token、視窗不彈黑窗；5 MB 目視首屏。
+- 實體 GUI：更新下載非模態視窗的隱藏／叫回、Esc 與 X 只隱藏；新增筆記對話框在高 DPI 亮暗主題；PDF 註解面板用真實 Acrobat 產生的 PDF。
+- 真正執行安裝程式（含 UAC）。
+- 已知限制：5 MB 完整預覽冷開較基線慢約 6%（子程序啟動）；256 KB 以下小檔仍共用 in-process parser lock；縮排式 code block 未納入前綴切割邊界；`partial_search_missed` 訊號尚未接到 window.py。
