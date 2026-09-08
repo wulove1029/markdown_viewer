@@ -56,14 +56,19 @@ class NewNoteDialog(QDialog):
 
     def __init__(
         self,
-        folder: str | Path,
+        folder: str | Path | None,
         theme: Theme,
         parent=None,
         *,
         default_backend: str = edit_backend.DEFAULT_BACKEND,
     ):
         super().__init__(parent)
-        self._folder = Path(folder)
+        # ``None`` means no usable location was found automatically (no
+        # library, no selection, no remembered folder): the user must browse
+        # to one inside this same dialog rather than being sent to a
+        # separate folder picker, and we must never default to the program
+        # directory.
+        self._folder = Path(folder) if folder else None
         self._created_path: Path | None = None
 
         self.setWindowTitle("新增筆記")
@@ -122,7 +127,7 @@ class NewNoteDialog(QDialog):
 
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
-        self._folder_label = QLabel(f"建立於：{self._folder}")
+        self._folder_label = QLabel(self._folder_label_text())
         self._folder_label.setObjectName("newNoteFolder")
         self._folder_label.setWordWrap(True)
         folder_row.addWidget(self._folder_label, 1)
@@ -170,18 +175,24 @@ class NewNoteDialog(QDialog):
         )
 
     def _browse_folder(self):
+        start_dir = str(self._folder) if self._folder is not None else ""
         chosen = QFileDialog.getExistingDirectory(
-            self, "選擇建立位置", str(self._folder)
+            self, "選擇建立位置", start_dir
         )
         if chosen:
             self.set_folder(chosen)
 
+    def _folder_label_text(self) -> str:
+        if self._folder is None:
+            return "請選擇資料夾（按「瀏覽…」選擇建立位置）"
+        return f"建立於：{self._folder}"
+
     def set_folder(self, folder: str | Path):
         self._folder = Path(folder)
-        self._folder_label.setText(f"建立於：{self._folder}")
+        self._folder_label.setText(self._folder_label_text())
         self._revalidate()
 
-    def folder(self) -> Path:
+    def folder(self) -> Path | None:
         return self._folder
 
     def selected_suffix(self) -> str:
@@ -198,7 +209,9 @@ class NewNoteDialog(QDialog):
             self._editor_backend_combo.currentData()
         )
 
-    def target_path(self) -> Path:
+    def target_path(self) -> Path | None:
+        if self._folder is None:
+            return None
         return self._folder / normalized_file_name(
             self._name_input.text(), self.selected_suffix()
         )
@@ -210,6 +223,11 @@ class NewNoteDialog(QDialog):
         markdown_selected = self.selected_suffix().lower() == ".md"
         self._editor_backend_combo.setEnabled(markdown_selected)
         self._editor_hint.setEnabled(markdown_selected)
+        if self._folder is None:
+            error = "請先按「瀏覽…」選擇建立位置。"
+            self._error_label.setText(error)
+            self._create_btn.setEnabled(False)
+            return error
         error = validate_new_note(
             self._folder, self._name_input.text(), self.selected_suffix()
         )
@@ -224,6 +242,7 @@ class NewNoteDialog(QDialog):
         if error:
             self._error_label.setText(error)
             return
+        assert self._folder is not None  # _revalidate() would have errored
         try:
             self._created_path = file_ops.create_document(
                 self._folder, self._name_input.text(), self.selected_suffix()

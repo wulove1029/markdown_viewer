@@ -73,6 +73,11 @@ def create_document(folder: str | Path, name: str, suffix: str = ".md") -> Path:
 
     Unlike :func:`create_note` this never auto-numbers: an existing target is
     an error so callers (the 新增筆記 dialog) can keep the user's input.
+
+    The preflight ``exists()`` check only gives a fast, friendly error for the
+    common case; the actual write uses an exclusive create (``open(..., "xb")``)
+    so a file that another process creates in the gap between the check and
+    the write still wins -- we never silently overwrite it.
     """
     stem = name.strip()
     if stem.lower().endswith(suffix.lower()):
@@ -82,7 +87,12 @@ def create_document(folder: str | Path, name: str, suffix: str = ".md") -> Path:
     path = Path(folder) / f"{stem}{suffix}"
     if path.exists():
         raise OSError(f"已存在同名檔案：{path}")
-    atomic_write_bytes(path, b"", backup=False)
+    try:
+        with path.open("xb") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError as exc:
+        raise OSError(f"已存在同名檔案：{path}") from exc
     return path
 
 

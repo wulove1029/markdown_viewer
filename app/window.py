@@ -1030,6 +1030,13 @@ class MainWindow(QMainWindow):
         self._refresh_icons()
 
     def _home_action(self, action):
+        # ``self._current_file`` tracks the active tab (not the renderer's
+        # transient page), so this also rejects a pending-recovery holding
+        # page and a same-URL link inside a real document body -- both keep
+        # a tab, and therefore a non-None current file, active. The renderer
+        # additionally only emits this for a genuine link-click navigation
+        # while its own current path is empty, so a stale/queued WebEngine
+        # navigation can't retrigger it either.
         if self._current_file is not None:
             return
         if action == "open":
@@ -1040,6 +1047,8 @@ class MainWindow(QMainWindow):
             if not self._panel.isVisible():
                 self._toggle_sidebar()
             self._panel.switch_to(1)
+        elif action == "new":
+            self._new_note()
 
     def _toolbar_button(self, icon_name: str, tooltip: str, callback) -> QPushButton:
         button = QPushButton()
@@ -4828,8 +4837,43 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._open_file(str(new_path))
         self._refresh_link_index(force=True)
 
+    _LAST_NEW_NOTE_FOLDER_KEY = "last_new_note_folder"
+
+    def _last_new_note_folder(self) -> Path | None:
+        """Last folder a note was actually created in, if it still exists.
+
+        Looked up once per dialog open -- never probed on every keystroke --
+        and silently skipped (not raised) when the value is missing, stale,
+        or an offline network path.
+        """
+        raw = str(
+            QSettings(_ORG, _APP).value(self._LAST_NEW_NOTE_FOLDER_KEY, "") or ""
+        ).strip()
+        if not raw:
+            return None
+        try:
+            path = Path(raw)
+            return path if path.is_dir() else None
+        except OSError:
+            return None
+
+    def _remember_new_note_folder(self, folder: Path) -> None:
+        """Record *folder* only after a note was actually created there."""
+        QSettings(_ORG, _APP).setValue(
+            self._LAST_NEW_NOTE_FOLDER_KEY, str(folder)
+        )
+
     def _new_note(self, requested_folder=None):
-        """Ctrl+N: create an empty Markdown / plain-text note and edit it."""
+        """Ctrl+N (also the home page, menu, and file-tree entry points):
+        create an empty Markdown / plain-text note and edit it.
+
+        Location priority: an explicitly requested file-tree folder -> the
+        currently selected folder -> the last folder a note was successfully
+        created in -> the first available document library. When none of
+        those resolve, the dialog itself opens with no folder selected so the
+        user can browse to one in the same window -- never the program
+        directory.
+        """
         browser = self._panel.file_browser
         if isinstance(requested_folder, bool):
             requested_folder = None
@@ -4837,15 +4881,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if folder is None:
             folder = browser.selected_directory()
         if folder is None:
+            folder = self._last_new_note_folder()
+        if folder is None:
             roots = browser.library_roots() or []
             folder = roots[0] if roots else None
-        if folder is None:
-            picked = QFileDialog.getExistingDirectory(
-                self, "選擇新筆記的資料夾"
-            )
-            if not picked:
-                return
-            folder = Path(picked)
         dialog = NewNoteDialog(
             folder,
             self._theme,
@@ -4857,6 +4896,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         path = dialog.created_path()
         if path is None:
             return
+        self._remember_new_note_folder(path.parent)
         selected_backend = getattr(dialog, "selected_editor_backend", None)
         backend = (
             selected_backend()

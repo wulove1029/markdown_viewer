@@ -3,6 +3,7 @@
 import codecs
 
 from app import edit_backend
+from app import new_note_dialog as new_note_dialog_mod
 from app.md_converter import read_text, read_text_detailed
 from app.new_note_dialog import (
     NewNoteDialog,
@@ -174,12 +175,84 @@ def test_dialog_change_folder_revalidates_and_creates_there(qapp, tmp_path):
         dialog.close()
 
 
+def test_dialog_with_no_folder_shows_placeholder_and_disables_create(qapp, tmp_path):
+    dialog = NewNoteDialog(None, LIGHT)
+    try:
+        assert dialog.folder() is None
+        assert "請選擇資料夾" in dialog._folder_label.text()
+        assert dialog._create_btn.isEnabled() is False
+        assert dialog.target_path() is None
+        dialog._name_input.setText("我的筆記")
+        # Typing a name alone must not enable creation without a folder.
+        assert dialog._create_btn.isEnabled() is False
+        dialog._attempt_create()
+        assert dialog.created_path() is None
+        assert dialog.result() != dialog.DialogCode.Accepted
+
+        # Browsing (simulated: set_folder is what _browse_folder calls) picks
+        # a real location in the same window and unlocks creation.
+        dialog.set_folder(tmp_path)
+        assert dialog.folder() == tmp_path
+        assert dialog._create_btn.isEnabled() is True
+        dialog._attempt_create()
+        assert dialog.created_path() == tmp_path / "我的筆記.md"
+    finally:
+        dialog.close()
+
+
+def test_dialog_browse_with_no_folder_starts_from_empty_directory(
+    qapp, tmp_path, monkeypatch
+):
+    dialog = NewNoteDialog(None, LIGHT)
+    seen_start_dir = []
+    monkeypatch.setattr(
+        new_note_dialog_mod.QFileDialog,
+        "getExistingDirectory",
+        staticmethod(
+            lambda *args, **kwargs: (seen_start_dir.append(args[2]), str(tmp_path))[1]
+        ),
+    )
+    try:
+        dialog._browse_folder()
+        # Never seeds the picker with the program's working directory.
+        assert seen_start_dir == [""]
+        assert dialog.folder() == tmp_path
+    finally:
+        dialog.close()
+
+
 def test_dialog_cancel_creates_nothing(qapp, tmp_path):
     dialog = NewNoteDialog(tmp_path, LIGHT)
     try:
         dialog._name_input.setText("ghost")
         dialog.reject()
         assert dialog.created_path() is None
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        dialog.close()
+
+
+def test_dialog_write_failure_leaves_no_empty_file_and_keeps_input(
+    qapp, tmp_path, monkeypatch
+):
+    # Stand-in for a read-only folder / permission error: the real write
+    # raises OSError. The dialog must stay open with the user's name intact
+    # and must not leave a partial/empty file behind.
+    dialog = NewNoteDialog(tmp_path, LIGHT)
+    try:
+        dialog._name_input.setText("locked")
+
+        def _boom(*_a, **_k):
+            raise OSError("拒絕存取。")
+
+        monkeypatch.setattr(new_note_dialog_mod.file_ops, "create_document", _boom)
+
+        dialog._attempt_create()
+
+        assert dialog.created_path() is None
+        assert dialog.result() != dialog.DialogCode.Accepted
+        assert dialog._name_input.text() == "locked"
+        assert "拒絕存取" in dialog._error_label.text()
         assert list(tmp_path.iterdir()) == []
     finally:
         dialog.close()

@@ -161,6 +161,23 @@ from .url_schemes import register_document_schemes
 register_document_schemes()
 
 
+def _home_actions_html() -> str:
+    """Home-page action links, intercepted by :class:`_DocumentPage`.
+
+    "新增筆記" is the primary action (listed first, tagged with its Ctrl+N
+    shortcut) so a blank workspace can go straight into writing; open,
+    recent, and quick-open stay available beside it.
+    """
+    return (
+        '<nav class="home-actions" aria-label="開始使用">'
+        '<a class="home-action-primary" href="https://markdown-viewer.invalid/home/new">'
+        "新增筆記 <kbd>Ctrl+N</kbd></a>"
+        '<a href="https://markdown-viewer.invalid/home/open">開啟文件 <kbd>Ctrl+O</kbd></a>'
+        '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
+        '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>'
+    )
+
+
 class _DocumentPage(QWebEnginePage):
     """Intercept link clicks: wiki-links and cross-note links open in-app,
     external links open in the system browser, in-page anchors scroll."""
@@ -496,10 +513,7 @@ class RendererView(QWebEngineView):
             "拖入 Markdown、文字或 PDF 文件，開始閱讀；需要寫作時，再切換編輯模式。",
             "你的文件工作台",
         )
-        actions = ('<nav class="home-actions" aria-label="開始使用">'
-                   '<a href="https://markdown-viewer.invalid/home/open">開啟文件 <kbd>Ctrl+O</kbd></a>'
-                   '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
-                   '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>')
+        actions = _home_actions_html()
         self.setHtml(html.replace("</main>", actions + "</main>"))
         if self._on_headings_ready:
             self._on_headings_ready([])
