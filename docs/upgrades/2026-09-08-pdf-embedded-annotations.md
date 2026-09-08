@@ -87,3 +87,12 @@ StrikeOut/Squiggly，Popup 併入其 parent），與既有 `pdf_notes`/`pdf_high
   另外把內嵌註解背景任務改用專屬 `QThreadPool(self)`（`setMaxThreadCount(1)`）
   而非 `QThreadPool.globalInstance()`，避免與大綱任務或 Qt 內部可能共用的
   全域執行緒池互相搶執行緒槽。
+- Fresh review 回饋修正（追加 commit）：(1) `_embedded_annotations_pool` 改回
+  `QThreadPool.globalInstance()`（同 outline 做法）——view 專屬的
+  `QThreadPool(self)` 在析構時會 `waitForDone` 等待進行中的掃描，關窗可能卡頓；
+  過期結果仍由 generation/path 守衛丟棄。新增
+  `test_closing_view_does_not_wait_for_in_flight_scan`（1.5 s 慢掃描進行中
+  關閉 view，需 < 0.5 s）。(2) 面板不再把註解顏色當文字前景色（深色主題對比
+  差），改為 12 px 小色塊 icon（邊框用主題 border 色），文字維持主題前景色；
+  `apply_theme` 會重畫色塊。新增 `test_panel_shows_colour_as_swatch_not_text_foreground`。
+  指定三檔：43 passed；全套 1519 passed／75 skipped，exit 0。

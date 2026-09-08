@@ -424,3 +424,43 @@ def test_window_activation_falls_back_to_jump_when_rect_is_empty():
     entry = EmbeddedAnnotation(page=5, kind="Text", rect=(0.0, 0.0, 0.0, 0.0))
     window_mod.MainWindow._pdf_embedded_annotation_activated(win, entry)
     assert calls == [("jump", 5)]
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups: non-blocking close, swatch instead of text colour
+# --------------------------------------------------------------------------
+
+def test_closing_view_does_not_wait_for_in_flight_scan(qapp, annotated_pdf, monkeypatch):
+    """A slow background scan must not stall closing/destroying the view."""
+    import time
+    import app.pdf_view as pdf_view_mod
+
+    def slow_extract(path, password=""):
+        time.sleep(1.5)
+        return []
+
+    monkeypatch.setattr(pdf_view_mod, "extract_embedded_annotations", slow_extract)
+    view = PdfView()
+    assert view.load(annotated_pdf) is True
+    assert view.request_embedded_annotations() is True
+    started = time.perf_counter()
+    view.close()
+    view.deleteLater()
+    qapp.processEvents()
+    elapsed = time.perf_counter() - started
+    assert elapsed < 0.5, f"close blocked for {elapsed:.2f}s"
+    view._embedded_annotations_pool.waitForDone(5000)
+
+
+def test_panel_shows_colour_as_swatch_not_text_foreground(qapp):
+    from app.theme import DARK
+
+    panel = PdfEmbeddedAnnotationsPanel()
+    panel.apply_theme(DARK)
+    panel.set_annotations(
+        [EmbeddedAnnotation(page=0, kind="Highlight", content="x", color="#ffff00")]
+    )
+    item = panel._list.item(0)
+    assert not item.icon().isNull()
+    # Foreground was not overridden with the annotation colour.
+    assert item.foreground().color().name() != "#ffff00"

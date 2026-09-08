@@ -230,16 +230,12 @@ class PdfView(QAbstractScrollArea):
 
         self._embedded_annotations_requested_generation = -1
         self._embedded_annotations_tasks: dict[int, _PdfEmbeddedAnnotationsTask] = {}
-        # A private, single-thread pool — not QThreadPool.globalInstance().
-        # Qt's own QPdfDocument password/load path appears to use the global
-        # pool internally too; a CPU-bound pymupdf scan competing for its one
-        # or two slots was observed to delay that internal work enough to
-        # make QPdfDocument.load()'s synchronous-looking password result
-        # unreliable (a password prompt that should fire sometimes silently
-        # didn't). A dedicated pool keeps this feature from ever perturbing
-        # PDF loading/authentication timing.
-        self._embedded_annotations_pool = QThreadPool(self)
-        self._embedded_annotations_pool.setMaxThreadCount(1)
+        # Global pool, like the outline reader: a view-owned QThreadPool would
+        # block in its destructor (waitForDone) while a scan is in flight,
+        # stalling window close. Stale results are discarded by the
+        # generation/path guard instead. Kept as a separate attribute so tests
+        # can swap it independently of ``_outline_pool``.
+        self._embedded_annotations_pool = QThreadPool.globalInstance()
         # One extra deferral beyond the outline's own ``_outline_submit_timer``
         # tick: starting a second real background thread in the very same
         # call as the outline's dispatch was observed, under real (unmocked)

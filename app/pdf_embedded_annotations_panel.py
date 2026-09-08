@@ -10,7 +10,7 @@ the app never modifies the embedded annotations.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from .theme import LIGHT, Theme, collection_stylesheet
@@ -24,6 +24,18 @@ _KIND_LABELS = {
     "StrikeOut": "刪除線",
     "Squiggly": "波浪底線",
 }
+
+
+def _swatch_icon(color: str, border: str, size: int = 12) -> QIcon:
+    """A small filled square (with a theme-coloured border) for a list item."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setBrush(QColor(color))
+    painter.setPen(QColor(border))
+    painter.drawRoundedRect(0, 0, size - 1, size - 1, 2, 2)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class PdfEmbeddedAnnotationsPanel(QWidget):
@@ -51,6 +63,8 @@ class PdfEmbeddedAnnotationsPanel(QWidget):
         self._theme = theme
         self.setStyleSheet(f"background: {theme.surface};")
         self._list.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
+        if self._annotations:
+            self.set_annotations(self._annotations)  # re-tint swatch borders
 
     def set_annotations(self, annotations) -> None:
         self._annotations = list(annotations or [])
@@ -78,8 +92,11 @@ class PdfEmbeddedAnnotationsPanel(QWidget):
             if entry.content:
                 tip_lines.append(entry.content)
             item.setToolTip("\n".join(tip_lines))
+            # The annotation colour is shown as a small swatch, never as the
+            # text colour: a yellow highlight's label must stay readable on
+            # both the light and dark theme surfaces.
             if entry.color:
-                item.setForeground(QColor(entry.color))
+                item.setIcon(_swatch_icon(entry.color, self._theme.border))
             self._list.addItem(item)
 
     def _on_clicked(self, item: QListWidgetItem) -> None:
