@@ -413,6 +413,11 @@ def parser_lock_contention_once(md_converter, big_path: Path, small_path: Path) 
     t_small_request = time.perf_counter()
     md_converter.convert(small_path)
     small_elapsed_ms = (time.perf_counter() - t_small_request) * 1000
+    # Sampled here, *before* the join below: reading big_done after the join
+    # would always report False and make the derived
+    # "small_blocked_until_big_finished_fraction" a constant 1.0 regardless of
+    # what the code under test does (fixed 2026-09-08, batch 3 review).
+    big_running_at_small_return = not big_done.is_set()
     # Bounded, not the parser's own worst case: if the big convert() hasn't
     # finished in 60s something is wrong (all fixtures finish in low tens of
     # seconds), and we'd rather report "still running" honestly than hang.
@@ -422,7 +427,7 @@ def parser_lock_contention_once(md_converter, big_path: Path, small_path: Path) 
         "small_request_latency_ms": small_elapsed_ms,
         "big_convert_ms": big_elapsed.get("ms"),
         "big_started_before_small_request_ms": (t_small_request - t_launch) * 1000,
-        "big_still_running_when_small_finished": not big_done.is_set(),
+        "big_still_running_when_small_finished": big_running_at_small_return,
     }
 
 
@@ -599,6 +604,95 @@ DEFAULT_OUTPUT = ROOT / "docs" / "benchmarks" / (
 )
 
 
+# --------------------------------------------------------------------------
+# Added for batch 3 (2026-09-08 "large markdown render"): these measure the
+# NEW code paths (fast text prefix, killable render worker). Nothing above is
+# modified, so before/after numbers for the original keys stay comparable.
+# --------------------------------------------------------------------------
+
+def first_readable_once(md_converter, path: Path) -> dict:
+    """Time what the reader actually sees first.
+
+    Mirrors app/renderer.py::_MarkdownRenderWorker: at or above
+    FAST_PREVIEW_MIN_BYTES the worker renders a block-boundary prefix and shows
+    it labelled as partial; below it the first thing shown is the full render.
+    """
+    md_converter._CONVERT_CACHE.clear()
+    size = path.stat().st_size
+    mode = "full_render"
+    covered = 1.0
+    t0 = time.perf_counter()
+    if size >= md_converter.FAST_PREVIEW_MIN_BYTES:
+        result = md_converter.read_text(path)
+        partial = None
+        if result is not None:
+            partial = md_converter.render_partial_body(result[0], size)
+        if partial is not None:
+            md_converter.wrap_body(partial[0], path.stem, "light")
+            mode = "fast_text_prefix"
+            covered = partial[1] / size
+        else:
+            md_converter.convert(path)
+            mode = "full_render_no_safe_prefix"
+    else:
+        md_converter.convert(path)
+    return {"first_readable_ms": (time.perf_counter() - t0) * 1000,
+            "mode": mode, "covered_fraction": covered}
+
+
+def cancel_switch_once(md_converter, big_path: Path, small_path: Path,
+                       delay_s: float = 0.3) -> dict:
+    """Cancel a big render mid-flight and open a small file immediately.
+
+    This is the spec 3.B / 3.D case: the stale document must stop consuming the
+    parser, and the newly requested small file must not queue behind it.
+    """
+    md_converter._CONVERT_CACHE.clear()
+    try:
+        from app import render_service
+        killed_before = render_service.service().killed
+    except Exception:
+        render_service = None
+        killed_before = None
+    cancel = threading.Event()
+    started = threading.Event()
+    out: dict = {}
+
+    def run_big():
+        started.set()
+        t0 = time.perf_counter()
+        try:
+            md_converter.convert(big_path, cancel=cancel)
+            out["outcome"] = "completed"
+        except md_converter.RenderCancelled:
+            out["outcome"] = "cancelled"
+        except Exception as exc:
+            out["outcome"] = f"error: {exc}"
+        out["returned_at"] = time.perf_counter()
+
+    thread = threading.Thread(target=run_big, daemon=True)
+    thread.start()
+    started.wait(2.0)
+    time.sleep(delay_s)
+    t_cancel = time.perf_counter()
+    cancel.set()
+    t_small = time.perf_counter()
+    md_converter.convert(small_path)
+    small_ms = (time.perf_counter() - t_small) * 1000
+    thread.join(timeout=60)
+    returned = out.get("returned_at")
+    return {
+        "small_request_latency_ms": small_ms,
+        "big_outcome": out.get("outcome"),
+        "big_stop_after_cancel_ms": (returned - t_cancel) * 1000 if returned else None,
+        "big_still_running_when_small_finished": returned is None,
+        "render_worker_processes_killed": (
+            None if killed_before is None
+            else render_service.service().killed - killed_before
+        ),
+    }
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -613,6 +707,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--gui-reps", type=int, default=3)
     p.add_argument("--webengine-reps", type=int, default=3)
     p.add_argument("--memory-iterations", type=int, default=20)
+    p.add_argument("--first-readable-reps", type=int, default=5,
+                    help="reps for the new fast-text-reading first-screen metric")
+    p.add_argument("--cancel-switch-reps", type=int, default=3,
+                    help="reps for cancelling a big render and opening a small file")
     p.add_argument("--cold-timeout-s", type=float, default=180.0)
     p.add_argument("--skip-cold", action="store_true")
     p.add_argument("--skip-webengine", action="store_true")
@@ -638,6 +736,8 @@ def apply_quick_profile(args):
     args.webengine_reps = 1
     args.memory_iterations = 5
     args.cold_timeout_s = 60.0
+    args.first_readable_reps = 2
+    args.cancel_switch_reps = 1
 
 
 def main():
@@ -677,6 +777,8 @@ def main():
         "warm_reopen": {},
         "sequential_switch": {},
         "parser_lock_contention": {},
+        "first_readable": {},
+        "cancel_switch": {},
         "gui_heartbeat": {},
         "webengine": {},
         "memory": {},
@@ -809,6 +911,42 @@ def main():
         md_converter.convert(small_path)
         solo2.append((time.perf_counter() - t0) * 1000)
     report["parser_lock_contention"]["solo_baseline_" + "/".join(BASELINE_SMALL)] = summarize(solo2)
+
+    # ---- first readable content + cancel/switch (batch 3 additions) ----
+    print("[5b/6] First readable content + cancel-and-switch...", file=sys.stderr)
+    for category, size_key in sorted(fixtures):
+        if category not in categories or size_key not in sizes:
+            continue
+        path = fixtures[(category, size_key)]
+        key = f"{category}/{size_key}"
+        samples, meta = [], {}
+        for _ in range(max(1, args.first_readable_reps)):
+            result = first_readable_once(md_converter, path)
+            samples.append(result["first_readable_ms"])
+            meta = result
+        report["first_readable"][key] = summarize(samples) | {
+            "mode": meta.get("mode"),
+            "covered_fraction": meta.get("covered_fraction"),
+        }
+    cancel_targets = [
+        (c, s) for (c, s) in fixtures if s in ("5mb", "10mb") and c == "long_prose"
+        and c in categories and s in sizes
+    ]
+    for category, size_key in cancel_targets:
+        big_path = fixtures[(category, size_key)]
+        key = f"{category}/{size_key}_cancelled_then_{'/'.join(BASELINE_SMALL)}"
+        runs = []
+        for rep in range(max(1, args.cancel_switch_reps)):
+            print(f"  cancel-switch: {key} rep {rep + 1}", file=sys.stderr)
+            runs.append(cancel_switch_once(md_converter, big_path, small_path))
+        report["cancel_switch"][key] = {
+            "small_request_latency_ms": summarize(
+                [r["small_request_latency_ms"] for r in runs]),
+            "big_stop_after_cancel_ms": summarize(
+                [r["big_stop_after_cancel_ms"] for r in runs
+                 if r["big_stop_after_cancel_ms"] is not None]),
+            "raw_samples": runs,
+        }
 
     # ---- GUI heartbeat + WebEngine (needs QApplication) ----
     if not args.skip_gui or not args.skip_webengine:

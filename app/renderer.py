@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from .annotation_bridge import AnnotationBridge
 from .attachment_security import attachment_open_policy
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
+from . import md_converter, render_service
 from .md_converter import convert, convert_text, state_page_html
 from .md_converter import RenderCancelled
 
@@ -237,6 +238,10 @@ class _DocumentPage(QWebEnginePage):
 
 class _RenderSignals(QObject):
     ready = Signal(int, object, str, list)
+    # Fast text reading: a block-boundary prefix of a very large document,
+    # emitted before ``ready`` so there is something to read while the full
+    # preview finishes in the render worker process.
+    partial_ready = Signal(int, object, str, list, int)
 
 
 class _MarkdownRenderWorker(QRunnable):
@@ -261,12 +266,58 @@ class _MarkdownRenderWorker(QRunnable):
         self.cancel = cancel
         self.signals = _RenderSignals()
 
+    def _cancelled(self) -> bool:
+        return self.cancel is not None and self.cancel.is_set()
+
+    def _emit_fast_preview(self, size: int) -> None:
+        """Show a labelled prefix of a very large document straight away.
+
+        Only ever reads the file on disk, never a draft buffer, and the result
+        is marked partial in the page itself, so nothing downstream can mistake
+        it for the whole document.
+        """
+        path = self.path
+        if md_converter.has_cached_body(path):
+            return  # the full body is already cached; it will arrive instantly
+        result = md_converter.read_text(path)
+        if result is None or self._cancelled():
+            return
+        partial = md_converter.render_partial_body(
+            result[0], size, cancel=self.cancel
+        )
+        if partial is None or self._cancelled():
+            return  # one giant block: keep the loading page, no fake prefix
+        rendered, _prefix_bytes = partial
+        html = md_converter.wrap_body(rendered, path.stem, self.theme)
+        if self._cancelled():
+            return
+        percent = max(1, round(_prefix_bytes * 100 / max(size, 1)))
+        self.signals.partial_ready.emit(self.generation, path, html,
+                                        list(rendered.headings), percent)
+
     def run(self):
         try:
             if self.cancel is not None and self.cancel.is_set():
                 return
             # Only parser work holds its lock; disk IO must remain outside it.
             if self.path is not None:
+                try:
+                    size = self.path.stat().st_size
+                except OSError:
+                    size = 0
+                if size >= md_converter.SUBPROCESS_MIN_BYTES:
+                    # Warm the killable render worker while the prefix renders
+                    # here, so its startup overlaps the fast preview.
+                    render_service.prewarm()
+                if size >= md_converter.FAST_PREVIEW_MIN_BYTES:
+                    try:
+                        self._emit_fast_preview(size)
+                    except RenderCancelled:
+                        return
+                    except Exception:  # a partial view never breaks the real one
+                        pass
+                if self._cancelled():
+                    return
                 html, headings = convert(self.path, self.theme, cancel=self.cancel)
                 source = self.path
             else:
@@ -295,6 +346,9 @@ class RendererView(QWebEngineView):
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
     translate_requested = Signal(str)  # selected text to translate
+    # (search text, percent of the document loaded) when a search misses only
+    # because fast text reading has not loaded the rest of the document yet.
+    partial_search_missed = Signal(str, int)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -311,6 +365,12 @@ class RendererView(QWebEngineView):
         self._pending_find: tuple[int, str] | None = None
         self._source_line_reveal: tuple[int, int] | None = None
         self._loaded_markdown_generation: int | None = None
+        # Fast text reading state: True while the page shows a labelled prefix
+        # of a large document instead of the whole thing.
+        self._partial_preview_active = False
+        self._partial_scope_percent = 0
+        self._partial_restore: dict | None = None
+        self._pending_export: tuple | None = None
         # Scroll ratio to re-apply once a live-preview (text) render loads, so
         # the debounced re-render doesn't snap the preview back to the top.
         self._pending_ratio: tuple[int, float] | None = None
@@ -368,6 +428,17 @@ class RendererView(QWebEngineView):
         self._render_cancel = threading.Event()
         self._source_line_reveal = None
         self._loaded_markdown_generation = None
+        self._partial_preview_active = False
+        self._partial_scope_percent = 0
+        self._partial_restore = None
+        pending_export = getattr(self, "_pending_export", None)
+        if pending_export is not None:
+            # The document being exported is gone; never silently drop the
+            # caller's completion callback.
+            self._pending_export = None
+            filepath, on_done, _layout = pending_export
+            if on_done is not None:
+                on_done(filepath, False)
         self._render_generation += 1
         return self._render_generation
 
@@ -455,6 +526,11 @@ class RendererView(QWebEngineView):
             return
 
         self._loaded_markdown_generation = generation
+        pending_export = getattr(self, "_pending_export", None)
+        if pending_export is not None and not self._partial_preview_active:
+            filepath, on_done, layout = pending_export
+            self._pending_export = None
+            self.export_pdf(filepath, on_done, layout)
         target, self._pending_scroll, self._pending_scroll_generation = (
             _pending_scroll_target(
                 self._pending_scroll,
@@ -587,20 +663,70 @@ class RendererView(QWebEngineView):
 
         worker = _MarkdownRenderWorker(generation, path=path, theme=self._theme,
                                        cancel=self._render_cancel)
+        worker.signals.partial_ready.connect(self._on_file_partial_ready)
         worker.signals.ready.connect(self._on_file_render_ready)
         self._render_pool.start(worker)
 
-    def _on_file_render_ready(self, generation: int, source, html: str, headings: list):
+    def _stale_render(self, generation: int, source) -> bool:
         path = Path(source) if source is not None else None
-        if (
+        return (
             generation != self._render_generation
             or path is None
             or path != self._current_path
             or not is_markdown(path)
-        ):
+        )
+
+    def is_partial_preview(self) -> bool:
+        """True while only a labelled prefix of the document is on screen.
+
+        Callers that need the whole document (export, print, anything that
+        persists content) must not treat the current page as complete.
+        """
+        return self._partial_preview_active
+
+    def _on_file_partial_ready(self, generation: int, source, html: str,
+                               headings: list, percent: int = 0):
+        """Show the fast-text-reading prefix while the full render continues."""
+        if self._stale_render(generation, source):
             return
+        path = Path(source)
+        # Remember what the full page still has to satisfy: the partial page's
+        # loadFinished would otherwise consume a pending scroll or search that
+        # can only be answered correctly by the complete document.
+        self._partial_restore = {
+            "generation": generation,
+            "pending_scroll": self._pending_scroll,
+            "pending_scroll_generation": self._pending_scroll_generation,
+            "pending_find": self._pending_find,
+        }
+        self._partial_preview_active = True
+        self._partial_scope_percent = int(percent)
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
         html = _html_with_render_generation(html, generation)
+        self.page().setHtml(html, base_url)
+        if self._on_headings_ready:
+            self._on_headings_ready(headings)
+
+    def _on_file_render_ready(self, generation: int, source, html: str, headings: list):
+        if self._stale_render(generation, source):
+            return
+        path = Path(source)
+        base_url = QUrl.fromLocalFile(str(path.parent) + "/")
+        html = _html_with_render_generation(html, generation)
+        restore = self._partial_restore
+        if restore is not None and restore["generation"] == generation:
+            # Re-arm what the partial page consumed, and keep the reader where
+            # they already scrolled to inside the prefix.
+            self._pending_find = restore["pending_find"]
+            if restore["pending_scroll"] is not None:
+                self._pending_scroll = restore["pending_scroll"]
+                self._pending_scroll_generation = restore["pending_scroll_generation"]
+            elif self._scroll_y > 0:
+                self._pending_scroll = self._scroll_y
+                self._pending_scroll_generation = generation
+        self._partial_restore = None
+        self._partial_preview_active = False
+        self._partial_scope_percent = 0
         if (
             self._pending_scroll is not None
             and self._pending_scroll_generation == generation
@@ -825,6 +951,12 @@ class RendererView(QWebEngineView):
         layout is a QPageLayout; when omitted an A4 portrait layout is used.
         """
         self._pdf_callback = on_done
+        if self._partial_preview_active:
+            # Fast text reading only ever shows a prefix; exporting it would
+            # silently produce a truncated PDF. Hold the request until the full
+            # preview has replaced it (_on_markdown_load_checked runs it).
+            self._pending_export = (str(filepath), on_done, layout)
+            return
         if layout is None:
             layout = QPageLayout(
                 QPageSize(QPageSize.PageSizeId.A4),
@@ -903,6 +1035,10 @@ class RendererView(QWebEngineView):
         generation = self._render_generation
 
         def finished(result):
+            if not result and getattr(self, "_partial_preview_active", False):
+                # Never fail silently on a partially loaded document: say what
+                # is loaded and search again once the full preview arrives.
+                self._notify_partial_search_miss(text)
             if result_callback is not None:
                 result_callback(result)
             # A library result may request its source block while an earlier
@@ -914,6 +1050,30 @@ class RendererView(QWebEngineView):
 
         # Passing resultCallback=None into PySide6 findText crashes the process.
         self.page().findText(text, QWebEnginePage.FindFlag(0), finished)
+
+    def _notify_partial_search_miss(self, text: str) -> bool:
+        """Explain a "not found" that is really "not loaded yet".
+
+        Returns True when the miss was caused by fast text reading, in which
+        case the search is re-armed for the full document.
+        """
+        if not getattr(self, "_partial_preview_active", False) or not text:
+            return False
+        percent = getattr(self, "_partial_scope_percent", 0) or 0
+        message = (
+            f"找不到「{text}」。目前只載入這份文件的前 {percent}%"
+            "（快速文字閱讀）；完整預覽載入完成後會自動再搜尋一次。"
+        )
+        self.page().runJavaScript(
+            "(function(){var n=document.querySelector('.partial-preview-notice');"
+            "if(!n){return;}var m=n.querySelector('.ppn-search');"
+            "if(!m){m=document.createElement('span');m.className='ppn-search';"
+            "n.appendChild(m);}m.textContent=" + json.dumps(message, ensure_ascii=False) + ";})()"
+        )
+        # Re-run the same search against the whole document when it loads.
+        self._pending_find = (self._render_generation, text)
+        self.partial_search_missed.emit(text, int(percent))
+        return True
 
     def reveal_source_line_after_load(self, line_number: int):
         """Reveal a source block after this render loads, or immediately if ready.

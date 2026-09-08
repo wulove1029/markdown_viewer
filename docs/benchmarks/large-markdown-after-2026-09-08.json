@@ -1,0 +1,782 @@
+{
+  "generated_at": "2026-09-08T11:49:30",
+  "environment": {
+    "python": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "win32",
+    "platform_detail": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "cpu_count": 20,
+    "qt_qpa_platform": "offscreen",
+    "packaged": false,
+    "pyside6": "6.11.0",
+    "qt": "6.11.0"
+  },
+  "config": {
+    "output": "docs\\benchmarks\\large-markdown-after-2026-09-08.json",
+    "tmp_dir": "E:\\markdown_viewer\\.claude\\worktrees\\batch3-large-markdown\\tmp\\bench",
+    "sizes": "100kb,1mb,5mb,10mb",
+    "categories": "long_prose",
+    "warm_reps": 10,
+    "switch_reps": 5,
+    "contention_reps": 3,
+    "gui_reps": 3,
+    "webengine_reps": 3,
+    "memory_iterations": 20,
+    "first_readable_reps": 5,
+    "cancel_switch_reps": 3,
+    "cold_timeout_s": 60.0,
+    "skip_cold": false,
+    "skip_webengine": false,
+    "skip_gui": false,
+    "skip_memory": false,
+    "quick": false
+  },
+  "seed": 20260908,
+  "sizes_bytes": {
+    "100kb": 100000,
+    "1mb": 1000000,
+    "5mb": 5000000,
+    "10mb": 10000000
+  },
+  "stress_categories": [
+    "big_table",
+    "code_heavy",
+    "long_paragraph",
+    "math_mermaid"
+  ],
+  "baseline_small_case": [
+    "long_prose",
+    "100kb"
+  ],
+  "cold_subprocess": {
+    "long_prose/100kb": {
+      "decode_ms": 0.20389999963299488,
+      "body_render_ms": 29.298599999947328,
+      "convert_total_ms": 30.125999999654596,
+      "process_wall_ms": 30.133400000067923,
+      "subprocess_wall_ms": 172.00709999997343
+    },
+    "long_prose/1mb": {
+      "convert_total_ms": 452.6065000000017,
+      "process_wall_ms": 452.6114000000234,
+      "subprocess_wall_ms": 613.5438999999678
+    },
+    "long_prose/5mb": {
+      "convert_total_ms": 2487.059600000066,
+      "process_wall_ms": 2487.0648000000983,
+      "subprocess_wall_ms": 2627.823199999966
+    },
+    "long_prose/10mb": {
+      "convert_total_ms": 8031.338700000106,
+      "process_wall_ms": 8031.3436000001275,
+      "subprocess_wall_ms": 8178.789600000073
+    }
+  },
+  "warm_reopen": {
+    "long_prose/100kb": {
+      "convert_total_ms": {
+        "n": 10,
+        "p50_ms": 40.40090000012242,
+        "p95_ms": 59.91680000033739,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 59.91680000033739,
+        "min_ms": 29.6133000001646,
+        "samples_ms": [
+          43.68260000001101,
+          33.13189999971655,
+          41.15540000020701,
+          59.91680000033739,
+          29.6133000001646,
+          53.177299999788374,
+          59.047499999905995,
+          39.64640000003783,
+          31.666100000165898,
+          31.466999999793188
+        ]
+      },
+      "decode_ms": {
+        "n": 10,
+        "p50_ms": 0.2088499998080806,
+        "p95_ms": 0.4033000000163156,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 0.4033000000163156,
+        "min_ms": 0.1598000003468769,
+        "samples_ms": [
+          0.21229999993011006,
+          0.19419999989622738,
+          0.1598000003468769,
+          0.4033000000163156,
+          0.37079999992783996,
+          0.17320000006293412,
+          0.3668999997898936,
+          0.35669999988385825,
+          0.18899999986388138,
+          0.20539999968605116
+        ]
+      },
+      "body_render_ms": {
+        "n": 10,
+        "p50_ms": 39.08345000013469,
+        "p95_ms": 58.091500000045926,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 58.091500000045926,
+        "min_ms": 28.34759999996095,
+        "samples_ms": [
+          42.65949999989971,
+          32.304300000305375,
+          39.79350000008708,
+          58.091500000045926,
+          28.34759999996095,
+          51.8819000003532,
+          57.41799999987052,
+          38.3734000001823,
+          30.76409999994212,
+          30.72070000007443
+        ]
+      }
+    },
+    "long_prose/1mb": {
+      "convert_total_ms": {
+        "n": 10,
+        "p50_ms": 289.7493000000395,
+        "p95_ms": 454.2043999999805,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 454.2043999999805,
+        "min_ms": 281.73140000035346,
+        "samples_ms": [
+          454.2043999999805,
+          290.2843000001667,
+          281.7349000001741,
+          288.0373999996664,
+          289.2142999999123,
+          296.7873000002328,
+          298.7750000002052,
+          288.3908999997402,
+          281.73140000035346,
+          294.548400000167
+        ]
+      },
+      "decode_ms": {
+        "n": 0,
+        "note": "no samples"
+      },
+      "body_render_ms": {
+        "n": 0,
+        "note": "no samples"
+      }
+    },
+    "long_prose/5mb": {
+      "convert_total_ms": {
+        "n": 5,
+        "p50_ms": 3156.784499999958,
+        "p95_ms": 3217.1544999996513,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 3217.1544999996513,
+        "min_ms": 2522.624799999903,
+        "samples_ms": [
+          3185.4613000000427,
+          3156.784499999958,
+          2522.624799999903,
+          2882.4907999996867,
+          3217.1544999996513
+        ]
+      },
+      "decode_ms": {
+        "n": 0,
+        "note": "no samples"
+      },
+      "body_render_ms": {
+        "n": 0,
+        "note": "no samples"
+      }
+    },
+    "long_prose/10mb": {
+      "convert_total_ms": {
+        "n": 3,
+        "p50_ms": 9071.023699999841,
+        "p95_ms": 9222.89980000005,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 9222.89980000005,
+        "min_ms": 8898.8760000002,
+        "samples_ms": [
+          9071.023699999841,
+          8898.8760000002,
+          9222.89980000005
+        ]
+      },
+      "decode_ms": {
+        "n": 0,
+        "note": "no samples"
+      },
+      "body_render_ms": {
+        "n": 0,
+        "note": "no samples"
+      }
+    }
+  },
+  "sequential_switch": {
+    "long_prose/1mb_to_long_prose/100kb": {
+      "n": 5,
+      "p50_ms": 38.917899999887595,
+      "p95_ms": 55.7582999999795,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 55.7582999999795,
+      "min_ms": 33.25639999957275,
+      "samples_ms": [
+        43.00439999997252,
+        34.06840000025113,
+        38.917899999887595,
+        33.25639999957275,
+        55.7582999999795
+      ]
+    },
+    "long_prose/5mb_to_long_prose/100kb": {
+      "n": 3,
+      "p50_ms": 47.41359999979977,
+      "p95_ms": 57.137499999953434,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 57.137499999953434,
+      "min_ms": 42.449800000213145,
+      "samples_ms": [
+        47.41359999979977,
+        42.449800000213145,
+        57.137499999953434
+      ]
+    },
+    "long_prose/10mb_to_long_prose/100kb": {
+      "n": 3,
+      "p50_ms": 47.09079999975074,
+      "p95_ms": 51.756400000158465,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 51.756400000158465,
+      "min_ms": 43.76219999994646,
+      "samples_ms": [
+        43.76219999994646,
+        47.09079999975074,
+        51.756400000158465
+      ]
+    },
+    "solo_baseline_long_prose/100kb": {
+      "n": 5,
+      "p50_ms": 32.09430000015345,
+      "p95_ms": 44.26859999966837,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 44.26859999966837,
+      "min_ms": 31.44029999975828,
+      "samples_ms": [
+        31.44029999975828,
+        31.444700000065495,
+        44.26859999966837,
+        41.94980000011128,
+        32.09430000015345
+      ]
+    }
+  },
+  "parser_lock_contention": {
+    "long_prose/5mb_blocks_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 3,
+        "p50_ms": 31.571199999234523,
+        "p95_ms": 36.481999999523396,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 36.481999999523396,
+        "min_ms": 29.83940000012808,
+        "samples_ms": [
+          29.83940000012808,
+          31.571199999234523,
+          36.481999999523396
+        ]
+      },
+      "small_blocked_until_big_finished_fraction": 0.0,
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 29.83940000012808,
+          "big_convert_ms": 2740.5024999998204,
+          "big_started_before_small_request_ms": 10.578700000223762,
+          "big_still_running_when_small_finished": true
+        },
+        {
+          "small_request_latency_ms": 31.571199999234523,
+          "big_convert_ms": 2772.674000000734,
+          "big_started_before_small_request_ms": 10.654500000782718,
+          "big_still_running_when_small_finished": true
+        },
+        {
+          "small_request_latency_ms": 36.481999999523396,
+          "big_convert_ms": 3472.719500000494,
+          "big_started_before_small_request_ms": 10.738900000433205,
+          "big_still_running_when_small_finished": true
+        }
+      ]
+    },
+    "long_prose/10mb_blocks_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 3,
+        "p50_ms": 39.189400000395835,
+        "p95_ms": 40.937400000075286,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 40.937400000075286,
+        "min_ms": 32.99990000050457,
+        "samples_ms": [
+          32.99990000050457,
+          39.189400000395835,
+          40.937400000075286
+        ]
+      },
+      "small_blocked_until_big_finished_fraction": 0.0,
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 32.99990000050457,
+          "big_convert_ms": 10314.805699999852,
+          "big_started_before_small_request_ms": 10.513999999602675,
+          "big_still_running_when_small_finished": true
+        },
+        {
+          "small_request_latency_ms": 39.189400000395835,
+          "big_convert_ms": 8869.936100000814,
+          "big_started_before_small_request_ms": 10.798899999826972,
+          "big_still_running_when_small_finished": true
+        },
+        {
+          "small_request_latency_ms": 40.937400000075286,
+          "big_convert_ms": 9899.657500000103,
+          "big_started_before_small_request_ms": 10.75479999963136,
+          "big_still_running_when_small_finished": true
+        }
+      ]
+    },
+    "solo_baseline_long_prose/100kb": {
+      "n": 3,
+      "p50_ms": 33.46539999984088,
+      "p95_ms": 41.310099999464,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 41.310099999464,
+      "min_ms": 32.97099999963393,
+      "samples_ms": [
+        41.310099999464,
+        33.46539999984088,
+        32.97099999963393
+      ]
+    }
+  },
+  "first_readable": {
+    "long_prose/100kb": {
+      "n": 5,
+      "p50_ms": 32.670499999767344,
+      "p95_ms": 33.772599999792874,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 33.772599999792874,
+      "min_ms": 30.72440000005372,
+      "samples_ms": [
+        30.793000000358006,
+        30.72440000005372,
+        33.37199999987206,
+        32.670499999767344,
+        33.772599999792874
+      ],
+      "mode": "full_render",
+      "covered_fraction": 1.0
+    },
+    "long_prose/10mb": {
+      "n": 5,
+      "p50_ms": 203.06069999969623,
+      "p95_ms": 266.4254000001165,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 266.4254000001165,
+      "min_ms": 190.19090000028882,
+      "samples_ms": [
+        190.19090000028882,
+        190.2887000001101,
+        203.06069999969623,
+        266.4254000001165,
+        209.2243000001872
+      ],
+      "mode": "fast_text_prefix",
+      "covered_fraction": 0.0524311
+    },
+    "long_prose/1mb": {
+      "n": 5,
+      "p50_ms": 382.82859999981156,
+      "p95_ms": 432.61230000007345,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 432.61230000007345,
+      "min_ms": 299.71859999977823,
+      "samples_ms": [
+        375.83889999996245,
+        382.82859999981156,
+        392.96620000004623,
+        432.61230000007345,
+        299.71859999977823
+      ],
+      "mode": "full_render",
+      "covered_fraction": 1.0
+    },
+    "long_prose/5mb": {
+      "n": 5,
+      "p50_ms": 228.16289999991568,
+      "p95_ms": 245.43769999991127,
+      "p95_note": "nearest-rank; equals max when n < 20",
+      "max_ms": 245.43769999991127,
+      "min_ms": 187.74690000009286,
+      "samples_ms": [
+        245.43769999991127,
+        228.16289999991568,
+        235.7624000001124,
+        193.12380000019402,
+        187.74690000009286
+      ],
+      "mode": "fast_text_prefix",
+      "covered_fraction": 0.1048678
+    }
+  },
+  "cancel_switch": {
+    "long_prose/5mb_cancelled_then_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 3,
+        "p50_ms": 41.65869999997085,
+        "p95_ms": 46.799600000213104,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 46.799600000213104,
+        "min_ms": 31.406199999764794,
+        "samples_ms": [
+          46.799600000213104,
+          41.65869999997085,
+          31.406199999764794
+        ]
+      },
+      "big_stop_after_cancel_ms": {
+        "n": 3,
+        "p50_ms": 44.5505000002413,
+        "p95_ms": 46.43420000002152,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 46.43420000002152,
+        "min_ms": 36.77400000015041,
+        "samples_ms": [
+          46.43420000002152,
+          44.5505000002413,
+          36.77400000015041
+        ]
+      },
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 46.799600000213104,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 46.43420000002152,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        },
+        {
+          "small_request_latency_ms": 41.65869999997085,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 44.5505000002413,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        },
+        {
+          "small_request_latency_ms": 31.406199999764794,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 36.77400000015041,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        }
+      ]
+    },
+    "long_prose/10mb_cancelled_then_long_prose/100kb": {
+      "small_request_latency_ms": {
+        "n": 3,
+        "p50_ms": 45.77029999973092,
+        "p95_ms": 46.93290000022898,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 46.93290000022898,
+        "min_ms": 32.608299999992596,
+        "samples_ms": [
+          32.608299999992596,
+          45.77029999973092,
+          46.93290000022898
+        ]
+      },
+      "big_stop_after_cancel_ms": {
+        "n": 3,
+        "p50_ms": 45.90710000002218,
+        "p95_ms": 50.32059999984995,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 50.32059999984995,
+        "min_ms": 36.39500000008411,
+        "samples_ms": [
+          36.39500000008411,
+          45.90710000002218,
+          50.32059999984995
+        ]
+      },
+      "raw_samples": [
+        {
+          "small_request_latency_ms": 32.608299999992596,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 36.39500000008411,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        },
+        {
+          "small_request_latency_ms": 45.77029999973092,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 45.90710000002218,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        },
+        {
+          "small_request_latency_ms": 46.93290000022898,
+          "big_outcome": "cancelled",
+          "big_stop_after_cancel_ms": 50.32059999984995,
+          "big_still_running_when_small_finished": false,
+          "render_worker_processes_killed": 1
+        }
+      ]
+    }
+  },
+  "gui_heartbeat": {
+    "long_prose/5mb": {
+      "max_gap_ms": {
+        "n": 3,
+        "p50_ms": 69.43679999994856,
+        "p95_ms": 75.32629999968776,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 75.32629999968776,
+        "min_ms": 66.34189999977025,
+        "samples_ms": [
+          75.32629999968776,
+          69.43679999994856,
+          66.34189999977025
+        ]
+      },
+      "tick_interval_ms": 50,
+      "raw_runs": [
+        {
+          "max_gap_ms": 75.32629999968776,
+          "p95_gap_ms": 67.12089999973614,
+          "tick_count": 37,
+          "total_ms": 2344.427099999848,
+          "tick_interval_ms": 50
+        },
+        {
+          "max_gap_ms": 69.43679999994856,
+          "p95_gap_ms": 66.05260000014823,
+          "tick_count": 46,
+          "total_ms": 2951.6253000001598,
+          "tick_interval_ms": 50
+        },
+        {
+          "max_gap_ms": 66.34189999977025,
+          "p95_gap_ms": 66.15340000007564,
+          "tick_count": 52,
+          "total_ms": 3263.6803000000327,
+          "tick_interval_ms": 50
+        }
+      ]
+    },
+    "long_prose/10mb": {
+      "max_gap_ms": {
+        "n": 3,
+        "p50_ms": 78.48920000014914,
+        "p95_ms": 79.20819999981177,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 79.20819999981177,
+        "min_ms": 75.7104999997864,
+        "samples_ms": [
+          75.7104999997864,
+          79.20819999981177,
+          78.48920000014914
+        ]
+      },
+      "tick_interval_ms": 50,
+      "raw_runs": [
+        {
+          "max_gap_ms": 75.7104999997864,
+          "p95_gap_ms": 65.78339999987293,
+          "tick_count": 143,
+          "total_ms": 9022.52099999987,
+          "tick_interval_ms": 50
+        },
+        {
+          "max_gap_ms": 79.20819999981177,
+          "p95_gap_ms": 65.64720000005764,
+          "tick_count": 147,
+          "total_ms": 9252.527600000121,
+          "tick_interval_ms": 50
+        },
+        {
+          "max_gap_ms": 78.48920000014914,
+          "p95_gap_ms": 65.49549999999726,
+          "tick_count": 145,
+          "total_ms": 9100.13489999983,
+          "tick_interval_ms": 50
+        }
+      ]
+    }
+  },
+  "webengine": {
+    "long_prose/100kb": {
+      "measured": true,
+      "load_finished_ms": {
+        "n": 3,
+        "p50_ms": 355.4964999998447,
+        "p95_ms": 378.04119999964314,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 378.04119999964314,
+        "min_ms": 349.61329999987356,
+        "samples_ms": [
+          378.04119999964314,
+          349.61329999987356,
+          355.4964999998447
+        ]
+      },
+      "dom_visible_ms": {
+        "n": 3,
+        "p50_ms": 362.58029999999053,
+        "p95_ms": 384.12739999967016,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 384.12739999967016,
+        "min_ms": 355.3994999997485,
+        "samples_ms": [
+          384.12739999967016,
+          355.3994999997485,
+          362.58029999999053
+        ]
+      },
+      "note": "offscreen platform; local setHtml() navigation, not a real window paint -- see docs for the limitation this leaves open."
+    },
+    "long_prose/1mb": {
+      "measured": true,
+      "load_finished_ms": {
+        "n": 3,
+        "p50_ms": 1743.0472999999438,
+        "p95_ms": 1762.1799000003193,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 1762.1799000003193,
+        "min_ms": 1710.6298000003335,
+        "samples_ms": [
+          1710.6298000003335,
+          1743.0472999999438,
+          1762.1799000003193
+        ]
+      },
+      "dom_visible_ms": {
+        "n": 3,
+        "p50_ms": 1776.3457000000926,
+        "p95_ms": 1795.5656000003728,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 1795.5656000003728,
+        "min_ms": 1750.9095000000343,
+        "samples_ms": [
+          1750.9095000000343,
+          1776.3457000000926,
+          1795.5656000003728
+        ]
+      },
+      "note": "offscreen platform; local setHtml() navigation, not a real window paint -- see docs for the limitation this leaves open."
+    },
+    "long_prose/5mb": {
+      "measured": true,
+      "load_finished_ms": {
+        "n": 3,
+        "p50_ms": 42.33010000007198,
+        "p95_ms": 44.062599999961094,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 44.062599999961094,
+        "min_ms": 41.04409999990821,
+        "samples_ms": [
+          41.04409999990821,
+          42.33010000007198,
+          44.062599999961094
+        ]
+      },
+      "dom_visible_ms": {
+        "n": 3,
+        "p50_ms": 117.7839000001768,
+        "p95_ms": 117.84399999987727,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 117.84399999987727,
+        "min_ms": 109.35920000019905,
+        "samples_ms": [
+          117.84399999987727,
+          109.35920000019905,
+          117.7839000001768
+        ]
+      },
+      "note": "offscreen platform; local setHtml() navigation, not a real window paint -- see docs for the limitation this leaves open."
+    },
+    "long_prose/10mb": {
+      "measured": true,
+      "load_finished_ms": {
+        "n": 3,
+        "p50_ms": 100.21360000018831,
+        "p95_ms": 101.64750000012646,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 101.64750000012646,
+        "min_ms": 78.13070000020161,
+        "samples_ms": [
+          100.21360000018831,
+          101.64750000012646,
+          78.13070000020161
+        ]
+      },
+      "dom_visible_ms": {
+        "n": 3,
+        "p50_ms": 136.3882000000558,
+        "p95_ms": 137.98980000001393,
+        "p95_note": "nearest-rank; equals max when n < 20",
+        "max_ms": 137.98980000001393,
+        "min_ms": 108.12560000022131,
+        "samples_ms": [
+          136.3882000000558,
+          137.98980000001393,
+          108.12560000022131
+        ]
+      },
+      "note": "offscreen platform; local setHtml() navigation, not a real window paint -- see docs for the limitation this leaves open."
+    }
+  },
+  "memory": {
+    "repeated_open_close": {
+      "measure": "psutil RSS (MB), whole-process",
+      "iterations": 20,
+      "rss_mb_samples": [
+        167.15234375,
+        167.8828125,
+        167.9609375,
+        168.46875,
+        168.44921875,
+        168.80078125,
+        168.78515625,
+        168.7421875,
+        168.9375,
+        169.23828125,
+        169.24609375,
+        169.24609375,
+        169.24609375,
+        169.24609375,
+        169.24609375,
+        169.24609375,
+        169.25390625,
+        169.2265625,
+        169.234375,
+        169.234375
+      ],
+      "rss_mb_first_half_avg": 168.441796875,
+      "rss_mb_second_half_avg": 169.242578125,
+      "rss_mb_max": 169.25390625,
+      "rss_mb_growth_mb": 2.08203125
+    },
+    "tracemalloc_single_convert": {
+      "measure": "tracemalloc peak (Python-level allocations only; excludes native/C-extension heaps)",
+      "peak_mb": 15.388787269592285
+    }
+  },
+  "limitations": [
+    "Cold subprocess timings may hit the OS file-system cache from this same benchmark run's earlier fixture writes/reads; not a true cold-disk measurement.",
+    "QT_QPA_PLATFORM=offscreen is used throughout; WebEngine numbers reflect local setHtml() navigation on a headless surface, not a real on-screen first paint -- needs a manual Windows check.",
+    "body_render_ms conflates markdown-it parsing and Pygments/anchor HTML generation because app/md_converter.py has no internal stage boundary between them (see ConverterInstrumentation docstring).",
+    "This tool never imports app.renderer's QThreadPool worker directly to avoid depending on GUI wiring under change; GUI heartbeat/contention tests reproduce the same shared _CONVERT_LOCK usage pattern instead.",
+    "parser_lock_contention was re-measured on 2026-09-08 after fixing the tool's big_still_running_when_small_finished flag (it used to be sampled after thread.join(), so the derived blocked-fraction was always 1.0). Only that section was re-run (contention-reps 3); every other section in this file is from the original after-run earlier the same day, same machine, same fixtures."
+  ],
+  "parser_lock_contention_rerun_note": "re-run 2026-09-08 with the fixed flag; command in docs/upgrades/2026-09-08-next-large-markdown.md"
+}
