@@ -143,7 +143,6 @@ from .toolbar_utilities import (
     ToolbarUtilities,
     UPDATE_AVAILABLE,
     UPDATE_CHECKING,
-    UPDATE_DOWNLOADING,
 )
 from .translate import (
     DEEPL_KEY,
@@ -307,7 +306,16 @@ class MainWindow(QMainWindow):
         self._update_check_thread = None
         self._update_download_thread = None
         self._update_progress = None
+        self._update_progress_filter = None
+        self._update_cancel_event = None
+        self._update_request_id = 0
+        self._update_downloading_info = None
+        # A verified installer is kept for this session only; nothing is
+        # persisted, so a restart always re-downloads and re-verifies.
+        self._update_ready_installer = None
+        self._update_ready_digest = None
         self._update_close_pending = False
+        self._update_close_deferred = False
         self._deferred_update_close_approved = False
         self._available_update = None
         cached_update_version = str(
@@ -786,8 +794,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
         self._update_action = act("檢查更新…", self._on_update_button_clicked)
         self._update_action.setEnabled(
-            self._toolbar_utilities.update_state
-            not in (UPDATE_CHECKING, UPDATE_DOWNLOADING)
+            self._toolbar_utilities.update_state != UPDATE_CHECKING
         )
         help_menu.addAction(self._update_action)
         help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
@@ -1310,20 +1317,12 @@ QSplitter::handle:hover {{
     def _set_update_state(self, state: str, *, version: str = "") -> None:
         self._toolbar_utilities.set_update_state(state, version=version)
         if hasattr(self, "_update_action"):
-            self._update_action.setEnabled(
-                state not in (UPDATE_CHECKING, UPDATE_DOWNLOADING)
-            )
+            # Only a check has nothing to re-open; during a download the entry
+            # point re-shows the hidden progress window.
+            self._update_action.setEnabled(state != UPDATE_CHECKING)
 
     def _on_update_button_clicked(self):
-        if self._toolbar_utilities.update_state in (
-            UPDATE_CHECKING,
-            UPDATE_DOWNLOADING,
-        ):
-            return
-        if self._available_update is not None:
-            update_flow.prompt_for_update(self, self._available_update)
-            return
-        self._check_for_updates(manual=True)
+        update_flow.on_update_button_clicked(self)
 
     def _toggle_annotation_side_notes(self, checked=None):
         session_state.toggle_annotation_side_notes(self, checked=checked)

@@ -9,7 +9,10 @@ from app.theme import DARK, LIGHT
 from app.toolbar_utilities import (
     UPDATE_AVAILABLE,
     UPDATE_CHECKING,
+    UPDATE_CANCELLED,
     UPDATE_DOWNLOADING,
+    UPDATE_READY,
+    UPDATE_VERIFYING,
     UPDATE_ERROR,
     UPDATE_IDLE,
     UTILITY_BUTTON_HEIGHT,
@@ -90,10 +93,30 @@ def test_theme_and_update_states_survive_theme_refresh(qapp):
         assert controls.update_button.property("badgeVisible") is False
         assert controls.update_button.toolTip() == "正在檢查更新…"
 
-        controls.set_update_state(UPDATE_DOWNLOADING)
+        # A download is the one busy state that stays clickable: its progress
+        # window is hideable, so the button has to be able to bring it back.
+        controls.set_update_state(UPDATE_DOWNLOADING, version="1.26.0")
         assert controls.update_button.property("iconName") == "file-down"
-        assert controls.update_button.isEnabled() is False
-        assert controls.update_button.toolTip() == "正在下載更新…"
+        assert controls.update_button.isEnabled() is True
+        assert controls.update_button.toolTip() == (
+            "正在下載更新 v1.26.0 · 按一下查看進度"
+        )
+
+        controls.set_update_state(UPDATE_VERIFYING, version="1.26.0")
+        assert controls.update_button.property("iconName") == "file-down"
+        assert controls.update_button.isEnabled() is True
+        assert controls.update_button.toolTip() == (
+            "正在驗證更新 v1.26.0 · 按一下查看進度"
+        )
+
+        controls.set_update_state(UPDATE_READY, version="1.26.0")
+        assert controls.update_button.isEnabled() is True
+        assert controls.update_button.property("badgeVisible") is True
+        assert "已下載並驗證" in controls.update_button.toolTip()
+
+        controls.set_update_state(UPDATE_CANCELLED, version="1.26.0")
+        assert controls.update_button.isEnabled() is True
+        assert "按一下重試" in controls.update_button.toolTip()
 
         controls.set_update_state(UPDATE_ERROR)
         assert controls.update_button.isEnabled() is True

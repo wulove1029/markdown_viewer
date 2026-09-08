@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from app import edit_backend
 from app import export_actions
 from app import md_table
+from app import recovery as recovery_mod
 from app import window as window_mod
 from app.shortcuts import WINDOW_SHORTCUTS
 
@@ -376,6 +377,24 @@ def _window_fakes(monkeypatch):
         window_mod.QMessageBox,
         "question",
         lambda *args, **kwargs: window_mod.QMessageBox.StandardButton.Discard,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_recovery_store(tmp_path, monkeypatch):
+    """Keep crash-recovery snapshots inside the test's own tmp directory.
+
+    MainWindow otherwise builds a RecoveryStore in the real AppData location.
+    A snapshot left there by an interrupted run is later matched against a
+    rebuilt tmp path (identical whenever --basetemp is reused) and
+    _prepare_recovery_state() opens a modal RecoveryDialog that nothing can
+    dismiss offscreen, wedging the whole session in an unrelated test.
+    """
+    store_dir = tmp_path / "recovery-store"
+    monkeypatch.setattr(
+        window_mod,
+        "RecoveryStore",
+        lambda *args, **kwargs: recovery_mod.RecoveryStore(directory=store_dir),
     )
 
 
@@ -1796,7 +1815,7 @@ def test_cached_update_badge_rechecks_or_opens_live_update(
     assert prompts == [(win, live_update)]
 
 
-def test_update_menu_action_is_disabled_while_checking_or_downloading(
+def test_update_entry_point_is_inert_while_checking_and_shows_progress_downloading(
     make_window, monkeypatch
 ):
     win = make_window()
@@ -1808,12 +1827,29 @@ def test_update_menu_action_is_disabled_while_checking_or_downloading(
         lambda *args: prompts.append(args),
     )
 
-    for state in ("checking", "downloading"):
+    # A check has nothing to look at, so the entry point is disabled outright.
+    win._set_update_state("checking")
+    assert win._update_btn.isEnabled() is False
+    assert win._update_action.isEnabled() is False
+    win._update_action.trigger()
+    win._on_update_button_clicked()
+    assert prompts == []
+
+    # A download must stay reachable: the progress window is hideable, so the
+    # button re-opens it instead of starting a second download or prompting.
+    shown = []
+    monkeypatch.setattr(
+        window_mod.update_flow,
+        "show_update_progress",
+        lambda window: bool(shown.append(window)) or True,
+    )
+    for state in ("downloading", "verifying"):
+        shown.clear()
         win._set_update_state(state)
-        assert win._update_btn.isEnabled() is False
-        assert win._update_action.isEnabled() is False
-        win._update_action.trigger()
+        assert win._update_btn.isEnabled() is True
+        assert win._update_action.isEnabled() is True
         win._on_update_button_clicked()
+        assert shown == [win]
         assert prompts == []
 
 

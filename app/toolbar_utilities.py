@@ -19,12 +19,39 @@ UPDATE_CHECKING = "checking"
 UPDATE_AVAILABLE = "available"
 UPDATE_ERROR = "error"
 UPDATE_DOWNLOADING = "downloading"
+UPDATE_VERIFYING = "verifying"
+UPDATE_READY = "ready"
+UPDATE_CANCELLED = "cancelled"
+UPDATE_LAUNCHING = "launching"
 _UPDATE_STATES = {
     UPDATE_IDLE,
     UPDATE_CHECKING,
     UPDATE_AVAILABLE,
     UPDATE_ERROR,
     UPDATE_DOWNLOADING,
+    UPDATE_VERIFYING,
+    UPDATE_READY,
+    UPDATE_CANCELLED,
+    UPDATE_LAUNCHING,
+}
+# States where a worker owns the job. The button stays clickable during a
+# download so the user can bring the (non-modal, hideable) progress window
+# back; only a check has nothing to re-open.
+_UPDATE_BUSY_STATES = {UPDATE_CHECKING}
+_UPDATE_ACTIVE_STATES = {
+    UPDATE_CHECKING,
+    UPDATE_DOWNLOADING,
+    UPDATE_VERIFYING,
+    UPDATE_LAUNCHING,
+}
+# States that still describe a specific version, so the tooltip keeps it.
+_UPDATE_VERSIONED_STATES = {
+    UPDATE_AVAILABLE,
+    UPDATE_DOWNLOADING,
+    UPDATE_VERIFYING,
+    UPDATE_READY,
+    UPDATE_CANCELLED,
+    UPDATE_LAUNCHING,
 }
 
 
@@ -160,7 +187,11 @@ class ToolbarUtilities(QFrame):
         if state not in _UPDATE_STATES:
             raise ValueError(f"Unknown update state: {state}")
         self._update_state = state
-        self._available_version = version if state == UPDATE_AVAILABLE else ""
+        self._available_version = (
+            version
+            if state in _UPDATE_VERSIONED_STATES
+            else ""
+        )
         self._refresh_update_button()
 
         # Qt does not consistently re-evaluate dynamic-property selectors.
@@ -181,19 +212,29 @@ class ToolbarUtilities(QFrame):
 
     def _refresh_update_button(self) -> None:
         state = self._update_state
+        version = f" v{self._available_version}" if self._available_version else ""
         if state == UPDATE_CHECKING:
             icon_name = "refresh"
-        elif state == UPDATE_DOWNLOADING:
+        elif state in (UPDATE_DOWNLOADING, UPDATE_VERIFYING):
             icon_name = "file-down"
         else:
             icon_name = "circle-arrow-up"
-        busy = state in (UPDATE_CHECKING, UPDATE_DOWNLOADING)
+        busy = state in _UPDATE_BUSY_STATES
+        active = state in _UPDATE_ACTIVE_STATES
         available = state == UPDATE_AVAILABLE
 
         if state == UPDATE_CHECKING:
             tooltip = "正在檢查更新…"
         elif state == UPDATE_DOWNLOADING:
-            tooltip = "正在下載更新…"
+            tooltip = f"正在下載更新{version} · 按一下查看進度"
+        elif state == UPDATE_VERIFYING:
+            tooltip = f"正在驗證更新{version} · 按一下查看進度"
+        elif state == UPDATE_LAUNCHING:
+            tooltip = f"正在準備安裝更新{version}"
+        elif state == UPDATE_READY:
+            tooltip = f"更新{version} 已下載並驗證 · 按一下安裝"
+        elif state == UPDATE_CANCELLED:
+            tooltip = f"已取消下載{version} · 按一下重試"
         elif available:
             tooltip = (
                 f"新版本 v{self._available_version} 可用 · 按一下查看"
@@ -203,8 +244,8 @@ class ToolbarUtilities(QFrame):
         elif state == UPDATE_ERROR:
             tooltip = "上次檢查失敗 · 按一下重試"
         else:
-            version = f" v{self._current_version}" if self._current_version else ""
-            tooltip = f"檢查更新 · 目前版本{version}"
+            current = f" v{self._current_version}" if self._current_version else ""
+            tooltip = f"檢查更新 · 目前版本{current}"
 
         self.update_button.setProperty("iconName", icon_name)
         self.update_button.setProperty("updateState", state)
@@ -221,11 +262,13 @@ class ToolbarUtilities(QFrame):
             _stateful_icon(
                 icon_name,
                 self._theme,
-                normal_color=(self._theme.accent if busy else None),
-                disabled_color=(self._theme.accent if busy else None),
+                normal_color=(self._theme.accent if active else None),
+                disabled_color=(self._theme.accent if active else None),
             )
         )
-        self.update_button.set_badge(available, self._theme)
+        self.update_button.set_badge(
+            available or state == UPDATE_READY, self._theme
+        )
 
     @staticmethod
     def _stylesheet(theme: Theme) -> str:
