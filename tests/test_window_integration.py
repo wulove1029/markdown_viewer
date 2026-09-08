@@ -192,6 +192,14 @@ class _FakePdfView(QWidget):
         self.pending_wheel_zoom = None
         self.flush_wheel_zoom_calls = 0
         self.flush_wheel_zoom_contexts = []
+        self.embedded_annotations = []
+        self.flashed_annotations = []
+
+    def set_embedded_annotations(self, entries):
+        self.embedded_annotations = list(entries or [])
+
+    def flash_embedded_annotation(self, xref):
+        self.flashed_annotations.append(xref)
 
     def load(self, path):
         self.loaded.append(Path(path))
@@ -327,11 +335,18 @@ class _FakePanel(QWidget):
         self.tags = _Tags()
         self.current_tab = None
         self.search_opened = False
+        self.embedded_annotation_count = 0
 
     def apply_theme(self, _theme):
         pass
 
     def show_pdf_notes(self, _show):
+        pass
+
+    def set_embedded_annotation_count(self, count):
+        self.embedded_annotation_count = count
+
+    def show_pdf_embedded_annotations(self):
         pass
 
     def set_annotations_enabled(self, _enabled):

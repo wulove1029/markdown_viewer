@@ -1798,6 +1798,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._pdf_embedded_annotations = list(entries)
         self._refresh_pdf_embedded_annotations_panel()
+        if self._pdf_embedded_annotations:
+            # Nothing else on screen says a PDF carries Acrobat comments, so
+            # announce them once; the panel tab keeps the count afterwards.
+            self.statusBar().showMessage(
+                f"此 PDF 含 {len(self._pdf_embedded_annotations)} 個 Acrobat 註解"
+                "（工作面板 → 標註 → 內嵌註解）",
+                6000,
+            )
 
     def _on_pdf_wheel_zoom_changed(self, factor: float):
         if self._current_kind != "pdf":
@@ -4710,6 +4718,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._panel.pdf_embedded_annotations.set_annotations(
             self._pdf_embedded_annotations
         )
+        self._panel.set_embedded_annotation_count(
+            len(self._pdf_embedded_annotations)
+        )
+        # The view paints these itself (the raster is rendered without PDFium's
+        # annotation layer), so it needs the same list the panel shows.
+        self._pdf_view.set_embedded_annotations(self._pdf_embedded_annotations)
 
     def _pdf_embedded_annotation_activated(self, entry):
         x, y, w, h = entry.rect
@@ -4717,6 +4731,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._pdf_view.reveal(entry.page, x, y, w, h)
         else:
             self._pdf_view.jump_to_page(entry.page)
+        # A reply has no mark of its own on the page; flash the annotation it
+        # answers so the click still points somewhere visible.
+        target = entry.in_reply_to if entry.in_reply_to is not None else entry.xref
+        self._pdf_view.flash_embedded_annotation(target)
 
     # --- wiki-links & backlinks ---
     def _search_roots(self) -> list[Path]:

@@ -109,6 +109,18 @@ def _tile_spec(key, content_rect, *, generation=1, layout_epoch=1):
     )
 
 
+def _page_spec(*, generation=1, layout_epoch=1):
+    return PdfRenderSpec(
+        key="page",
+        generation=generation,
+        layout_epoch=layout_epoch,
+        page=0,
+        kind="page",
+        dpr100=100,
+        page_px=(400, 200),
+    )
+
+
 def _finish_requests_and_invalidate(scheduler, renderer):
     for request in list(renderer.requests):
         renderer.complete(request)
@@ -152,6 +164,26 @@ def test_request_id_zero_is_rejected_without_consuming_capacity(
         # zero bookkeeping while this regression test is being developed.
         renderer.complete(renderer.requests[0])
         scheduler.invalidate()
+
+
+def test_page_raster_is_requested_without_pdfium_annotations(
+    qapp, quadrant_pdf, fake_page_renderer
+):
+    """PdfView paints embedded annotations itself (pdf_annotation_overlay).
+
+    PDFium's own annotation layer stamps reply icons Acrobat keeps off the
+    page and scales /NoZoom sticky-note icons with the zoom, so the raster
+    must come back clean.
+    """
+    scheduler = PdfRenderScheduler()
+    assert scheduler.begin_document(1, quadrant_pdf)
+    renderer = fake_page_renderer.instances[-1]
+    try:
+        assert scheduler.request(_page_spec())
+        options = renderer.requests[-1].options
+        assert options.renderFlags() == QPdfDocumentRenderOptions.RenderFlag.None_
+    finally:
+        _finish_requests_and_invalidate(scheduler, renderer)
 
 
 def test_tile_request_uses_full_scaled_size_and_qrect_plus_one_workaround(

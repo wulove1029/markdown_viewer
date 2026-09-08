@@ -197,6 +197,30 @@ class LeftPanel(QWidget):
 
     def show_pdf_notes(self, show: bool):
         self._annot_stack.setCurrentIndex(1 if show else 0)
+        if not show:
+            # A Markdown document has no embedded PDF comments; drop a count
+            # left over from the PDF that was open before.
+            self.set_embedded_annotation_count(0)
+
+    def set_embedded_annotation_count(self, count: int) -> None:
+        """Badge the 標註 tab (and its PDF sub-tab) with a comment count.
+
+        Embedded Acrobat comments live two levels deep — 標註 tab, then the
+        內嵌註解 sub-tab — so the count is what makes them findable at all.
+        """
+        count = max(0, int(count))
+        self._pdf_markup.set_embedded_annotation_count(count)
+        index = self._tabs.indexOf(self._annot_stack)
+        if index >= 0:
+            self._tabs.setTabText(index, "標註" if count == 0 else f"標註 ({count})")
+
+    def show_pdf_embedded_annotations(self) -> None:
+        """Reveal the embedded-annotation list (標註 tab, 內嵌註解 sub-tab)."""
+        index = self._tabs.indexOf(self._annot_stack)
+        if index >= 0:
+            self._tabs.setCurrentIndex(index)
+        self._annot_stack.setCurrentIndex(1)
+        self._pdf_markup.show_embedded_annotations()
 
     @property
     def close_btn(self) -> QPushButton:

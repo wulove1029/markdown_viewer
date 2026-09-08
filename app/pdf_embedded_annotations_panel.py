@@ -5,6 +5,11 @@ the *app's own* text highlights and page notes (kept in sidecar JSON files).
 This panel is read-only: it shows what Acrobat (or any other PDF editor)
 already wrote into the PDF itself, with no add/edit/delete affordances, since
 the app never modifies the embedded annotations.
+
+Entries are shown as Acrobat shows them — as discussion threads. A reply
+(``/IRT``) is indented under the annotation it answers instead of sitting in
+the list as a peer, and a text-markup annotation with no note of its own is
+labelled with its type and the passage it marks.
 """
 
 from __future__ import annotations
@@ -13,17 +18,20 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
+from .pdf_embedded_annotations import (
+    KIND_LABELS,
+    build_annotation_threads,
+    kind_label,
+    summary_text,
+    tooltip_text,
+)
 from .theme import LIGHT, Theme, collection_stylesheet
 
-# Traditional-Chinese labels for the annotation kinds pymupdf reports.
-_KIND_LABELS = {
-    "Text": "便利貼",
-    "Highlight": "螢光標記",
-    "FreeText": "文字方塊",
-    "Underline": "底線",
-    "StrikeOut": "刪除線",
-    "Squiggly": "波浪底線",
-}
+# Kept as a module-level name because tests and other panels refer to it.
+_KIND_LABELS = KIND_LABELS
+
+_REPLY_INDENT = "　　↳ "
+_MAX_SNIPPET = 60
 
 
 def _swatch_icon(color: str, border: str, size: int = 12) -> QIcon:
@@ -36,6 +44,43 @@ def _swatch_icon(color: str, border: str, size: int = 12) -> QIcon:
     painter.drawRoundedRect(0, 0, size - 1, size - 1, 2, 2)
     painter.end()
     return QIcon(pixmap)
+
+
+def _clip(text: str) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) > _MAX_SNIPPET:
+        return text[: _MAX_SNIPPET - 1] + "…"
+    return text
+
+
+def parent_label(entry) -> str:
+    """List text for a top-level annotation.
+
+    Acrobat's own comment list shows the marked passage for a highlight and the
+    typed note underneath it, so both are surfaced here: the marked text
+    (quoted) first, then the note text when the annotation has one.
+    """
+    parts = [f"p.{entry.page + 1}", f"[{kind_label(entry)}]"]
+    marked = _clip(entry.marked_text)
+    note = _clip(entry.note_text)
+    if marked:
+        parts.append(f"「{marked}」")
+    if note:
+        parts.append(note)
+    if not marked and not note:
+        parts.append(_clip(entry.content) or "（無文字內容）")
+    label = "　".join(parts)
+    if entry.author:
+        label += f"　— {entry.author}"
+    return label
+
+
+def reply_label(entry) -> str:
+    """Indented list text for a reply, so a thread reads as a thread."""
+    label = _REPLY_INDENT + (_clip(summary_text(entry)) or "（無文字內容）")
+    if entry.author:
+        label += f"　— {entry.author}"
+    return label
 
 
 class PdfEmbeddedAnnotationsPanel(QWidget):
@@ -74,30 +119,25 @@ class PdfEmbeddedAnnotationsPanel(QWidget):
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self._list.addItem(item)
             return
-        for entry in self._annotations:
-            snippet = (entry.content or "").strip().replace("\n", " ").replace("\r", " ")
-            if len(snippet) > 60:
-                snippet = snippet[:59] + "…"
-            kind_label = _KIND_LABELS.get(entry.kind, entry.kind)
-            label = f"p.{entry.page + 1}　[{kind_label}]　{snippet or '（無文字內容）'}"
-            if entry.author:
-                label += f"　— {entry.author}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, entry)
-            tip_lines = [f"第 {entry.page + 1} 頁　{kind_label}"]
-            if entry.author:
-                tip_lines.append(f"作者：{entry.author}")
-            if entry.modified:
-                tip_lines.append(f"修改時間：{entry.modified}")
-            if entry.content:
-                tip_lines.append(entry.content)
-            item.setToolTip("\n".join(tip_lines))
-            # The annotation colour is shown as a small swatch, never as the
-            # text colour: a yellow highlight's label must stay readable on
-            # both the light and dark theme surfaces.
-            if entry.color:
-                item.setIcon(_swatch_icon(entry.color, self._theme.border))
-            self._list.addItem(item)
+        for parent, replies in build_annotation_threads(self._annotations):
+            self._add_item(parent, parent_label(parent), replies)
+            for reply in replies:
+                self._add_item(reply, reply_label(reply), ())
+
+    def _add_item(self, entry, label: str, replies) -> None:
+        item = QListWidgetItem(label)
+        item.setData(Qt.ItemDataRole.UserRole, entry)
+        item.setToolTip(tooltip_text(entry, replies))
+        # The annotation colour is shown as a small swatch, never as the
+        # text colour: a yellow highlight's label must stay readable on
+        # both the light and dark theme surfaces.
+        if entry.color:
+            item.setIcon(_swatch_icon(entry.color, self._theme.border))
+        self._list.addItem(item)
+
+    def count(self) -> int:
+        """How many embedded annotations this panel is showing (replies too)."""
+        return len(self._annotations)
 
     def _on_clicked(self, item: QListWidgetItem) -> None:
         entry = item.data(Qt.ItemDataRole.UserRole)

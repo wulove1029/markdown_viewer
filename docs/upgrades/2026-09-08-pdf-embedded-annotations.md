@@ -96,3 +96,74 @@ StrikeOut/Squiggly，Popup 併入其 parent），與既有 `pdf_notes`/`pdf_high
   差），改為 12 px 小色塊 icon（邊框用主題 border 色），文字維持主題前景色；
   `apply_theme` 會重畫色塊。新增 `test_panel_shows_colour_as_swatch_not_text_foreground`。
   指定三檔：43 passed；全套 1519 passed／75 skipped，exit 0。
+
+## 真實 Acrobat 檔案修正（2026-09-08 追加）
+
+實測檔 `dm00293821.pdf`（22 頁，第 1 頁兩個註解）暴露了合併版本的兩個問題：
+頁面上出現一個隨縮放放大的紫色大方塊、側欄找不到註解清單。
+
+### 檔案裡到底有什麼
+
+- xref 367 `/Highlight`：`C=[1 .384308 0]`、`CA=.399994`、有 `QuadPoints`、
+  `/Contents` 空、無 `/RC`、`/Subj=螢光標示`、`Popup=368`。
+- xref 369 `/Text`：`Name=/Comment`、`C=[.588 .263 .988]`、`F=28`
+  （Print+NoZoom+NoRotate）、**`IRT=367`**（它是 highlight 的回覆）、
+  `/Contents=測試用`、`/RC` 為 XHTML、`Popup=370`。
+
+Acrobat 面板顯示的「文字反白」**不存在於檔案任何欄位**：那是 Acrobat 繁中
+介面對 Highlight 類型的顯示名稱（註解無文字內容時顯示類型名）。檔案裡對應
+的欄位是 `/Subj`（值為「螢光標示」），所以 `kind_label()` 優先用 `/Subj`，
+沒有才退回內建對照表。
+
+### 改動
+
+1. **頁面自繪 overlay**（`app/pdf_render_scheduler.py:123-131`、
+   新檔 `app/pdf_annotation_overlay.py`、`app/pdf_view.py`）：
+   `RenderFlag.Annotations` 改回 `RenderFlag.None_`，raster 不再帶 PDFium 的
+   註解層；改由 `PdfView._paint_overlays()` 用既有
+   `_page_rect_to_screen()` 投影自繪。Highlight 用 QuadPoints + `/C` + `/CA`
+   以 Multiply 混色（字仍可讀）；Underline/StrikeOut/Squiggly 畫線；
+   Square/Circle/Line/Polygon/PolyLine/Ink 依 rect／vertices／InkList 描邊；
+   FreeText 畫框加文字；Text 便利貼畫 **固定 18 px**（不隨縮放放大）的小對話框
+   圖示。**IRT 回覆完全不畫在頁面上**，Popup 也不畫。
+2. **資料層補欄位**（`app/pdf_embedded_annotations.py`）：`xref`、`in_reply_to`
+   （解析 `/IRT`）、`opacity`（`/CA`）、`subject`（`/Subj`）、`marked_text`
+   （用 QuadPoints 逐格 `page.get_textbox()`，並垂直內縮避免夾到下一行）、
+   `icon`（`/Name`）、`vertices`、`ink`。註解文字依序找
+   `/Contents` → `/RC`（去 HTML + unescape）→ Popup 的 `/Contents`。
+   新增 `build_annotation_threads()` 與展示用 `kind_label()`／`summary_text()`
+   ／`tooltip_text()`（純字串、無 Qt）。父註解不在擷取結果中的孤兒回覆會被
+   提升為頂層，不會憑空消失。
+3. **面板串成討論串**（`app/pdf_embedded_annotations_panel.py`）：父註解顯示
+   `p.N [類型] 「被標的文字」 註解文字 — 作者`，回覆以 `　　↳ ` 縮排列在其下。
+4. **可發現性**：`LeftPanel.set_embedded_annotation_count()` 讓「標註」分頁
+   標題變成「標註 (2)」、子分頁變成「內嵌註解 (2)」；PDF 載入後狀態列顯示
+   「此 PDF 含 N 個 Acrobat 註解（工作面板 → 標註 → 內嵌註解）」6 秒。
+   點清單項目仍跳頁 + `reveal()`，並額外呼叫
+   `PdfView.flash_embedded_annotation()` 在頁面上閃 1.6 秒藍框；點回覆時閃的
+   是它的父註解（回覆自己沒有頁面標記）。滑鼠停在註解上顯示 tooltip
+   （作者／時間／被標文字／註解文字／回覆），走 `viewportEvent()` 的
+   `QEvent.ToolTip`。
+
+### 回覆圖示的決定
+
+**回覆完全不畫圖示**。理由：(1) Acrobat 本身就不畫——回覆只出現在註解面板；
+(2) 這個回覆的 `Rect` 就疊在 highlight 左端，畫了會蓋住被標的文字；
+(3) 回覆內容已經在父註解的 tooltip 與面板討論串裡看得到，資訊沒有遺失。
+非回覆的獨立便利貼仍會畫固定 18 px 小圖示（`test_sticky_icon_keeps_a_fixed_pixel_size_at_any_zoom`）。
+
+### 驗證
+
+- 用本程式 `PdfView` offscreen 對該檔第 1 頁截圖：100% 與 200% 兩張皆為橘色
+  高亮在正確位置、字仍可讀、**沒有紫色方塊、沒有任何回覆圖示**；高亮隨縮放
+  正確放大。
+- 測試：新增 fixture（`/IRT` 回覆、shapes、`/RC`-only、Popup-only、孤兒回覆）
+  與真實檔測試（`pytest.mark.skipif` 保護，檔案未複製進 repo）。
+  指定 6 檔 243 passed；全套 `pytest tests` 1614 passed／75 skipped，exit 0。
+
+### 意外發現
+
+`page.get_textbox()` 會把「與矩形相交」的整行都吐出來，而 Acrobat 的
+QuadPoints 通常比字行高出零點幾 pt，因此原本擷取到的「被標文字」多帶了下一
+行的開頭。改成先把 quad 垂直內縮 `min(h*0.2, 2pt)` 才取字，結果才等於使用者
+真正反白的那一行。

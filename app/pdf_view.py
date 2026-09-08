@@ -29,6 +29,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QElapsedTimer,
+    QEvent,
     QObject,
     QPoint,
     QPointF,
@@ -48,6 +49,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLineEdit,
     QMenu,
+    QToolTip,
 )
 
 # PyMuPDF is only needed for outline extraction, yet importing it costs about
@@ -68,7 +70,12 @@ def _pymupdf():
         _pymupdf_module = _mod
     return _pymupdf_module
 
-from .pdf_embedded_annotations import extract_embedded_annotations
+from . import pdf_annotation_overlay
+from .pdf_embedded_annotations import (
+    build_annotation_threads,
+    extract_embedded_annotations,
+    tooltip_text as embedded_annotation_tooltip,
+)
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
 from . import pdf_metadata_cache
@@ -289,6 +296,17 @@ class PdfView(QAbstractScrollArea):
         self._last_dbl_ms: int | None = None
         self._last_dbl_pos = QPoint()
 
+        # --- embedded (Acrobat-authored) annotations, drawn by this view ---
+        # The raster arrives without PDFium's annotation layer on purpose (see
+        # PdfRenderScheduler.request), so these are painted as an overlay.
+        self._embedded_annotations: list = []
+        self._embedded_replies: dict[int, list] = {}
+        self._flash_annotation_xref: int | None = None
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setSingleShot(True)
+        self._flash_timer.setInterval(1600)
+        self._flash_timer.timeout.connect(self._clear_annotation_flash)
+
         # --- highlighter ---
         self._highlights: list = []  # PdfHighlight (drawing copy; window owns truth)
         self._pen_mode = False
@@ -358,6 +376,7 @@ class PdfView(QAbstractScrollArea):
         self._clear_selection()
         self.selection_changed.emit(False)
         self._highlights = []
+        self.set_embedded_annotations([])
         self._cache.clear()
         self._text_bounds.clear()
         self._page_texts.clear()
@@ -1151,7 +1170,25 @@ class PdfView(QAbstractScrollArea):
         painter.setFont(font)
         painter.drawText(self.viewport().rect(), Qt.AlignmentFlag.AlignCenter, text)
 
+    def _screen_mapper(self, page: int, ox: int, oy: int):
+        """A (x, y, w, h) -> QRectF projector for one page, in viewport px."""
+        def to_screen(x, y, w, h):
+            return self._page_rect_to_screen(page, x, y, w, h, ox, oy)
+        return to_screen
+
     def _paint_overlays(self, painter, p, ox, oy):
+        # Acrobat-authored annotations embedded in the file itself. Drawn first
+        # so the app's own highlights/selection stay visually on top of them.
+        if self._embedded_annotations:
+            pdf_annotation_overlay.paint_embedded_annotations(
+                painter,
+                self._embedded_annotations,
+                p,
+                self._screen_mapper(p, ox, oy),
+                self._scale,
+                flash_xref=self._flash_annotation_xref,
+                theme_text=self._theme.text,
+            )
         # saved highlights
         for hl in self._highlights:
             if hl.page != p:
@@ -1562,6 +1599,72 @@ class PdfView(QAbstractScrollArea):
 
     def pen_color(self) -> str:
         return self._pen_color
+
+    # ================= embedded annotations =================
+    def set_embedded_annotations(self, entries) -> None:
+        """Adopt the Acrobat-authored annotations to draw over the pages."""
+        self._embedded_annotations = list(entries or [])
+        self._embedded_replies = {
+            parent.xref: replies
+            for parent, replies in build_annotation_threads(self._embedded_annotations)
+        }
+        self._clear_annotation_flash()
+        self.viewport().update()
+
+    def embedded_annotations(self) -> list:
+        return list(self._embedded_annotations)
+
+    def flash_embedded_annotation(self, xref: int | None) -> None:
+        """Briefly ring one annotation, e.g. after a click in the sidebar."""
+        self._flash_annotation_xref = int(xref) if xref else None
+        if self._flash_annotation_xref is None:
+            self._flash_timer.stop()
+        else:
+            self._flash_timer.start()
+        self.viewport().update()
+
+    def _clear_annotation_flash(self) -> None:
+        if self._flash_annotation_xref is None:
+            return
+        self._flash_annotation_xref = None
+        self.viewport().update()
+
+    def embedded_annotation_at(self, pos):
+        """The embedded annotation under a viewport position, or None."""
+        if not self._embedded_annotations or not self._page_tops:
+            return None
+        ox = self.horizontalScrollBar().value()
+        oy = self.verticalScrollBar().value()
+        for page in self._visible_pages():
+            hit = pdf_annotation_overlay.annotation_at(
+                self._embedded_annotations, page, pos, self._screen_mapper(page, ox, oy)
+            )
+            if hit is not None:
+                return hit
+        return None
+
+    def embedded_annotation_tooltip_at(self, pos) -> str:
+        """Hover text (author/time/marked text/note/replies) for *pos*."""
+        entry = self.embedded_annotation_at(pos)
+        if entry is None:
+            return ""
+        return embedded_annotation_tooltip(
+            entry, self._embedded_replies.get(entry.xref, ())
+        )
+
+    def viewportEvent(self, event):
+        # Tooltips are resolved here rather than via setToolTip() so the text
+        # tracks the cursor across several annotations on one page. The hook is
+        # viewportEvent because help events are delivered to the viewport.
+        if event.type() == QEvent.Type.ToolTip:
+            text = self.embedded_annotation_tooltip_at(event.pos())
+            if text:
+                QToolTip.showText(event.globalPos(), text, self)
+            else:
+                QToolTip.hideText()
+            event.accept()
+            return True
+        return super().viewportEvent(event)
 
     # ================= navigation =================
     def jump_to_page(self, page0: int) -> None:

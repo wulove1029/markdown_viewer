@@ -222,6 +222,7 @@ class PdfMarkupPanel(QWidget):
         self._tabs.addTab(self._highlights, "螢光")
         self._tabs.addTab(self._notes, "頁註")
         self._tabs.addTab(self._embedded_annotations, "內嵌註解")
+        self._embedded_tab_index = self._tabs.indexOf(self._embedded_annotations)
         layout.addWidget(self._tabs)
         self._set_doc_tags_enabled(False)
         self.apply_theme(LIGHT)
@@ -288,6 +289,22 @@ class PdfMarkupPanel(QWidget):
     @property
     def embedded_annotations(self) -> PdfEmbeddedAnnotationsPanel:
         return self._embedded_annotations
+
+    def set_embedded_annotation_count(self, count: int) -> None:
+        """Show how many Acrobat annotations the open PDF carries.
+
+        Without a count on the tab there is nothing telling a reader that a
+        document even has embedded comments, and the sub-tab is easy to miss.
+        """
+        count = max(0, int(count))
+        label = "內嵌註解" if count == 0 else f"內嵌註解 ({count})"
+        if self._embedded_tab_index >= 0:
+            self._tabs.setTabText(self._embedded_tab_index, label)
+
+    def show_embedded_annotations(self) -> None:
+        """Bring the embedded-annotation sub-tab to the front."""
+        if self._embedded_tab_index >= 0:
+            self._tabs.setCurrentIndex(self._embedded_tab_index)
 
     def apply_theme(self, theme: Theme):
         self._theme = theme
