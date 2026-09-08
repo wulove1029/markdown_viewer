@@ -1,0 +1,15 @@
+{
+  "code_span_across_paragraphs": {
+    "markdown_renders_local_link": true,
+    "rebased_link": true,
+    "result": "Unmatched backtick `\n\n[real](../assets/a.png)\n\nAnother `\n"
+  },
+  "stat_failure_after_publish": {
+    "source_exists": true,
+    "source_bytes": "original source",
+    "destination_exists": true,
+    "destination_bytes": "original source",
+    "error": "搬移失敗且部分原始資料無法自動回復：injected stat failure after publication\n請保留並檢查備份資料夾：C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-relocation-review-esy6bb6x\\.markdown-relocate-originals-sjygahvp\nC:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-relocation-review-esy6bb6x\\archive\\note.md：已發布的目的文件無法確認狀態，已保留",
+    "error_names_destination": true
+  }
+}

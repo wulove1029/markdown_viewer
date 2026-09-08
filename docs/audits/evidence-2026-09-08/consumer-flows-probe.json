@@ -1,0 +1,20 @@
+{
+  "environment": "Qt offscreen; isolated temporary documents; no MainWindow instance",
+  "observations": {
+    "global_search_found": [
+      "document.md",
+      "nested/nested.md"
+    ],
+    "quick_open_candidates": [
+      "document.markdown",
+      "document.md",
+      "document.txt"
+    ],
+    "global_search_opened_after_return": 0,
+    "global_search_opened_after_mouse_click": 1,
+    "quick_open_duplicate_visible_rows": [
+      "Meeting.md",
+      "Meeting.md"
+    ]
+  }
+}

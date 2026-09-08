@@ -1,0 +1,11 @@
+{
+  "version": "1.31.0",
+  "full_suite": {"passed": 1457, "skipped": 75, "seconds": 43.73, "exit_code": 0},
+  "webengine_and_search": {
+    "command": "RUN_WEBENGINE_TESTS=1 py -3 -X utf8 -m pytest tests/test_renderer_source_navigation.py tests/test_renderer_async.py tests/test_consumer_search.py tests/test_global_search.py -q -p no:cacheprovider --basetemp tmp/upgrade-final-webengine-20260908",
+    "passed": 49, "seconds": 1.60, "exit_code": 0,
+    "note": "Environment variable was set with PowerShell before running pytest; includes three actual Chromium navigation cases."
+  },
+  "visual_inspection": ["settings-dark-0.png", "settings-light-0.png", "settings-dark-1.png", "settings-light-2.png", "recovery-inbox.png"],
+  "limits": ["Installed upgrade and physical high-DPI screen not exercised", "Packaged smoke checks second-instance forwarding only"]
+}

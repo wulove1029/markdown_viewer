@@ -1,0 +1,28 @@
+{
+  "move_breaks_relative_attachment": {
+    "relative_link": "assets/attachment.txt",
+    "valid_before_move": true,
+    "valid_after_move": false,
+    "original_asset_still_exists": true,
+    "moved_document_text": "[attachment](assets/attachment.txt)"
+  },
+  "sidecar_collision_silently_succeeds": {
+    "operation_returned_mapping": {
+      "E:\\markdown_viewer\\tmp\\audit-reliability-20260908\\scenarios-_2knsqam\\sidecar-source.md": "E:\\markdown_viewer\\tmp\\audit-reliability-20260908\\scenarios-_2knsqam\\sidecar-target.md"
+    },
+    "document_moved": true,
+    "original_notes_stranded": true,
+    "destination_notes_unchanged": "{\"unrelated_notes\":true}"
+  },
+  "new_tab_crash_snapshot_not_discovered": {
+    "valid_recovery_snapshots": 1,
+    "restored_tabs": 0,
+    "condition": "snapshot belongs to a tab not present in last normally closed session"
+  },
+  "manual_open_recovery_preparation": {
+    "restored_text": "unsaved draft",
+    "restored_as_modified": true,
+    "source_unchanged": "disk version",
+    "scope": "the recovery preparation function used when manually opening the same path; dialog choice stubbed to Restore"
+  }
+}

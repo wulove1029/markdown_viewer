@@ -1,4 +1,4 @@
-"""Background full-text search across Markdown document libraries."""
+"""Background full-text search across Markdown and plain-text libraries."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import re
 from threading import Event
 from typing import Callable, Iterable
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QEvent, QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QLabel,
@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from .document_libraries import load_excluded_folders, should_skip_directory
+from .file_types import document_kind
+from .md_converter import read_text_detailed
 from .theme import LIGHT, Theme, collection_stylesheet
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
@@ -50,41 +52,79 @@ class FileSearchResult:
         return sum(hit.match_count for hit in self.hits)
 
 
+@dataclass(frozen=True)
+class SearchIssue:
+    path: Path
+    reason: str
+
+
+@dataclass(frozen=True)
+class SearchReport:
+    results: tuple[FileSearchResult, ...] = ()
+    roots: tuple[Path, ...] = ()
+    readable_roots: int = 0
+    searched_files: int = 0
+    issues: tuple[SearchIssue, ...] = ()
+    cancelled: bool = False
+    source_error: bool = False
+
+
 def search_markdown_files(
     roots: Iterable[str | Path],
     query: str,
     should_cancel: Callable[[], bool] | None = None,
 ) -> list[FileSearchResult]:
-    """Search ``.md`` files below *roots* using case-insensitive literal matching.
+    """Return text-file matches, retaining the original list-based API."""
+    return list(search_document_files(roots, query, should_cancel).results)
 
-    Files are decoded as UTF-8 with replacement enabled. A replacement marker
-    indicates malformed input, so that file is skipped along with unreadable files.
-    """
+
+def search_document_files(
+    roots: Iterable[str | Path],
+    query: str,
+    should_cancel: Callable[[], bool] | None = None,
+) -> SearchReport:
+    """Search supported text documents with the editor's decoder and diagnostics."""
 
     needle = query.strip()
     if not needle:
-        return []
+        return SearchReport()
     cancelled = should_cancel or (lambda: False)
     pattern = re.compile(re.escape(needle), re.IGNORECASE)
     results: list[FileSearchResult] = []
     seen_files: set[str] = set()
+    issues: dict[str, SearchIssue] = {}
+    unique_roots = tuple(_unique_roots(roots))
+    readable_roots = 0
+    searched_files = 0
     excluded_folders = load_excluded_folders()
 
-    for root in _unique_roots(roots):
+    def record_issue(path: Path, reason: str):
+        issues.setdefault(_path_key(path), SearchIssue(path, reason))
+
+    for root in unique_roots:
         if cancelled():
-            return []
+            return SearchReport(cancelled=True)
         try:
             is_directory = root.is_dir()
-        except OSError:
+        except OSError as exc:
+            record_issue(root, str(exc))
             continue
         if not is_directory:
+            record_issue(root, "資料夾不存在或無法存取")
             continue
 
+        def on_walk_error(error: OSError):
+            record_issue(Path(error.filename) if error.filename else root, str(error))
+
+        root_readable = False
         for dirpath, dirnames, filenames in os.walk(
-            root, onerror=lambda _error: None
+            root, onerror=on_walk_error
         ):
             if cancelled():
-                return []
+                return SearchReport(cancelled=True)
+            if not root_readable:
+                readable_roots += 1
+                root_readable = True
             relative_parent = Path(dirpath).relative_to(root)
             dirnames[:] = [
                 name
@@ -95,8 +135,8 @@ def search_markdown_files(
             ]
             for filename in filenames:
                 if cancelled():
-                    return []
-                if Path(filename).suffix.lower() != ".md":
+                    return SearchReport(cancelled=True)
+                if document_kind(filename) not in ("markdown", "text"):
                     continue
                 path = Path(dirpath) / filename
                 key = _path_key(path)
@@ -104,14 +144,20 @@ def search_markdown_files(
                     continue
                 seen_files.add(key)
                 try:
-                    text = path.read_text(encoding="utf-8", errors="replace")
-                except OSError:
+                    decoded = read_text_detailed(path)
+                except OSError as exc:
+                    record_issue(path, str(exc))
                     continue
-                if "\ufffd" in text:
+                if decoded is None:
+                    record_issue(path, "無法辨識文字編碼")
                     continue
+                text, _encoding, _newline = decoded
+                searched_files += 1
 
                 hits: list[SearchHit] = []
                 for line_number, line in enumerate(text.splitlines(), start=1):
+                    if line_number % 256 == 0 and cancelled():
+                        return SearchReport(cancelled=True)
                     spans = tuple(
                         (match.start(), match.end()) for match in pattern.finditer(line)
                     )
@@ -120,7 +166,15 @@ def search_markdown_files(
                 if hits:
                     results.append(FileSearchResult(path, tuple(hits)))
 
-    return sorted(results, key=lambda result: str(result.path).casefold())
+    if cancelled():
+        return SearchReport(cancelled=True)
+    return SearchReport(
+        results=tuple(sorted(results, key=lambda result: str(result.path).casefold())),
+        roots=unique_roots,
+        readable_roots=readable_roots,
+        searched_files=searched_files,
+        issues=tuple(issues.values()),
+    )
 
 
 def _unique_roots(roots: Iterable[str | Path]) -> list[Path]:
@@ -164,7 +218,7 @@ class _SearchTask(QRunnable):
 
     @Slot()
     def run(self):
-        results = search_markdown_files(
+        results = search_document_files(
             self.roots, self.query, self.cancel_event.is_set
         )
         self.signals.finished.emit(self.request_id, self.query, results)
@@ -187,6 +241,7 @@ class GlobalSearchView(QWidget):
         self._request_id = 0
         self._cancel_event: Event | None = None
         self._results: list[FileSearchResult] = []
+        self._report: SearchReport | None = None
         self._active_query = ""
         self._tasks: dict[int, _SearchTask] = {}
         self._pool = QThreadPool.globalInstance()
@@ -196,16 +251,26 @@ class GlobalSearchView(QWidget):
         layout.setSpacing(6)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText("搜尋所有文件庫內容")
+        self._input.setPlaceholderText("搜尋文件庫文字內容")
+        self._input.setAccessibleName("搜尋文件庫文字內容")
         self._input.setClearButtonEnabled(True)
+        self._input.installEventFilter(self)
         layout.addWidget(self._input)
 
+        self._scope = QLabel("搜尋 .md、.markdown、.txt；不含 PDF")
+        self._scope.setProperty("muted", True)
+        self._scope.setWordWrap(True)
+        layout.addWidget(self._scope)
+
         self._list = QListWidget()
+        self._list.setAccessibleName("文件庫搜尋結果")
         self._list.itemClicked.connect(self._on_item_clicked)
+        self._list.installEventFilter(self)
         layout.addWidget(self._list, stretch=1)
 
         self._status = QLabel("輸入關鍵字開始搜尋")
         self._status.setProperty("muted", True)
+        self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
         self._debounce = QTimer(self)
@@ -220,6 +285,24 @@ class GlobalSearchView(QWidget):
     def focus_input(self):
         self._input.setFocus()
         self._input.selectAll()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if obj is self._input and key == Qt.Key.Key_Down:
+                for row in range(self._list.count()):
+                    if self._list.item(row).data(_PATH_ROLE):
+                        self._list.setCurrentRow(row)
+                        self._list.setFocus()
+                        return True
+            elif obj is self._list and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                # Consume this event instead of also wiring itemActivated:
+                # Qt platform styles differ in when activation is emitted.
+                item = self._list.currentItem()
+                if item is not None and not event.isAutoRepeat():
+                    self._on_item_clicked(item)
+                return True
+        return super().eventFilter(obj, event)
 
     def apply_theme(self, theme: Theme):
         self._theme = theme
@@ -242,18 +325,20 @@ QWidget#globalSearch QLabel[muted="true"] {{
 """
         )
         self._list.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
-        if self._results:
-            self._render_results(self._active_query, self._results)
+        if self._results or self._report is not None:
+            self._render_results(self._active_query, self._results, self._report)
 
     def _on_text_changed(self, text: str):
         self._request_id += 1
         if self._cancel_event is not None:
             self._cancel_event.set()
         self._debounce.stop()
+        self._active_query = ""
+        self._results = []
+        self._report = None
+        self._list.clear()
+        self._status.setToolTip("")
         if not text.strip():
-            self._active_query = ""
-            self._results = []
-            self._list.clear()
             self._status.setText("輸入關鍵字開始搜尋")
             return
         self._status.setText("等待搜尋…")
@@ -272,10 +357,15 @@ QWidget#globalSearch QLabel[muted="true"] {{
         if self._cancel_event is not None:
             self._cancel_event.set()
         self._cancel_event = Event()
+        self._active_query = ""
+        self._results = []
+        self._report = None
+        self._status.setToolTip("")
         try:
             roots = [Path(root) for root in self._roots_provider()]
         except Exception:
-            roots = []
+            self._on_search_finished(request_id, query, SearchReport(source_error=True))
+            return
         self._list.clear()
         self._status.setText("正在搜尋…")
         task = _SearchTask(request_id, roots, query, self._cancel_event)
@@ -287,23 +377,54 @@ QWidget#globalSearch QLabel[muted="true"] {{
         self,
         request_id: int,
         query: str,
-        results: list[FileSearchResult],
+        results: SearchReport | list[FileSearchResult],
     ):
         self._tasks.pop(request_id, None)
         if request_id != self._request_id or query != self._input.text().strip():
             return
+        if isinstance(results, SearchReport):
+            if results.cancelled:
+                return
+            self._report = results
+            result_list = list(results.results)
+        else:
+            self._report = None
+            result_list = results
         self._active_query = query
-        self._results = results
-        self._render_results(query, results)
+        self._results = result_list
+        self._render_results(query, result_list, self._report)
 
-    def _render_results(self, query: str, results: list[FileSearchResult]):
+    def _render_results(
+        self, query: str, results: list[FileSearchResult], report: SearchReport | None = None
+    ):
         self._list.clear()
+        self._status.setToolTip(
+            "\n".join(f"{issue.path}：{issue.reason}" for issue in report.issues)
+            if report else ""
+        )
+        skipped = (
+            f"；已略過 {len(report.issues)} 個無法讀取的項目"
+            if report and report.issues else ""
+        )
         if not results:
-            item = QListWidgetItem("找不到符合的內容")
+            message = "找不到符合的內容"
+            if report is not None:
+                if report.source_error:
+                    message = "無法取得文件庫來源，請檢查文件庫設定"
+                elif not report.roots:
+                    message = "尚未加入文件庫，請到「檔案」加入資料夾"
+                elif not report.readable_roots:
+                    message = "無法讀取文件庫，請確認資料夾存在且可存取"
+                elif not report.searched_files:
+                    message = (
+                        "無法讀取可搜尋的文字文件" if report.issues
+                        else "文件庫中沒有可搜尋的文字文件"
+                    )
+            item = QListWidgetItem(message)
             item.setForeground(QColor(self._theme.text_subtle))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self._list.addItem(item)
-            self._status.setText("找不到符合的內容")
+            self._status.setText(message + skipped)
             return
 
         total = 0
@@ -339,7 +460,7 @@ QWidget#globalSearch QLabel[muted="true"] {{
                 label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                 self._list.setItemWidget(item, label)
 
-        self._status.setText(f"共 {total} 筆，{len(results)} 個檔案")
+        self._status.setText(f"共 {total} 筆，{len(results)} 個檔案" + skipped)
 
     def _on_item_clicked(self, item: QListWidgetItem):
         path = item.data(_PATH_ROLE)

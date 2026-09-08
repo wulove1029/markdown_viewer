@@ -1,0 +1,15 @@
+{
+  "scope": "real Qt inbox, offscreen, isolated temporary snapshots",
+  "size": [
+    820,
+    540
+  ],
+  "minimum_hint": [
+    244,
+    277
+  ],
+  "window_modality": "NonModal",
+  "draft_count": 2,
+  "source_unchanged": true,
+  "missing_source_stays_missing": true
+}

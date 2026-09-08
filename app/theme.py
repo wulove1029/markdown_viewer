@@ -374,6 +374,12 @@ QDialog QTabWidget::pane {{
     border-radius: 6px;
     top: -1px;
 }}
+QDialog QScrollArea#preferencesScroll,
+QDialog QWidget#preferencesViewport,
+QDialog QWidget#preferencesPage {{
+    background: {theme.surface};
+    color: {theme.text};
+}}
 QDialog QTabBar {{
     background: transparent;
     border: none;

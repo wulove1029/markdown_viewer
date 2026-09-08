@@ -1,0 +1,27 @@
+Audit date: 2026-09-08
+Base commit: 96da981
+Product code changes: none
+
+Observed command:
+py -3 -X utf8 -m pytest tests/test_settings_dialog.py tests/test_settings_dialog_theme.py tests/test_recent_files.py tests/test_quick_open.py tests/test_editor_workspace_integration.py tests/test_window_integration.py tests/test_upgrade_performance.py tests/test_upgrade_review_regressions.py -q -p no:cacheprovider --basetemp tmp/audit-ui-20260908
+Observed result: 192 passed in 14.50s
+Exit code: 0
+
+Observed command:
+py -3 -X utf8 tools/preview_reading_workspace.py --output docs/audits/evidence-2026-09-08/home --empty
+Observed result: workspace-light.png saved; Home recent-files navigation passed
+Exit code: 0
+
+Observed command:
+py -3 -X utf8 tools/preview_reading_workspace.py --output docs/audits/evidence-2026-09-08/reading --theme dark --width 1000
+Observed result: workspace-dark.png saved
+Exit code: 0
+
+Observed command:
+py -3 -X utf8 docs/audits/evidence-2026-09-08/capture_settings.py
+Observed result: requested 800x540, actual 800x757, minimum hint 405x757, button box bottom 745, scroll area count 0
+Exit code: 0
+
+Scope: Qt/WebEngine offscreen and selected existing tests, not a full suite or packaged desktop acceptance run.
+WebEngine captures logged GPU context fallback messages; artifacts and navigation completed.
+This is a persisted observation summary from tool results, not a verbatim terminal transcript.

@@ -1,0 +1,11 @@
+{
+  "version": "1.31.0",
+  "modules": {
+    "app.recovery_browser": true,
+    "app.document_relocation": true,
+    "app.global_search": true,
+    "app.quick_open": true,
+    "app.settings_dialog": true,
+    "app.window": true
+  }
+}

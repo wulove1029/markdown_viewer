@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" class="theme-light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>閱讀工作台</title>
+<style>/* Token-aware Markdown preview theme */
+.home-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.home-actions a { display: inline-flex; align-items: center; gap: 12px; padding: 12px 18px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  text-decoration: none; color: var(--text); }
+.home-actions a:first-child { background: var(--accent); color: var(--surface); }
+.home-actions a:hover { border-color: var(--accent); }
+.home-actions a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+:root {
+  --page-bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-alt: #eef0f3;
+  --surface-hover: #e9eefc;
+  --border: #e0e4ea;
+  --border-strong: #bec1c7;
+  --text: #273343;
+  --text-muted: #515760;
+  --text-subtle: #707780;
+  --heading: #15171a;
+  --accent: #456b9e;
+  --accent-hover: #244f9f;
+  --accent-soft: #dce6ff;
+  --danger: #b42318;
+  --code-bg: #1f2430;
+  --code-text: #d7dae0;
+  --inline-code-bg: #e8ecf4;
+  --inline-code-text: #8f2b1b;
+  --quote-bg: #eef3ff;
+  --quote-border: #456b9e;
+  --table-header-bg: #eceff5;
+  --shadow: rgba(20, 24, 31, 0.10);
+}
+
+html.theme-dark,
+body.theme-dark {
+  --page-bg: #191e26;
+  --surface: #202731;
+  --surface-alt: #272f3b;
+  --surface-hover: #2e3a4c;
+  --border: #343e4d;
+  --border-strong: #596270;
+  --text: #e1e7ef;
+  --text-muted: #c1c8d2;
+  --text-subtle: #8f98a6;
+  --heading: #ffffff;
+  --accent: #8fb4ff;
+  --accent-hover: #adc8ff;
+  --accent-soft: #26395d;
+  --danger: #ff9b93;
+  --code-bg: #11161d;
+  --code-text: #d9dee7;
+  --inline-code-bg: #303846;
+  --inline-code-text: #ffb4a8;
+  --quote-bg: #202b3d;
+  --quote-border: #8fb4ff;
+  --table-header-bg: #2b333f;
+  --shadow: rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--page-bg);
+  color: var(--text);
+  font-size: 16px;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft JhengHei UI", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: var(--reading-line-height, 1.85);
+  margin: 0 auto;
+  max-width: var(--reading-width, 860px);
+  min-height: 100vh;
+  padding: 48px clamp(22px, 5vw, 56px) 80px;
+  position: relative;
+}
+
+body.annot-side-notes {
+  max-width: calc(var(--reading-width, 860px) + 320px);
+  padding-right: 376px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--heading);
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 1.8em 0 0.55em;
+}
+
+h1 {
+  border-bottom: 2px solid var(--border);
+  font-size: 2rem;
+  padding-bottom: 0.32em;
+}
+
+h2 {
+  border-bottom: 1px solid var(--border);
+  font-size: 1.5rem;
+  padding-bottom: 0.24em;
+}
+
+h3 {
+  font-size: 1.22rem;
+}
+
+h4 {
+  font-size: 1.05rem;
+}
+
+h5,
+h6 {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+p {
+  margin: 0.8em 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: transparent;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
+}
+
+a:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+code,
+kbd,
+samp {
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+
+code {
+  background: var(--inline-code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--inline-code-text);
+  font-size: 0.88em;
+  padding: 0.12em 0.38em;
+}
+
+.highlight {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--shadow);
+  margin: 1.25em 0;
+  overflow: hidden;
+}
+
+.highlight pre {
+  background: var(--code-bg) !important;
+  color: var(--code-text);
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0;
+  overflow-x: auto;
+  padding: 16px 20px;
+}
+
+.highlight code {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+}
+
+.highlight ::-webkit-scrollbar-track {
+  background: var(--code-bg);
+}
+
+.highlight ::-webkit-scrollbar-thumb {
+  background: #4b5565;
+  border: 2px solid var(--code-bg);
+}
+
+blockquote {
+  background: var(--quote-bg);
+  border-left: 4px solid var(--quote-border);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-muted);
+  margin: 1.1em 0;
+  padding: 0.7em 1.15em;
+}
+
+blockquote p {
+  margin: 0.35em 0;
+}
+
+table {
+  border-collapse: collapse;
+  display: block;
+  font-size: 0.95rem;
+  margin: 1.25em 0 1.25em 50%;
+  max-width: calc(100vw - 96px);
+  min-width: 100%;
+  overflow-x: auto;
+  transform: translateX(-50%);
+  width: max-content;
+}
+
+thead tr {
+  background: var(--table-header-bg);
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  overflow-wrap: break-word;
+  padding: 8px 14px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: var(--heading);
+  font-weight: 650;
+}
+
+tbody tr:nth-child(even) {
+  background: var(--surface-alt);
+}
+
+tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+ul,
+ol {
+  margin: 0.65em 0;
+  padding-left: 1.6em;
+}
+
+li {
+  margin: 0.25em 0;
+}
+
+.task-list-item {
+  list-style: none;
+  margin-left: -1.25em;
+}
+
+.task-list-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin-right: 0.55em;
+  transform: translateY(1px) scale(1.05);
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+
+img {
+  border-radius: 6px;
+  box-shadow: 0 8px 24px var(--shadow);
+  height: auto;
+  max-width: 100%;
+}
+
+strong {
+  color: var(--heading);
+  font-weight: 700;
+}
+
+em {
+  color: var(--text-muted);
+}
+
+.state-page {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 520px;
+  min-height: calc(100vh - 128px);
+  text-align: center;
+}
+
+.state-page h1 {
+  border: 0;
+  color: var(--heading);
+  font-size: 1.45rem;
+  margin: 0 0 0.45em;
+  padding: 0;
+}
+
+.state-page p {
+  margin: 0;
+}
+
+.state-page .status-label {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.9em;
+}
+
+::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--page-bg);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 28px 22px 44px;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+
+  .state-page {
+    min-height: calc(100vh - 88px);
+  }
+}
+
+mark.annot {
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+  cursor: pointer;
+  transition: box-shadow 140ms ease, filter 140ms ease;
+}
+
+mark.annot:hover,
+mark.annot.is-active {
+  box-shadow: 0 0 0 2px rgba(49, 95, 189, 0.32);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 54%, transparent);
+  filter: saturate(1.08);
+}
+
+.theme-dark mark.annot {
+  mix-blend-mode: screen;
+}
+
+.annot-toolbar {
+  position: absolute;
+  z-index: 9999;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #2b2b2b;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.annot-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+}
+
+.annot-rail {
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 56px;
+  top: 0;
+  width: 292px;
+  z-index: 30;
+}
+
+.annot-card {
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, var(--annot-color) 6%);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px 11px;
+  pointer-events: auto;
+  position: absolute;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  width: 100%;
+}
+
+.annot-card:hover,
+.annot-card.is-active {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px var(--shadow);
+  transform: translateX(-3px);
+}
+
+.annot-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.annot-card-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+
+.annot-card-note {
+  color: var(--text);
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.annot-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.annot-card-tags span {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.2;
+  padding: 2px 7px;
+}
+
+.annot-popover {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px var(--shadow);
+  color: var(--text);
+  max-width: 320px;
+  padding: 10px 12px;
+  position: absolute;
+  z-index: 9998;
+}
+
+.annot-popover-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+
+.annot-popover-note {
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.annot-editor {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 18px 44px var(--shadow);
+  color: var(--text);
+  max-width: min(360px, calc(100vw - 28px));
+  min-width: 300px;
+  padding: 12px;
+  position: absolute;
+  z-index: 10000;
+}
+
+.annot-editor-quote {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+
+.annot-editor-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  display: block;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  min-height: 96px;
+  padding: 8px 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.annot-editor-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.annot-editor-hint {
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  margin-top: 6px;
+}
+
+.annot-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.annot-editor-actions button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.annot-editor-cancel {
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.annot-editor-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.annot-editor-actions button:hover {
+  filter: brightness(0.98);
+}
+
+.annot-menu {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--annot-color);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px var(--shadow);
+  min-width: 132px;
+  padding: 5px;
+  position: absolute;
+  z-index: 10001;
+}
+
+.annot-menu button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.2;
+  min-height: 32px;
+  padding: 0 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.annot-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.annot-menu button.is-danger {
+  color: var(--danger);
+}
+
+@media (max-width: 1120px) {
+  body.annot-side-notes {
+    max-width: var(--reading-width, 860px);
+    padding-right: 56px;
+  }
+
+  .annot-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  body.annot-side-notes {
+    padding-right: 22px;
+  }
+}
+
+@media print {
+  body { max-width: none; line-height: 1.75; padding: 42px 56px 64px; }
+  body.annot-side-notes {
+    padding-right: 56px;
+  }
+
+  .annot-rail,
+  .annot-popover,
+  .annot-editor,
+  .annot-menu,
+  .annot-toolbar {
+    display: none !important;
+  }
+}
+
+pre { line-height: 125%; }
+td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.highlight .hll { background-color: #ffffcc }
+.highlight { background: #282C34; color: #ABB2BF }
+.highlight .c { color: #7F848E } /* Comment */
+.highlight .err { color: #ABB2BF } /* Error */
+.highlight .esc { color: #ABB2BF } /* Escape */
+.highlight .g { color: #ABB2BF } /* Generic */
+.highlight .k { color: #C678DD } /* Keyword */
+.highlight .l { color: #ABB2BF } /* Literal */
+.highlight .n { color: #E06C75 } /* Name */
+.highlight .o { color: #56B6C2 } /* Operator */
+.highlight .x { color: #ABB2BF } /* Other */
+.highlight .p { color: #ABB2BF } /* Punctuation */
+.highlight .ch { color: #7F848E } /* Comment.Hashbang */
+.highlight .cm { color: #7F848E } /* Comment.Multiline */
+.highlight .cp { color: #7F848E } /* Comment.Preproc */
+.highlight .cpf { color: #7F848E } /* Comment.PreprocFile */
+.highlight .c1 { color: #7F848E } /* Comment.Single */
+.highlight .cs { color: #7F848E } /* Comment.Special */
+.highlight .gd { color: #E06C75 } /* Generic.Deleted */
+.highlight .ge { color: #ABB2BF; font-style: italic } /* Generic.Emph */
+.highlight .ges { color: #ABB2BF } /* Generic.EmphStrong */
+.highlight .gr { color: #E06C75 } /* Generic.Error */
+.highlight .gh { color: #ABB2BF; font-weight: bold } /* Generic.Heading */
+.highlight .gi { color: #98C379 } /* Generic.Inserted */
+.highlight .go { color: #E06C75 } /* Generic.Output */
+.highlight .gp { color: #ABB2BF } /* Generic.Prompt */
+.highlight .gs { color: #ABB2BF; font-weight: bold } /* Generic.Strong */
+.highlight .gu { color: #ABB2BF; font-weight: bold } /* Generic.Subheading */
+.highlight .gt { color: #E06C75 } /* Generic.Traceback */
+.highlight .kc { color: #E5C07B } /* Keyword.Constant */
+.highlight .kd { color: #C678DD } /* Keyword.Declaration */
+.highlight .kn { color: #C678DD } /* Keyword.Namespace */
+.highlight .kp { color: #C678DD } /* Keyword.Pseudo */
+.highlight .kr { color: #C678DD } /* Keyword.Reserved */
+.highlight .kt { color: #E5C07B } /* Keyword.Type */
+.highlight .ld { color: #ABB2BF } /* Literal.Date */
+.highlight .m { color: #D19A66 } /* Literal.Number */
+.highlight .s { color: #98C379 } /* Literal.String */
+.highlight .na { color: #E06C75 } /* Name.Attribute */
+.highlight .nb { color: #E5C07B } /* Name.Builtin */
+.highlight .nc { color: #E5C07B } /* Name.Class */
+.highlight .no { color: #E06C75 } /* Name.Constant */
+.highlight .nd { color: #61AFEF } /* Name.Decorator */
+.highlight .ni { color: #E06C75 } /* Name.Entity */
+.highlight .ne { color: #E06C75 } /* Name.Exception */
+.highlight .nf { color: #61AFEF; font-weight: bold } /* Name.Function */
+.highlight .nl { color: #E06C75 } /* Name.Label */
+.highlight .nn { color: #E06C75 } /* Name.Namespace */
+.highlight .nx { color: #E06C75 } /* Name.Other */
+.highlight .py { color: #E06C75 } /* Name.Property */
+.highlight .nt { color: #E06C75 } /* Name.Tag */
+.highlight .nv { color: #E06C75 } /* Name.Variable */
+.highlight .ow { color: #56B6C2 } /* Operator.Word */
+.highlight .pm { color: #ABB2BF } /* Punctuation.Marker */
+.highlight .w { color: #ABB2BF } /* Text.Whitespace */
+.highlight .mb { color: #D19A66 } /* Literal.Number.Bin */
+.highlight .mf { color: #D19A66 } /* Literal.Number.Float */
+.highlight .mh { color: #D19A66 } /* Literal.Number.Hex */
+.highlight .mi { color: #D19A66 } /* Literal.Number.Integer */
+.highlight .mo { color: #D19A66 } /* Literal.Number.Oct */
+.highlight .sa { color: #98C379 } /* Literal.String.Affix */
+.highlight .sb { color: #98C379 } /* Literal.String.Backtick */
+.highlight .sc { color: #98C379 } /* Literal.String.Char */
+.highlight .dl { color: #98C379 } /* Literal.String.Delimiter */
+.highlight .sd { color: #98C379 } /* Literal.String.Doc */
+.highlight .s2 { color: #98C379 } /* Literal.String.Double */
+.highlight .se { color: #98C379 } /* Literal.String.Escape */
+.highlight .sh { color: #98C379 } /* Literal.String.Heredoc */
+.highlight .si { color: #98C379 } /* Literal.String.Interpol */
+.highlight .sx { color: #98C379 } /* Literal.String.Other */
+.highlight .sr { color: #98C379 } /* Literal.String.Regex */
+.highlight .s1 { color: #98C379 } /* Literal.String.Single */
+.highlight .ss { color: #98C379 } /* Literal.String.Symbol */
+.highlight .bp { color: #E5C07B } /* Name.Builtin.Pseudo */
+.highlight .fm { color: #56B6C2; font-weight: bold } /* Name.Function.Magic */
+.highlight .vc { color: #E06C75 } /* Name.Variable.Class */
+.highlight .vg { color: #E06C75 } /* Name.Variable.Global */
+.highlight .vi { color: #E06C75 } /* Name.Variable.Instance */
+.highlight .vm { color: #E06C75 } /* Name.Variable.Magic */
+.highlight .il { color: #D19A66 } /* Literal.Number.Integer.Long */
+a.wikilink { text-decoration: none; border-bottom: 1px dashed currentColor; }a.wikilink:hover { border-bottom-style: solid; }
+
+.callout { border: 1px solid rgba(128,128,128,.25); border-left: 4px solid var(--cl, #888);
+    border-radius: 6px; padding: 8px 14px; margin: 14px 0; background: var(--cl-bg, rgba(128,128,128,.06)); }
+.callout .callout-title { display: block; font-weight: 700; margin-bottom: 2px; color: var(--cl, #666); }
+.callout > :first-child:not(.callout-title) { margin-top: 0; }
+.callout > p:last-child { margin-bottom: 0; }
+.callout-note,.callout-info,.callout-important { --cl: #3b82f6; --cl-bg: rgba(59,130,246,.08); }
+.callout-tip,.callout-hint,.callout-success,.callout-done,.callout-check { --cl: #10b981; --cl-bg: rgba(16,185,129,.08); }
+.callout-warning,.callout-caution,.callout-attention,.callout-todo { --cl: #f59e0b; --cl-bg: rgba(245,158,11,.10); }
+.callout-danger,.callout-error,.callout-bug,.callout-failure,.callout-fail,.callout-missing { --cl: #ef4444; --cl-bg: rgba(239,68,68,.08); }
+.callout-question,.callout-faq,.callout-help { --cl: #8b5cf6; --cl-bg: rgba(139,92,246,.08); }
+.callout-quote,.callout-cite,.callout-abstract,.callout-summary,.callout-tldr,.callout-example { --cl: #6b7280; --cl-bg: rgba(107,114,128,.08); }
+kbd { background: rgba(128,128,128,.18); border: 1px solid rgba(128,128,128,.35); border-radius: 4px;
+    padding: 1px 5px; font-size: .85em; font-family: "Cascadia Code", Consolas, monospace; }
+details { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 6px 12px; margin: 12px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.frontmatter { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 8px 14px;
+    margin: 0 0 18px; background: rgba(128,128,128,.05); font-size: .9em; }
+.frontmatter .fm-row { display: flex; gap: 10px; padding: 2px 0; }
+.frontmatter .fm-key { min-width: 90px; font-weight: 600; opacity: .8; }
+.frontmatter .fm-val { flex: 1; }
+.frontmatter .fm-tag { display: inline-block; background: rgba(128,128,128,.15);
+    border-radius: 10px; padding: 0 8px; margin: 0 4px 2px 0; font-size: .9em; }
+</style>
+<style>@media screen { body { --reading-width: 860px; --reading-line-height: 1.85; } }
+</style>
+</head>
+<body class="theme-light">
+<h1 id="把注意力留給內容" data-src-start="0" data-src-end="0">把注意力留給內容</h1>
+<p data-src-start="2" data-src-end="2">閱讀、整理與寫作，都從一份清楚的文件開始。</p>
+<h2 id="今天的工作" data-src-start="4" data-src-end="4">今天的工作</h2>
+<p data-src-start="6" data-src-end="6">這是一個安靜的文件工作台。左側整理文件，中央保留舒適的閱讀空間；需要編輯時，從上方切換 <strong>Markdown、並排預覽或 Office</strong>。</p>
+<blockquote data-src-start="8" data-src-end="8">
+<p>好的閱讀體驗，是每次回來都能接續原本的思路。</p>
+</blockquote>
+<h3 id="升級重點" data-src-start="10" data-src-end="10">升級重點</h3>
+<table data-src-start="12" data-src-end="16">
+<thead>
+<tr>
+<th>項目</th>
+<th>改善方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>開啟文件</td>
+<td>減少重複載入，保留常用文件快取</td>
+</tr>
+<tr>
+<td>操作回饋</td>
+<td>清楚的模式切換，穩定的閱讀位置</td>
+</tr>
+<tr>
+<td>視覺層次</td>
+<td>柔和底色、舒適行距、克制的工具列</td>
+</tr>
+</tbody>
+</table>
+<ul class="contains-task-list" data-src-start="18" data-src-end="20">
+<li class="task-list-item enabled"><input data-line="18" class="task-list-item-checkbox" checked="checked"  type="checkbox"> 閱讀優先的版面</li>
+<li class="task-list-item enabled"><input data-line="19" class="task-list-item-checkbox" checked="checked"  type="checkbox"> 亮色與暗色主題</li>
+<li class="task-list-item enabled"><input data-line="20" class="task-list-item-checkbox"  type="checkbox"> 整理下一份文件</li>
+</ul>
+<h2 id="程式碼與筆記" data-src-start="22" data-src-end="22">程式碼與筆記</h2>
+<pre data-src-start="24" data-src-end="27"><code class="language-python"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">read_document</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">path</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+</pre></div>
+</code></pre>
+
+
+<style>
+div.highlight { position: relative; }
+div.highlight .copy-btn {
+    position: absolute; top: 6px; right: 6px; opacity: 0;
+    transition: opacity .15s; font-size: 12px; padding: 2px 8px;
+    border-radius: 6px; border: 1px solid rgba(127,127,127,.4);
+    background: rgba(127,127,127,.15); color: inherit; cursor: pointer;
+}
+div.highlight:hover .copy-btn { opacity: 1; }
+div.highlight .copy-btn:hover { background: rgba(127,127,127,.3); }
+</style>
+<script>
+(function () {
+  function ready(fn) {
+    if (document.readyState !== 'loading') { fn(); }
+    else { document.addEventListener('DOMContentLoaded', fn); }
+  }
+  ready(function () {
+    document.querySelectorAll('div.highlight').forEach(function (block) {
+      if (block.querySelector('.copy-btn')) { return; }
+      var btn = document.createElement('button');
+      btn.className = 'copy-btn';
+      btn.type = 'button';
+      btn.textContent = '複製';
+      btn.addEventListener('click', function () {
+        var pre = block.querySelector('pre');
+        var text = pre ? pre.innerText : '';
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = '已複製';
+          setTimeout(function () { btn.textContent = '複製'; }, 1500);
+        }).catch(function () { btn.textContent = '失敗'; });
+      });
+      block.appendChild(btn);
+    });
+  });
+})();
+</script>
+</body>
+</html>

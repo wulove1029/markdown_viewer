@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
+    QFrame,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -93,7 +95,7 @@ def _bool_from_qsettings(value: Any, default: bool = True) -> bool:
 # ── dialog ──────────────────────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
-    """Modal preferences dialog with four tabs.
+    """Modal preferences with scrollable pages and always-visible actions.
 
     After ``exec()`` returns ``Accepted``, the caller should read back
     :pyattr:`results` – a dict of *changed* settings – and apply them.
@@ -105,6 +107,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("偏好設定")
         self.setMinimumWidth(480)
+        self.resize(680, 560)
         self.results: dict[str, Any] = {}
 
         self._current_theme = current_theme
@@ -115,12 +118,26 @@ class SettingsDialog(QDialog):
         root = QVBoxLayout(self)
 
         tabs = QTabWidget(self)
-        tabs.addTab(self._build_appearance_tab(settings), "外觀")
-        tabs.addTab(self._build_export_tab(settings), "匯出")
-        tabs.addTab(self._build_behavior_tab(settings), "行為")
-        tabs.addTab(self._build_translate_tab(settings), "翻譯")
-        tabs.addTab(self._build_about_tab(), "關於")
-        root.addWidget(tabs)
+        for page, title in (
+            (self._build_appearance_tab(settings), "外觀"),
+            (self._build_export_tab(settings), "匯出"),
+            (self._build_behavior_tab(settings), "行為"),
+            (self._build_translate_tab(settings), "翻譯"),
+            (self._build_about_tab(), "關於"),
+        ):
+            scroll = QScrollArea()
+            scroll.setObjectName("preferencesScroll")
+            scroll.viewport().setObjectName("preferencesViewport")
+            page.setObjectName("preferencesPage")
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(page)
+            # Inherit the themed dialog pane instead of painting a white base.
+            scroll.setAutoFillBackground(False)
+            scroll.viewport().setAutoFillBackground(False)
+            page.setAutoFillBackground(False)
+            tabs.addTab(scroll, title)
+        root.addWidget(tabs, 1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok

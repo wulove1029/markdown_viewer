@@ -1,0 +1,6 @@
+{
+  "source_after": "previous target",
+  "expected_source": "original source",
+  "copy_after": "recovered draft",
+  "snapshot_retained": true
+}

@@ -185,13 +185,9 @@ def main():
     # be routed to it immediately.  Keep a reference so it is not GC'd.
     _ipc_server = _setup_ipc_server(window)  # noqa: F841
 
-    # Support: py main.py path/to/file.md — otherwise reopen the last document.
-    if file_arg:
-        # Still bring the file tree back the way it was, then open the file.
-        session_state.restore_file_tree_state(window)
-        window.open_path(file_arg)
-    else:
-        window.restore_last_session()
+    # A CLI file takes priority, while drafts outside the old session remain
+    # discoverable through the same non-modal recovery inbox.
+    session_state.restore_startup(window, file_arg)
 
     sys.exit(app.exec())
 

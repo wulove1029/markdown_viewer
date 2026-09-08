@@ -473,6 +473,7 @@ class _LibraryScan:
     exists: bool
     children: list[_ScanNode]
     count: int
+    documents: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -544,6 +545,7 @@ def _scan_folder(
     token: _ScanToken | None,
     ancestor_match: bool = False,
     relative: str = "",
+    documents: list[str] | None = None,
 ) -> tuple[list[_ScanNode], int]:
     """Walk *folder* and return (child nodes, supported-file count).
 
@@ -570,7 +572,7 @@ def _scan_folder(
             continue
         child_match = ancestor_match or bool(query and query in entry.name.casefold())
         sub_nodes, sub_count = _scan_folder(
-            entry.path, request, token, child_match, rel
+            entry.path, request, token, child_match, rel, documents
         )
         keep_transient = not request.filtering and any(
             _is_same_or_descendant(path, entry.path) for path in request.transient
@@ -590,6 +592,8 @@ def _scan_folder(
             continue
         if os.path.splitext(name)[1].lower() not in SUPPORTED_EXTENSIONS:
             continue
+        if documents is not None:
+            documents.append(entry.path)
         if allowed is not None:
             if str(Path(entry.path).resolve()).casefold() not in allowed:
                 continue
@@ -616,8 +620,9 @@ def _scan_libraries(
         if not root.exists() or not root.is_dir():
             results.append(_LibraryScan(lib, False, [], 0))
             continue
-        children, count = _scan_folder(str(root), request, token)
-        results.append(_LibraryScan(lib, True, children, count))
+        documents: list[str] = []
+        children, count = _scan_folder(str(root), request, token, documents=documents)
+        results.append(_LibraryScan(lib, True, children, count, documents))
     return results
 
 
@@ -653,6 +658,8 @@ class _ScanJob(QRunnable):
 
 
 class FileBrowserView(QWidget):
+    documents_changed = Signal()
+
     def __init__(
         self,
         on_file_selected,
@@ -705,6 +712,8 @@ class FileBrowserView(QWidget):
         self._theme = LIGHT
         self._store = DocumentLibraryStore()
         self._libraries: list[DocumentLibrary] = []
+        self._quick_open_documents: list[tuple[str, str]] = []
+        self._quick_open_locations: dict[str, str] = {}
         # Expanded directory paths (raw strings). None = never restored, so
         # the first build expands the library roots by default.
         self._expanded: set[str] | None = None
@@ -718,6 +727,7 @@ class FileBrowserView(QWidget):
         self.on_note_created = None    # callable(path_str)
         self.on_new_note_requested = None  # callable(folder_str)
         self.on_paths_migrated = None  # callable({old: new})
+        self.on_document_relocation = None  # callable(old, new, commit)
         self.on_paths_deleted = None   # callable([path_str, ...])
 
         layout = QVBoxLayout(self)
@@ -901,6 +911,20 @@ class FileBrowserView(QWidget):
             Path(lib.path) for lib in self._libraries if Path(lib.path).is_dir()
         ]
 
+    def quick_open_documents(self) -> list[tuple[str, str]]:
+        """All supported documents from the last scan, independent of UI filters."""
+        return list(self._quick_open_documents)
+
+    def quick_open_locations(self) -> dict[str, str]:
+        return dict(self._quick_open_locations)
+
+    def contains_library_path(self, path: str | Path) -> bool:
+        return any(Path(path).is_relative_to(Path(lib.path)) for lib in self._libraries)
+
+    def configured_library_roots(self) -> list[Path]:
+        """Include offline sources so search can report them honestly."""
+        return [Path(lib.path) for lib in self._libraries]
+
     def reveal_created_note(self, path: str | Path) -> None:
         """Refresh + select a note created outside the tree's own actions."""
         path = Path(path)
@@ -1049,7 +1073,10 @@ class FileBrowserView(QWidget):
             self._scan_token = None
 
         if not self._libraries:
+            self._quick_open_documents = []
+            self._quick_open_locations = {}
             self._scan_inflight = False
+            self.documents_changed.emit()
             self._tree.clear()
             self._filter.setEnabled(False)
             self._refresh_btn.setEnabled(False)
@@ -1111,6 +1138,7 @@ class FileBrowserView(QWidget):
             # the refresh button start a new background scan.
             self._scan_inflight = False
             self._status.setText("掃描文件庫失敗，請按「重新掃描」再試")
+            self.documents_changed.emit()
             self._replay_pending()
             return
         self._apply_scan(generation, request, results)
@@ -1118,6 +1146,20 @@ class FileBrowserView(QWidget):
     def _apply_scan(self, generation: int, request: _ScanRequest, results):
         if generation != self._scan_generation:
             return
+        documents = {}
+        locations = {}
+        for scan in results:
+            for raw in scan.documents:
+                path = Path(raw)
+                key = os.path.normcase(raw)
+                if key in documents:
+                    continue
+                documents[key] = (path.name, raw)
+                relative = path.relative_to(scan.library.path)
+                locations[raw] = f"{scan.library.name} / {relative.as_posix()}"
+        self._quick_open_documents = list(documents.values())
+        self._quick_open_locations = locations
+        self.documents_changed.emit()
         self._build_timer.stop()
         if self._build_iterator is not None:
             self._build_iterator.close()
@@ -1143,6 +1185,7 @@ class FileBrowserView(QWidget):
         except StopIteration:
             self._build_iterator = None
             self._scan_inflight = False
+            self.documents_changed.emit()
             if self._build_selection and self._pending_select is None:
                 self._select_path(Path(self._build_selection))
                 self._tree.verticalScrollBar().setValue(self._build_scroll)
@@ -1516,12 +1559,7 @@ class FileBrowserView(QWidget):
                 f"檔名不能包含下列字元：{file_ops.INVALID_NAME_CHARS}",
             )
             return
-        try:
-            mapping = file_ops.rename_document(p, p.with_name(name + p.suffix))
-        except OSError as exc:
-            QMessageBox.warning(self, "重新命名失敗", f"無法重新命名檔案：\n{exc}")
-            return
-        self._finish_migration(mapping, select=Path(mapping[str(p)]))
+        self._relocate_document(p, p.with_name(name + p.suffix), "重新命名")
 
     def _move_file_action(self, path: str):
         p = Path(path)
@@ -1533,14 +1571,22 @@ class FileBrowserView(QWidget):
         )
         if not folder:
             return
-        try:
-            mapping = file_ops.move_document(p, folder)
-        except OSError as exc:
-            QMessageBox.warning(self, "移動失敗", f"無法移動檔案：\n{exc}")
-            return
-        if not mapping:
-            return
-        self._finish_migration(mapping, select=Path(mapping[str(p)]))
+        self._relocate_document(p, Path(folder) / p.name, "移動")
+
+    def _relocate_document(self, old: Path, new: Path, action: str):
+        def commit():
+            try:
+                mapping = file_ops.rename_document(old, new)
+            except OSError as exc:
+                QMessageBox.warning(self, f"{action}失敗", f"無法{action}檔案：\n{exc}")
+                return
+            if mapping:
+                self._finish_migration(mapping, select=Path(mapping[str(old)]))
+
+        if callable(self.on_document_relocation):
+            self.on_document_relocation(old, new, commit)
+        else:
+            commit()
 
     def _delete_file_action(self, path: str):
         p = Path(path)

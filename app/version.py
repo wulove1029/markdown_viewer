@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.30.2"
+VERSION = "1.31.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "修正 PDF 的 Ctrl+滾輪縮放會影響 Markdown 的問題：PDF 與文字內容縮放現在各自獨立記憶，Ctrl+=／- 只作用於目前畫面上的文件類型。",
-    "首次啟動會把舊設定中 PDF 留下的縮放值搬到 PDF 專用設定，Markdown 縮放還原為 100%。",
-    "偏好設定的「內容縮放」在目前值不在級距內時顯示最接近的級距，不再固定顯示 100%。",
+    "啟動時列出待復原草稿，也可從檔案選單重新查看、繼續編輯或另存副本。",
+    "搬移文件同步處理註記、備份與未儲存草稿，重算支援的相對連結；無法安全處理時保留原檔並提示。",
+    "全文搜尋支援 Markdown 與 TXT、鍵盤操作及來源定位；快速開啟涵蓋文件庫並顯示路徑，偏好設定可捲動。",
 ]
 
 GITHUB_OWNER = "wulove1029"

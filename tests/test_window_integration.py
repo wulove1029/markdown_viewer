@@ -107,6 +107,12 @@ class _FakeRenderer(QWidget):
     def show_empty(self):
         self.empty_shown = True
 
+    def show_pending_recovery(self, path):
+        self.pending_recovery_path = Path(path)
+
+    def reveal_source_line_after_load(self, line_number):
+        self.queued_source_line = line_number
+
     def set_annotations(self, _annotations):
         pass
 

@@ -102,6 +102,26 @@ Saves are crash-safe: the file is written atomically and the previous version
 is kept as a `.bak`. If another program changes the open file (e.g. a cloud
 sync), the app notices and offers to reload.
 
+## Recovery, Library Search, And File Moves
+
+Startup lists pending recovery drafts, including drafts whose original file is
+missing. **File → 待復原草稿…** reopens the list. Continue editing, defer the
+decision, or save a separate copy; deferring keeps the recovery draft intact.
+
+The sidebar text search covers `.md`, `.markdown`, and `.txt` in configured
+libraries and the current document folder. It reports unavailable sources and
+skipped files; PDF text remains searchable within the PDF viewer. Use Up/Down
+and Enter to open a result. Source/TXT editors navigate to the source line;
+Markdown preview navigates to the corresponding rendered block.
+
+**Ctrl+P** searches the library scan cache even when the file tree is filtered.
+Library names and relative paths distinguish duplicate filenames.
+
+Moving a document from the file tree also handles its annotation sidecars,
+backup, and pending draft. Supported relative links are rewritten to refer to
+the original resources; attachments stay in place. Unsafe or unsupported moves
+(including cross-drive moves with relative resources) stop with an explanation.
+
 ## PDF Reading
 
 Open a PDF to read it in a native viewer:

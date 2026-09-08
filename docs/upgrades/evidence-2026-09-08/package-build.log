@@ -1,0 +1,112 @@
+126 INFO: PyInstaller: 6.19.0, contrib hooks: 2026.4
+126 INFO: Python: 3.14.4
+154 INFO: Platform: Windows-11-10.0.26200-SP0
+154 INFO: Python environment: C:\Users\USER01\AppData\Local\Python\pythoncore-3.14-64
+230 INFO: Module search paths (PYTHONPATH):
+['E:\\markdown_viewer',
+ 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\python314.zip',
+ 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\DLLs',
+ 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib',
+ 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64',
+ 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages',
+ 'E:\\markdown_viewer']
+1604 INFO: Appending 'datas' from .spec
+1617 INFO: checking Analysis
+1617 INFO: Building Analysis because Analysis-00.toc is non existent
+1617 INFO: Looking for Python shared library...
+1617 INFO: Using Python shared library: C:\Users\USER01\AppData\Local\Python\pythoncore-3.14-64\python314.dll
+1617 INFO: Running Analysis Analysis-00.toc
+1617 INFO: Target bytecode optimization level: 0
+1617 INFO: Initializing module dependency graph...
+1618 INFO: Initializing module graph hook caches...
+1697 INFO: Analyzing modules for base_library.zip ...
+2904 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+3311 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+3564 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+3576 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+7286 INFO: Caching module dependency graph...
+7306 INFO: Analyzing E:\markdown_viewer\main.py
+7421 INFO: Processing standard module hook 'hook-PySide6.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+7584 INFO: Processing standard module hook 'hook-shiboken6.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+7809 INFO: Processing standard module hook 'hook-PySide6.QtNetwork.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+9879 INFO: Processing standard module hook 'hook-PySide6.QtCore.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+12705 INFO: Processing standard module hook 'hook-PySide6.QtGui.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+22567 INFO: Processing standard module hook 'hook-PySide6.QtWidgets.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+24498 INFO: Processing standard module hook 'hook-PySide6.QtWebEngineCore.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+26115 INFO: Processing standard module hook 'hook-PySide6.QtWebChannel.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+26586 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+26589 INFO: SetuptoolsInfo: initializing cached setuptools info...
+27371 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+27488 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+27925 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+27935 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+28895 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+28900 INFO: Processing standard module hook 'hook-pygments.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+30333 INFO: Processing standard module hook 'hook-PySide6.QtSvg.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+33193 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+33312 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+33599 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+36062 INFO: Processing standard module hook 'hook-psutil.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+38401 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+38989 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+39147 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+39907 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+40603 INFO: Processing standard module hook 'hook-pptx.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41025 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+41427 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+43043 INFO: Processing standard module hook 'hook-docx.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+43766 INFO: Processing standard module hook 'hook-PySide6.QtWebEngineWidgets.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+44820 INFO: Processing standard module hook 'hook-PySide6.QtPrintSupport.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+45913 INFO: Processing standard module hook 'hook-PySide6.QtPdf.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+47416 INFO: Analyzing hidden import 'pygments.formatters.html'
+47437 INFO: Analyzing hidden import 'lxml._elementpath'
+47470 INFO: Analyzing hidden import 'PySide6.QtPdfWidgets'
+47495 INFO: Processing standard module hook 'hook-PySide6.QtPdfWidgets.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+47960 INFO: Processing module hooks (post-graph stage)...
+48463 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+49096 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+54793 INFO: Processing standard module hook 'hook-PySide6.QtPositioning.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+56042 INFO: Processing standard module hook 'hook-PySide6.QtQuick.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+59506 INFO: Processing standard module hook 'hook-PySide6.QtOpenGL.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+62382 INFO: Processing standard module hook 'hook-PySide6.QtQml.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+95188 INFO: Processing standard module hook 'hook-PySide6.QtQuickWidgets.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+96180 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+96221 INFO: Performing binary vs. data reclassification (3221 entries)
+131084 INFO: Looking for ctypes DLLs
+131132 INFO: Analyzing run-time hooks ...
+131139 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+131155 INFO: Including run-time hook 'pyi_rth_pyside6.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+131173 INFO: Processing pre-find-module-path hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+131182 INFO: Processing standard module hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks'
+131201 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+131216 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+131320 INFO: Creating base_library.zip...
+131662 INFO: Looking for dynamic libraries
+133673 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\shiboken6', 'C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\numpy.libs']
+133673 INFO: Extra DLL search directories (PATH): ['C:\\Users\\USER01\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PySide6']
+140228 INFO: Warnings written to E:\markdown_viewer\build\consumer-upgrade-1.31.0\markdown_viewer\warn-markdown_viewer.txt
+140357 INFO: Graph cross-reference written to E:\markdown_viewer\build\consumer-upgrade-1.31.0\markdown_viewer\xref-markdown_viewer.html
+140570 INFO: checking PYZ
+140570 INFO: Building PYZ because PYZ-00.toc is non existent
+140570 INFO: Building PYZ (ZlibArchive) E:\markdown_viewer\build\consumer-upgrade-1.31.0\markdown_viewer\PYZ-00.pyz
+141531 INFO: Building PYZ (ZlibArchive) E:\markdown_viewer\build\consumer-upgrade-1.31.0\markdown_viewer\PYZ-00.pyz completed successfully.
+141568 INFO: checking PKG
+141568 INFO: Building PKG because PKG-00.toc is non existent
+141568 INFO: Building PKG (CArchive) MarkdownViewer.pkg
+141654 INFO: Building PKG (CArchive) MarkdownViewer.pkg completed successfully.
+141657 INFO: Bootloader C:\Users\USER01\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+141657 INFO: checking EXE
+141657 INFO: Building EXE because EXE-00.toc is non existent
+141657 INFO: Building EXE from EXE-00.toc
+141661 INFO: Copying bootloader EXE to E:\markdown_viewer\build\consumer-upgrade-1.31.0\markdown_viewer\MarkdownViewer.exe
+141773 INFO: Copying icon to EXE
+141870 INFO: Copying 0 resources to EXE
+141870 INFO: Embedding manifest in EXE
+141974 INFO: Appending PKG archive to EXE
+142158 INFO: Fixing EXE headers
+143664 INFO: Building EXE from EXE-00.toc completed successfully.
+143686 INFO: checking COLLECT
+143686 INFO: Building COLLECT because COLLECT-00.toc is non existent
+143687 INFO: Building COLLECT COLLECT-00.toc
+154410 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+154510 INFO: Build complete! The results are available in: E:\markdown_viewer\dist\consumer-upgrade-1.31.0

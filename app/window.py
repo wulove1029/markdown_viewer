@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
             pdf_note_callbacks=pdf_note_callbacks,
             pdf_highlight_callbacks=pdf_highlight_callbacks,
             on_tag_selected=self._on_tag_selected,
-            search_roots_provider=self._link_roots,
+            search_roots_provider=self._search_roots,
             on_search_result=self._open_global_search_result,
             on_manage_tags=self._open_manage_tags,
             tag_color_for=self._tag_color_store.color_for,
@@ -411,6 +411,7 @@ class MainWindow(QMainWindow):
         self._panel.file_browser.on_note_created = self._on_browser_note_created
         self._panel.file_browser.on_new_note_requested = self._new_note
         self._panel.file_browser.on_paths_migrated = self._on_browser_paths_migrated
+        self._panel.file_browser.on_document_relocation = self._request_document_relocation
         self._panel.file_browser.on_paths_deleted = self._on_browser_paths_deleted
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings
@@ -651,6 +652,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(command_act("file.open", "開啟…"))
         file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
         file_menu.addAction(command_act("file.daily_note", "開啟今日筆記"))
+        file_menu.addAction(act(
+            "待復原草稿…", lambda: session_state.show_pending_recovery(self, notify_empty=True)
+        ))
         file_menu.addAction(act("重新載入", self._reload_current))
         file_menu.addSeparator()
         file_menu.addAction(command_act("file.export_pdf", "匯出 PDF…"))
@@ -1459,11 +1463,50 @@ QWidget#searchBar QLabel {{
         self._panel.show_search()
 
     def _open_global_search_result(
-        self, filepath: str, query: str, line_number: int
+        self, filepath: str, query: str, line_number: int, *, _snapshot_ready: bool = False
     ):
         target = str(Path(filepath))
-        self._open_file(target)
-        if self._active_path != target or self._current_kind != "markdown":
+        if not _snapshot_ready and (
+            self._wysiwyg_snapshot_busy or
+            (self._edit_mode and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND)
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._open_global_search_result(
+                    target, query, line_number, _snapshot_ready=True
+                ), purpose="開啟搜尋結果",
+            )
+            return
+        if _snapshot_ready:
+            if self._index_of_path(target) < 0:
+                self._add_tab(Path(target), document_kind(Path(target)))
+            self._activate_tab_after_wysiwyg_snapshot(target)
+        else:
+            self._open_file(target)
+        if self._active_path != target or self._current_kind not in {"markdown", "text"}:
+            return
+        if (self._tab_state.get(target) or {}).get("pending_recovery"):
+            self.statusBar().showMessage("請先從「檔案 → 待復原草稿」處理這份文件的草稿。", 5000)
+            return
+        if self._edit_mode:
+            if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+                self._wysiwyg_view.focus_near_text(query)
+                self.statusBar().showMessage("已在 Office 編輯器尋找搜尋文字", 3000)
+                return
+            self._editor_search_bar.show()
+            self._set_search_escape_enabled(True)
+            self._ed_find.setText(query)
+            document = self._editor.document()
+            block = document.findBlockByNumber(max(0, int(line_number) - 1))
+            if not block.isValid():
+                block = document.lastBlock()
+            cursor = QTextCursor(block)
+            found = document.find(query, cursor)
+            if not found.isNull() and found.blockNumber() == block.blockNumber():
+                cursor = found
+            self._editor.setTextCursor(cursor)
+            self._editor.centerCursor()
+            self._editor.setFocus()
+            self.statusBar().showMessage(f"已定位搜尋結果（來源第 {line_number} 行）", 3000)
             return
         self._search_bar.show()
         self._set_search_escape_enabled(True)
@@ -1472,9 +1515,12 @@ QWidget#searchBar QLabel {{
         if not changed:
             self._on_search_text_changed(query)
         self._renderer.find_text_after_load(query)
+        reveal = getattr(self._renderer, "reveal_source_line_after_load", None)
+        if callable(reveal):
+            reveal(line_number)
         self._search_input.setFocus()
         self._search_input.selectAll()
-        self.statusBar().showMessage(f"已開啟第 {line_number} 行的搜尋結果", 3000)
+        self.statusBar().showMessage(f"已定位搜尋區塊（來源第 {line_number} 行）", 3000)
 
     def _close_search(self):
         self._set_search_escape_enabled(False)
@@ -3337,6 +3383,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         return dirty
 
     def _save_recovery_for_state(self, key: str, state: dict) -> None:
+        if state.get("pending_recovery"):
+            # A deferred snapshot is a separate version, not a clean-buffer
+            # cache to clear or replace during ordinary navigation.
+            return
         document = state.get("editor_document")
         if not isinstance(document, QTextDocument) or not document.isModified():
             self._recovery_store.clear_after_save(key)
@@ -3368,6 +3418,22 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if state is not None:
             self._save_recovery_for_state(self._active_path, state)
 
+    def _review_recovery_path(self, filepath: str) -> None:
+        """Revisit a deferred snapshot without replacing a live editor buffer."""
+        path = Path(filepath)
+        key = str(path)
+        state = self._tab_state.get(key) or {}
+        if isinstance(state.get("editor_document"), QTextDocument):
+            self._open_file(key)
+            return
+        if key == self._active_path and not self._confirm_discard_preview_edit():
+            return
+        self._recovery_checked_paths.discard(key)
+        if key == self._active_path:
+            self._load_document(path, document_kind(path))
+        else:
+            self._open_file(key)
+
     def _prepare_recovery_state(self, path: Path, kind: str) -> None:
         key = str(path)
         if kind not in {"markdown", "text"} or key in self._recovery_checked_paths:
@@ -3380,6 +3446,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         snapshot: RecoverySnapshot | None = self._recovery_store.load(path)
         if snapshot is None:
+            (self._tab_state.get(key) or {}).pop("pending_recovery", None)
             return
         try:
             result = read_text_detailed(path)
@@ -3389,8 +3456,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             disk_text, disk_encoding, disk_newline = "", "utf-8", "\n"
         else:
             disk_text, disk_encoding, disk_newline = result
-        if snapshot.draft == disk_text:
+        if result is not None and snapshot.draft == disk_text:
             self._recovery_store.discard(path)
+            (self._tab_state.get(key) or {}).pop("pending_recovery", None)
             return
         dialog = RecoveryDialog(
             path,
@@ -3489,6 +3557,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if plain_text:
             mode = view_mode.EDIT  # .txt has no Markdown preview to split with
         state = self._active_editor_state()
+        if state is not None and state.get("pending_recovery"):
+            self._recovery_checked_paths.discard(str(self._current_file))
+            self._prepare_recovery_state(self._current_file, self._current_kind)
+            state = self._active_editor_state()
+            if state is not None and state.get("pending_recovery"):
+                return False
         if (
             state is not None
             and view_mode.is_editing(str(state.get("view_mode", "")))
@@ -4395,7 +4469,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._panel.toc.update_outline([])
             self._preview_editing = False
             # Plain text has no preview: the editor IS the document view.
-            if not restore_editor and not self._enter_edit_mode(view_mode.EDIT):
+            if tab_state.get("pending_recovery"):
+                self._renderer.show_pending_recovery(path)
+                self._stack.setCurrentWidget(self._renderer)
+            elif not restore_editor and not self._enter_edit_mode(view_mode.EDIT):
                 self._renderer.show_empty()
                 self._stack.setCurrentWidget(self._renderer)
         else:
@@ -4596,6 +4673,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_pdf_highlights_panel()
 
     # --- wiki-links & backlinks ---
+    def _search_roots(self) -> list[Path]:
+        roots = self._panel.file_browser.configured_library_roots() or []
+        if self._current_file and not any(self._current_file.is_relative_to(p) for p in roots):
+            roots.append(self._current_file.parent)
+        return roots
+
     def _link_roots(self) -> list[Path]:
         roots: list[Path] = []
         try:
@@ -4962,6 +5045,103 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
 
+    def _request_document_relocation(self, old: Path, new: Path, commit,
+                                     *, _snapshot_ready: bool = False):
+        """Prepare live buffers before the file browser mutates any path."""
+        if old == new:
+            return
+        try:
+            destination_snapshot = self._recovery_store.load(new)
+        except OSError as exc:
+            QMessageBox.warning(self, "無法確認目的地草稿", f"文件尚未移動：\n{exc}")
+            return
+        if destination_snapshot is not None:
+            QMessageBox.warning(
+                self, "目的地有待復原草稿",
+                "這個目的檔名已有復原草稿，文件尚未移動。\n"
+                "請先從「檔案 → 待復原草稿」處理或另存該草稿，再重試。",
+            )
+            return
+        if not _snapshot_ready and (
+            self._wysiwyg_snapshot_busy or
+            (str(old) == self._active_path and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND)
+        ):
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._request_document_relocation(old, new, commit, _snapshot_ready=True),
+                purpose="移動或重新命名文件",
+            )
+            return
+        if str(old) == self._active_path:
+            if self._preview_editing:
+                QMessageBox.information(self, "請先完成編輯", "請先儲存或取消目前的就地編輯，再移動文件。")
+                return
+            if self._edit_mode:
+                self._stash_active_editor_state(snapshot=False, sync_wysiwyg=False)
+        from .document_relocation import rebase_markdown_links
+        key = str(old)
+        state = self._tab_state.get(key) or {}
+        document = state.get("editor_document")
+        signature = self._file_signature(old)
+        prepared = {"new": str(new), "signature": signature}
+        try:
+            if isinstance(document, QTextDocument):
+                text = document.toPlainText()
+                prepared["modified"] = document.isModified()
+                if not document.isModified():
+                    disk = read_text_detailed(old)
+                    if disk is None:
+                        raise OSError("無法確認原檔編碼，文件尚未移動。")
+                    text = disk[0]
+                    prepared["encoding"], prepared["newline"] = disk[1:]
+                prepared["text"] = rebase_markdown_links(text, old, new) if is_markdown(old) else text
+            snapshot = self._recovery_store.load(old)
+            if snapshot is not None:
+                prepared["snapshot"] = snapshot
+                prepared["snapshot_text"] = (
+                    rebase_markdown_links(snapshot.draft, old, new) if is_markdown(old) else snapshot.draft
+                )
+        except OSError as exc:
+            QMessageBox.warning(self, "無法移動文件", str(exc))
+            return
+        self._prepared_relocation = {key: prepared}
+        try:
+            commit()
+        finally:
+            self._prepared_relocation = {}
+
+    def _apply_relocated_buffer(self, state, prepared, new):
+        document = state.get("editor_document")
+        if not isinstance(document, QTextDocument) or "text" not in prepared:
+            return
+        previous, text = document.toPlainText(), prepared["text"]
+        if previous != text:
+            # One undo group, retaining the QTextDocument and positions outside
+            # the changed region. Qt adjusts saved cursors with the edit.
+            saved = QTextCursor(document)
+            saved.setPosition(min(int(state.get("anchor", 0)), document.characterCount() - 1))
+            saved.setPosition(min(int(state.get("cursor", 0)), document.characterCount() - 1),
+                              QTextCursor.MoveMode.KeepAnchor)
+            prefix = 0
+            while prefix < min(len(previous), len(text)) and previous[prefix] == text[prefix]:
+                prefix += 1
+            suffix = 0
+            while suffix < min(len(previous), len(text)) - prefix and previous[-suffix-1] == text[-suffix-1]:
+                suffix += 1
+            cursor = QTextCursor(document)
+            cursor.beginEditBlock()
+            cursor.setPosition(py_to_qt_position(previous, prefix))
+            cursor.setPosition(py_to_qt_position(previous, len(previous) - suffix),
+                               QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertText(text[prefix:len(text) - suffix if suffix else len(text)])
+            cursor.endEditBlock()
+            state["cursor"], state["anchor"] = saved.position(), saved.anchor()
+        document.setModified(prepared["modified"])
+        if not prepared["modified"] or state.get("source_signature") == prepared["signature"]:
+            state["source_signature"] = self._file_signature(new)
+        if "encoding" in prepared:
+            state["editing_encoding"] = prepared["encoding"]
+            state["editing_newline"] = prepared["newline"]
+
     def _on_browser_paths_migrated(
         self,
         mapping: dict,
@@ -4972,6 +5152,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         """Files were renamed/moved on disk: re-point tabs, recents, state."""
         if not mapping:
             return
+        prepared = getattr(self, "_prepared_relocation", {})
+        prepared = {old: data for old, data in prepared.items() if mapping.get(old) == data["new"]}
+        if prepared:
+            _snapshot_ready = True
         if not _snapshot_ready and self._wysiwyg_snapshot_busy:
             # The preceding disk event may not have reconciled its path yet,
             # so this mapping does not necessarily contain _active_path.
@@ -5026,15 +5210,35 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if key in self._tab_state:
                 state = self._tab_state.pop(key)
                 self._tab_state[new] = state
-                self._recovery_store.discard(key)
+                if key in prepared:
+                    self._apply_relocated_buffer(state, prepared[key], new)
                 document = state.get("editor_document")
                 if isinstance(document, QTextDocument) and document.isModified():
                     self._save_recovery_for_state(new, state)
+                if key not in prepared or self._recovery_store.load(new) is not None:
+                    self._recovery_store.discard(key)
             if key in self._recovery_checked_paths:
                 self._recovery_checked_paths.discard(key)
                 self._recovery_checked_paths.add(new)
         if self._active_path in mapping:
             self._active_path = mapping[self._active_path]
+        for old, data in prepared.items():
+            snapshot = data.get("snapshot")
+            new = data["new"]
+            state = self._tab_state.get(new) or {}
+            document = state.get("editor_document")
+            if snapshot is not None and not (isinstance(document, QTextDocument) and document.isModified()):
+                try:
+                    self._recovery_store.save(
+                        new, data["snapshot_text"], encoding=snapshot.encoding, newline=snapshot.newline,
+                        cursor=snapshot.cursor, anchor=snapshot.anchor, scroll=snapshot.scroll,
+                        source_signature=(self._file_signature(new) if snapshot.signature_pair == data["signature"]
+                                          else snapshot.signature_pair),
+                        updated_at=snapshot.updated_at,
+                    )
+                    self._recovery_store.discard(old)
+                except OSError as exc:
+                    QMessageBox.warning(self, "草稿重新定位失敗", f"原路徑的復原草稿仍保留：\n{old}\n{exc}")
         if self._current_file and str(self._current_file) in mapping:
             self._current_file = Path(mapping[str(self._current_file)])
             self.setWindowTitle(f"{self._current_file.name} - Markdown Viewer")
@@ -5048,6 +5252,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 if callable(set_document_path):
                     set_document_path(self._current_file)
             self._watch_current_file()
+            if prepared and str(self._current_file) in (data["new"] for data in prepared.values()):
+                state = self._tab_state.get(str(self._current_file)) or {}
+                if self._edit_mode and isinstance(state.get("editor_document"), QTextDocument):
+                    self._activate_editor_state(state, self._view_mode)
+                elif is_markdown(self._current_file):
+                    self._renderer.load_file(self._current_file, scroll_y=state.get("scroll"))
         self._refresh_tab_labels()
         self._panel.recent.migrate_paths(mapping)
         self._refresh_tags_panel()
@@ -5178,17 +5388,24 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         seen: set[str] = set()
         candidates: list[tuple[str, str]] = []
 
-        def add(path_str: str):
+        def add(path_str: str, *, scanned: bool = False):
             path = Path(path_str)
             key = str(path).casefold()
-            if key in seen or not is_supported_document(path) or not path.exists():
+            if key in seen or not is_supported_document(path) or (not scanned and not path.exists()):
                 return
             seen.add(key)
             candidates.append((path.name, str(path)))
 
         for path_str in self._panel.recent.paths():
             add(path_str)
-        if self._current_file:
+        browser = self._panel.file_browser
+        cached_documents = browser.quick_open_documents() or []
+        for _name, path_str in cached_documents:
+            add(path_str, scanned=True)
+        # Standalone documents retain their sibling candidates; registered
+        # libraries already supply them from the background scan.
+        in_library = self._current_file and browser.contains_library_path(self._current_file)
+        if self._current_file and not in_library:
             try:
                 for entry in sorted(self._current_file.parent.iterdir()):
                     if entry.is_file():
@@ -5199,16 +5416,34 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _quick_open(self):
         candidates = self._quick_open_candidates()
-        if not candidates:
-            self.statusBar().showMessage(
-                "沒有可快速開啟的檔案（最近清單與目前資料夾皆為空）", 4000
+        browser = self._panel.file_browser
+        dialog = QuickOpenDialog(
+            candidates, self._theme, self,
+            locations=browser.quick_open_locations() or {},
+            loading=bool(browser.is_scanning()),
+        )
+
+        def refresh():
+            dialog.set_candidates(
+                self._quick_open_candidates(),
+                locations=browser.quick_open_locations() or {},
+                loading=bool(browser.is_scanning()),
             )
-            return
-        dialog = QuickOpenDialog(candidates, self._theme, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            path = dialog.selected_path()
-            if path:
-                self._open_file(path)
+
+        changed = getattr(browser, "documents_changed", None)
+        if changed is not None and hasattr(changed, "connect"):
+            changed.connect(refresh)
+        try:
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                path = dialog.selected_path()
+                if path:
+                    self._open_file(path)
+                elif dialog.open_requested():
+                    self._panel_open_file()
+        finally:
+            if changed is not None and hasattr(changed, "disconnect"):
+                changed.disconnect(refresh)
+            dialog.deleteLater()
 
     def _active_zoom(self) -> float:
         """The zoom the View menu and Ctrl+=/- act on: PDF or text content."""

@@ -1,7 +1,14 @@
 from pathlib import Path
 import time
 
+import pytest
+
 from app.global_search import GlobalSearchView, search_markdown_files
+
+
+@pytest.fixture(autouse=True)
+def isolated_search_settings(monkeypatch):
+    monkeypatch.setattr("app.global_search.load_excluded_folders", lambda: [])
 
 
 def _result_paths(results):
@@ -17,13 +24,16 @@ def test_search_finds_matches_across_library_folders(tmp_path):
     second = second_root / "nested" / "second.md"
     first.write_text("alpha\nShared needle\n", encoding="utf-8")
     second.write_text("needle in another vault\n", encoding="utf-8")
-    (second_root / "ignored.txt").write_text("needle", encoding="utf-8")
+    plain_text = second_root / "included.txt"
+    plain_text.write_text("needle", encoding="utf-8")
 
     results = search_markdown_files([first_root, second_root], "needle")
 
-    assert _result_paths(results) == {first.resolve(), second.resolve()}
+    assert _result_paths(results) == {
+        first.resolve(), second.resolve(), plain_text.resolve()
+    }
     assert [hit.line_number for hit in results[0].hits] in ([2], [1])
-    assert sum(result.match_count for result in results) == 2
+    assert sum(result.match_count for result in results) == 3
 
 
 def test_search_is_case_insensitive(tmp_path):
@@ -43,7 +53,7 @@ def test_search_returns_no_results_for_missing_text(tmp_path):
     assert search_markdown_files([tmp_path], "absent") == []
 
 
-def test_search_skips_invalid_utf8_file(tmp_path):
+def test_search_skips_undecodable_file(tmp_path):
     corrupt = tmp_path / "corrupt.md"
     corrupt.write_bytes(b"needle\xffstill malformed")
 

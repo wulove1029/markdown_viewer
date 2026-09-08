@@ -1,0 +1,18 @@
+Recovery implementation validation, 2026-09-08
+
+Observed command:
+py -3 -X utf8 -m pytest tests/test_startup_recovery.py tests/test_recovery_startup_integration.py tests/test_recovery.py tests/test_recovery_dialog.py tests/test_editor_data_safety.py -q -p no:cacheprovider --basetemp tmp/upgrade-recovery-final-r7
+Observed result: 99 passed in 10.11s
+Exit code: 0
+
+Observed command:
+py -3 -X utf8 docs/upgrades/evidence-2026-09-08/recovery-ui-probe.py
+Observed result: 820x540, minimum hint 244x277, NonModal, draft count 2, source unchanged, deleted source not recreated.
+Exit code: 0
+
+Observed command:
+py -3 -X utf8 -c "import main; import app.session_state; import app.recovery_browser"
+Exit code: 0
+
+Scope: isolated tests and real Qt offscreen inbox; no physical high-DPI display or killed-process end-to-end acceptance.
+This file persists observed tool results, not a verbatim terminal transcript.

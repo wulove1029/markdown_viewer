@@ -1,0 +1,21 @@
+{
+  "scope": "offscreen logical geometry; not a physical display test",
+  "requested_size": [
+    800,
+    540
+  ],
+  "actual_size": [
+    800,
+    757
+  ],
+  "minimum_size_hint": [
+    405,
+    757
+  ],
+  "button_box_bottom": 745,
+  "scroll_area_count": 0,
+  "logical_viewport_examples": {
+    "1366x768_at_100_percent": 768,
+    "1920x1080_at_150_percent": 720
+  }
+}

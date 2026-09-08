@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "status": "ExitStatus.NormalExit",
+  "elapsed_ms": 2899.913000000197,
+  "path_matches": true,
+  "received": "C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-exe-smoke-it03l14q\\sample.md",
+  "expected": "C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-exe-smoke-it03l14q\\sample.md",
+  "scope": "packaged second-instance forwarding; no MainWindow or cold first paint"
+}

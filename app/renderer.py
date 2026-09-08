@@ -59,6 +59,41 @@ _UNHANDLED_ESCAPE_JS = r"""
 """
 
 
+def _source_line_reveal_js(generation: int, line_number: int) -> str:
+    """Reveal the smallest visible block containing a one-based source line."""
+    return f"""(function() {{
+        var marker = document.querySelector('meta[name="{_RENDER_GENERATION_META}"]');
+        if (!marker || Number(marker.content) !== {int(generation)}) return false;
+        var line = {int(line_number) - 1};
+        var blocks = document.querySelectorAll('[data-src-start][data-src-end]');
+        var target = null, smallest = Infinity;
+        for (var i = 0; i < blocks.length; i++) {{
+            var block = blocks[i];
+            var start = Number(block.getAttribute('data-src-start'));
+            var end = Number(block.getAttribute('data-src-end'));
+            if (!Number.isFinite(start) || !Number.isFinite(end) ||
+                start > line || end < line || !block.getClientRects().length) continue;
+            var size = end - start;
+            if (size < smallest || (size === smallest && target && target.contains(block))) {{
+                target = block;
+                smallest = size;
+            }}
+        }}
+        if (!target) return false;
+        var request = {{}};
+        window.__mdSourceRevealRequest = request;
+        // Native find navigation settles on the next visual frame. Apply our
+        // explicit source target after that frame, not inside its IPC reply.
+        requestAnimationFrame(function() {{
+            var current = document.querySelector('meta[name="{_RENDER_GENERATION_META}"]');
+            if (window.__mdSourceRevealRequest !== request || !current ||
+                Number(current.content) !== {int(generation)}) return;
+            target.scrollIntoView({{block: 'center', behavior: 'instant'}});
+        }});
+        return true;
+    }})()"""
+
+
 def _decode_content_size(value):
     """Decode a WebEngine content-size result into positive finite pixels.
 
@@ -257,6 +292,8 @@ class RendererView(QWebEngineView):
         self._pending_scroll: int | None = None
         self._pending_scroll_generation: int | None = None
         self._pending_find: tuple[int, str] | None = None
+        self._source_line_reveal: tuple[int, int] | None = None
+        self._loaded_markdown_generation: int | None = None
         # Scroll ratio to re-apply once a live-preview (text) render loads, so
         # the debounced re-render doesn't snap the preview back to the top.
         self._pending_ratio: tuple[int, float] | None = None
@@ -312,6 +349,8 @@ class RendererView(QWebEngineView):
         if previous is not None:
             previous.set()
         self._render_cancel = threading.Event()
+        self._source_line_reveal = None
+        self._loaded_markdown_generation = None
         self._render_generation += 1
         return self._render_generation
 
@@ -398,6 +437,7 @@ class RendererView(QWebEngineView):
             self._spy_timer.stop()
             return
 
+        self._loaded_markdown_generation = generation
         target, self._pending_scroll, self._pending_scroll_generation = (
             _pending_scroll_target(
                 self._pending_scroll,
@@ -411,6 +451,8 @@ class RendererView(QWebEngineView):
             _generation, text = self._pending_find
             self._pending_find = None
             self.find_text(text)
+        if self._source_line_reveal and self._source_line_reveal[0] == generation:
+            self._apply_source_line_reveal(self._source_line_reveal)
         self._spy_timer.start()
 
     def _on_text_load_checked(self, generation: int, loaded_generation):
@@ -459,6 +501,25 @@ class RendererView(QWebEngineView):
                    '<a href="https://markdown-viewer.invalid/home/recent">最近文件</a>'
                    '<a href="https://markdown-viewer.invalid/home/quick">快速開啟 <kbd>Ctrl+P</kbd></a></nav>')
         self.setHtml(html.replace("</main>", actions + "</main>"))
+        if self._on_headings_ready:
+            self._on_headings_ready([])
+
+    def show_pending_recovery(self, path: str | Path):
+        """Show a read-only holding page without opening or replacing a draft."""
+        self._next_render_generation()
+        self._pending_text_base_url = None
+        self._current_path = None
+        self._current_anchor = ""
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
+        self._pending_ratio = None
+        self._pending_find = None
+        self._spy_timer.stop()
+        self.setHtml(self._state_html(
+            "這份文件有待復原草稿",
+            "請從「檔案 → 待復原草稿」選擇繼續編輯、另存副本或稍後處理。",
+            Path(path).name,
+        ))
         if self._on_headings_ready:
             self._on_headings_ready([])
 
@@ -812,6 +873,7 @@ class RendererView(QWebEngineView):
 
     def scroll_to(self, anchor: str):
         """Scroll the rendered page to the given anchor id."""
+        self._cancel_source_line_reveal()
         anchor_json = json.dumps(anchor)
         js = f"""(function() {{
             var el = document.getElementById({anchor_json});
@@ -823,23 +885,74 @@ class RendererView(QWebEngineView):
         self.page().runJavaScript(js)
 
     def find_text(self, text: str, result_callback=None):
+        self._cancel_source_line_reveal()
+        generation = self._render_generation
+
+        def finished(result):
+            if result_callback is not None:
+                result_callback(result)
+            # A library result may request its source block while an earlier
+            # findText is still running. Restore that block after Chromium's
+            # find callback so it cannot leave us at the first identical match.
+            request = self._source_line_reveal
+            if request is not None and request[0] == generation:
+                self._apply_source_line_reveal(request)
+
         # Passing resultCallback=None into PySide6 findText crashes the process.
-        if result_callback is None:
-            self.page().findText(text)
-        else:
-            self.page().findText(text, resultCallback=result_callback)
+        self.page().findText(text, QWebEnginePage.FindFlag(0), finished)
+
+    def reveal_source_line_after_load(self, line_number: int):
+        """Reveal a source block after this render loads, or immediately if ready.
+
+        ``line_number`` is one-based. Source mapping identifies a block, not
+        a selected character or an exact visual line within a paragraph.
+        """
+        try:
+            line_number = int(line_number)
+        except (TypeError, ValueError):
+            return
+        if line_number < 1:
+            return
+        self._pending_find = None
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
+        self._source_line_reveal = (self._render_generation, line_number)
+        if self._loaded_markdown_generation == self._render_generation:
+            request = self._source_line_reveal
+            # Stop Chromium's native match navigation before scrolling to a
+            # source block; a pending find may otherwise scroll after its reply.
+            self.page().findText(
+                "", QWebEnginePage.FindFlag(0),
+                lambda _result: self._apply_source_line_reveal(request),
+            )
+
+    def _apply_source_line_reveal(self, request: tuple[int, int]):
+        if request != self._source_line_reveal or request[0] != self._render_generation:
+            return
+        if self._loaded_markdown_generation != request[0]:
+            return
+        self.page().runJavaScript(_source_line_reveal_js(*request))
+
+    def _cancel_source_line_reveal(self):
+        if self._source_line_reveal is not None:
+            self.page().runJavaScript("window.__mdSourceRevealRequest = null;")
+        self._source_line_reveal = None
 
     def find_text_after_load(self, text: str):
         """Repeat a search when the current Markdown generation is fully loaded."""
+        self._cancel_source_line_reveal()
         self._pending_find = (self._render_generation, text) if text else None
 
     def cancel_pending_find(self):
         self._pending_find = None
+        self._cancel_source_line_reveal()
 
     def find_next(self, text: str):
+        self._cancel_source_line_reveal()
         self.page().findText(text)
 
     def find_prev(self, text: str):
+        self._cancel_source_line_reveal()
         from PySide6.QtWebEngineCore import QWebEnginePage
 
         self.page().findText(

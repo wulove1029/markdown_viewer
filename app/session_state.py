@@ -173,18 +173,20 @@ def restore_last_session(window):
             paths = json.loads(raw)
         except (ValueError, TypeError):
             paths = []
+    if not isinstance(paths, list):
+        paths = []
     recovery_store = getattr(window, "_recovery_store", None)
 
     def available(path) -> bool:
-        if not path or not is_supported_document(path):
-            return False
-        if Path(path).exists():
-            return True
-        if recovery_store is None:
+        if not isinstance(path, str) or not path or not is_supported_document(path):
             return False
         try:
+            if Path(path).exists():
+                return True
+            if recovery_store is None:
+                return False
             return recovery_store.load(path) is not None
-        except OSError:
+        except (OSError, ValueError):
             return False
 
     paths = [p for p in paths if available(p)]
@@ -205,11 +207,46 @@ def restore_last_session(window):
         window._tab_bar.setCurrentIndex(active)
         window._tab_guard = False
         window._activate_tab(active)
+        show_pending_recovery(window)
         return
     # Fallback to the single last_file remembered by older versions.
     last = settings.value("last_file")
     if available(last):
         window._open_file(last)
+    show_pending_recovery(window)
+
+
+def restore_startup(window, file_arg: str = ""):
+    """Apply startup routing and always discover drafts outside the old session."""
+    if file_arg:
+        restore_file_tree_state(window)
+        window.open_path(file_arg)
+        show_pending_recovery(window)
+    else:
+        restore_last_session(window)
+
+
+def show_pending_recovery(window, *, notify_empty: bool = False):
+    """Show one non-modal recovery inbox, reusable after choosing Later."""
+    from .recovery_browser import RecoveryBrowser, pending_recovery_snapshots
+
+    dialog = getattr(window, "_recovery_browser", None)
+    snapshots = pending_recovery_snapshots(window)
+    if not snapshots:
+        if dialog is not None:
+            dialog.close()
+        if notify_empty:
+            window.statusBar().showMessage("目前沒有待復原草稿。", 5000)
+        return None
+    if dialog is None:
+        dialog = RecoveryBrowser(window, snapshots)
+        window._recovery_browser = dialog
+    else:
+        dialog.refresh(snapshots)
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    return dialog
 
 
 def pdf_pages_map() -> dict:
