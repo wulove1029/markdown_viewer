@@ -380,6 +380,11 @@ class MainWindow(QMainWindow):
         self._pdf_highlights: list[PdfHighlight] = []
         self._pen_mode = False
 
+        pdf_embedded_annotation_callbacks = {
+            "activated": self._pdf_embedded_annotation_activated,
+        }
+        self._pdf_embedded_annotations: list = []
+
         self._current_front_tags: list[str] = []
         self._current_body_tags: list[str] = []
 
@@ -389,6 +394,7 @@ class MainWindow(QMainWindow):
             annotation_callbacks=annotation_callbacks,
             pdf_note_callbacks=pdf_note_callbacks,
             pdf_highlight_callbacks=pdf_highlight_callbacks,
+            pdf_embedded_annotation_callbacks=pdf_embedded_annotation_callbacks,
             on_tag_selected=self._on_tag_selected,
             search_roots_provider=self._search_roots,
             on_search_result=self._open_global_search_result,
@@ -564,6 +570,9 @@ class MainWindow(QMainWindow):
         self._pdf_view.highlight_requested.connect(self._on_pdf_highlight_requested)
         self._pdf_view.highlight_delete_requested.connect(self._pdf_highlight_delete)
         self._pdf_view.outline_ready.connect(self._on_pdf_outline_ready)
+        self._pdf_view.embedded_annotations_ready.connect(
+            self._on_pdf_embedded_annotations_ready
+        )
         self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
         self._pdf_view.translate_requested.connect(self._translate_selection)
         # Wheel zoom is already applied locally by PdfView. Defer the heavier
@@ -1778,6 +1787,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         ):
             return
         self._panel.toc.update_outline(entries)
+
+    def _on_pdf_embedded_annotations_ready(self, generation: int, path, entries):
+        if (
+            self._current_kind != "pdf"
+            or self._current_file is None
+            or generation != self._pdf_view.load_generation()
+            or Path(path) != Path(self._current_file)
+        ):
+            return
+        self._pdf_embedded_annotations = list(entries)
+        self._refresh_pdf_embedded_annotations_panel()
 
     def _on_pdf_wheel_zoom_changed(self, factor: float):
         if self._current_kind != "pdf":
@@ -4541,6 +4561,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_tags_panel()
         self._refresh_pdf_notes_panel()
         self._refresh_pdf_highlights_panel()
+        # Embedded (Adobe-authored) annotations load in the background — see
+        # PdfView.request_embedded_annotations(); clear the previous document's
+        # list immediately so nothing stale lingers in the panel meanwhile.
+        self._pdf_embedded_annotations = []
+        self._refresh_pdf_embedded_annotations_panel()
         # Resume where the reader left off.
         page = self._pdf_pages_map().get(str(path), 0)
         self._pdf_view.restore_page(int(page))
@@ -4679,6 +4704,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._save_pdf_highlights()
         self._pdf_view.set_highlights(self._pdf_highlights)
         self._refresh_pdf_highlights_panel()
+
+    # --- embedded (Adobe-authored) PDF annotations: read-only ---
+    def _refresh_pdf_embedded_annotations_panel(self):
+        self._panel.pdf_embedded_annotations.set_annotations(
+            self._pdf_embedded_annotations
+        )
+
+    def _pdf_embedded_annotation_activated(self, entry):
+        x, y, w, h = entry.rect
+        if w > 0 or h > 0:
+            self._pdf_view.reveal(entry.page, x, y, w, h)
+        else:
+            self._pdf_view.jump_to_page(entry.page)
 
     # --- wiki-links & backlinks ---
     def _search_roots(self) -> list[Path]:

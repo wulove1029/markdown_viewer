@@ -179,6 +179,7 @@ class _FakePdfView(QWidget):
     highlight_requested = Signal(object)
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)
+    embedded_annotations_ready = Signal(int, object, object)
     zoom_changed = Signal(float)
     translate_requested = Signal(str)
 
@@ -322,6 +323,7 @@ class _FakePanel(QWidget):
         self.backlinks = _Noop()
         self.pdf_notes = _Noop()
         self.pdf_highlights = _Noop()
+        self.pdf_embedded_annotations = _Noop()
         self.tags = _Tags()
         self.current_tab = None
         self.search_opened = False

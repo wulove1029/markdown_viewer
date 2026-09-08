@@ -68,6 +68,7 @@ def _pymupdf():
         _pymupdf_module = _mod
     return _pymupdf_module
 
+from .pdf_embedded_annotations import extract_embedded_annotations
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
 from . import pdf_metadata_cache
@@ -141,6 +142,35 @@ class _PdfOutlineTask(QRunnable):
         self.signals.finished.emit(self.generation, self.path, entries)
 
 
+class _PdfEmbeddedAnnotationsSignals(QObject):
+    finished = Signal(int, object, object)
+
+
+class _PdfEmbeddedAnnotationsTask(QRunnable):
+    """Extract Adobe-style embedded PDF annotations away from the GUI thread.
+
+    Mirrors ``_PdfOutlineTask``: same generation-token + path-identity guard
+    pattern so a result for a file the user has since navigated away from is
+    discarded rather than populating the wrong document's panel.
+    """
+
+    def __init__(self, generation: int, path: Path, password: str):
+        super().__init__()
+        # Python (via PdfView._embedded_annotations_tasks) owns this task's
+        # lifetime, not Qt's thread pool: autoDelete's C++-side deletion can
+        # otherwise race the tail of run() emitting ``finished`` on a worker
+        # thread, deleting ``self.signals`` out from under the emit call.
+        self.setAutoDelete(False)
+        self.generation = generation
+        self.path = path
+        self.password = password
+        self.signals = _PdfEmbeddedAnnotationsSignals()
+
+    def run(self):
+        entries = extract_embedded_annotations(self.path, self.password)
+        self.signals.finished.emit(self.generation, self.path, entries)
+
+
 class PdfView(QAbstractScrollArea):
     page_changed = Signal(int)          # 0-based current page
     search_count_changed = Signal(int)  # number of matches
@@ -148,6 +178,7 @@ class PdfView(QAbstractScrollArea):
     highlight_requested = Signal(object)  # {page, rects:[(x,y,w,h)], text, color}
     highlight_delete_requested = Signal(str)
     outline_ready = Signal(int, object, object)  # generation, path, entries
+    embedded_annotations_ready = Signal(int, object, object)  # generation, path, entries
     zoom_changed = Signal(float)  # user-initiated wheel zoom
     translate_requested = Signal(str)  # selected text to translate
 
@@ -196,6 +227,27 @@ class PdfView(QAbstractScrollArea):
         self._outline_submit_timer = QTimer(self)
         self._outline_submit_timer.setSingleShot(True)
         self._outline_submit_timer.timeout.connect(self._submit_painted_outline)
+
+        self._embedded_annotations_requested_generation = -1
+        self._embedded_annotations_tasks: dict[int, _PdfEmbeddedAnnotationsTask] = {}
+        # Global pool, like the outline reader: a view-owned QThreadPool would
+        # block in its destructor (waitForDone) while a scan is in flight,
+        # stalling window close. Stale results are discarded by the
+        # generation/path guard instead. Kept as a separate attribute so tests
+        # can swap it independently of ``_outline_pool``.
+        self._embedded_annotations_pool = QThreadPool.globalInstance()
+        # One extra deferral beyond the outline's own ``_outline_submit_timer``
+        # tick: starting a second real background thread in the very same
+        # call as the outline's dispatch was observed, under real (unmocked)
+        # thread-pool execution, to occasionally destabilize QPdfDocument's
+        # password-detection timing for a PDF opened immediately afterwards.
+        # Requiring one more event-loop turn keeps this request from ever
+        # starting inside the same synchronous call stack as the outline's.
+        self._embedded_annotations_submit_timer = QTimer(self)
+        self._embedded_annotations_submit_timer.setSingleShot(True)
+        self._embedded_annotations_submit_timer.timeout.connect(
+            self.request_embedded_annotations
+        )
 
         # High-resolution wheels/touchpads can deliver many deltas per frame.
         # Coalesce them so layout, cache invalidation, and PDF rendering happen
@@ -294,6 +346,7 @@ class PdfView(QAbstractScrollArea):
         self._load_generation += 1
         self._outline_submit_timer.stop()
         self._outline_submit_generation = -1
+        self._embedded_annotations_submit_timer.stop()
         # Reuse a previously-accepted password when reloading the same file, so a
         # reload (button / external change) of an unlocked PDF doesn't re-prompt.
         candidate = self._password if path == self._path else ""
@@ -1573,12 +1626,40 @@ class PdfView(QAbstractScrollArea):
         if self._outline_submit_generation != self._load_generation:
             return
         self.request_outline()
+        self._embedded_annotations_submit_timer.start(0)
 
     def _on_outline_finished(self, generation: int, path, entries) -> None:
         self._outline_tasks.pop(generation, None)
         if generation != self._load_generation or Path(path) != self._path:
             return
         self.outline_ready.emit(generation, path, entries)
+
+    def request_embedded_annotations(self) -> bool:
+        """Start one background read of Adobe-style embedded PDF annotations.
+
+        Mirrors ``request_outline``'s generation guard: at most one in-flight
+        request per loaded generation, and a stale result (from a document the
+        user has since navigated away from) is discarded on arrival.
+        """
+        generation = self._load_generation
+        if (
+            not self._path
+            or self._doc.status() != QPdfDocument.Status.Ready
+            or self._embedded_annotations_requested_generation == generation
+        ):
+            return False
+        self._embedded_annotations_requested_generation = generation
+        task = _PdfEmbeddedAnnotationsTask(generation, self._path, self._password)
+        self._embedded_annotations_tasks[generation] = task
+        task.signals.finished.connect(self._on_embedded_annotations_finished)
+        self._embedded_annotations_pool.start(task)
+        return True
+
+    def _on_embedded_annotations_finished(self, generation: int, path, entries) -> None:
+        self._embedded_annotations_tasks.pop(generation, None)
+        if generation != self._load_generation or Path(path) != self._path:
+            return
+        self.embedded_annotations_ready.emit(generation, path, entries)
 
     # ================= search =================
     def search(self, text: str) -> None:
