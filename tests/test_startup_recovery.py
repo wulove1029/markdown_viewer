@@ -103,7 +103,9 @@ def test_cli_file_stays_primary_and_orphan_drafts_are_discovered(setup_startup, 
     session_state.restore_startup(window, str(cli))
 
     assert window.opened == [str(cli)]
-    assert window._tab_bar.count() == 0
+    assert window._tab_bar.count() == 1
+    assert window._tab_bar.tabData(0) == str(old)
+    assert window.activated == []  # saved tabs stay lazy when a file was requested
     assert window._recovery_browser.selected_snapshot().source_path == str(orphan)
     assert cli.read_text(encoding="utf-8") == "requested file"
     assert not orphan.exists()

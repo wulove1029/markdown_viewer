@@ -1,0 +1,15 @@
+{
+  "stage": "file-launch",
+  "tabs": [
+    "reading-2.pdf",
+    "reading-0.pdf",
+    "reading-1.pdf",
+    "reading-3.pdf"
+  ],
+  "active": "reading-3.pdf",
+  "page": 0,
+  "checkpoint_before_close": true,
+  "close_event": true,
+  "status": "passed",
+  "settings_isolated": true
+}

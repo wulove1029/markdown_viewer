@@ -1,0 +1,80 @@
+{
+  "status": "passed",
+  "separate_processes": 5,
+  "source_pdfs_unchanged": true,
+  "native_session_unchanged": true,
+  "temporary_files_cleaned": true,
+  "stages": [
+    {
+      "stage": "save",
+      "tabs": [
+        "reading-2.pdf",
+        "reading-0.pdf",
+        "reading-1.pdf"
+      ],
+      "active": "reading-1.pdf",
+      "page": 1,
+      "checkpoint_before_close": true,
+      "close_event": true,
+      "status": "passed",
+      "settings_isolated": true
+    },
+    {
+      "stage": "restore",
+      "tabs": [
+        "reading-2.pdf",
+        "reading-0.pdf",
+        "reading-1.pdf"
+      ],
+      "active": "reading-1.pdf",
+      "page": 1,
+      "checkpoint_before_close": true,
+      "close_event": true,
+      "status": "passed",
+      "settings_isolated": true
+    },
+    {
+      "stage": "file-launch",
+      "tabs": [
+        "reading-2.pdf",
+        "reading-0.pdf",
+        "reading-1.pdf",
+        "reading-3.pdf"
+      ],
+      "active": "reading-3.pdf",
+      "page": 0,
+      "checkpoint_before_close": true,
+      "close_event": true,
+      "status": "passed",
+      "settings_isolated": true
+    },
+    {
+      "stage": "abrupt",
+      "tabs": [
+        "reading-3.pdf",
+        "reading-2.pdf",
+        "reading-1.pdf"
+      ],
+      "active": "reading-1.pdf",
+      "page": 2,
+      "checkpoint_before_close": true,
+      "close_event": false,
+      "status": "passed",
+      "settings_isolated": true
+    },
+    {
+      "stage": "after-abrupt",
+      "tabs": [
+        "reading-3.pdf",
+        "reading-2.pdf",
+        "reading-1.pdf"
+      ],
+      "active": "reading-1.pdf",
+      "page": 2,
+      "checkpoint_before_close": true,
+      "close_event": true,
+      "status": "passed",
+      "settings_isolated": true
+    }
+  ]
+}

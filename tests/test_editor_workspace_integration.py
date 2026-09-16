@@ -13,6 +13,7 @@ import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtTest import QTest
+from shiboken6 import isValid
 
 from app import edit_backend
 from app import session_state
@@ -23,6 +24,7 @@ from tests.test_window_integration import (
     _FakePdfView,
     _FakeRenderer,
     _FakeTagIndex,
+    _dispose_window,
 )
 
 
@@ -89,12 +91,14 @@ def make_workspace_window(qapp):
     yield _make
 
     for window in reversed(windows):
+        if not isValid(window):
+            continue
         for state in window._tab_state.values():
             document = state.get("editor_document")
             if isinstance(document, QTextDocument):
                 document.setModified(False)
         window._editor.document().setModified(False)
-        window.close()
+        _dispose_window(window)
     qapp.processEvents()
 
 

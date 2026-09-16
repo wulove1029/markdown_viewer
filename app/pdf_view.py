@@ -531,8 +531,7 @@ class PdfView(QAbstractScrollArea):
 
     def restore_page(self, page0: int) -> None:
         """Jump to *page0* now if loaded, otherwise once the document is ready."""
-        if page0 <= 0:
-            return
+        page0 = max(0, int(page0))
         if self._doc.status() == QPdfDocument.Status.Ready and self._page_tops:
             self.jump_to_page(page0)
         else:

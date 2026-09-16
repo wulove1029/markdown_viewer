@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.33.0"
+VERSION = "1.33.1"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "PDF 新增手形工具，可按住左鍵拖曳大圖，也能使用空白鍵＋左鍵或滑鼠中鍵暫時拖曳。",
-    "PDF 右鍵選單新增區域快照、縮放與符合寬度、尋找文字、頁面註記及文件資訊。",
-    "手形與文字選取工具可互相切換，保留複製、翻譯、螢光標記及既有 PDF 內嵌註解操作。",
+    "重新啟動會還原上次開啟的分頁、順序與目前文件；從檔案總管開新文件也會保留原有分頁。",
+    "分頁操作後自動保存，正常關閉立即寫入，降低意外結束造成的分頁遺失。",
+    "修正多份 PDF 切換與重開時的閱讀頁碼還原，包含第一頁；手動關閉全部分頁後不再誤開舊文件。",
 ]
 
 GITHUB_OWNER = "wulove1029"

@@ -5,11 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QPushButton, QWidget
+from shiboken6 import isValid
 
 from app import edit_backend
 from app import export_actions
@@ -490,7 +491,44 @@ def make_window(qapp):
 
     yield _make
     for win in reversed(windows):
-        win.close()
+        _dispose_window(win)
+
+
+def _dispose_window(window):
+    """Dispose test windows before their isolated settings are unpatched.
+
+    close() may be cancelled or wait for an asynchronous editor snapshot. A
+    surviving checkpoint timer must never run after fixture teardown restores
+    the application's normal QSettings constructor.
+    """
+    if not isValid(window):
+        return
+    try:
+        window.close()
+    finally:
+        if isValid(window):
+            for timer in window.findChildren(QTimer):
+                timer.stop()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(window, QEvent.Type.DeferredDelete)
+    assert not isValid(window)
+
+
+def test_fixture_disposes_window_and_pending_timer_when_close_is_cancelled(
+    make_window, md_files, monkeypatch
+):
+    window = make_window()
+    window.open_path(str(md_files[0]))
+    monkeypatch.setattr(window, "_confirm_close_all_edits", lambda: False)
+    callbacks = []
+    window._session_save_timer.timeout.connect(lambda: callbacks.append(True))
+    assert window._session_save_timer.isActive()
+
+    _dispose_window(window)
+
+    assert not isValid(window)
+    QTest.qWait(350)
+    assert callbacks == []
 
 
 def test_open_path_adds_tab_and_reuses_existing(make_window, md_files):

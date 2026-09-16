@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "path": "dist\\session-restore\\MarkdownViewer\\MarkdownViewer.exe",
+  "size_bytes": 11654452,
+  "sha256": "7dbc4d6b52f71997209bf20e1b3ec1901a9c1655f19126c4e8ea4528f561a9da",
+  "bundled_functions": {
+    "app.session_state": [
+      "_restore_session_documents",
+      "save_open_tabs"
+    ],
+    "app.window": [
+      "_checkpoint_session",
+      "_schedule_session_save"
+    ],
+    "app.pdf_view": [
+      "restore_page"
+    ]
+  },
+  "build_exit_code": 0,
+  "packaged_ui_launched": false
+}

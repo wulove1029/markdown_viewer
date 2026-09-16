@@ -185,8 +185,8 @@ def main():
     # be routed to it immediately.  Keep a reference so it is not GC'd.
     _ipc_server = _setup_ipc_server(window)  # noqa: F841
 
-    # A CLI file takes priority, while drafts outside the old session remain
-    # discoverable through the same non-modal recovery inbox.
+    # Restore the workspace even on a file-manager launch; its requested file
+    # takes focus without replacing the other tabs. Draft recovery stays lazy.
     session_state.restore_startup(window, file_arg)
 
     sys.exit(app.exec())

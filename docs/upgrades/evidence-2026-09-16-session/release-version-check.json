@@ -1,0 +1,16 @@
+{
+  "version": "1.33.1",
+  "release_notes": [
+    "重新啟動會還原上次開啟的分頁、順序與目前文件；從檔案總管開新文件也會保留原有分頁。",
+    "分頁操作後自動保存，正常關閉立即寫入，降低意外結束造成的分頁遺失。",
+    "修正多份 PDF 切換與重開時的閱讀頁碼還原，包含第一頁；手動關閉全部分頁後不再誤開舊文件。"
+  ],
+  "product_sha256": {
+    "app/session_state.py": "12dc58f2beda990771a356388ba526782a4a6a7a8859c88f57ff41e08f4fd41d",
+    "app/window.py": "32f2eef9bf3bcc402291115323a554d2539c06c284ea7b8f6c3e04e6e40910de",
+    "app/pdf_view.py": "086cc041cc656af4fd9cf7d510a0e26c1a745cd671f4d4d7e19ed8792ca78f55",
+    "main.py": "16944da60f34ef94a262a5046303dc5ea1ec5349cd8d6f6d95dc3c3cd99e7688"
+  },
+  "tests_exit_code": 0,
+  "settings_isolation": "Explicit INI before application imports; native format rejected"
+}

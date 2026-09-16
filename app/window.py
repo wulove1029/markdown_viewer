@@ -297,6 +297,9 @@ class MainWindow(QMainWindow):
         # Detached (tab moved out) windows must not persist their session on
         # close, or they would clobber the primary window's open_tabs/geometry.
         self._is_detached = False
+        self._restoring_session = False
+        self._session_closing = False
+        self._restoring_pdf_page = False
         self._exporting = False  # reentrancy guard for long-running exports
         self._recovery_store = RecoveryStore()
         self._recovery_checked_paths: set[str] = set()
@@ -623,6 +626,12 @@ class MainWindow(QMainWindow):
         self._tab_bar.customContextMenuRequested.connect(
             self._show_tab_context_menu
         )
+        self._session_save_timer = QTimer(self)
+        self._session_save_timer.setSingleShot(True)
+        self._session_save_timer.setInterval(250)
+        self._session_save_timer.timeout.connect(self._checkpoint_session)
+        self._tab_bar.tabsChanged.connect(self._schedule_session_save)
+        self._tab_bar.currentChanged.connect(self._schedule_session_save)
 
         renderer_wrap = QWidget()
         renderer_wrap.setObjectName("rendererWorkspace")
@@ -1788,7 +1797,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._renderer.find_prev(self._search_input.text())
 
     def _on_pdf_page_changed(self, page0: int):
-        if self._current_kind == "pdf":
+        if self._current_kind == "pdf" and not self._restoring_pdf_page:
             self._save_pdf_page(page0)
             self._panel.pdf_notes.set_current_page(page0)
 
@@ -3990,6 +3999,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._activate_tab(idx)
 
     # ---------------- document tabs ----------------
+    def _schedule_session_save(self, *_args):
+        if not (self._is_detached or self._restoring_session or self._session_closing):
+            self._session_save_timer.start()
+
+    def _checkpoint_session(self):
+        self._session_save_timer.stop()
+        if not self._session_closing:
+            session_state.save_open_tabs(self)
+
     def _refresh_tab_labels(self):
         """Rebuild tab labels with disambiguation, dirty, and editor mode."""
         paths = [
@@ -4378,6 +4396,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         state = self._tab_state.get(key) or {}
         kind = state.get("kind") or document_kind(Path(key))
         self._load_document(Path(key), kind)
+        self._schedule_session_save()
 
     def _activate_tab_after_wysiwyg_snapshot(self, key: str) -> None:
         index = self._index_of_path(key)
@@ -4564,12 +4583,24 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_icons()
 
     def _open_pdf(self, path: Path):
-        # Switch first so the password prompt (if any) appears over the PDF view.
-        self._stack.setCurrentWidget(self._pdf_view)
+        # Capture the target page before replacing the shared viewer: changing
+        # its layout/scrollbars can emit the old document's page for this path.
+        try:
+            page = max(0, int(self._pdf_pages_map().get(str(path), 0)))
+        except (TypeError, ValueError):
+            page = 0
+        self._restoring_pdf_page = True
+        try:
+            # Password prompts (if any) belong above the PDF view.
+            self._stack.setCurrentWidget(self._pdf_view)
+            loaded = self._pdf_view.load(path)
+            self._pdf_view.restore_page(page)
+        finally:
+            self._restoring_pdf_page = False
         # Drop the previous file's bookmarks immediately. PdfView starts the
         # current outline in the background only after visible content paints.
         self._panel.toc.update_outline([])
-        if not self._pdf_view.load(path):
+        if not loaded:
             if self._pdf_view.is_locked():
                 self.statusBar().showMessage(
                     "已取消開啟受密碼保護的 PDF；重新開啟可再次輸入密碼。", 6000
@@ -4597,9 +4628,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._pdf_embedded_annotations = []
         self._refresh_pdf_embedded_annotations_panel()
         self._refresh_pdf_annotation_write_state()
-        # Resume where the reader left off.
-        page = self._pdf_pages_map().get(str(path), 0)
-        self._pdf_view.restore_page(int(page))
 
     # --- PDF page notes ---
     def _refresh_pdf_notes_panel(self):
@@ -5535,6 +5563,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     self._renderer.load_file(self._current_file, scroll_y=state.get("scroll"))
         self._refresh_tab_labels()
         self._panel.recent.migrate_paths(mapping)
+        self._schedule_session_save()
         self._refresh_tags_panel()
         self._refresh_link_index(force=True)
         if _snapshot_failed:

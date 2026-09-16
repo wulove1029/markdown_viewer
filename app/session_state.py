@@ -1,6 +1,7 @@
 """Session persistence helpers delegated from MainWindow."""
 
 import json
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
@@ -163,25 +164,45 @@ def restore_file_tree_state(window):
         window._panel.file_browser.restore_tree_state(state)
 
 
-def restore_last_session(window):
+def _session_path_key(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def restore_last_session(window, file_arg: str = ""):
+    """Restore all tabs, loading only the requested or previously active file."""
+    was_restoring = getattr(window, "_restoring_session", False)
+    window._restoring_session = True
+    timer = getattr(window, "_session_save_timer", None)
+    if timer is not None:
+        timer.stop()
+    try:
+        _restore_session_documents(window, file_arg)
+    finally:
+        window._restoring_session = was_restoring
+    if not was_restoring:
+        schedule = getattr(window, "_schedule_session_save", None)
+        if callable(schedule):
+            schedule()
+    show_pending_recovery(window)
+
+
+def _restore_session_documents(window, file_arg: str):
     restore_file_tree_state(window)
     settings = QSettings(_ORG, _APP)
     raw = settings.value("open_tabs")
-    paths = []
+    paths = None
     if raw:
         try:
             paths = json.loads(raw)
         except (ValueError, TypeError):
-            paths = []
-    if not isinstance(paths, list):
-        paths = []
+            paths = None
     recovery_store = getattr(window, "_recovery_store", None)
 
     def available(path) -> bool:
         if not isinstance(path, str) or not path or not is_supported_document(path):
             return False
         try:
-            if Path(path).exists():
+            if Path(path).is_file():
                 return True
             if recovery_store is None:
                 return False
@@ -189,41 +210,82 @@ def restore_last_session(window):
         except (OSError, ValueError):
             return False
 
-    paths = [p for p in paths if available(p)]
-    if paths:
-        # Add every remembered tab but load only the active one (the others load
-        # lazily when first selected).
-        for p in paths:
-            kind = document_kind(Path(p))
-            if kind:
-                window._add_tab(Path(p), kind)
-        active = settings.value("active_tab", 0)
-        try:
-            active = int(active)
-        except (ValueError, TypeError):
-            active = 0
-        active = max(0, min(active, window._tab_bar.count() - 1))
+    # An explicit [] means the user closed every tab. Only absent/malformed
+    # tab lists may fall back to the single-file setting from old releases.
+    if not isinstance(paths, list):
+        last = settings.value("last_file")
+        paths = [last] if available(last) else []
+    try:
+        active = int(settings.value("active_tab", 0))
+    except (ValueError, TypeError):
+        active = 0
+    active = max(0, min(active, len(paths) - 1))
+    preferred = settings.value("active_tab_path")
+    if not isinstance(preferred, str) or preferred not in paths:
+        preferred = paths[active] if paths else None
+    # Resolve identity before filtering missing files, so deleting an earlier
+    # tab does not silently activate the following document instead.
+    known = {
+        _session_path_key(p): p
+        for i in range(window._tab_bar.count())
+        if isinstance(p := window._tab_bar.tabData(i), str) and p
+    }
+    for path in paths:
+        if not available(path):
+            continue
+        key = _session_path_key(path)
+        if key not in known:
+            window._add_tab(Path(path), document_kind(Path(path)))
+            known[key] = path
+    if file_arg:
+        # A file-manager launch selects its file while keeping the old tabs.
+        # Reuse saved path spelling for case-insensitive Windows duplicates.
+        window.open_path(known.get(_session_path_key(file_arg), file_arg))
+        return
+    if window._tab_bar.count():
+        restored = [window._tab_bar.tabData(i) for i in range(window._tab_bar.count())]
+        preferred = known.get(_session_path_key(preferred)) if isinstance(preferred, str) and preferred else None
+        active = restored.index(preferred) if preferred in restored else 0
         window._tab_guard = True
         window._tab_bar.setCurrentIndex(active)
         window._tab_guard = False
         window._activate_tab(active)
-        show_pending_recovery(window)
-        return
-    # Fallback to the single last_file remembered by older versions.
-    last = settings.value("last_file")
-    if available(last):
-        window._open_file(last)
-    show_pending_recovery(window)
 
 
 def restore_startup(window, file_arg: str = ""):
-    """Apply startup routing and always discover drafts outside the old session."""
-    if file_arg:
-        restore_file_tree_state(window)
-        window.open_path(file_arg)
-        show_pending_recovery(window)
+    """A CLI file takes focus without replacing the previous workspace."""
+    restore_last_session(window, file_arg)
+
+
+def save_open_tabs(window, settings=None) -> None:
+    """Checkpoint tab identity/order without serializing editor buffers."""
+    if window._is_detached or getattr(window, "_restoring_session", False):
+        return
+    settings = settings if settings is not None else QSettings(_ORG, _APP)
+    paths = [
+        p for i in range(window._tab_bar.count())
+        if isinstance(p := window._tab_bar.tabData(i), str) and p
+    ]
+    active_path = window._active_path
+    if active_path not in paths:
+        active_path = window._tab_bar.tabData(window._tab_bar.currentIndex())
+    active = paths.index(active_path) if active_path in paths else -1
+    values = {
+        "open_tabs": json.dumps(paths, ensure_ascii=False),
+        "active_tab": active,
+        "active_tab_path": active_path or "",
+    }
+    for key, value in values.items():
+        if settings.value(key) != value:
+            settings.setValue(key, value)
+    if active_path:
+        settings.setValue("last_file", active_path)
     else:
-        restore_last_session(window)
+        settings.remove("last_file")
+    # Persist checkpoints even when no closeEvent arrives (e.g. a crash).
+    settings.sync()
+    if settings.status() != settings.Status.NoError:
+        window.statusBar().showMessage("無法儲存開啟分頁紀錄，請檢查設定檔的寫入權限。", 6000)
 
 
 def show_pending_recovery(window, *, notify_empty: bool = False):
@@ -416,17 +478,15 @@ def close_event(window, event) -> bool:
         event.ignore()
         return False
     save_active_view_state(window)
+    timer = getattr(window, "_session_save_timer", None)
+    if timer is not None:
+        timer.stop()
+    window._session_closing = True
     if not window._is_detached:
         settings = QSettings(_ORG, _APP)
         settings.setValue("geometry", window.saveGeometry())
-        open_tabs = [
-            window._tab_bar.tabData(i) for i in range(window._tab_bar.count())
-        ]
-        settings.setValue("open_tabs", json.dumps(open_tabs))
-        settings.setValue("active_tab", window._tab_bar.currentIndex())
-        if window._current_file:
-            settings.setValue("last_file", str(window._current_file))
         tree_state = window._panel.file_browser.tree_state()
         if isinstance(tree_state, dict):
             settings.setValue("file_tree_state", json.dumps(tree_state))
+        save_open_tabs(window, settings)
     return True

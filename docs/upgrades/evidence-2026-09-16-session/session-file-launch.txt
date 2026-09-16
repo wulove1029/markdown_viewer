@@ -1,0 +1,7 @@
+{"stage": "file-launch", "tabs": ["reading-2.pdf", "reading-0.pdf", "reading-1.pdf", "reading-3.pdf"], "active": "reading-3.pdf", "page": 0, "checkpoint_before_close": true, "close_event": true, "status": "passed", "settings_isolated": true}
+[37496:34140:0916/153732.021:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[37496:34140:0916/153732.021:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+[37496:34140:0916/153732.035:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[37496:34140:0916/153732.035:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+[37496:34140:0916/153732.035:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[37496:34140:0916/153732.035:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.

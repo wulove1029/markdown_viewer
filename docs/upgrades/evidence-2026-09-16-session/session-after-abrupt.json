@@ -1,0 +1,14 @@
+{
+  "stage": "after-abrupt",
+  "tabs": [
+    "reading-3.pdf",
+    "reading-2.pdf",
+    "reading-1.pdf"
+  ],
+  "active": "reading-1.pdf",
+  "page": 2,
+  "checkpoint_before_close": true,
+  "close_event": true,
+  "status": "passed",
+  "settings_isolated": true
+}
