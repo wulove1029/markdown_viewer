@@ -1,0 +1,27 @@
+{
+  "status": "passed",
+  "tag": "v1.33.0",
+  "source_commit": "5a5aae2210b4eaef521c1f1501419fb362af5118",
+  "workflow": {
+    "url": "https://github.com/wulove1029/markdown_viewer/actions/runs/35060923795",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "release_url": "https://github.com/wulove1029/markdown_viewer/releases/tag/v1.33.0",
+  "published_at": "2026-09-16T05:53:52Z",
+  "draft": false,
+  "prerelease": false,
+  "latest_tag": "v1.33.0",
+  "asset": {
+    "name": "MarkdownViewer_Setup_v1.33.0.exe",
+    "size": 173459467,
+    "state": "uploaded",
+    "download_url": "https://github.com/wulove1029/markdown_viewer/releases/download/v1.33.0/MarkdownViewer_Setup_v1.33.0.exe",
+    "server_digest": "sha256:fc96389f74e65e6b0d48a64f21ce392a0c002e1211fb5689161a1a78fe77314b",
+    "downloaded_sha256": "fc96389f74e65e6b0d48a64f21ce392a0c002e1211fb5689161a1a78fe77314b",
+    "server_digest_matches": true,
+    "local_path": "tmp\\release-1.33.0-download\\MarkdownViewer_Setup_v1.33.0.exe",
+    "pe_header": "MZ"
+  },
+  "installer_executed": false
+}

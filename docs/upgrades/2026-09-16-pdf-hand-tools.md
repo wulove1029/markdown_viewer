@@ -1,6 +1,6 @@
 # PDF 手形拖曳與閱讀右鍵選單
 
-日期：2026-09-16。本批程式碼與閱讀功能已驗收，尚未發布。
+日期：2026-09-16。本批程式碼與閱讀功能已驗收，已隨 v1.33.0 正式發布，詳見 `2026-09-16-release-1.33.0.md`。
 
 ## 需求與範圍
 
@@ -39,10 +39,11 @@
 - 「拍攝快照」框選的是目前可見區域，依目前畫面解析度複製到剪貼簿，可貼至其他程式；不是整頁高解析度 PDF 匯出。
 - 「新增頁面註記」沿用應用程式的 `.notes.json` 側錄檔，並非新增 Adobe 內嵌註解。既有內嵌註解的檢視、回覆與編輯維持原功能。
 - 本批未加入 PDF 本文／圖片編輯、簽名、旋轉及列印；沒有宣稱等同完整 Acrobat 功能。
-- 程式碼可用 `py -3 main.py` 試用；先正常關閉既有 Markdown Viewer，避免單一實例開檔轉交舊版本。尚未發布或更新既有安裝版。
+- 程式碼可用 `py -3 main.py` 試用；先正常關閉既有 Markdown Viewer，避免單一實例開檔轉交舊版本。正式安裝檔已發布，尚未代替使用者更新目前的安裝版。
 
 ## 本機試用執行檔
 
+- 以下是升版前建立的本機功能試用包；正式 v1.33.0 安裝檔請以發布紀錄中的 GitHub Release 為準。
 - 建置命令：`py -3 -X utf8 -m PyInstaller --distpath dist/pdf-hand-tools --workpath build/pdf-hand-tools markdown_viewer.spec`。
 - 建置結果：**exit 0**，EXE 與 COLLECT 均成功，耗時約 133 秒；紀錄見 `evidence-2026-09-16/build-pdf-tools.txt`。
 - 入口：`E:\markdown_viewer\dist\pdf-hand-tools\MarkdownViewer\MarkdownViewer.exe`。需保留整個 `MarkdownViewer` 資料夾及 `_internal` 相依檔案。
