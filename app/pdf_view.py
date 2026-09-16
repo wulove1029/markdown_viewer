@@ -51,6 +51,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLineEdit,
     QMenu,
+    QMessageBox,
+    QRubberBand,
     QToolTip,
 )
 
@@ -195,6 +197,10 @@ class PdfView(QAbstractScrollArea):
     annotation_delete_requested = Signal(object)       # entry
     zoom_changed = Signal(float)  # user-initiated wheel zoom
     translate_requested = Signal(str)  # selected text to translate
+    find_requested = Signal()
+    page_note_requested = Signal(int)  # page under the context menu, 0-based
+    status_message = Signal(str)
+    pen_mode_changed = Signal(bool)
 
     PAGE_MARGIN = 12   # gutter around the page column (px)
     PAGE_SPACING = 12  # gap between pages (px)
@@ -303,6 +309,18 @@ class PdfView(QAbstractScrollArea):
         self._last_dbl_ms: int | None = None
         self._last_dbl_pos = QPoint()
 
+        # Hand panning is independent of text selection. Temporary gestures
+        # restore the chosen tool after release, focus loss, or a tab switch.
+        self._hand_mode = False
+        self._space_pan = False
+        self._pan_button = Qt.MouseButton.NoButton
+        self._pan_start = QPointF()
+        self._pan_scroll = QPoint()
+        self._pan_moved = False
+        self._snapshot_mode = False
+        self._snapshot_start: QPoint | None = None
+        self._snapshot_band = QRubberBand(QRubberBand.Shape.Rectangle, self.viewport())
+
         # --- embedded (Acrobat-authored) annotations, drawn by this view ---
         # The raster arrives without PDFium's annotation layer on purpose (see
         # PdfRenderScheduler.request), so these are painted as an overlay.
@@ -384,6 +402,7 @@ class PdfView(QAbstractScrollArea):
         # Preserve the final wheel delta when a reload or tab switch happens
         # before the short frame timer has fired.
         self.flush_pending_wheel_zoom()
+        self._cancel_pointer_gesture()
         self._reset_render_pipeline(clear_cache=True)
         self._load_generation += 1
         self._outline_submit_timer.stop()
@@ -1405,7 +1424,84 @@ class PdfView(QAbstractScrollArea):
         return (pos - self._last_dbl_pos).manhattanLength() <= 6
 
     # ================= mouse / selection =================
+    def hand_mode(self) -> bool:
+        return self._hand_mode
+
+    def set_hand_mode(self, on: bool) -> None:
+        self._cancel_pointer_gesture()
+        self.set_pen_mode(False)
+        self._hand_mode = bool(on)
+        self._last_dbl_ms = None
+        self._update_pointer_cursor()
+
+    def _update_pointer_cursor(self) -> None:
+        if self._pan_button != Qt.MouseButton.NoButton:
+            cursor = Qt.CursorShape.ClosedHandCursor
+        elif self._space_pan or self._hand_mode and not self._snapshot_mode:
+            cursor = Qt.CursorShape.OpenHandCursor
+        elif self._snapshot_mode or self._pen_mode:
+            cursor = Qt.CursorShape.CrossCursor
+        else:
+            cursor = Qt.CursorShape.IBeamCursor
+        self.viewport().setCursor(cursor)
+
+    def _cancel_pointer_gesture(self) -> None:
+        self._pan_button = Qt.MouseButton.NoButton
+        self._space_pan = False
+        self._dragging = False
+        self._sel_start = None
+        self._snapshot_mode = False
+        self._snapshot_start = None
+        self._snapshot_band.hide()
+        self._update_pointer_cursor()
+
+    def focusOutEvent(self, event):
+        self._cancel_pointer_gesture()
+        super().focusOutEvent(event)
+
+    def hideEvent(self, event):
+        self._cancel_pointer_gesture()
+        super().hideEvent(event)
+
+    def _open_annotation_at(self, pos: QPoint) -> bool:
+        hit = self.embedded_annotation_at(pos)
+        if hit is None:
+            return False
+        self._clear_selection()
+        self.selection_changed.emit(False)
+        target = hit if hit.in_reply_to is None else self._parent_annotation(hit)
+        self.show_annotation_card(target)
+        self.flash_embedded_annotation(target.xref)
+        self.embedded_annotation_selected.emit(target)
+        return True
+
     def mousePressEvent(self, event):
+        button = event.button()
+        if self._page_sizes and (
+            button == Qt.MouseButton.MiddleButton
+            or button == Qt.MouseButton.LeftButton
+            and (self._space_pan or self._hand_mode and not self._snapshot_mode)
+        ):
+            self.setFocus()
+            self._dragging = False
+            self._sel_start = None
+            self._last_dbl_ms = None
+            self._pan_button = button
+            self._pan_start = event.position()
+            self._pan_scroll = QPoint(
+                self.horizontalScrollBar().value(), self.verticalScrollBar().value()
+            )
+            self._pan_moved = False
+            self._update_pointer_cursor()
+            event.accept()
+            return
+        if button == Qt.MouseButton.LeftButton and self._snapshot_mode:
+            self.setFocus()
+            self._snapshot_start = event.position().toPoint()
+            self._snapshot_band.setGeometry(QRect(self._snapshot_start, QSize()))
+            self._snapshot_band.show()
+            event.accept()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -1423,14 +1519,7 @@ class PdfView(QAbstractScrollArea):
                 return
         # A click on an embedded annotation opens its card; it must not also
         # start a text selection under the card that just appeared.
-        hit = self.embedded_annotation_at(pos)
-        if hit is not None:
-            self._clear_selection()
-            self.selection_changed.emit(False)
-            target = hit if hit.in_reply_to is None else self._parent_annotation(hit)
-            self.show_annotation_card(target)
-            self.flash_embedded_annotation(target.xref)
-            self.embedded_annotation_selected.emit(target)
+        if self._open_annotation_at(pos):
             return
         self.close_annotation_card()
         page, pt = self._pos_to_page(pos)
@@ -1446,6 +1535,21 @@ class PdfView(QAbstractScrollArea):
         self.viewport().update()
 
     def mouseMoveEvent(self, event):
+        if self._pan_button != Qt.MouseButton.NoButton:
+            if not event.buttons() & self._pan_button:
+                self._cancel_pointer_gesture()
+                return
+            delta = event.position() - self._pan_start
+            self._pan_moved |= delta.manhattanLength() >= QApplication.startDragDistance()
+            self.horizontalScrollBar().setValue(self._pan_scroll.x() - round(delta.x()))
+            self.verticalScrollBar().setValue(self._pan_scroll.y() - round(delta.y()))
+            event.accept()
+            return
+        if self._snapshot_start is not None:
+            rect = QRect(self._snapshot_start, event.position().toPoint()).normalized()
+            self._snapshot_band.setGeometry(rect.intersected(self.viewport().rect()))
+            event.accept()
+            return
         if not self._dragging or self._sel_page < 0 or self._sel_start is None:
             super().mouseMoveEvent(event)
             return
@@ -1456,6 +1560,9 @@ class PdfView(QAbstractScrollArea):
         self.viewport().update()
 
     def mouseDoubleClickEvent(self, event):
+        if self._hand_mode or self._space_pan or self._snapshot_mode:
+            self.mousePressEvent(event)
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseDoubleClickEvent(event)
             return
@@ -1471,6 +1578,26 @@ class PdfView(QAbstractScrollArea):
         super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._pan_button != Qt.MouseButton.NoButton:
+            if event.button() == self._pan_button:
+                open_annotation = (
+                    self._hand_mode and not self._space_pan and not self._pan_moved
+                    and event.button() == Qt.MouseButton.LeftButton
+                    and (event.position() - self._pan_start).manhattanLength()
+                    < QApplication.startDragDistance()
+                )
+                self._pan_button = Qt.MouseButton.NoButton
+                self._update_pointer_cursor()
+                if open_annotation:
+                    self._open_annotation_at(event.position().toPoint())
+            event.accept()
+            return
+        if self._snapshot_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            rect = QRect(self._snapshot_start, event.position().toPoint()).normalized()
+            self._cancel_pointer_gesture()
+            self.copy_snapshot(rect)
+            event.accept()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseReleaseEvent(event)
             return
@@ -1566,6 +1693,25 @@ class PdfView(QAbstractScrollArea):
         self._dragging = False
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and (
+            self._snapshot_mode or self._space_pan
+            or self._pan_button != Qt.MouseButton.NoButton
+        ):
+            self._cancel_pointer_gesture()
+            event.accept()
+            return
+        if (
+            event.key() == Qt.Key.Key_Space
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and self._page_sizes
+        ):
+            if not event.isAutoRepeat():
+                self._space_pan = True
+                self._dragging = False
+                self._sel_start = None
+                self._update_pointer_cursor()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Escape and self._annotation_card.isVisible():
             self.close_annotation_card()
             event.accept()
@@ -1589,7 +1735,74 @@ class PdfView(QAbstractScrollArea):
             return
         super().keyPressEvent(event)
 
-    def contextMenuEvent(self, event):
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            if not event.isAutoRepeat():
+                self._space_pan = False
+                if self._pan_button == Qt.MouseButton.LeftButton and not self._hand_mode:
+                    self._pan_button = Qt.MouseButton.NoButton
+                self._update_pointer_cursor()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def start_snapshot(self) -> None:
+        if not self._page_sizes:
+            return
+        self._cancel_pointer_gesture()
+        self._clear_selection()
+        self.selection_changed.emit(False)
+        self._snapshot_mode = True
+        self._update_pointer_cursor()
+        self.setFocus()
+        self.viewport().update()
+        self.status_message.emit("快照：拖曳框選可見區域，放開後複製圖片；Esc 取消")
+
+    def copy_snapshot(self, rect: QRect) -> bool:
+        rect = rect.intersected(self.viewport().rect())
+        if not self._page_sizes or rect.width() < 3 or rect.height() < 3:
+            return False
+        pixmap = self.viewport().grab(rect)
+        if pixmap.isNull():
+            return False
+        QApplication.clipboard().setPixmap(pixmap)
+        self.status_message.emit("已將可見區域快照複製為圖片，可貼到其他程式")
+        return True
+
+    def _menu_zoom(self, factor: float, pos: QPoint) -> None:
+        self.set_zoom_factor(
+            max(self._WHEEL_MIN_ZOOM, min(self._WHEEL_MAX_ZOOM, factor)), anchor=pos
+        )
+        self.zoom_changed.emit(self._zoom_factor)
+
+    def document_info(self) -> str:
+        if not self._path or not self._page_sizes:
+            return "尚未開啟 PDF"
+        rows = [f"檔案：{self._path.name}", f"位置：{self._path}", f"頁數：{len(self._page_sizes)}"]
+        try:
+            rows.append(f"檔案大小：{self._path.stat().st_size:,} 位元組")
+        except OSError:
+            rows.append("檔案大小：無法取得")
+        for field, label in (
+            (QPdfDocument.MetaDataField.Title, "標題"),
+            (QPdfDocument.MetaDataField.Author, "作者"),
+            (QPdfDocument.MetaDataField.Subject, "主旨"),
+            (QPdfDocument.MetaDataField.Creator, "建立工具"),
+            (QPdfDocument.MetaDataField.Producer, "PDF 產生器"),
+        ):
+            value = self._doc.metaData(field)
+            if value:
+                rows.append(f"{label}：{value}")
+        return "\n".join(rows)
+
+    def show_document_info(self) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle("PDF 文件資訊")
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(self.document_info())
+        box.exec()
+
+    def _build_context_menu(self, pos: QPoint) -> QMenu:
         menu = QMenu(self)
         menu.setStyleSheet(
             f"QMenu {{ background: {self._theme.surface};"
@@ -1597,11 +1810,22 @@ class PdfView(QAbstractScrollArea):
             f"QMenu::item:selected {{ background: {self._theme.surface_hover}; }}"
             f"QMenu::item:disabled {{ color: {self._theme.text_subtle}; }}"
         )
-        # QContextMenuEvent has no position(); map the global point so the
-        # hit-test works no matter which widget the event was delivered to.
-        hit_highlight_id = self.highlight_at(
-            self.viewport().mapFromGlobal(event.globalPos())
-        )
+        ready = bool(self._page_sizes)
+        select = menu.addAction("文字選取工具")
+        select.setCheckable(True)
+        select.setChecked(not self._hand_mode and not self._pen_mode)
+        select.triggered.connect(lambda: self.set_hand_mode(False))
+        hand = menu.addAction("手形工具（拖曳移動）")
+        hand.setCheckable(True)
+        hand.setChecked(self._hand_mode)
+        hand.triggered.connect(lambda: self.set_hand_mode(True))
+        snapshot = menu.addAction("拍攝快照（框選複製圖片）")
+        snapshot.setEnabled(ready)
+        snapshot.triggered.connect(self.start_snapshot)
+        hint = menu.addAction("按住空白鍵＋左鍵，或中鍵拖曳")
+        hint.setEnabled(False)
+        menu.addSeparator()
+        hit_highlight_id = self.highlight_at(pos)
         if hit_highlight_id:
             delete = menu.addAction("刪除此螢光標記")
             delete.triggered.connect(
@@ -1626,9 +1850,43 @@ class PdfView(QAbstractScrollArea):
                     lambda _checked=False, c=hex_color: self.highlight_selection(c)
                 )
         else:
-            hint = menu.addAction("（先用滑鼠拖曳選取文字）")
-            hint.setEnabled(False)
-        menu.exec(event.globalPos())
+            copy = menu.addAction("複製選取文字")
+            copy.setEnabled(False)
+        menu.addSeparator()
+        page, _ = self._pos_to_page(pos)
+        note_page = page if page is not None else self.current_page()
+        note = menu.addAction(f"新增頁面註記（第 {note_page + 1} 頁）")
+        note.setEnabled(ready)
+        note.triggered.connect(lambda: self.page_note_requested.emit(note_page))
+        find = menu.addAction("尋找文字\tCtrl+F")
+        find.setEnabled(ready)
+        find.triggered.connect(self.find_requested.emit)
+        menu.addSeparator()
+        for label, factor in (
+            ("放大", min(self._WHEEL_MAX_ZOOM, self._zoom_factor * 1.25)),
+            ("縮小", max(self._WHEEL_MIN_ZOOM, self._zoom_factor / 1.25)),
+            ("符合頁面寬度", 1.0),
+        ):
+            action = menu.addAction(label)
+            action.setEnabled(ready and abs(factor - self._zoom_factor) > 1e-6)
+            action.triggered.connect(lambda _checked=False, f=factor: self._menu_zoom(f, pos))
+        menu.addSeparator()
+        info = menu.addAction("文件資訊")
+        info.setEnabled(ready)
+        info.triggered.connect(self.show_document_info)
+        return menu
+
+    def contextMenuEvent(self, event):
+        self._cancel_pointer_gesture()
+        pos = self.viewport().mapFromGlobal(event.globalPos())
+        if event.reason() == event.Reason.Keyboard:
+            pos = self.viewport().rect().center()
+        menu = self._build_context_menu(pos)
+        try:
+            menu.exec(self.viewport().mapToGlobal(pos))
+        finally:
+            menu.deleteLater()
+        event.accept()
 
     # ================= highlighter state =================
     def set_highlights(self, highlights) -> None:
@@ -1636,10 +1894,14 @@ class PdfView(QAbstractScrollArea):
         self.viewport().update()
 
     def set_pen_mode(self, on: bool) -> None:
+        changed = self._pen_mode != bool(on)
+        self._cancel_pointer_gesture()
         self._pen_mode = bool(on)
-        self.viewport().setCursor(
-            Qt.CursorShape.CrossCursor if on else Qt.CursorShape.IBeamCursor
-        )
+        if on:
+            self._hand_mode = False
+        self._update_pointer_cursor()
+        if changed:
+            self.pen_mode_changed.emit(self._pen_mode)
 
     def pen_mode(self) -> bool:
         return self._pen_mode

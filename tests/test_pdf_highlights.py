@@ -100,63 +100,26 @@ def test_view_hit_test_finds_highlight_under_pointer(qapp):
 
 
 def test_context_menu_delete_action_requests_highlight_delete(qapp, monkeypatch):
-    from PySide6.QtCore import QPoint, QPointF
-
-    import app.pdf_view as pdf_view_mod
+    from PySide6.QtCore import QPoint, QTimer
     from app.pdf_view import PdfView
 
-    class _Signal:
-        def __init__(self):
-            self._callbacks = []
+    def choose_delete(menu):
+        for action in menu.actions():
+            if action.text() == "刪除此螢光標記":
+                action.trigger()
+                menu.close()
+                return
+        pytest.fail("Highlight delete action is missing")
 
-        def connect(self, callback):
-            self._callbacks.append(callback)
-
-        def emit(self):
-            for callback in self._callbacks:
-                callback()
-
-    class _Action:
-        def __init__(self, text):
-            self.text = text
-            self.triggered = _Signal()
-            self.enabled = True
-
-        def setEnabled(self, enabled):
-            self.enabled = bool(enabled)
-
-        def trigger(self):
-            if self.enabled:
-                self.triggered.emit()
-
-    class _Menu:
-        def __init__(self, *_args):
-            self.actions = []
-
-        def setStyleSheet(self, _style):
-            pass
-
-        def addAction(self, text):
-            action = _Action(text)
-            self.actions.append(action)
-            return action
-
-        def addSeparator(self):
-            pass
-
-        def addMenu(self, text):
-            menu = _Menu()
-            self.actions.append(_Action(text))
-            return menu
-
-        def exec(self, _global_pos):
-            for action in self.actions:
-                if action.text == "刪除此螢光標記":
-                    action.trigger()
-                    return
-
-    monkeypatch.setattr(pdf_view_mod, "QMenu", _Menu)
     view = PdfView()
+    build = view._build_context_menu
+
+    def timed_menu(pos):
+        menu = build(pos)
+        QTimer.singleShot(0, lambda: choose_delete(menu))
+        return menu
+
+    monkeypatch.setattr(view, "_build_context_menu", timed_menu)
     view._page_tops = [12]
     view._page_lefts = [24]
     view._page_pix = [(600, 800)]

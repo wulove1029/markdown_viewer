@@ -1,0 +1,18 @@
+{
+  "snapshot_armed_after_real_menu": true,
+  "snapshot_content": {
+    "size": [
+      131,
+      111
+    ],
+    "sample": "#1a66cc"
+  },
+  "real_menu_snapshot_escape": true,
+  "select_and_h_after_hand": "Independent text select",
+  "real_widget_focus_change_cancels_pan": true,
+  "real_menu_zoom_signals": [
+    2.5,
+    1.0
+  ],
+  "pdf_unchanged_sha256": "2d07e6da4a4ad2acf60dff4322c903b237d274bf836ce7825361782b45892723"
+}

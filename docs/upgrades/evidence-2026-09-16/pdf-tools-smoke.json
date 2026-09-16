@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "platform": "Qt offscreen; real MainWindow and PdfView",
+  "pan_scroll": [
+    270,
+    250
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "menu_mouse_selection": "snapshot entered after menu closed",
+  "snapshot": "clipboard image saved in both themes",
+  "search": "visible",
+  "source_pdf_unchanged": true,
+  "menus": [
+    [
+      "文字選取工具",
+      "手形工具（拖曳移動）",
+      "拍攝快照（框選複製圖片）",
+      "按住空白鍵＋左鍵，或中鍵拖曳",
+      "複製選取文字",
+      "新增頁面註記（第 1 頁）",
+      "尋找文字\tCtrl+F",
+      "放大",
+      "縮小",
+      "符合頁面寬度",
+      "文件資訊"
+    ],
+    [
+      "文字選取工具",
+      "手形工具（拖曳移動）",
+      "拍攝快照（框選複製圖片）",
+      "按住空白鍵＋左鍵，或中鍵拖曳",
+      "複製選取文字",
+      "新增頁面註記（第 1 頁）",
+      "尋找文字\tCtrl+F",
+      "放大",
+      "縮小",
+      "符合頁面寬度",
+      "文件資訊"
+    ]
+  ],
+  "temporary_files_cleaned": true
+}

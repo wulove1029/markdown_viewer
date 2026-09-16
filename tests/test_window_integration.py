@@ -186,6 +186,10 @@ class _FakePdfView(QWidget):
     annotation_delete_requested = Signal(object)
     zoom_changed = Signal(float)
     translate_requested = Signal(str)
+    find_requested = Signal()
+    page_note_requested = Signal(int)
+    status_message = Signal(str)
+    pen_mode_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -613,6 +617,43 @@ def test_pdf_outline_is_async_and_stale_results_do_not_replace_current_toc(
     )
     assert len(updates) == before
     assert win._pdf_view.outline_calls == 0
+
+
+def test_pdf_context_tools_reach_window_and_persist_clicked_page_note(
+    make_window, tmp_path, monkeypatch
+):
+    from app.pdf_notes import PdfNoteStore
+
+    pdf = tmp_path / "context-tools.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    win = make_window()
+    win.open_path(str(pdf))
+    prompts = []
+
+    def enter_note(_parent, _title, prompt, _text):
+        prompts.append(prompt)
+        return "Review the second page", True
+
+    monkeypatch.setattr(window_mod.QInputDialog, "getMultiLineText", enter_note)
+    win._pdf_view.page_note_requested.emit(1)
+    notes = PdfNoteStore.load(pdf)
+    assert prompts == ["第 2 頁的註記："]
+    assert len(notes) == 1
+    assert notes[0].page == 1
+    assert notes[0].note == "Review the second page"
+    assert pdf.read_bytes() == b"%PDF-1.4\n"
+
+    win._pdf_view.find_requested.emit()
+    assert not win._search_bar.isHidden()
+    win._search_input.setText("resistor")
+    win._pdf_view.find_requested.emit()
+    assert not win._search_bar.isHidden()
+    assert win._search_input.selectedText() == "resistor"
+    win._pen_mode = True
+    win._pdf_view.pen_mode_changed.emit(False)
+    assert not win._pen_mode
+    win._pdf_view.status_message.emit("Snapshot copied")
+    assert win.statusBar().currentMessage() == "Snapshot copied"
 
 
 def test_pdf_wheel_zoom_is_remembered_apart_from_text_content_zoom(

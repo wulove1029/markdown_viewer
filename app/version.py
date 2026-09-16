@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.32.0"
+VERSION = "1.33.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "PDF 內嵌註解直接顯示在頁面上，可拖動卡片、側欄討論串，並能新增回覆、編輯或刪除自己的註解寫回檔案。",
-    "大型 Markdown 改用可中止的子程序解析，2 MB 以上先顯示文字前綴，5 MB 首屏約 0.2 秒且切換文件不必等。",
-    "更新下載改為非模態串流下載，附 SHA-256 校驗、可取消與重試，下載完成後由你決定何時安裝。",
+    "PDF 新增手形工具，可按住左鍵拖曳大圖，也能使用空白鍵＋左鍵或滑鼠中鍵暫時拖曳。",
+    "PDF 右鍵選單新增區域快照、縮放與符合寬度、尋找文字、頁面註記及文件資訊。",
+    "手形與文字選取工具可互相切換，保留複製、翻譯、螢光標記及既有 PDF 內嵌註解操作。",
 ]
 
 GITHUB_OWNER = "wulove1029"

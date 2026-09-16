@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "python": "3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]",
+  "version": "1.33.0",
+  "installer_version": "1.33.0",
+  "release_notes_count": 3,
+  "repository": "wulove1029/markdown_viewer",
+  "tag": "v1.33.0",
+  "expected_installer": "MarkdownViewer_Setup_v1.33.0.exe",
+  "product_hashes_match_prior_independent_review": {
+    "app/pdf_view.py": "C0203CDEBBFBD9A1DA1A4C606CC837FA7A0848ED7E28A65D1EC8E584A3905CFC",
+    "app/window.py": "103999ABBA0127F7ACAFD77727B436FD2A8B1FCA72B6E981BBC8C7067D17E482",
+    "app/shortcuts.py": "901B8DC3A6E3D63797228B2960473E017C7C40B4CE4D566A7C842DF088824DF0"
+  },
+  "imports": [
+    "app.version",
+    "app.pdf_view",
+    "app.window",
+    "app.shortcuts"
+  ],
+  "evidence_readback": {
+    "full_tests": "1682 passed, 77 skipped",
+    "independent_tests": "333 passed, 1 warning",
+    "ui_smoke": "passed"
+  },
+  "workflow_static_check": "passed",
+  "remote_release": "pending parent agent verification"
+}

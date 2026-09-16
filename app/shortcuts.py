@@ -429,6 +429,20 @@ CONTEXT_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "PDF",
     ),
     ShortcutSpec(
+        "pdf.pan",
+        "PDF",
+        "暫時使用手形工具拖曳移動",
+        ("空白鍵+左鍵拖曳", "中鍵拖曳"),
+        "PDF",
+    ),
+    ShortcutSpec(
+        "pdf.cancel_gesture",
+        "PDF",
+        "取消區域快照或拖曳",
+        ("Esc",),
+        "PDF 拖曳／快照",
+    ),
+    ShortcutSpec(
         "pdf.copy",
         "PDF",
         "複製選取的文字",

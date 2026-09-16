@@ -588,6 +588,12 @@ class MainWindow(QMainWindow):
         )
         self._pdf_view.zoom_changed.connect(self._on_pdf_wheel_zoom_changed)
         self._pdf_view.translate_requested.connect(self._translate_selection)
+        self._pdf_view.find_requested.connect(self._pdf_find)
+        self._pdf_view.page_note_requested.connect(self._pdf_add_note_at_page)
+        self._pdf_view.status_message.connect(
+            lambda message: self.statusBar().showMessage(message, 5000)
+        )
+        self._pdf_view.pen_mode_changed.connect(self._on_pdf_pen_mode_changed)
         # Wheel zoom is already applied locally by PdfView. Defer the heavier
         # hidden-renderer/QSettings synchronization until the gesture settles.
         self._pending_pdf_wheel_zoom: float | None = None
@@ -4608,13 +4614,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self.statusBar().showMessage(f"無法儲存 PDF 註記：{exc}", 4000)
 
     def _pdf_add_note(self):
+        self._pdf_add_note_at_page(self._pdf_view.current_page())
+
+    def _pdf_add_note_at_page(self, page: int):
         if self._current_kind != "pdf" or not self._current_file:
             return
-        page = self._pdf_view.current_page()
         text, ok = QInputDialog.getMultiLineText(
             self, "新增頁面註記", f"第 {page + 1} 頁的註記：", ""
         )
-        if not ok:
+        if not ok or not text.strip():
             return
         self._pdf_notes.append(PdfNote.new(page=page, note=text.strip()))
         self._pdf_notes.sort(key=lambda n: (n.page, n.created))
@@ -4649,6 +4657,18 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._refresh_pdf_notes_panel()
 
     # --- PDF text highlights ---
+    def _pdf_find(self):
+        if self._current_kind != "pdf":
+            return
+        self._search_bar.show()
+        self._set_search_escape_enabled(True)
+        self._search_input.setFocus()
+        self._search_input.selectAll()
+
+    def _on_pdf_pen_mode_changed(self, on: bool):
+        self._pen_mode = on
+        self._refresh_icons()
+
     def _toggle_pen_mode(self):
         self._pen_mode = not self._pen_mode
         self._pdf_view.set_pen_mode(self._pen_mode)
