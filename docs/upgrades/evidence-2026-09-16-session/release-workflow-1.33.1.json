@@ -1,0 +1,107 @@
+{
+  "conclusion": "success",
+  "headSha": "874b9b0d303178b17a7ead3618a6834c69e29f7b",
+  "jobs": [
+    {
+      "completedAt": "2026-09-16T07:58:24Z",
+      "conclusion": "success",
+      "databaseId": 104711104951,
+      "name": "build-release",
+      "startedAt": "2026-09-16T07:51:11Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-09-16T07:51:13Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-09-16T07:51:12Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:51:19Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v4",
+          "number": 2,
+          "startedAt": "2026-09-16T07:51:13Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:51:20Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-python@v5",
+          "number": 3,
+          "startedAt": "2026-09-16T07:51:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:52:06Z",
+          "conclusion": "success",
+          "name": "Install Python dependencies",
+          "number": 4,
+          "startedAt": "2026-09-16T07:51:20Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:52:14Z",
+          "conclusion": "success",
+          "name": "Install Inno Setup",
+          "number": 5,
+          "startedAt": "2026-09-16T07:52:06Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:52:15Z",
+          "conclusion": "success",
+          "name": "Sync version from tag",
+          "number": 6,
+          "startedAt": "2026-09-16T07:52:14Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:58:09Z",
+          "conclusion": "success",
+          "name": "Build installer",
+          "number": 7,
+          "startedAt": "2026-09-16T07:52:15Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:58:19Z",
+          "conclusion": "success",
+          "name": "Publish GitHub release",
+          "number": 8,
+          "startedAt": "2026-09-16T07:58:09Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:58:19Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-python@v5",
+          "number": 15,
+          "startedAt": "2026-09-16T07:58:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:58:22Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v4",
+          "number": 16,
+          "startedAt": "2026-09-16T07:58:19Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-16T07:58:22Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 17,
+          "startedAt": "2026-09-16T07:58:22Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/wulove1029/markdown_viewer/actions/runs/35070648245/job/104711104951"
+    }
+  ],
+  "status": "completed",
+  "url": "https://github.com/wulove1029/markdown_viewer/actions/runs/35070648245"
+}
