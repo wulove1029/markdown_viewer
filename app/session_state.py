@@ -228,8 +228,8 @@ def _restore_session_documents(window, file_arg: str):
     # tab does not silently activate the following document instead.
     known = {
         _session_path_key(p): p
-        for i in range(window._tab_bar.count())
-        if isinstance(p := window._tab_bar.tabData(i), str) and p
+        for i in range(window.tab_bar.count())
+        if isinstance(p := window.tab_bar.tabData(i), str) and p
     }
     for path in paths:
         if not available(path):
@@ -243,12 +243,12 @@ def _restore_session_documents(window, file_arg: str):
         # Reuse saved path spelling for case-insensitive Windows duplicates.
         window.open_path(known.get(_session_path_key(file_arg), file_arg))
         return
-    if window._tab_bar.count():
-        restored = [window._tab_bar.tabData(i) for i in range(window._tab_bar.count())]
+    if window.tab_bar.count():
+        restored = [window.tab_bar.tabData(i) for i in range(window.tab_bar.count())]
         preferred = known.get(_session_path_key(preferred)) if isinstance(preferred, str) and preferred else None
         active = restored.index(preferred) if preferred in restored else 0
         window._tab_guard = True
-        window._tab_bar.setCurrentIndex(active)
+        window.tab_bar.setCurrentIndex(active)
         window._tab_guard = False
         window._activate_tab(active)
 
@@ -264,12 +264,12 @@ def save_open_tabs(window, settings=None) -> None:
         return
     settings = settings if settings is not None else QSettings(_ORG, _APP)
     paths = [
-        p for i in range(window._tab_bar.count())
-        if isinstance(p := window._tab_bar.tabData(i), str) and p
+        p for i in range(window.tab_bar.count())
+        if isinstance(p := window.tab_bar.tabData(i), str) and p
     ]
     active_path = window._active_path
     if active_path not in paths:
-        active_path = window._tab_bar.tabData(window._tab_bar.currentIndex())
+        active_path = window.tab_bar.tabData(window.tab_bar.currentIndex())
     active = paths.index(active_path) if active_path in paths else -1
     values = {
         "open_tabs": json.dumps(paths, ensure_ascii=False),
@@ -324,10 +324,10 @@ def pdf_pages_map() -> dict:
 
 
 def save_pdf_page(window, page0: int):
-    if not window._current_file:
+    if not window.current_file:
         return
     pages = pdf_pages_map()
-    pages[str(window._current_file)] = int(page0)
+    pages[str(window.current_file)] = int(page0)
     if len(pages) > 200:
         for key in list(pages)[:-200]:
             del pages[key]
@@ -344,7 +344,7 @@ def save_active_view_state(window):
     if state.get("kind") == "markdown":
         # Last value from the renderer's scroll poll (PDF page persists via
         # pdf_last_pages on page_changed, so nothing to capture for PDFs).
-        state["scroll"] = window._renderer.scroll_y()
+        state["scroll"] = window.renderer.scroll_y()
 
 
 def load_user_css(window, reload: bool = False):
@@ -360,13 +360,13 @@ def load_user_css(window, reload: bool = False):
                              settings.value(SPACING_KEY, "comfortable")) + "\n" + css)
     if (
         reload
-        and window._current_file
-        and is_markdown(window._current_file)
-        and not window._edit_mode
+        and window.current_file
+        and is_markdown(window.current_file)
+        and not window.edit_mode
     ):
-        window._renderer.reload_current()
-    elif (reload and window._current_file and is_markdown(window._current_file)
-          and window._edit_mode and getattr(window, "_view_mode", "") == "split"
+        window.renderer.reload_current()
+    elif (reload and window.current_file and is_markdown(window.current_file)
+          and window.edit_mode and getattr(window, "_view_mode", "") == "split"
           and getattr(window, "_active_edit_backend", "") != WYSIWYG_BACKEND):
         window._update_preview()
 
@@ -374,16 +374,16 @@ def load_user_css(window, reload: bool = False):
 def open_preferences(window):
     dialog = SettingsDialog(
         window,
-        current_theme=window._theme_name,
-        current_zoom=window._content_zoom,
+        current_theme=window.theme_name,
+        current_zoom=window.content_zoom,
     )
     if dialog.exec() != QDialog.DialogCode.Accepted:
         return
     r = dialog.results
     window._apply_content_zoom(r["content_zoom"])
-    new_theme = r.get("theme", window._theme_name)
-    if new_theme != window._theme_name:
-        window._theme_name = new_theme
+    new_theme = r.get("theme", window.theme_name)
+    if new_theme != window.theme_name:
+        window.theme_name = new_theme
         window._apply_theme()
     load_user_css(window, reload=True)
     if EDIT_BACKEND_KEY in r:
@@ -394,8 +394,8 @@ def open_preferences(window):
         window._preview_double_click = normalize_preview_double_click(
             r[PREVIEW_DOUBLE_CLICK_KEY]
         )
-        if not window._edit_mode:
-            window._renderer.set_preview_double_click_mode(
+        if not window.edit_mode:
+            window.renderer.set_preview_double_click_mode(
                 window._preview_double_click
             )
     window._panel.file_browser.refresh_libraries()
@@ -403,8 +403,8 @@ def open_preferences(window):
 
 
 def toggle_theme(window):
-    window._theme_name = "light" if window._theme_name == "dark" else "dark"
-    QSettings(_ORG, _APP).setValue("theme", window._theme_name)
+    window.theme_name = "light" if window.theme_name == "dark" else "dark"
+    QSettings(_ORG, _APP).setValue("theme", window.theme_name)
     window._apply_theme()
 
 
@@ -415,7 +415,7 @@ def toggle_annotation_side_notes(window, checked=None):
     QSettings(_ORG, _APP).setValue(
         "annotation_side_notes_visible", window._side_notes_visible
     )
-    window._renderer.set_annotation_side_notes_visible(window._side_notes_visible)
+    window.renderer.set_annotation_side_notes_visible(window._side_notes_visible)
     window._refresh_icons()
 
 
@@ -451,14 +451,14 @@ def apply_zoom(
     sync_wysiwyg: bool = True,
 ):
     """Apply and persist the text content zoom (Markdown / text / Office)."""
-    window._content_zoom = window._renderer.set_zoom(clamp_zoom_factor(factor))
+    window.content_zoom = window.renderer.set_zoom(clamp_zoom_factor(factor))
     if window._edit_preview is not None:
-        window._edit_preview.set_zoom(window._content_zoom)
-    if sync_wysiwyg and window._wysiwyg_view is not None:
-        window._wysiwyg_view.page().setZoomFactor(window._content_zoom)
-    QSettings(_ORG, _APP).setValue(CONTENT_ZOOM_KEY, window._content_zoom)
+        window._edit_preview.set_zoom(window.content_zoom)
+    if sync_wysiwyg and window.wysiwyg_view is not None:
+        window.wysiwyg_view.page().setZoomFactor(window.content_zoom)
+    QSettings(_ORG, _APP).setValue(CONTENT_ZOOM_KEY, window.content_zoom)
     window.statusBar().showMessage(
-        f"縮放：{round(window._content_zoom * 100)}%", 2000
+        f"縮放：{round(window.content_zoom * 100)}%", 2000
     )
 
 

@@ -81,6 +81,17 @@ class _OfficeView:
 
 
 class _Window:
+    from app.window import MainWindow as _Contract
+    current_file = _Contract.current_file
+    pdf_progress = _Contract.pdf_progress
+    tab_bar = _Contract.tab_bar
+    renderer = _Contract.renderer
+    theme_name = _Contract.theme_name
+    exporting = _Contract.exporting
+    edit_mode = _Contract.edit_mode
+    content_zoom = _Contract.content_zoom
+    wysiwyg_view = _Contract.wysiwyg_view
+
     def __init__(self, width=1536):
         self._renderer = _Renderer(width)
         self._pending_pdf_path = "manual.pdf"

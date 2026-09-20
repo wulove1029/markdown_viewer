@@ -295,3 +295,10 @@ B1 紅燈探針 run 35527130561 確實攔截故意失敗案例；同次另暴露
 34 個 PDF 操作方法抽至 pdf_flow，模組說明 window 共享狀態、UI 與回呼契約；保存仍用既有 Store/writer，未改 WYSIWYG 同步。window.py 6581 → 6293 行；三群累計 6862 → 6293（減少 569 行）。
 `py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 61.28s；Ruff/mypy 通過。
 Fresh agent 34 方法 body AST／簽章／參數一致；PDF writer、markup、reading、notes、highlights 139 passed、5 skipped，window PDF Qt 整合 9 passed。
+
+## E3
+
+MainWindow 九個 property 保留原私有欄位；session_state/export_actions 75 個存取改用公開名稱，update_flow 目前無指定九欄位，查證後不需修改。測試替身同步契約。
+`py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 60.24s；Ruff/mypy 通過。
+`RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_pdf_export_webengine.py -q` → 1 passed in 6.99s。
+Fresh agent 機械替換 AST 正確，九組 getter/setter 實跑通過，session/export 48 passed in 6.78s。

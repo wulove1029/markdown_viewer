@@ -42,6 +42,10 @@ def _content_size(view):
 
 
 class _ExportOwner:
+    @property
+    def renderer(self):
+        return self._renderer
+
     def __init__(self, renderer, path, done):
         self._renderer = renderer
         self._pending_pdf_path = str(path)

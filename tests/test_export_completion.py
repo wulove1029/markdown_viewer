@@ -36,7 +36,7 @@ def test_ppt_export_calls_shared_completion_only_after_success(qapp, monkeypatch
     destination = tmp_path / "slides.pptx"
     calls = []
     window = SimpleNamespace(
-        _exporting=False, _current_file=tmp_path / "note.md", _edit_mode=False,
+        exporting=False, current_file=tmp_path / "note.md", edit_mode=False,
         statusBar=lambda: SimpleNamespace(showMessage=lambda *args: None),
     )
     monkeypatch.setattr(export_actions, "_export_source_text", lambda w: "# Note")
@@ -47,4 +47,4 @@ def test_ppt_export_calls_shared_completion_only_after_success(qapp, monkeypatch
     monkeypatch.setattr(export_actions, "show_export_complete", lambda *args: calls.append(args))
     export_actions.export_pptx(window)
     assert calls == [(window, str(destination))]
-    assert window._exporting is False
+    assert window.exporting is False

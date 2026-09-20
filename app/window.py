@@ -670,6 +670,87 @@ class MainWindow(QMainWindow):
         # cancels the callback instead of invoking a deleted Python wrapper.
         QTimer.singleShot(2000, self, self._check_updates_silent)
 
+    @property
+    def current_file(self):
+        """Shared window contract for delegated workflows."""
+        return self._current_file
+
+    @current_file.setter
+    def current_file(self, value):
+        self._current_file = value
+
+    @property
+    def pdf_progress(self):
+        """Shared window contract for delegated workflows."""
+        return self._pdf_progress
+
+    @pdf_progress.setter
+    def pdf_progress(self, value):
+        self._pdf_progress = value
+
+    @property
+    def tab_bar(self):
+        """Shared window contract for delegated workflows."""
+        return self._tab_bar
+
+    @tab_bar.setter
+    def tab_bar(self, value):
+        self._tab_bar = value
+
+    @property
+    def renderer(self):
+        """Shared window contract for delegated workflows."""
+        return self._renderer
+
+    @renderer.setter
+    def renderer(self, value):
+        self._renderer = value
+
+    @property
+    def theme_name(self):
+        """Shared window contract for delegated workflows."""
+        return self._theme_name
+
+    @theme_name.setter
+    def theme_name(self, value):
+        self._theme_name = value
+
+    @property
+    def exporting(self):
+        """Shared window contract for delegated workflows."""
+        return self._exporting
+
+    @exporting.setter
+    def exporting(self, value):
+        self._exporting = value
+
+    @property
+    def edit_mode(self):
+        """Shared window contract for delegated workflows."""
+        return self._edit_mode
+
+    @edit_mode.setter
+    def edit_mode(self, value):
+        self._edit_mode = value
+
+    @property
+    def content_zoom(self):
+        """Shared window contract for delegated workflows."""
+        return self._content_zoom
+
+    @content_zoom.setter
+    def content_zoom(self, value):
+        self._content_zoom = value
+
+    @property
+    def wysiwyg_view(self):
+        """Shared window contract for delegated workflows."""
+        return self._wysiwyg_view
+
+    @wysiwyg_view.setter
+    def wysiwyg_view(self, value):
+        self._wysiwyg_view = value
+
     def _build_menu_bar(self):
         # Shortcuts stay on the QShortcuts above; the menu shows them as hints
         # (text after \t) without re-registering, so there's no key conflict.

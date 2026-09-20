@@ -20,6 +20,10 @@ from app.recovery_browser import pending_recovery_snapshots, save_recovery_copy
 class StartupWindow(QMainWindow):
     """Exercise real routing/dialogs without loading WebEngine or user settings."""
 
+    @property
+    def tab_bar(self):
+        return self._tab_bar
+
     def __init__(self, store):
         super().__init__()
         self._recovery_store = store

@@ -49,19 +49,19 @@ def _wysiwyg_active(window) -> bool:
     """
     return (
         getattr(window, "_active_edit_backend", None) == edit_backend.WYSIWYG_BACKEND
-        and window._wysiwyg_view is not None
+        and window.wysiwyg_view is not None
     )
 
 
 def _export_blocked(window) -> bool:
-    return window._edit_mode and not _wysiwyg_active(window)
+    return window.edit_mode and not _wysiwyg_active(window)
 
 
 def _export_source_text(window) -> str | None:
     """Markdown text to feed docx/pptx export: live buffer in WYSIWYG, disk otherwise."""
     if _wysiwyg_active(window):
         return window._editor.toPlainText()
-    result = read_text(window._current_file)
+    result = read_text(window.current_file)
     if result is None:
         return None
     return result[0]
@@ -69,15 +69,15 @@ def _export_source_text(window) -> str | None:
 
 def export_pdf(window):
     if (
-        not window._current_file
+        not window.current_file
         or _export_blocked(window)
-        or not is_markdown(window._current_file)
+        or not is_markdown(window.current_file)
     ):
         return
     setup = ask_page_setup(window)
     if setup is None:
         return
-    default = str(window._current_file.with_suffix(".pdf"))
+    default = str(window.current_file.with_suffix(".pdf"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 PDF", default, "PDF 檔案 (*.pdf)"
     )
@@ -90,33 +90,33 @@ def export_pdf(window):
         return
     if setup["size"] == "single":
         window._pending_pdf_path = path
-        window._renderer.content_size(window._export_single_page)
+        window.renderer.content_size(window._export_single_page)
     else:
         layout = pdf_layout(setup["size"], setup["orientation"])
         show_pdf_progress(window)
-        window._renderer.export_pdf(path, window._on_pdf_exported, layout)
+        window.renderer.export_pdf(path, window._on_pdf_exported, layout)
 
 
 def export_pptx(window):
     if (
-        window._exporting
-        or not window._current_file
+        window.exporting
+        or not window.current_file
         or _export_blocked(window)
-        or not is_markdown(window._current_file)
+        or not is_markdown(window.current_file)
     ):
         return
     text = _export_source_text(window)
     if text is None:
         QMessageBox.warning(window, "匯出 PPT", "無法讀取檔案內容。")
         return
-    default = str(window._current_file.with_suffix(".pptx"))
+    default = str(window.current_file.with_suffix(".pptx"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 PPT", default, "PowerPoint 簡報 (*.pptx)"
     )
     if not path:
         return
 
-    window._exporting = True
+    window.exporting = True
     renderer = None
     provider = None
     # Render Mermaid / math fragments to images via the web engine; if that
@@ -138,7 +138,7 @@ def export_pptx(window):
             count = export_markdown_to_pptx(
                 text,
                 path,
-                base_dir=window._current_file.parent,
+                base_dir=window.current_file.parent,
                 image_provider=provider,
             )
         finally:
@@ -149,7 +149,7 @@ def export_pptx(window):
         QMessageBox.warning(window, "匯出 PPT", f"匯出失敗：{exc}")
         return
     finally:
-        window._exporting = False
+        window.exporting = False
     window.statusBar().showMessage(
         f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
     )
@@ -158,24 +158,24 @@ def export_pptx(window):
 
 def export_docx(window):
     if (
-        window._exporting
-        or not window._current_file
+        window.exporting
+        or not window.current_file
         or _export_blocked(window)
-        or not is_markdown(window._current_file)
+        or not is_markdown(window.current_file)
     ):
         return
     text = _export_source_text(window)
     if text is None:
         QMessageBox.warning(window, "匯出 Word", "無法讀取檔案內容。")
         return
-    default = str(window._current_file.with_suffix(".docx"))
+    default = str(window.current_file.with_suffix(".docx"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 Word", default, "Word 文件 (*.docx)"
     )
     if not path:
         return
 
-    window._exporting = True
+    window.exporting = True
     renderer = None
     provider = None
     try:
@@ -195,7 +195,7 @@ def export_docx(window):
             export_markdown_to_docx(
                 text,
                 path,
-                base_dir=window._current_file.parent,
+                base_dir=window.current_file.parent,
                 image_provider=provider,
             )
         finally:
@@ -206,7 +206,7 @@ def export_docx(window):
         QMessageBox.warning(window, "匯出 Word", f"匯出失敗：{exc}")
         return
     finally:
-        window._exporting = False
+        window.exporting = False
     window.statusBar().showMessage(
         f"已匯出 Word 文件至 {Path(path).name}", 5000
     )
@@ -221,15 +221,15 @@ def export_html(window):
     reads whatever Vditor currently renders, buffer included.
     """
     if (
-        not window._current_file
-        or not is_markdown(window._current_file)
+        not window.current_file
+        or not is_markdown(window.current_file)
         or not _wysiwyg_active(window)
     ):
         window.statusBar().showMessage(
             "請先在所見即所得編輯模式下匯出 HTML", 4000
         )
         return
-    default = str(window._current_file.with_suffix(".html"))
+    default = str(window.current_file.with_suffix(".html"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 HTML", default, "HTML 檔案 (*.html)"
     )
@@ -248,7 +248,7 @@ def export_html(window):
         window.statusBar().showMessage(f"已匯出 HTML 至 {Path(path).name}", 5000)
         show_export_complete(window, path)
 
-    window._wysiwyg_view.get_html(_on_html)
+    window.wysiwyg_view.get_html(_on_html)
 
 
 def ask_page_setup(window):
@@ -357,7 +357,7 @@ def _single_page_layout(dims, viewport_width) -> QPageLayout | None:
 
 def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
     """Prepare the live Office surface, print it, then always restore it."""
-    view = window._wysiwyg_view
+    view = window.wysiwyg_view
     show_pdf_progress(window)
     state = {"phase": "preparing", "cleaned": False, "connected": False}
     page = None
@@ -446,11 +446,11 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
 
 
 def export_single_page(window, dims):
-    layout = _single_page_layout(dims, window._renderer.width())
+    layout = _single_page_layout(dims, window.renderer.width())
     if layout is None:
         window._pending_pdf_path = None
         window._export_btn.setEnabled(
-            bool(window._current_file) and not window._edit_mode
+            bool(window.current_file) and not window.edit_mode
         )
         window._refresh_icons()
         QMessageBox.warning(
@@ -461,33 +461,33 @@ def export_single_page(window, dims):
         return
 
     show_pdf_progress(window)
-    window._renderer.export_pdf(
+    window.renderer.export_pdf(
         window._pending_pdf_path, window._on_pdf_exported, layout
     )
     window._pending_pdf_path = None
 
 
 def show_pdf_progress(window):
-    window._pdf_progress = QProgressDialog("正在匯出 PDF…", None, 0, 0, window)
-    window._pdf_progress.setWindowTitle("匯出 PDF")
-    window._pdf_progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-    window._pdf_progress.setMinimumDuration(0)
-    window._pdf_progress.setAutoClose(False)
-    window._pdf_progress.setAutoReset(False)
-    window._pdf_progress.show()
+    window.pdf_progress = QProgressDialog("正在匯出 PDF…", None, 0, 0, window)
+    window.pdf_progress.setWindowTitle("匯出 PDF")
+    window.pdf_progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+    window.pdf_progress.setMinimumDuration(0)
+    window.pdf_progress.setAutoClose(False)
+    window.pdf_progress.setAutoReset(False)
+    window.pdf_progress.show()
 
 
 def close_pdf_progress(window):
-    if window._pdf_progress is not None:
-        window._pdf_progress.close()
-        window._pdf_progress = None
+    if window.pdf_progress is not None:
+        window.pdf_progress.close()
+        window.pdf_progress = None
 
 
 def on_pdf_exported(window, path: str, ok: bool):
     close_pdf_progress(window)
     window._export_btn.setEnabled(
-        bool(window._current_file)
-        and (not window._edit_mode or _wysiwyg_active(window))
+        bool(window.current_file)
+        and (not window.edit_mode or _wysiwyg_active(window))
     )
     window._refresh_icons()
     if not ok:
