@@ -280,3 +280,12 @@ Fresh agent 比對 6 個 body AST、簽章及 wrapper 參數完全一致；獨�
 
 CI 綠燈：https://github.com/wulove1029/markdown_viewer/actions/runs/35526841674 ，1870 collected、1788 passed、82 skipped in 131.72s，lint/mypy 通過。
 隔離 TEMP worktree 的 ci-gate-probe-20260921 分支已推送刻意失敗測試 cba22ad；不在 main 或正式驗證分支。待確認紅燈後移除。
+
+## E1 第二群：標籤
+
+10 個標籤方法與 merged_tag_rows 抽至 tag_flow；保留 window 掛鉤及 helper re-export，sidecar／索引格式不變。window.py 6796 → 6581 行。
+`py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 60.69s；Ruff/mypy 通過。
+Fresh agent 比對 11 個函式 body AST、參數與 wrapper 一致，Qt／CRUD 33 passed in 1.23s。
+
+B1 紅燈探針 run 35527130561 確實攔截故意失敗案例；同次另暴露 2000 檔背景改名在 runner 超過完成等待 10 秒，待校正完成等待上限並保留 UI 非阻塞斷言。探針已以 26854cd 移除，未進 main。
+另查 CI log：setup-python 3.13 後 `py -3` 實際選到 runner 3.14.7；E7 將明確約束 launcher 版本並記錄實際版本。
