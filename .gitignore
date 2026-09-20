@@ -21,6 +21,7 @@ installer_output/
 pytest_run_*/
 test_tmp_*/
 .mypy_cache/
+.ruff_cache/
 
 *.log
 *.tmp

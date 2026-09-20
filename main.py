@@ -6,6 +6,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QIcon
@@ -14,6 +15,9 @@ from PySide6.QtWidgets import QApplication
 
 from app.settings_store import APP, DISPLAY_NAME, ORG, legacy_data_path
 from app.version import VERSION
+
+if TYPE_CHECKING:
+    from app.window import MainWindow
 
 log = logging.getLogger("markdown_viewer")
 

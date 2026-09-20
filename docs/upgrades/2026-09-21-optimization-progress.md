@@ -110,3 +110,15 @@ RUN_WEBENGINE_TESTS=1 的四個 *_webengine.py 正在執行，結果後補；實
 `py -3 -X utf8 -m ruff check app main.py tests tools --select I --fix` → 124 violations fixed、0 remaining，110 個檔案異動。
 `py -3 -X utf8 -m pytest tests/ -q` → 1710 passed、82 skipped，60.10s。
 僅 import 排序，與 lint/type 規則導入分開 commit。
+
+Fresh agent：110 檔移除 import 後 AST 差異 0；Ruff I check 通過。
+
+## B6 第二階段：漸進品質閘門
+
+pyproject.toml 開啟 E/F/I；74 個既有檔案逐檔列出 E501/E402/F401/F811/F841/F541 的既有 debt（含 pytest fixture import）。新檔預設全開。
+MainWindow 型別使用 TYPE_CHECKING 匯入；ruff/mypy 加入 dev requirements 及 CI。
+`py -3 -X utf8 -m ruff check .` → All checks passed。
+`py -3 -X utf8 -m mypy` → Success: no issues found in 3 source files（atomic_io/file_types/edit_backend）。
+
+`py -3 -X utf8 -m pytest tests/test_atomic_io.py tests/test_edit_backend.py -q` → 29 passed in 0.22s；import main 成功。
+Fresh agent 確認 74 個 ignore 均為既有確切檔名，新檔 F821 確實攔截；ruff/mypy 獨立執行通過。
