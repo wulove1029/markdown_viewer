@@ -71,3 +71,10 @@ pytest.ini 設定 testpaths 與 norecursedirs。
 `py -3 -X utf8 -m pytest --collect-only -q` → 1786 tests collected in 1.66s、0 error。
 `py -3 -X utf8 -m pytest tests/ --collect-only -q` → 1786 tests collected in 1.54s、0 error。
 兩者收集數一致。
+
+## B3
+
+atomic_write_bytes/text 回傳備份警示（正常仍 None），記錄 traceback；MainWindow 成功存檔後顯示警示、不留下 dirty 狀態。
+finally 清理暫存檔；清理若失敗記 log 且不遮蔽原始寫入錯誤；既有 Windows replace 重試保持不變。
+`py -3 -X utf8 -m pytest tests/test_atomic_io.py tests/test_editor_data_safety.py -q` → 72 passed in 8.41s。
+Fresh agent：72 passed in 8.29s；B2 補驗兩種 collection 的 1789 個 node IDs 完全相同（B3 增加 3 個測試）。

@@ -3811,7 +3811,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             encoding = "utf-8"
             data = text.encode(encoding)
         try:
-            atomic_write_bytes(path, data)
+            save_warning = atomic_write_bytes(path, data)
         except OSError as exc:
             QMessageBox.warning(self, "儲存失敗", f"無法寫入檔案：\n{exc}")
             return False
@@ -3840,6 +3840,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         else:
             self._refresh_link_index(force=True)
         self._update_dirty_ui()
+        if save_warning:
+            self.statusBar().showMessage(save_warning, 10000)
         return True
 
     def _save_edits(self) -> bool:

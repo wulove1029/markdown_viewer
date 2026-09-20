@@ -10,10 +10,13 @@ user's note empty or half-written. Every document/sidecar write goes through
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shutil
 import time
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 # QFileSystemWatcher, antivirus scanners, and sync clients can briefly hold a
@@ -68,11 +71,13 @@ def set_hidden(path: str | Path) -> None:
 
 def atomic_write_bytes(
     path: str | Path, data: bytes, *, backup: bool = True, hidden: bool = False
-) -> None:
+) -> str | None:
     """Write *data* to *path* atomically (temp file + ``os.replace``).
 
     The existing file, if any, is first copied to ``<name>.bak`` so a single
-    previous version is always recoverable. The temp file is flushed and
+    previous version can be recovered when the backup succeeds. Backup failure
+    is logged and returned as a warning, but does not prevent saving.
+    The temp file is flushed and
     fsync'd before the rename, so a crash mid-write can never truncate the
     target — the rename either fully happens or it does not.
 
@@ -83,21 +88,30 @@ def atomic_write_bytes(
     """
     path = Path(path)
     tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "wb") as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    if hidden:
-        set_hidden(tmp)
-    if backup and path.exists():
+    warning = None
+    try:
+        with open(tmp, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if hidden:
+            set_hidden(tmp)
+        if backup and path.exists():
+            try:
+                bak = path.with_name(path.name + ".bak")
+                shutil.copy2(path, bak)
+                if hidden:
+                    set_hidden(bak)
+            except OSError:
+                warning = f"已儲存，但無法建立前一版備份：{path.name}"
+                log.warning("Could not back up %s before saving", path, exc_info=True)
+        _replace_file(tmp, path)
+        return warning
+    finally:
         try:
-            bak = path.with_name(path.name + ".bak")
-            shutil.copy2(path, bak)
-            if hidden:
-                set_hidden(bak)
+            tmp.unlink(missing_ok=True)
         except OSError:
-            pass
-    _replace_file(tmp, path)
+            log.warning("Could not remove temporary file %s", tmp, exc_info=True)
 
 
 def atomic_write_text(
@@ -107,8 +121,8 @@ def atomic_write_text(
     *,
     backup: bool = True,
     hidden: bool = False,
-) -> None:
-    atomic_write_bytes(path, text.encode(encoding), backup=backup, hidden=hidden)
+) -> str | None:
+    return atomic_write_bytes(path, text.encode(encoding), backup=backup, hidden=hidden)
 
 
 def sha256_hex(data: bytes) -> str:

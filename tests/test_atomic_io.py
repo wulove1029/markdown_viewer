@@ -51,6 +51,33 @@ def test_no_leftover_tmp(tmp_path):
     assert not (tmp_path / "note.md.tmp").exists()
 
 
+def test_backup_failure_saves_and_reports_warning(tmp_path, monkeypatch, caplog):
+    target = tmp_path / "note.md"
+    target.write_bytes(b"before")
+    def fail(*_args):
+        raise OSError("backup locked")
+    monkeypatch.setattr(atomic_io_module.shutil, "copy2", fail)
+    warning = atomic_write_bytes(target, b"after")
+    assert target.read_bytes() == b"after"
+    assert warning and target.name in warning
+    assert "Could not back up" in caplog.text
+    assert caplog.records[-1].exc_info
+    assert not target.with_name("note.md.tmp").exists()
+
+
+def test_permanent_replace_failure_cleans_temp_and_preserves_original(tmp_path, monkeypatch):
+    target = tmp_path / "note.md"
+    target.write_bytes(b"before")
+    def fail(*_args):
+        raise PermissionError("locked")
+    monkeypatch.setattr(atomic_io_module.os, "replace", fail)
+    monkeypatch.setattr(atomic_io_module.time, "sleep", lambda _: None)
+    with pytest.raises(PermissionError, match="locked"):
+        atomic_write_bytes(target, b"after")
+    assert target.read_bytes() == b"before"
+    assert not target.with_name("note.md.tmp").exists()
+
+
 def test_backup_disabled(tmp_path):
     target = tmp_path / "note.md"
     atomic_write_bytes(target, b"v1")

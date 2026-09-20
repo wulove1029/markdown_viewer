@@ -717,6 +717,23 @@ def test_saving_an_unchanged_buffer_never_overwrites_a_newer_disk_version(
     assert note.read_text(encoding="utf-8") == "newer external version"
 
 
+def test_backup_failure_keeps_saved_document_clean_and_shows_warning(
+    make_data_safety_window, tmp_path, monkeypatch
+):
+    note = tmp_path / "backup-warning.md"
+    note.write_text("before", encoding="utf-8")
+    window = make_data_safety_window()
+    _enter_markdown_editor(window, note)
+    document = _replace_with_dirty_text(window, "after")
+    def fail(*_args):
+        raise OSError("backup locked")
+    monkeypatch.setattr("app.atomic_io.shutil.copy2", fail)
+    assert window._save_edits() is True
+    assert note.read_text(encoding="utf-8") == "after"
+    assert not document.isModified()
+    assert "無法建立前一版備份" in window.statusBar().currentMessage()
+
+
 # ── WYSIWYG backend: shadow-document push model (app/edit_backend.py) ─────
 #
 # WysiwygView itself is a QWebEngineView and stays out of these tests (see
