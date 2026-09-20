@@ -131,7 +131,7 @@ class _NodeItem(QGraphicsObject):
         )
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("不存在的筆記" if node.ghost else (node.path or node.label))
+        self.setToolTip("不存在的筆記" if node.ghost else (node.tooltip or node.path or node.label))
 
     def boundingRect(self) -> QRectF:
         return QRectF(-self._width / 2, -self._height / 2, self._width, self._height)
@@ -570,12 +570,12 @@ class GraphWindow(QDialog):
         current_path: str | None = None,
         libraries: list[object] | None = None,
     ):
-        graph = build_graph(index)
         if libraries is None:
             try:
                 libraries = list(DocumentLibraryStore().load())
             except Exception:
                 libraries = []
+        graph = build_graph(index, libraries)
         groups = assign_node_groups(graph.nodes, libraries)
         self.canvas.set_graph(graph, current_path, groups)
         self._hint.setText(_EMPTY_EDGE_HINT if not graph.edges else _GRAPH_HINT)

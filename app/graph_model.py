@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import posixpath
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -17,6 +18,7 @@ class GraphNode:
     label: str
     path: str | None
     ghost: bool = False
+    tooltip: str = ""
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,7 @@ def _ghost_parts(target: str) -> tuple[str, str]:
     return f"ghost:{raw.casefold()}", label
 
 
-def build_graph(index: LinkIndex) -> GraphData:
+def build_graph(index: LinkIndex, libraries: Iterable[object] = ()) -> GraphData:
     """Build note nodes and wiki-link edges from a populated ``LinkIndex``.
 
     Every indexed note becomes a node, including notes with no links. Unknown
@@ -53,10 +55,26 @@ def build_graph(index: LinkIndex) -> GraphData:
     for targets in index.forward.values():
         paths.update(targets)
 
-    nodes: dict[str, GraphNode] = {
-        path: GraphNode(path, Path(path).stem, path)
-        for path in sorted(paths, key=lambda value: value.casefold())
-    }
+    labels = {path: Path(path).stem for path in paths}
+    for depth in range(2, max((len(Path(p).parts) for p in paths), default=1) + 2):
+        counts = Counter(label.casefold() for label in labels.values())
+        duplicates = [p for p in paths if counts[labels[p].casefold()] > 1]
+        if not duplicates:
+            break
+        for path in duplicates:
+            parts = Path(path).with_suffix("").parts
+            labels[path] = "/".join(parts[-depth:]) if depth <= len(parts) else Path(path).as_posix()
+    roots = sorted((Path(getattr(lib, "path")) for lib in libraries), key=lambda p: len(p.parts), reverse=True)
+    nodes: dict[str, GraphNode] = {}
+    for path in sorted(paths, key=str.casefold):
+        tooltip = Path(path).as_posix()
+        for root in roots:
+            try:
+                tooltip = Path(path).relative_to(root).as_posix()
+                break
+            except ValueError:
+                continue
+        nodes[path] = GraphNode(path, labels[path], path, tooltip=tooltip)
     edges: set[tuple[str, str, str]] = set()
 
     for source in sorted(index.raw_targets, key=lambda value: value.casefold()):

@@ -58,6 +58,20 @@ def test_markdown_missing_path_does_not_fall_back_to_same_basename():
     assert not any(node.ghost for node in graph.nodes)
 
 
+def test_duplicate_labels_expand_until_unique_and_tooltips_are_relative():
+    graph = build_graph(_index([
+        ("/vault/a/docs/README.md", ""),
+        ("/vault/b/docs/README.md", ""),
+        ("/vault/c/README.md", ""),
+        ("/vault/unique.md", ""),
+    ]), [DocumentLibrary("v", "Vault", str(Path("/vault")))])
+    labels = [node.label for node in graph.nodes]
+    assert len(set(labels)) == 4
+    assert {"a/docs/README", "b/docs/README", "c/README", "unique"} == set(labels)
+    assert {node.tooltip for node in graph.nodes} == {
+        "a/docs/README.md", "b/docs/README.md", "c/README.md", "unique.md"}
+
+
 def test_build_graph_includes_edges_ghosts_and_isolated_notes():
     index = _index(
         [

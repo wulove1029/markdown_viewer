@@ -9,6 +9,16 @@ from app.links import LinkIndex
 from app.theme import DARK
 
 
+def test_graph_tooltip_uses_library_relative_path(qapp, tmp_path):
+    note = tmp_path / "docs" / "README.md"
+    index = LinkIndex()
+    index.build([(note, "")])
+    window = GraphWindow(lambda _: None)
+    window.set_index(index, libraries=[DocumentLibrary("v", "Vault", str(tmp_path))])
+    assert window.canvas._node_items[str(note)].toolTip() == "docs/README.md"
+    window.close()
+
+
 def test_graph_window_opens_real_nodes_but_not_ghosts(qapp, tmp_path):
     note = tmp_path / "note.md"
     note.write_text("[[Missing]]", encoding="utf-8")
