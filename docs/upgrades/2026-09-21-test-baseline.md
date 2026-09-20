@@ -36,7 +36,7 @@ py -3 -X utf8 $env:TEMP\mdv-venv.py -m pytest tests/ -q
 預設 82 skipped 中，75 個由 WebEngine 旗標啟用。其餘 7 個：5 個需要未隨專案提供的真實 Acrobat 樣本；2 個跨磁碟測試在預設 TEMP 與 pytest tmp_path 同磁碟時跳過。
 本輪另外在 D: 建立隔離 fixture、目的地在 C: TEMP 執行這兩個案例，**2 passed、7 deselected，0.34s**，保留原件與相對資源拒絕行為均通過。該次自建暫存資料已清理。
 
-旧記錄的 1773 collected、1457 passed＋75 skipped、memory 1188 並無完整一致的命令／環境／commit 證據，差異原因**未確認**，不以目前跳過數反推歷史數字。
+舊記錄的 1773 collected、1457 passed＋75 skipped、memory 1188 並無完整一致的命令／環境／commit 證據，差異原因**未確認**，不以目前跳過數反推歷史數字。
 
 ## 原生錯誤及修正證據
 

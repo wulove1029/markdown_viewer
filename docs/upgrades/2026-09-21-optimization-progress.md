@@ -7,11 +7,11 @@
 每項分別測試、更新 CHANGELOG、commit；未通過的驗收明列，不視為完成。
 WYSIWYG 區段不重構，維持 QTextDocument 為唯一真值。
 
-## 目前狀態（發布前）
+## 目前狀態（1.34.0 已發布）
 
 六批次逐項實作與評估已記錄；未達效能門檻、保留資源、選配與工具限制詳見 [仍開放清單](2026-09-21-remaining-work.md)，不宣稱全部驗收條件達標。
 最終一般測試 1812 passed／82 skipped；全量 WebEngine 1887 passed／7 skipped；兩種收集均 1894、零錯誤。遠端一般 CI 與手動 WebEngine 均成功，詳見 [最終基準](2026-09-21-test-baseline.md)。
-使用者已授權無人值守、更新版號、提交與發布；目前準備 1.34.0。下文保留執行當時的歷史狀態，後續記錄優先。
+使用者已授權無人值守、更新版號、提交與發布；1.34.0 已正式發布，詳見 [發布驗證](2026-09-21-release-verification.md)。下文保留執行當時的歷史狀態，後續記錄優先。
 
 ## A1
 
@@ -413,4 +413,3 @@ Fresh agent readback與AST驗收通過；E11檔案數249CSS+2images/335039bytes�
 ## 1.34.0 發布前覆核
 
 版號／installer／CHANGELOG 同步 1.34.0，三條當版 RELEASE_NOTES。獨立 reviewer read-back 58 處檔案行號、49 個 commit 均有效；release notes 2 passed（主程序 1.29s，獨立 0.31s），Ruff／mypy 通過。未達標及選配仍依 remaining-work 揭露。
-

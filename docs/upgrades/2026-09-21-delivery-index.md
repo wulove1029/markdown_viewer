@@ -4,6 +4,8 @@
 
 以下逐項測試保留各提交當時的結果；最終整合結果以 [測試基準](2026-09-21-test-baseline.md) 為準：一般 1812 passed／82 skipped，全量 WebEngine 1887 passed／7 skipped，零失敗。版號為 1.34.0；完整提交可見 [版本比較](https://github.com/wulove1029/markdown_viewer/compare/v1.33.1...v1.34.0)。
 
+正式發布與安裝檔下載雜湊均已驗證，詳見 [發布驗證](2026-09-21-release-verification.md)。發布來源提交為 `5c0c3cb`；其後的補充提交僅修改交付文件。
+
 ## A1 LinkIndex 索引標準 Markdown 連結
 
 - 做了什麼：加入來源相對 Markdown 連結解析，保留原有 wikilink 行為與 raw_targets 相容介面。
@@ -128,7 +130,7 @@
 
 ## C5 打包多帶約 4.2MB 永遠不會載入的 vditor 資產
 
-- 決策：實跑推翻「永遠不會載入」前提，保留資源；細節见 [仍開放清單](2026-09-21-remaining-work.md)。下列 CHANGELOG 是共用資源評估紀錄（E11），並非宣稱 Mermaid／PlantUML 已裁剪。
+- 決策：實跑推翻「永遠不會載入」前提，保留資源；細節見 [仍開放清單](2026-09-21-remaining-work.md)。下列 CHANGELOG 是共用資源評估紀錄（E11），並非宣稱 Mermaid／PlantUML 已裁剪。
 - 做了什麼：實際 WebEngine 載入 WYSIWYG Mermaid／PlantUML 範例時，document.scripts 包含兩者資源，Mermaid 產生 SVG；與「未使用」前提不符。
 - 檔案：`docs/upgrades/2026-09-21-remaining-work.md:9`
 - 測試結果：評估或仍開放項目，不宣稱未執行的測試通過。
