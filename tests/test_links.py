@@ -2,7 +2,19 @@
 
 from pathlib import Path
 
-from app.links import LinkIndex, collect_markdown_files, extract_wikilinks
+from app.links import LinkIndex, collect_markdown_files, extract_wikilinks, extract_markdown_links
+
+
+def test_angle_links_respect_markdown_context():
+    text = ('    <hidden.md>\n\n![image](<hidden.md>)\n\n'
+            '<!-- <hidden.md> -->\n\n[a](real.md "<hidden.md>")\n\n'
+            '![image][ref]\n\n[ref]: <hidden.md>\n\n<visible.md>')
+    assert extract_markdown_links(text) == ["real.md", "visible.md"]
+
+
+def test_markdown_nested_and_tilde_fences_are_not_links():
+    assert extract_markdown_links("````md\n```\n[x](hidden.md)\n````\n<real.md>") == ["real.md"]
+    assert extract_markdown_links("~~~md\n<hidden.md>\n~~~") == []
 
 
 def test_extract_plain_and_aliased():

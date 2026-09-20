@@ -20,6 +20,44 @@ def _index(docs):
     return index
 
 
+def test_markdown_and_wiki_edges_keep_their_types():
+    graph = build_graph(_index([
+        ("/vault/a/source.md", "[a](../b/README.md) [[c]]"),
+        ("/vault/b/README.md", ""),
+        ("/vault/c.md", ""),
+    ]))
+    assert len(graph.edges) == 2
+    assert {edge.kind for edge in graph.edges} == {"wiki", "markdown"}
+
+
+def test_markdown_encoded_heading_and_angle_links_share_a_target():
+    graph = build_graph(_index([
+        ("/vault/source.md", "[a](./a%20b.md#one) [b](a%20b.md#two) <a%20b.md>"),
+        ("/vault/a b.md", ""),
+    ]))
+    assert len(graph.nodes) == 2
+    assert len(graph.edges) == 1
+    assert graph.edges[0].target == str(Path("/vault/a b.md"))
+
+
+def test_markdown_code_images_and_external_urls_do_not_create_edges():
+    graph = build_graph(_index([
+        ("/vault/a.md", "`[x](b.md)`\n```md\n[x](b.md)\n<b.md>\n```\n"
+         "![image](b.md) [web](https://example.com/b.md) [mail](mailto:b.md) [pdf](b.pdf)"),
+        ("/vault/b.md", ""),
+    ]))
+    assert not graph.edges
+
+
+def test_markdown_missing_path_does_not_fall_back_to_same_basename():
+    graph = build_graph(_index([
+        ("/vault/a/source.md", "[wrong](./README.md) [right](../b/README.md)"),
+        ("/vault/b/README.md", ""),
+    ]))
+    assert len(graph.edges) == 1
+    assert not any(node.ghost for node in graph.nodes)
+
+
 def test_build_graph_includes_edges_ghosts_and_isolated_notes():
     index = _index(
         [

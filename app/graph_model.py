@@ -23,6 +23,7 @@ class GraphNode:
 class GraphEdge:
     source: str
     target: str
+    kind: str = "wiki"
 
 
 @dataclass(frozen=True)
@@ -56,22 +57,26 @@ def build_graph(index: LinkIndex) -> GraphData:
         path: GraphNode(path, Path(path).stem, path)
         for path in sorted(paths, key=lambda value: value.casefold())
     }
-    edges: set[tuple[str, str]] = set()
+    edges: set[tuple[str, str, str]] = set()
 
     for source in sorted(index.raw_targets, key=lambda value: value.casefold()):
-        for raw_target in index.raw_targets[source]:
-            resolved = index.resolve(raw_target, source)
+        typed = index.typed_targets.get(source, tuple((t, "wiki") for t in index.raw_targets[source]))
+        for raw_target, kind in typed:
+            resolved = (index.resolve_markdown(raw_target, source) if kind == "markdown"
+                        else index.resolve(raw_target, source))
             if resolved is not None:
                 target = str(resolved)
                 if target != source:
                     nodes.setdefault(target, GraphNode(target, resolved.stem, target))
-                    edges.add((source, target))
+                    edges.add((source, target, kind))
+                continue
+            if kind == "markdown":
                 continue
             ghost_id, label = _ghost_parts(raw_target)
             if ghost_id == "ghost:":
                 continue
             nodes.setdefault(ghost_id, GraphNode(ghost_id, label, None, ghost=True))
-            edges.add((source, ghost_id))
+            edges.add((source, ghost_id, kind))
 
     ordered_nodes = tuple(
         sorted(nodes.values(), key=lambda node: (node.ghost, node.label.casefold(), node.id))

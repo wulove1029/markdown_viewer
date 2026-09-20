@@ -10,6 +10,9 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+from markdown_it import MarkdownIt
 
 from .document_libraries import load_excluded_folders, should_skip_directory
 from .file_types import MARKDOWN_EXTENSIONS
@@ -22,6 +25,45 @@ WIKILINK_RE = re.compile(
 
 _MAX_FILES = 8000
 _MAX_BYTES = 2 * 1024 * 1024
+
+
+def _local_markdown_target(target: str) -> bool:
+    try:
+        url = urlsplit(target)
+    except ValueError:
+        return False
+    path = unquote(url.path)
+    return bool(not url.scheme and not url.netloc and path
+                and not path.startswith(("/", "\\"))
+                and Path(path).suffix.lower() in MARKDOWN_EXTENSIONS)
+
+
+def _angle_markdown_link(state, silent):
+    match = re.match(r"<([^<>\s]+)>", state.src[state.pos:])
+    if not match or not _local_markdown_target(match[1]):
+        return False
+    if not silent:
+        token = state.push("link_open", "a", 1)
+        token.attrSet("href", match[1])
+        state.push("link_close", "a", -1)
+    state.pos += len(match[0])
+    return True
+
+
+def _link_parser() -> MarkdownIt:
+    parser = MarkdownIt("commonmark")
+    parser.inline.ruler.before("autolink", "local_markdown_link", _angle_markdown_link)
+    return parser
+
+
+def extract_markdown_links(text: str, *, _parser=None) -> list[str]:
+    """Extract local Markdown destinations, excluding images and code."""
+    parser = _parser or _link_parser()
+    # Preserve CommonMark fence lengths, tilde fences and indented blocks.
+    # The legacy wiki-link masker cannot represent all these contexts.
+    return [child.attrGet("href") for token in parser.parse(text)
+            for child in token.children or ()
+            if child.type == "link_open" and _local_markdown_target(child.attrGet("href") or "")]
 
 
 def extract_wikilinks(text: str) -> list[tuple[str, str | None]]:
@@ -104,29 +146,44 @@ class LinkIndex:
         # existing forward/backward maps intentionally contain only resolved
         # files, while this map also preserves links to not-yet-created notes.
         self.raw_targets: dict[str, tuple[str, ...]] = {}
+        self.typed_targets: dict[str, tuple[tuple[str, str], ...]] = {}
+        self._by_path: dict[str, Path] = {}
         self.completion_candidates: list[str] = []
 
     def build(self, docs) -> None:
         """Build the index from an iterable of (path, text)."""
         docs = [(Path(p), t) for p, t in docs]
         self._by_name = {}
+        self._by_path = {os.path.normcase(os.path.abspath(p)): p for p, _ in docs}
         for path, _text in docs:
             self._by_name.setdefault(path.stem.lower(), []).append(path)
 
         self.forward = {}
         self.backward = {}
         self.raw_targets = {}
+        self.typed_targets = {}
+        parser = _link_parser()
         for path, text in docs:
             targets: set[str] = set()
             raw_targets = [target for target, _alias in extract_wikilinks(text)]
             self.raw_targets[str(path)] = tuple(raw_targets)
-            for target in raw_targets:
-                resolved = self.resolve(target, path)
+            typed = [(target, "wiki") for target in raw_targets]
+            typed.extend((target, "markdown") for target in extract_markdown_links(text, _parser=parser))
+            self.typed_targets[str(path)] = tuple(typed)
+            for target, kind in typed:
+                resolved = (self.resolve_markdown(target, path) if kind == "markdown"
+                            else self.resolve(target, path))
                 if resolved and str(resolved) != str(path):
                     targets.add(str(resolved))
             self.forward[str(path)] = targets
             for dest in targets:
                 self.backward.setdefault(dest, set()).add(str(path))
+
+    def resolve_markdown(self, target: str, from_file: str | Path) -> Path | None:
+        """Resolve only the exact source-relative indexed file, never a basename."""
+        relative = unquote(urlsplit(target).path)
+        key = os.path.normcase(os.path.abspath(Path(from_file).parent / relative))
+        return self._by_path.get(key)
 
     def resolve(self, target: str, from_file=None) -> Path | None:
         """Resolve a link target to a file path, or None if unknown."""
