@@ -64,3 +64,10 @@ Puritygo 真實資料及 UI：84 節點、29 條邊、0 個重複真實標籤；
 PyYAML BaseLoader 實際解析與觸發器／runner／job 斷言通過；fresh agent 獨立檢查通過。
 GitHub runner 綠燈與故意失敗紅燈尚未執行，已依全域規則 R3 詢問推送驗證分支授權。
 A5 fresh agent 補驗：graph_view 8 passed in 0.43s，進度文件 read-back 通過。
+
+## B2
+
+pytest.ini 設定 testpaths 與 norecursedirs。
+`py -3 -X utf8 -m pytest --collect-only -q` → 1786 tests collected in 1.66s、0 error。
+`py -3 -X utf8 -m pytest tests/ --collect-only -q` → 1786 tests collected in 1.54s、0 error。
+兩者收集數一致。
