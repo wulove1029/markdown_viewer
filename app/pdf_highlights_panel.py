@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
+    QPlainTextEdit,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -59,11 +60,31 @@ class PdfHighlightsPanel(QWidget):
 
         self._list = QListWidget()
         self._list.itemClicked.connect(self._on_clicked)
+        self._list.itemDoubleClicked.connect(self._begin_text_edit)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_menu)
 
         layout.addWidget(self._hint)
         layout.addWidget(self._list, stretch=1)
+
+        self._editing_id = None
+        self._texts = {}
+        self._text_edit_box = QWidget()
+        edit_layout = QVBoxLayout(self._text_edit_box)
+        edit_layout.setContentsMargins(0, 0, 0, 0)
+        self._text_editor = QPlainTextEdit()
+        self._text_editor.setPlaceholderText("標記文字")
+        edit_layout.addWidget(self._text_editor)
+        edit_buttons = QHBoxLayout()
+        save_text = QPushButton("儲存文字")
+        save_text.clicked.connect(self._save_text_edit)
+        cancel_text = QPushButton("取消")
+        cancel_text.clicked.connect(self._cancel_text_edit)
+        edit_buttons.addWidget(save_text)
+        edit_buttons.addWidget(cancel_text)
+        edit_layout.addLayout(edit_buttons)
+        self._text_edit_box.hide()
+        layout.addWidget(self._text_edit_box)
 
         row = QHBoxLayout()
         self._delete_btn = QPushButton("刪除")
@@ -82,6 +103,9 @@ class PdfHighlightsPanel(QWidget):
         self._list.setStyleSheet(collection_stylesheet(theme, "QListWidget"))
 
     def set_highlights(self, highlights):
+        self._texts = {hl.id: hl.text for hl in highlights}
+        if self._editing_id not in self._texts:
+            self._cancel_text_edit()
         previous_id = self._selected_id
         self._list.clear()
         if not highlights:
@@ -135,6 +159,8 @@ class PdfHighlightsPanel(QWidget):
         jump = QAction("跳到此標記", self)
         jump.triggered.connect(lambda: self._callbacks.get("activated", lambda _i: None)(hid))
         menu.addAction(jump)
+        if "text" in self._callbacks:
+            menu.addAction("編輯標記文字", lambda: self._begin_text_edit(item))
 
         color_menu = menu.addMenu("變更顏色")
         for hex_color, lbl in PALETTE:
@@ -162,6 +188,25 @@ class PdfHighlightsPanel(QWidget):
         color = QColorDialog.getColor(QColor("#ffd54f"), self, "選擇螢光顏色")
         if color.isValid():
             self._callbacks.get("recolor", lambda _i, _c: None)(hid, color.name())
+
+    def _begin_text_edit(self, item):
+        hid = item.data(Qt.ItemDataRole.UserRole)
+        if hid not in self._texts or "text" not in self._callbacks:
+            return
+        self._editing_id = hid
+        self._text_editor.setPlainText(self._texts[hid] or "")
+        self._text_edit_box.show()
+        self._text_editor.setFocus()
+
+    def _save_text_edit(self):
+        if self._editing_id is None:
+            return
+        if self._callbacks["text"](self._editing_id, self._text_editor.toPlainText()) is not False:
+            self._cancel_text_edit()
+
+    def _cancel_text_edit(self):
+        self._editing_id = None
+        self._text_edit_box.hide()
 
     def _set_delete_enabled(self, on: bool):
         self._delete_btn.setEnabled(bool(on))
@@ -234,6 +279,8 @@ class PdfMarkupPanel(QWidget):
         field. Reading uses the type-neutral ``app.doc_tags`` facade, so this is
         a no-op-safe call for any path.
         """
+        if (Path(path) if path is not None else None) != self._current_pdf_path:
+            self._highlights._cancel_text_edit()
         if path is None:
             self._current_pdf_path = None
             self._doc_tags.blockSignals(True)

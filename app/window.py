@@ -392,6 +392,7 @@ class MainWindow(QMainWindow):
             "activated": self._pdf_highlight_activated,
             "recolor": self._pdf_highlight_recolor,
             "note": self._pdf_highlight_edit_note,
+            "text": self._pdf_highlight_edit_text,
             "deleted": self._pdf_highlight_delete,
         }
         self._pdf_highlights: list[PdfHighlight] = []
@@ -4798,6 +4799,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         highlight.updated = datetime.now().isoformat(timespec="seconds")
         self._save_pdf_highlights()
         self._refresh_pdf_highlights_panel()
+
+    def _pdf_highlight_edit_text(self, hid, text):
+        from dataclasses import replace
+
+        if self._current_kind != "pdf" or not self._current_file:
+            return False
+        if self._find_pdf_highlight(hid) is None:
+            return False
+        changed = [
+            replace(h, text=text, updated=datetime.now().isoformat(timespec="seconds"))
+            if h.id == hid else h for h in self._pdf_highlights
+        ]
+        try:
+            PdfHighlightStore.save(self._current_file, changed)
+        except OSError as exc:
+            self.statusBar().showMessage(f"無法儲存螢光文字：{exc}", 5000)
+            return False
+        self._pdf_highlights = changed
+        self._pdf_view.set_highlights(changed)
+        self._refresh_pdf_highlights_panel()
+        return True
 
     def _pdf_highlight_delete(self, hid):
         if not self._find_pdf_highlight(hid):

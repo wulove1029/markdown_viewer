@@ -24,6 +24,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
@@ -240,9 +241,15 @@ class PdfAnnotationCard(QFrame):
         self._close_button.setToolTip("關閉")
         self._close_button.setAutoRaise(True)
         self._close_button.clicked.connect(self.dismiss)
+        self._menu_button = QToolButton()
+        self._menu_button.setText("…")
+        self._menu_button.setToolTip("註解選單")
+        self._menu_button.setAutoRaise(True)
+        self._menu_button.clicked.connect(self._show_menu)
         header_layout.addWidget(self._author_label)
         header_layout.addWidget(self._time_label)
         header_layout.addStretch(1)
+        header_layout.addWidget(self._menu_button)
         header_layout.addWidget(self._close_button)
         outer.addWidget(self._header)
         self._header.drag_moved.connect(self._on_drag)
@@ -290,6 +297,34 @@ class PdfAnnotationCard(QFrame):
 
     def close_button(self) -> QToolButton:
         return self._close_button
+
+    def _build_menu(self):
+        menu = QMenu(self)
+        editable = (self._entry is not None and bool(self._author)
+                    and str(self._entry.author or "").strip() == self._author
+                    and not self._write_blocked_reason)
+        edit = menu.addAction("編輯…", self._edit_entry)
+        delete = menu.addAction("刪除", lambda: self.delete_requested.emit(self._entry))
+        edit.setEnabled(editable)
+        delete.setEnabled(editable)
+        return menu
+
+    def _edit_entry(self):
+        entry = self._entry
+        if (entry is None or self._write_blocked_reason or not self._author
+                or str(entry.author or "").strip() != self._author):
+            return
+        text, accepted = QInputDialog.getMultiLineText(
+            self, "編輯註解", "內容：", entry.note_text or entry.content or ""
+        )
+        if accepted and self._entry is entry and not self._write_blocked_reason:
+            self.edit_submitted.emit(entry, text)
+
+    def _show_menu(self):
+        self._build_menu().exec(self._menu_button.mapToGlobal(self._menu_button.rect().bottomLeft()))
+
+    def contextMenuEvent(self, event):
+        self._build_menu().exec(event.globalPos())
 
     def header(self) -> QWidget:
         return self._header

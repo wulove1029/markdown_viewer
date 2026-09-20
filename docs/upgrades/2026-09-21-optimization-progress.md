@@ -230,3 +230,11 @@ Fresh agent 找出並複驗修正未閉合／跳脫反引號及特殊檔名案�
 `py -3 -X utf8 -m pytest tests/test_external_conflicts.py tests/test_editor_data_safety.py tests/test_window_integration.py -q` → 223 passed in 23.33s；最終失敗保留策略追加重跑 7 passed in 0.96s；Ruff 通過。
 `RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_wysiwyg_webengine.py -q` → 27 passed in 34.94s。
 Fresh agent 7 passed in 0.94s；實跑關閉後外部替換競態，確認失敗處理不誤刪外部檔案。
+
+## D4
+
+PdfAnnotationCard 右上「…」與右鍵共用 _build_menu，沿用作者及唯讀限制；編輯對話框確認 entry identity，避免切換文件後改錯註解。
+PdfHighlightsPanel 雙擊或右鍵進入就地文字編輯；新文字以既有 atomic sidecar 保存成功後才替換 model，失敗保持 draft。
+PdfMarkupPanel 以文件路徑切換取消舊草稿，避免複製 PDF/sidecar 的相同 ID 造成跨檔寫入；同檔刷新保持失敗草稿。
+`py -3 -X utf8 -m pytest tests/test_pdf_markup_editing.py tests/test_pdf_highlights.py tests/test_pdf_embedded_annotations.py -q` → 111 passed、5 skipped in 4.24s；Ruff 通過。
+Fresh agent 4 passed in 0.62s，驗證舊 JSON、幾何與標籤保留、writer 失敗不改 model 及路徑切換接線。
