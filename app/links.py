@@ -95,16 +95,22 @@ def _target_basename(target: str) -> tuple[str, str]:
     return name.lower(), raw.lower()
 
 
-def collect_markdown_files(roots) -> list[Path]:
+def collect_markdown_files(roots, *, strict=False) -> list[Path]:
     """Walk *roots*, returning Markdown files (skipping VCS/build dirs)."""
     seen: set[str] = set()
     files: list[Path] = []
     excluded_folders = load_excluded_folders()
+    def onerror(error):
+        if strict:
+            raise error
+
     for root in roots:
         root = Path(root)
         if not root.exists() or not root.is_dir():
+            if strict:
+                raise OSError(f"無法完整索引文件庫：{root}")
             continue
-        for dirpath, dirnames, filenames in os.walk(root):
+        for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
             relative_parent = Path(dirpath).relative_to(root)
             dirnames[:] = [
                 d

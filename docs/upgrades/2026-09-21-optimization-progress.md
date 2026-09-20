@@ -203,3 +203,21 @@ export_actions.show_export_complete 統一四種格式成功回饋；開啟檔�
 `py -3 -X utf8 -m pytest tests/test_export_completion.py tests/test_pdf_export.py tests/test_editor_data_safety.py -q` → 92 passed in 8.84s。
 `RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_pdf_export_webengine.py -q` → 1 passed in 7.08s。
 Ruff 通過。Fresh agent 複驗 92 passed in 8.75s，確認四種成功路徑、取消／失敗提前返回與中文空白路徑。
+
+## 使用者追加授權
+
+使用者要求全部完成後測試，確認無問題再更新版號、提交並發布；已授權後續 git push 與 release。仍以完整驗證通過為發布前置，未將目前 WebEngine 失敗或未驗證項目視為通過。
+
+使用者另要求無人值守持續執行。C5 採保留已被使用的 Mermaid／PlantUML 功能與資源，不盲目裁剪；其餘依原優先序推進並持續落檔。
+
+## D1
+
+改名當下以完整可讀的 scoped files 重建 LinkIndex，確認對話框列出所有即將改寫的文件；取消不落盤，未接索引服務明確拒絕。
+位元組改寫保留 BOM、UTF-16 endian、CRLF、alias、heading 與無關內容；CommonMark 程式區塊、行內程式碼、HTML 標記及跳脫括號不改。
+連結檔與原文件／sidecar 先全部準備，再發布；寫入或發布失敗回滾。來源外部異動拒絕；rollback 受 OS 阻擋時保留 originals 並回報位置。
+確認前拒絕 dirty／正在編輯／待復原引用文件，避免改寫磁碟後被舊緩衝覆蓋；已載入的乾淨緩衝同步文字與 signature。
+保守限制：沿用文件庫排除設定；超過 8000 檔、不可解碼／大於 2MiB 的文件、跨磁碟引用及無法表示為有效 wikilink 的新名稱會停止整批，不靜默略過。
+`py -3 -X utf8 -m pytest tests/test_backlink_rename.py -q` → 21 passed in 0.86s。
+`py -3 -X utf8 -m pytest tests/ -q` → 1753 passed、82 skipped in 61.24s；Ruff 通過。
+Fresh agent 找出並複驗修正未閉合／跳脫反引號及特殊檔名案例；額外驗證五種草稿防護、乾淨 buffer 同步及發布失敗回滾通過。
+完整套件首次停在舊的獨立 browser 測試之缺少索引服務警告；更新該測試接入真實準備器後全套通過，未降低正式程式的安全門檻。

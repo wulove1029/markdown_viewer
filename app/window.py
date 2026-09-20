@@ -443,6 +443,13 @@ class MainWindow(QMainWindow):
         self._panel.file_browser.on_new_note_requested = self._new_note
         self._panel.file_browser.on_paths_migrated = self._on_browser_paths_migrated
         self._panel.file_browser.on_document_relocation = self._request_document_relocation
+        from . import backlink_rename_flow
+        self._panel.file_browser.on_prepare_backlink_rename = (
+            lambda old, new: backlink_rename_flow.prepare_for_window(self, old, new)
+        )
+        self._panel.file_browser.on_backlinks_rewritten = (
+            lambda updates, old, new: backlink_rename_flow.apply_to_window(self, updates, old, new)
+        )
         self._panel.file_browser.on_paths_deleted = self._on_browser_paths_deleted
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings

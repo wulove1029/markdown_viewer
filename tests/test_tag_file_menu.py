@@ -173,6 +173,10 @@ def test_panel_rename_routes_through_browser_and_migrates_index(
     tag_index.update(target, DocumentAnnotations(doc_tags=["focus"]))
 
     browser = _make_browser(tmp_path, monkeypatch, root, tag_index)
+    from app.backlink_rename import prepare_backlink_updates
+    browser.on_prepare_backlink_rename = (
+        lambda old, new: prepare_backlink_updates(old, new, [root])
+    )
     monkeypatch.setattr(
         "app.file_browser.QInputDialog.getText",
         staticmethod(lambda *a, **k: ("new", True)),

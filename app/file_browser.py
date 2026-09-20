@@ -751,6 +751,8 @@ class FileBrowserView(QWidget):
         self.on_new_note_requested = None  # callable(folder_str)
         self.on_paths_migrated = None  # callable({old: new})
         self.on_document_relocation = None  # callable(old, new, commit)
+        self.on_prepare_backlink_rename = None  # callable(old, new) -> updates or None
+        self.on_backlinks_rewritten = None  # callable(updates, old, new)
         self.on_paths_deleted = None   # callable([path_str, ...])
 
         layout = QVBoxLayout(self)
@@ -1622,13 +1624,23 @@ class FileBrowserView(QWidget):
 
     def _relocate_document(self, old: Path, new: Path, action: str):
         def commit():
+            updates = {}
             try:
-                mapping = file_ops.rename_document(old, new)
+                if old.parent == new.parent and old.suffix.lower() in {".md", ".markdown"}:
+                    if not callable(self.on_prepare_backlink_rename):
+                        raise OSError("反向連結索引服務尚未就緒，文件尚未改名。")
+                    updates = self.on_prepare_backlink_rename(old, new)
+                    if updates is None:
+                        return
+                mapping = (file_ops.rename_document(old, new, backlink_updates=updates)
+                           if updates else file_ops.rename_document(old, new))
             except OSError as exc:
                 QMessageBox.warning(self, f"{action}失敗", f"無法{action}檔案：\n{exc}")
                 return
             if mapping:
                 self._finish_migration(mapping, select=Path(mapping[str(old)]))
+                if updates and callable(self.on_backlinks_rewritten):
+                    self.on_backlinks_rewritten(updates, old, new)
 
         if callable(self.on_document_relocation):
             self.on_document_relocation(old, new, commit)

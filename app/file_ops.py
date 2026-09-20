@@ -155,7 +155,7 @@ def _cleanup_relocation_directory(directory: Path) -> None:
         warnings.warn(f"文件搬移暫存清理失敗，保留資料位於 {directory}：{exc}", RuntimeWarning, stacklevel=2)
 
 
-def rename_document(old: str | Path, new: str | Path) -> dict[str, str]:
+def rename_document(old: str | Path, new: str | Path, *, backlink_updates=None) -> dict[str, str]:
     """Relocate a document, existing backups and sidecars as one transaction.
 
     Relative Markdown resources (also in its .bak) retain their targets. Every
@@ -193,6 +193,21 @@ def rename_document(old: str | Path, new: str | Path) -> dict[str, str]:
             raise OSError(f"文件在準備搬移時已變更，請重試：{source}")
         entries.append({"source": source, "target": target, "signature": signature, "data": data})
 
+    for path, (before, after) in (backlink_updates or {}).items():
+        path = Path(path)
+        if not path.is_file() or path.is_symlink():
+            raise OSError(f"反向連結來源不是一般檔案：{path}")
+        if path.stat().st_dev != old.stat().st_dev:
+            raise OSError(f"目前無法將跨磁碟反向連結納入同一交易，尚未改名：{path}")
+        signature = _signature(path)
+        if path.read_bytes() != before or _signature(path) != signature:
+            raise OSError(f"確認期間文件已變更，尚未改名：{path}")
+        if path.resolve() == old.resolve():
+            entries[0]["data"] = rebase_markdown_bytes(after, old, new)
+            continue
+        entries.append({"source": path, "target": path, "signature": signature,
+                        "data": after, "inplace": True})
+
     prepared_dir = Path(tempfile.mkdtemp(prefix=".markdown-relocate-prepared-", dir=new.parent))
     originals_dir = None
     rollback_failed = False
@@ -201,13 +216,19 @@ def rename_document(old: str | Path, new: str | Path) -> dict[str, str]:
         for index, entry in enumerate(entries):
             entry["prepared"] = prepared_dir / str(index)
             entry["original"] = originals_dir / str(index)
-            _stage_relocation_file(entry["source"], entry["prepared"], entry["data"])
+            if entry.get("inplace"):
+                atomic_write_bytes(entry["prepared"], entry["data"], backup=False)
+                shutil.copystat(entry["source"], entry["prepared"])
+            else:
+                _stage_relocation_file(entry["source"], entry["prepared"], entry["data"])
         for entry in entries:
             if _signature(entry["source"]) != entry["signature"]:
                 raise OSError(f"文件在準備搬移時已變更，請重試：{entry['source']}")
-            if os.path.lexists(entry["target"]):
+            if not entry.get("inplace") and os.path.lexists(entry["target"]):
                 raise OSError(f"目的檔案在準備搬移時已出現：{entry['target']}")
         for entry in entries:
+            if _signature(entry["source"]) != entry["signature"]:
+                raise OSError(f"文件在提交搬移時已變更：{entry['source']}")
             _rename_no_replace(entry["source"], entry["original"])
             entry["held"] = True
             _rename_no_replace(entry["prepared"], entry["target"])
@@ -218,10 +239,11 @@ def rename_document(old: str | Path, new: str | Path) -> dict[str, str]:
         for entry in reversed(entries):
             if not entry.get("held"):
                 continue
-            try:
-                _rename_no_replace(entry["original"], entry["source"])
-            except OSError as rollback_error:
-                errors.append(f"{entry['source']}：{rollback_error}")
+            if not entry.get("inplace"):
+                try:
+                    _rename_no_replace(entry["original"], entry["source"])
+                except OSError as rollback_error:
+                    errors.append(f"{entry['source']}：{rollback_error}")
             if entry.get("published"):
                 try:
                     if not entry.get("published_signature"):
@@ -231,6 +253,11 @@ def rename_document(old: str | Path, new: str | Path) -> dict[str, str]:
                     entry["target"].unlink()
                 except OSError as rollback_error:
                     errors.append(f"{entry['target']}：{rollback_error}")
+            if entry.get("inplace"):
+                try:
+                    _rename_no_replace(entry["original"], entry["source"])
+                except OSError as rollback_error:
+                    errors.append(f"{entry['source']}：{rollback_error}")
         if errors:
             rollback_failed = True
             raise OSError(

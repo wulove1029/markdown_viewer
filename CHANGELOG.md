@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- 筆記改名會確認受影響的 wikilink 文件清單，保留原編碼與無關位元組，並將連結改寫、原檔及 sidecar 搬移納入可回滾交易。
 - 導入 Ruff E/F/I 與逐檔既有問題清單，三個純邏輯模組納入 mypy，CI 增加 lint／型別檢查。
 
 ### Changed
