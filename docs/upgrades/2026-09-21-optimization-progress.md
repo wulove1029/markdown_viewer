@@ -184,3 +184,15 @@ PyInstaller Analysis 後只過濾 qtwebengine_locales/*.pak，保留 zh-TW、zh-
 
 減少 44,111,855 bytes，約 42.07 MiB／4.22%，未達盤點預估 100 MB。建置環境額外套件被 hooks 收入，總量亦不同於盤點；後續 E7 以隔離鎖版環境重驗。
 使用裁剪後封裝的 locales/resources 路徑實跑 QWebEngineView，loadFinished 成功，JavaScript 讀回 `Locale resource smoke OK`，exit 0。這是資源載入驗證，尚非完整安裝版人工驗收。
+
+## C7（評估後本輪不啟用）
+
+本機未找到 UPX；無可重現的 SmartScreen／防毒誤判驗證結果。維持 EXE 與 COLLECT 的 upx=False，不將未驗證的壓縮帶入發版，也不宣稱已測出誤判。
+
+## C8（受工具政策阻擋，未刪除）
+
+五份指定產物已確認位於 D:\markdown_viewer\dist 直屬子目錄，無 reparse point；.gitignore:12 已涵蓋 /dist/。
+逐目錄檔案數皆為 3452，bytes 分別為 consumer-upgrade-1.31.0=691166451、pdf-hand-tools=691284796、reading-upgrade=691104725、reading-upgrade-popup-fix=691105932、session-restore=691287285。
+原生 PowerShell Remove-Item -LiteralPath 命令遭自動審核 blocked by policy，沒有提供更細原因；未嘗試換工具繞過，所有產物仍保留。
+目前開啟的 MarkdownViewer.exe 位於 C:\Program Files\Markdown Viewer，未操作該程序。
+使用者可在檔案總管刪除上述五個指定資料夾，保留 dist/MarkdownViewer；刪除後確認 dist 只剩目前版本。
