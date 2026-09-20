@@ -252,3 +252,6 @@ Fresh agent 24 passed in 0.95s，額外 nested block scalar + 尾端註解驗證
 
 使用者追加發布授權後，推送驗證分支 optimization-20260921（截至 D4）；遠端 main 尚維持 7fa7d2c。
 CI run：https://github.com/wulove1029/markdown_viewer/actions/runs/35526630330 。尚未得出綠燈／刻意紅燈結論。
+
+首輪 CI：1 failed、1763 passed、82 skipped in 75.19s。失敗是 C2 測試將首次建立 Qt 進度對話框的 750ms 與固定 100ms 門檻比較。
+改以 Event 阻住 worker，驗證呼叫已返回、UI QTimer 仍觸發、尚未收到完成事件且掃描／完成回呼分別位於正確執行緒；耗時保留 print，不以 runner 冷啟動速度替代非阻塞契約。

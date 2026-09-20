@@ -50,7 +50,7 @@ def test_folder_rename_walks_off_ui_thread_and_applies_mapping_on_ui(
 ):
     import threading
 
-    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtCore import QElapsedTimer, QTimer
     from PySide6.QtTest import QTest
 
     from app import file_ops
@@ -62,9 +62,12 @@ def test_folder_rename_walks_off_ui_thread_and_applies_mapping_on_ui(
     monkeypatch.setattr("app.file_browser.QInputDialog.getText", lambda *_a, **_k: ("new", True))
     ui_thread = threading.get_ident()
     walk_threads = []
+    started, release = threading.Event(), threading.Event()
     walk = file_ops.os.walk
     def tracked_walk(*args, **kwargs):
         walk_threads.append(threading.get_ident())
+        started.set()
+        release.wait(10)
         yield from walk(*args, **kwargs)
     monkeypatch.setattr(file_ops.os, "walk", tracked_walk)
     completed = []
@@ -74,8 +77,18 @@ def test_folder_rename_walks_off_ui_thread_and_applies_mapping_on_ui(
     timer.start()
     view._rename_folder_action(str(folder))
     trigger_ms = timer.elapsed()
-    assert trigger_ms < 100
     print(f"2000-file rename UI trigger: {trigger_ms} ms")
+    heartbeat = []
+    try:
+        while not started.is_set() and timer.elapsed() < 5000:
+            QTest.qWait(10)
+        QTimer.singleShot(0, lambda: heartbeat.append(True))
+        QTest.qWait(25)
+        assert started.is_set() and heartbeat
+        assert not completed
+        assert all(thread != ui_thread for thread in walk_threads)
+    finally:
+        release.set()
     while view._rename_job is not None and timer.elapsed() < 10000:
         QTest.qWait(10)
     assert view._rename_job is None
