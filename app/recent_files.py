@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -21,6 +20,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
+from .file_ops import show_in_explorer
 from .file_types import is_pdf
 from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
@@ -647,7 +647,7 @@ QListWidget#recentFilesList::item:disabled {{
     @staticmethod
     def _open_location_path(path: str | None):
         if path and Path(path).exists():
-            subprocess.run(["explorer", "/select,", path])
+            show_in_explorer(path)
 
     def _remove_path(self, path: str | None):
         if path:

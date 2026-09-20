@@ -353,3 +353,9 @@ model／Mermaid round-trip 7 passed in 0.12s；Ruff 通過。Fresh agent 4 passe
 tools/write_release_notes.py 讀取當版 VERSION／RELEASE_NOTES，UTF-8 輸出至 runner TEMP；workflow body_path 指向相同檔案，不再附歷史CHANGELOG。CLI版號不符會非零退出。
 `tests/test_release_notes.py` 2 passed in 0.34s；Ruff 通過。Fresh agent 真CLI中文readback與2 tests（0.24s）通過。
 E7 遠端 lock CI run 35528253347 已綠燈。
+
+## E10
+
+先比對兩份 dirnames 篩選 AST 完全相同，再抽共用 prune_directory_names；保留 root相對路徑、順序與 in-place 語意。檔案樹／recent Explorer 共用 file_ops.show_in_explorer(check=False)，recent 既有存在檢查不變。
+library/search/fileops/recent/browser 70 passed in 7.06s；新helper 2 passed in 0.27s；Ruff 通過。
+Fresh agent AST 與 import檢查通過，22 passed in 0.68s。

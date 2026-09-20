@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import tempfile
 import warnings
 from pathlib import Path
@@ -26,6 +27,11 @@ except ImportError:  # pragma: no cover - depends on environment
     _send2trash = None
 
 HAS_SEND2TRASH = _send2trash is not None
+
+
+def show_in_explorer(path: str | Path) -> None:
+    """Select a path in Explorer; its success may use exit status 1."""
+    subprocess.run(["explorer", "/select,", str(Path(path))], check=False)
 
 INVALID_NAME_CHARS = '<>:"/\\|?*'
 

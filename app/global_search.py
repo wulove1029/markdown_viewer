@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .document_libraries import load_excluded_folders, should_skip_directory
+from .document_libraries import load_excluded_folders, prune_directory_names
 from .file_types import document_kind
 from .md_converter import read_text_detailed
 from .theme import LIGHT, Theme, collection_stylesheet
@@ -136,13 +136,7 @@ def search_document_files(
                 readable_roots += 1
                 root_readable = True
             relative_parent = Path(dirpath).relative_to(root)
-            dirnames[:] = [
-                name
-                for name in dirnames
-                if not should_skip_directory(
-                    relative_parent / name, excluded_folders
-                )
-            ]
+            prune_directory_names(dirnames, relative_parent, excluded_folders)
             for filename in filenames:
                 if cancelled():
                     return SearchReport(cancelled=True)

@@ -151,13 +151,7 @@ def scan_library_documents(
 
         for dirpath, dirnames, filenames in os.walk(root):
             relative_parent = Path(dirpath).relative_to(root)
-            dirnames[:] = [
-                name
-                for name in dirnames
-                if not should_skip_directory(
-                    relative_parent / name, excluded_folders
-                )
-            ]
+            prune_directory_names(dirnames, relative_parent, excluded_folders)
             for filename in filenames:
                 if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
                     continue
@@ -281,6 +275,16 @@ def should_skip_directory(
         elif f"/{entry.casefold()}/" in path_key:
             return True
     return False
+
+
+def prune_directory_names(
+    dirnames: list[str], relative_parent: Path, excluded_folders: list[str] | None = None,
+) -> None:
+    """Prune os.walk directories in place with shared library exclusion rules."""
+    dirnames[:] = [
+        name for name in dirnames
+        if not should_skip_directory(relative_parent / name, excluded_folders)
+    ]
 
 
 def _normalize_exclusion(value) -> str:

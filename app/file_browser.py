@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1740,7 +1739,7 @@ class FileBrowserView(QWidget):
             self.refresh_libraries()
 
     def _open_location(self, path: str):
-        subprocess.run(["explorer", "/select,", str(Path(path))])
+        file_ops.show_in_explorer(path)
 
     # ---------------- public wrappers ----------------
     # Thin pass-throughs so other panels (e.g. the 標籤 tab) can reuse the exact
