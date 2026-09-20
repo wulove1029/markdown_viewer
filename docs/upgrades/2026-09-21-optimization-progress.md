@@ -196,3 +196,10 @@ PyInstaller Analysis 後只過濾 qtwebengine_locales/*.pak，保留 zh-TW、zh-
 原生 PowerShell Remove-Item -LiteralPath 命令遭自動審核 blocked by policy，沒有提供更細原因；未嘗試換工具繞過，所有產物仍保留。
 目前開啟的 MarkdownViewer.exe 位於 C:\Program Files\Markdown Viewer，未操作該程序。
 使用者可在檔案總管刪除上述五個指定資料夾，保留 dist/MarkdownViewer；刪除後確認 dist 只剩目前版本。
+
+## D2
+
+export_actions.show_export_complete 統一四種格式成功回饋；開啟檔案／所在資料夾皆使用本機 QUrl，關閉不啟動外部程式。
+`py -3 -X utf8 -m pytest tests/test_export_completion.py tests/test_pdf_export.py tests/test_editor_data_safety.py -q` → 92 passed in 8.84s。
+`RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_pdf_export_webengine.py -q` → 1 passed in 7.08s。
+Ruff 通過。Fresh agent 複驗 92 passed in 8.75s，確認四種成功路徑、取消／失敗提前返回與中文空白路徑。

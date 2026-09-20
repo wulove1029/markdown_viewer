@@ -1583,7 +1583,10 @@ def test_wysiwyg_unsaved_docx_export_uses_the_live_buffer_not_disk(
         lambda *a, **k: (str(out_path), ""),
     )
 
+    completed = []
+    monkeypatch.setattr(export_actions, "show_export_complete", lambda w, p: completed.append(p))
     export_actions.export_docx(window)
+    assert completed == [str(out_path)]
 
     assert out_path.exists()
     assert captured["text"] == "# buffer version (unsaved)\n"
@@ -1612,7 +1615,10 @@ def test_wysiwyg_html_export_writes_vditor_get_html_output(
         lambda *a, **k: (str(out_path), ""),
     )
 
+    completed = []
+    monkeypatch.setattr(export_actions, "show_export_complete", lambda w, p: completed.append(p))
     export_actions.export_html(window)
+    assert completed == [str(out_path)]
 
     assert out_path.read_text(encoding="utf-8") == "<h1>edited</h1>"
 

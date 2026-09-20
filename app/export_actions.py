@@ -153,6 +153,7 @@ def export_pptx(window):
     window.statusBar().showMessage(
         f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
     )
+    show_export_complete(window, path)
 
 
 def export_docx(window):
@@ -209,6 +210,7 @@ def export_docx(window):
     window.statusBar().showMessage(
         f"已匯出 Word 文件至 {Path(path).name}", 5000
     )
+    show_export_complete(window, path)
 
 
 def export_html(window):
@@ -244,6 +246,7 @@ def export_html(window):
             QMessageBox.warning(window, "匯出 HTML", f"匯出失敗：{exc}")
             return
         window.statusBar().showMessage(f"已匯出 HTML 至 {Path(path).name}", 5000)
+        show_export_complete(window, path)
 
     window._wysiwyg_view.get_html(_on_html)
 
@@ -493,12 +496,21 @@ def on_pdf_exported(window, path: str, ok: bool):
         return
 
     window.statusBar().showMessage(f"已匯出 PDF：{path}", 5000)
+    show_export_complete(window, path)
+
+
+def show_export_complete(window, path: str) -> None:
+    """Offer the same local file and folder actions for every export format."""
+    destination = Path(path).absolute()
     box = QMessageBox(window)
-    box.setWindowTitle("匯出 PDF")
+    box.setWindowTitle("匯出完成")
     box.setIcon(QMessageBox.Icon.Information)
     box.setText(f"已成功匯出：\n{path}")
-    open_btn = box.addButton("開啟 PDF", QMessageBox.ButtonRole.AcceptRole)
+    open_btn = box.addButton("開啟檔案", QMessageBox.ButtonRole.AcceptRole)
+    folder_btn = box.addButton("開啟所在資料夾", QMessageBox.ButtonRole.AcceptRole)
     box.addButton("關閉", QMessageBox.ButtonRole.RejectRole)
     box.exec()
     if box.clickedButton() is open_btn:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(destination)))
+    elif box.clickedButton() is folder_btn:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(destination.parent)))
