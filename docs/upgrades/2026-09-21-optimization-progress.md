@@ -333,3 +333,12 @@ Fresh agent 將 helper inline 後兩個 builder AST 與 HEAD 完全一致，其�
 隔離環境 pip check／Ruff／mypy 通過；`py -3 -X utf8 $env:TEMP\mdv-venv.py -m pytest tests/ -q` → 1792 passed、82 skipped in 67.12s。TEMP runner 只以隔離環境 python.exe -X utf8 轉交參數，未混入全域 site-packages。
 Fresh agent 核對全部直接依賴滿足、YAML 可解析、三處版本斷言的退出保護與文件一致。
 同一環境 PyInstaller 實際打包進行中，log TEMP/mdv-e7-locked-build.log、輸出 TEMP/mdv-locked-package；完成後補大小與啟動驗證。
+
+## E8
+
+四個優先模組新增 15 項直接測試：甘特圖模型獨立狀態與查找、Markdown 真解析的資源路徑／標籤 round-trip、獨立程序 QApplication 前 scheme 註冊、片段渲染重試／失敗快取／跳脫／watchdog 清理。
+隔離 lock 環境 15 passed in 0.72s；Ruff 通過。Fresh agent 15 passed in 0.70s。
+覆核另發現既有甘特圖刪除後新增造成 Mermaid task_id 重複及自我依賴，下一個獨立修正處理；目前測試只宣稱內部 id 唯一。
+
+E7 PyInstaller 已成功 exit 0（122.866s），乾淨鎖版封裝 627,589,065 bytes，僅三個 WebEngine locale。相較全域環境語系精簡後 1,001,996,347 bytes 減少 374,407,282 bytes；相較最初全域封裝 1,046,108,202 bytes 減少 418,519,137 bytes。不同相依環境的整體差異，不能全歸因 locale。
+B1/C2 修正後遠端 run 35528146915 已綠燈，鎖版 run 35528253347 尚在執行。
