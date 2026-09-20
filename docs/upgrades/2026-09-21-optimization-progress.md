@@ -7,18 +7,18 @@
 每項分別測試、更新 CHANGELOG、commit；未通過的驗收明列，不視為完成。
 WYSIWYG 區段不重構，維持 QTextDocument 為唯一真值。
 
-## A1（進行中）
+## A1
 
 加入來源相對 Markdown 連結解析，保留原有 wikilink 行為與 raw_targets 相容介面。
 測試：`py -3 -X utf8 -m pytest tests/test_links.py tests/test_graph_model.py tests/test_graph_view.py -q` → 29 passed in 0.52s。
 1000 檔（每檔一條 Markdown、一條 wiki）、10 次 build + graph：1000 節點、2000 邊，p50 140.37ms、max 144.87ms（不含磁碟讀取）。
-獨立覆核發現角括號圖片及複雜 fence 假邊，已加入回歸案例並修正，等待再驗。
+獨立覆核發現角括號圖片及複雜 fence 假邊，已加入回歸案例並修正，複驗通過。
 與需求做法差異：wikilink 沿用 mask_markdown_code；Markdown 交由 CommonMark parser 排除程式碼，因既有 masker 無法保留 tilde／不同長度 fence 語意。
-本機 DocumentLibraryStore 為空；歷史記載 E:\\Puritygo 不存在，尚未驗證使用者文件庫。
+初次未設定 applicationName 的查找讀到空的 DocumentLibraryStore；歷史記載 E:\\Puritygo 不存在。正確文件庫位置及驗證見 A2、A3。
 
 ## 待辦
 
-A2–A5、B1–B6、C1–C8、D1–D5、E1–E11、F1–F6。
+B1–B6、C1–C8、D1–D5、E1–E11、F1–F6。
 D6 為仍開放的候選清單，依需求文件保留追蹤。
 選配共享標籤弱邊暫不納入。
 
@@ -32,7 +32,7 @@ Fresh agent 獨立驗收：graph model/view 16 passed in 1.31s，額外檢查副
 
 更正 A1 查找：必須設定正式 QCoreApplication 組織與名稱才會讀到實際 AppData。設定指向 D:\Puritygo，確實存在。
 唯讀實測 D:\Puritygo：84 檔、84 節點、29 條 markdown 邊，索引讀取加建圖 1.447s；真實節點標籤重複數 0。
-README 範例：air_quality/README、app_flutter/README、docs/README。尚待 UI 與完整回歸驗證。
+README 範例：air_quality/README、app_flutter/README、docs/README。UI 與完整回歸結果見 A3、A5。
 
 ## A3
 
@@ -46,5 +46,14 @@ Puritygo Qt GraphWindow 實跑 84 node items、29 edge items、18 folder groups�
 
 ## A4
 
-?????? wikilink?Markdown ??????????????????????
-`py -3 -X utf8 -m pytest tests/test_graph_view.py -q` ? 7 passed in 0.49s?fresh agent 7 passed in 0.40s?
+無邊提示明列 wikilink、Markdown 相對連結與排除範圍；選配共享標籤弱邊不實作。
+`py -3 -X utf8 -m pytest tests/test_graph_view.py -q` → 7 passed in 0.49s；fresh agent 7 passed in 0.40s。
+
+## A5
+
+A1–A3 已新增 12 個案例；A5 再補混合連結實際 Qt edge items 驗證。
+完整回歸（A1–A3）：`py -3 -X utf8 -m pytest tests/ -q` → 1703 passed、82 skipped、0 failed，62.20s。
+A4/A5 追加後 graph_view：8 passed in 0.43s。
+Puritygo 真實資料及 UI：84 節點、29 條邊、0 個重複真實標籤；見 A2、A3。
+需求列 1773 個測試為原始基準，本次全套 1785（增加 12）；追加 A5 後為 1786。
+本批不涉及 WebEngine 渲染實作；Qt 原生 graph offscreen 實跑已完成。

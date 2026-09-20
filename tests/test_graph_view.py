@@ -59,6 +59,23 @@ def test_graph_tooltip_uses_library_relative_path(qapp, tmp_path):
     window.close()
 
 
+def test_graph_canvas_displays_mixed_links_and_distinct_readmes(qapp, tmp_path):
+    source = tmp_path / "a" / "README.md"
+    target = tmp_path / "b" / "README.md"
+    third = tmp_path / "c.md"
+    index = LinkIndex()
+    index.build([(source, "[b](../b/README.md#intro) [[c]]"), (target, ""), (third, "")])
+    window = GraphWindow(lambda _: None)
+    window.set_index(index, libraries=[DocumentLibrary("v", "Vault", str(tmp_path))])
+    window.show()
+    qapp.processEvents()
+    assert len(window.canvas._edge_items) == 2
+    assert {edge.kind for edge in window.graph.edges} == {"wiki", "markdown"}
+    assert len({item.node.label for item in window.canvas._node_items.values()}) == 3
+    assert all(edge.isVisible() for edge in window.canvas._edge_items)
+    window.close()
+
+
 def test_graph_window_opens_real_nodes_but_not_ghosts(qapp, tmp_path):
     note = tmp_path / "note.md"
     note.write_text("[[Missing]]", encoding="utf-8")
