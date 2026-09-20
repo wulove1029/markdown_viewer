@@ -8,7 +8,7 @@
 
 | 軟體         | 版本需求               | 下載                              |
 | ------------ | ---------------------- | --------------------------------- |
-| Python       | 3.11 以上（建議 3.14） | https://www.python.org/downloads/ |
+| Python       | 3.13（與 CI／發版一致） | https://www.python.org/downloads/ |
 | Git          | 任意版本               | https://git-scm.com/              |
 | Inno Setup 6 | 打包安裝檔才需要       | https://jrsoftware.org/isdl.php   |
 
@@ -29,10 +29,16 @@ cd markdown_viewer
 ## 2. 安裝 Python 套件
 
 ```bash
-py -3 -m pip install -r requirements.txt
+py -3 -X utf8 -m pip install -r requirements.lock
 ```
 
-`requirements.txt` 包含：
+`requirements.lock` 固定 Windows／Python 3.13 的執行、測試與打包相依版本（含間接相依）。
+`requirements.txt` 保留開發用途的最低版本，`requirements-dev.txt` 包含 pytest、pytest-qt、pytest-cov、Ruff、mypy、Pillow 與 PyInstaller。
+更新 lock 時在乾淨 Python 3.13 虛擬環境安裝這兩份清單，以 `pip freeze` 產生新 lock，執行完整測試與打包驗證後提交；不要從個人全域環境 freeze。
+
+Windows 同時安裝多版 Python 時先設定 `$env:PY_PYTHON3='3.13'`，再以 `py -3 -X utf8 -c "import sys; print(sys.version)"` 確認。CI 也會斷言版本，避免 launcher 選到較新的次版本；設定依據見 [Python launcher 官方文件](https://docs.python.org/3.13/using/windows.html#customizing-default-python-versions)。
+
+主要執行期套件包含：
 
 ```
 PySide6>=6.11

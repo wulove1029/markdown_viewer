@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PY_PYTHON3: "3.13"
+
 jobs:
   tests:
     runs-on: windows-latest
@@ -19,7 +22,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: py -3 -X utf8 -m pip install -r requirements.txt -r requirements-dev.txt
+        run: |
+          py -3 -X utf8 -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 13)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          py -3 -X utf8 -m pip install -r requirements.lock
       - name: Run tests
         run: py -3 -X utf8 -m pytest tests/ --junitxml=test-results.xml
       - name: Lint
@@ -45,7 +51,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: py -3 -X utf8 -m pip install -r requirements.txt -r requirements-dev.txt
+        run: |
+          py -3 -X utf8 -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 13)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          py -3 -X utf8 -m pip install -r requirements.lock
       - name: Run WebEngine integration tests
         run: >-
           py -3 -X utf8 -m pytest

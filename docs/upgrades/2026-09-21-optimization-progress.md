@@ -326,3 +326,10 @@ Fresh agent 將 helper inline 後兩個 builder AST 與 HEAD 完全一致，其�
 
 探針移除後 run 35527463143 唯一失敗仍為 2000 檔改名完成超過 10 秒；UI trigger 為 8ms，非 UI 阻塞。保留 worker Event/UI heartbeat/thread 斷言，完成等待改為 release 後獨立 60 秒期限。
 `py -3 -X utf8 -m pytest tests/test_file_browser.py -q` → 24 passed in 5.14s；待 E7 固定環境後再次雲端驗證。
+
+## E7
+
+乾淨 TEMP/mdv-release-venv（Python 3.13.5）安裝 runtime/dev 清單，產生 requirements.lock 的 38 個精確版本，含所有間接相依；補 pytest-qt/cov/Pillow/PyInstaller。CI/release 共用 lock，PY_PYTHON3=3.13 並印出/斷言實際版本，各 native 步驟失敗立即退出。
+隔離環境 pip check／Ruff／mypy 通過；`py -3 -X utf8 $env:TEMP\mdv-venv.py -m pytest tests/ -q` → 1792 passed、82 skipped in 67.12s。TEMP runner 只以隔離環境 python.exe -X utf8 轉交參數，未混入全域 site-packages。
+Fresh agent 核對全部直接依賴滿足、YAML 可解析、三處版本斷言的退出保護與文件一致。
+同一環境 PyInstaller 實際打包進行中，log TEMP/mdv-e7-locked-build.log、輸出 TEMP/mdv-locked-package；完成後補大小與啟動驗證。
