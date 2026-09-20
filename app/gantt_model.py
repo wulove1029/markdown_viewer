@@ -73,6 +73,7 @@ class GanttChart:
         return task
 
     def remove_task(self, task_id: str) -> None:
+        # TODO(docs/upgrades/2026-09-21-remaining-work.md): Explain dangling dependencies.
         for section in self.sections:
             section.tasks = [task for task in section.tasks if task.id != task_id]
 

@@ -390,3 +390,8 @@ Fresh agent 靜態指出直接建立QWebEnginePage與processEvents再提交工�
 
 DEVELOPMENT以啟動、編輯、PDF、復原、標籤、圖譜、匯出／更新、離線assets等功能分群，取代9模組過時tree；同步push CI與tag發版閘門／當版release notes。
 Fresh agent核對55個代表路徑存在，QTextDocument唯一真值說明與workflow一致，文件驗收通過。
+
+## F6
+
+新增 remaining-work 清單，保留C1/C3未達標、C6語系實際減量、資源／UPX評估、C8政策拒絕、D6選配及實體補驗步驟。4個程式檔共5條TODO反向連結，AST腳本確認與HEAD完全相同、路徑存在、Ruff通過。
+Fresh agent readback與AST驗收通過；E11檔案數249CSS+2images/335039bytes再次核對相同。

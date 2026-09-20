@@ -502,6 +502,7 @@ class PdfView(QAbstractScrollArea):
         if cached is not None:
             self._page_sizes = [QSizeF(w, h) for w, h in cached]
         else:
+            # TODO(docs/upgrades/2026-09-21-remaining-work.md): Stage cold page geometry.
             self._page_sizes = [self._doc.pagePointSize(i) for i in range(count)]
             if self._path and pdf_metadata_cache.signature(self._path) == key:
                 pdf_metadata_cache.put_sizes(key, self._page_sizes)
@@ -1745,6 +1746,7 @@ class PdfView(QAbstractScrollArea):
         self.status_message.emit("快照：拖曳框選可見區域，放開後複製圖片；Esc 取消")
 
     def copy_snapshot(self, rect: QRect) -> bool:
+        # TODO(docs/upgrades/2026-09-21-remaining-work.md): Offer full-page export separately.
         rect = rect.intersected(self.viewport().rect())
         if not self._page_sizes or rect.width() < 3 or rect.height() < 3:
             return False

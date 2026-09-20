@@ -214,6 +214,7 @@ def rename_document(old: str | Path, new: str | Path, *, backlink_updates=None) 
         entries.append({"source": path, "target": path, "signature": signature,
                         "data": after, "inplace": True})
 
+    # TODO(docs/upgrades/2026-09-21-remaining-work.md): Persist a crash-replay manifest.
     prepared_dir = Path(tempfile.mkdtemp(prefix=".markdown-relocate-prepared-", dir=new.parent))
     originals_dir = None
     rollback_failed = False

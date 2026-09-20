@@ -5269,6 +5269,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             state["editing_encoding"] = prepared["encoding"]
             state["editing_newline"] = prepared["newline"]
 
+    # TODO(docs/upgrades/2026-09-21-remaining-work.md): Cover branches before extraction.
     def _on_browser_paths_migrated(
         self,
         mapping: dict,
