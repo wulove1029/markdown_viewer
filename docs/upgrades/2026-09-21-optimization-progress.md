@@ -7,6 +7,12 @@
 每項分別測試、更新 CHANGELOG、commit；未通過的驗收明列，不視為完成。
 WYSIWYG 區段不重構，維持 QTextDocument 為唯一真值。
 
+## 目前狀態（發布前）
+
+六批次逐項實作與評估已記錄；未達效能門檻、保留資源、選配與工具限制詳見 [仍開放清單](2026-09-21-remaining-work.md)，不宣稱全部驗收條件達標。
+最終一般測試 1812 passed／82 skipped；全量 WebEngine 1887 passed／7 skipped；兩種收集均 1894、零錯誤。遠端一般 CI 與手動 WebEngine 均成功，詳見 [最終基準](2026-09-21-test-baseline.md)。
+使用者已授權無人值守、更新版號、提交與發布；目前準備 1.34.0。下文保留執行當時的歷史狀態，後續記錄優先。
+
 ## A1
 
 加入來源相對 Markdown 連結解析，保留原有 wikilink 行為與 raw_targets 相容介面。
@@ -16,7 +22,7 @@ WYSIWYG 區段不重構，維持 QTextDocument 為唯一真值。
 與需求做法差異：wikilink 沿用 mask_markdown_code；Markdown 交由 CommonMark parser 排除程式碼，因既有 masker 無法保留 tilde／不同長度 fence 語意。
 初次未設定 applicationName 的查找讀到空的 DocumentLibraryStore；歷史記載 E:\\Puritygo 不存在。正確文件庫位置及驗證見 A2、A3。
 
-## 待辦
+## 開工時待辦（歷史紀錄，非目前狀態）
 
 B1–B6、C1–C8、D1–D5、E1–E11、F1–F6。
 D6 為仍開放的候選清單，依需求文件保留追蹤。
@@ -58,7 +64,7 @@ Puritygo 真實資料及 UI：84 節點、29 條邊、0 個重複真實標籤；
 需求列 1773 個測試為原始基準，本次全套 1785（增加 12）；追加 A5 後為 1786。
 本批不涉及 WebEngine 渲染實作；Qt 原生 graph offscreen 實跑已完成。
 
-## B1（本機檢查通過，遠端待授權）
+## B1（初次本機檢查；後續遠端驗證已通過）
 
 新增 Windows push/PR tests job、手動 WebEngine job、JUnit artifacts；失敗不允許忽略。
 PyYAML BaseLoader 實際解析與觸發器／runner／job 斷言通過；fresh agent 獨立檢查通過。
@@ -166,7 +172,7 @@ Fresh agent 額外 8 threads／200 次輸出逐字相同；9 cache tests passed 
 Fresh agent：6 tag tests + 1 真實 window close test 通過，額外 failure/retry 實跑通過。
 限制：程序遭強制終止時無法保證執行 flush；250ms 內尚未落盤的是可重建的 tag cache，筆記及註解原檔仍各自同步保存。
 
-## C5（待決策）
+## C5（原待決策；後續無人值守採保留已使用資源）
 
 實際 WebEngine 載入 WYSIWYG Mermaid／PlantUML 範例時，document.scripts 包含兩者資源，Mermaid 產生 SVG；與「未使用」前提不符。
 已詢問保留功能或停用後裁剪，尚未收到選擇，故保留資源。沒有將可能破壞既有功能的裁剪當成完成。
@@ -403,3 +409,8 @@ Fresh agent readback與AST驗收通過；E11檔案數249CSS+2images/335039bytes�
 遠端push run35529213221：1812/82/92.20s；手動run35529213096：一般1812/82/91.19s、WebEngine七模組93 passed/242.70s，均綠。
 7 skips為5個缺少私人Acrobat樣本、2個fixture同磁碟；另以D:測試來源／C:TEMP目的補跑cross-drive 2 passed、7 deselected in .34s。封裝worker HTML一致並正常shutdown exit0。
 發布前fresh agent讀回完整WE log、46設定／標籤／復原／PDF／release測試passed2.33s，無新增blocker；限制如remaining-work。
+
+## 1.34.0 發布前覆核
+
+版號／installer／CHANGELOG 同步 1.34.0，三條當版 RELEASE_NOTES。獨立 reviewer read-back 58 處檔案行號、49 個 commit 均有效；release notes 2 passed（主程序 1.29s，獨立 0.31s），Ruff／mypy 通過。未達標及選配仍依 remaining-work 揭露。
+
