@@ -138,6 +138,7 @@ from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
 from .shortcuts import WINDOW_SHORTCUTS, shortcut_by_id
 from .shortcuts_dialog import ShortcutDialog
+from .tab_state import TabState
 from .tag_colors import TagColorStore
 from .tag_index import TagIndex
 from .text_positions import py_to_qt_position, qt_to_py_position
@@ -300,7 +301,7 @@ class MainWindow(QMainWindow):
         # shared and reloaded on switch; per-tab view state (markdown scroll;
         # PDF page already persists in pdf_last_pages) is kept here keyed by
         # path string. _active_path is the path currently loaded in the view.
-        self._tab_state: dict[str, dict] = {}
+        self._tab_state: dict[str, TabState] = {}
         self._active_path: str | None = None
         self._tab_guard = False  # suppress currentChanged while we mutate tabs
         # Detached (tab moved out) windows must not persist their session on
@@ -2028,7 +2029,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             )
         return _activate_source()
 
-    def _office_entry_markdown(self, state: dict) -> str:
+    def _office_entry_markdown(self, state: TabState) -> str:
         document = state.get("editor_document")
         if isinstance(document, QTextDocument):
             return document.toPlainText()
@@ -2040,7 +2041,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return ""
         return result[0] if result is not None else ""
 
-    def _confirm_office_compatibility(self, state: dict, markdown: str) -> bool:
+    def _confirm_office_compatibility(self, state: TabState, markdown: str) -> bool:
         """Warn before Vditor sees syntax proven to be lossy on round-trip."""
         risks = office_compatibility_risks(markdown)
         if not risks:
@@ -2525,7 +2526,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._update_preview()
         self._update_dirty_ui()
 
-    def _active_editor_state(self) -> dict | None:
+    def _active_editor_state(self) -> TabState | None:
         if not self._active_path:
             return None
         return self._tab_state.get(self._active_path)
@@ -2589,7 +2590,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._save_recovery_for_state(self._active_path, state)
         return True
 
-    def _activate_editor_state(self, state: dict, mode: str) -> bool:
+    def _activate_editor_state(self, state: TabState, mode: str) -> bool:
         document = state.get("editor_document")
         if not isinstance(document, QTextDocument):
             return False
@@ -3027,7 +3028,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             purpose="返回預覽",
         )
 
-    def _leave_wysiwyg_ui_keeping_buffer(self, state: dict) -> None:
+    def _leave_wysiwyg_ui_keeping_buffer(self, state: TabState) -> None:
         """Swap the UI from WYSIWYG back to PREVIEW without touching the buffer.
 
         Mirrors ``_leave_edit_ui`` minus the ``_discard_tab_buffer`` call: the
@@ -3472,7 +3473,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 "cursor", "anchor", "editor_scroll", "editing_encoding",
                 "editing_newline", "source_signature", "preview_scroll_ratio",
             ):
-                state.pop(field, None)
+                state.pop(field, None)  # type: ignore[misc]  # Fixed tuple of optional buffer keys.
         if not preserve_recovery:
             self._recovery_store.discard(key)
 
@@ -3491,7 +3492,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 dirty.append(key)
         return dirty
 
-    def _save_recovery_for_state(self, key: str, state: dict) -> None:
+    def _save_recovery_for_state(self, key: str, state: TabState) -> None:
         if state.get("pending_recovery"):
             # A deferred snapshot is a separate version, not a clean-buffer
             # cache to clear or replace during ordinary navigation.
@@ -4126,7 +4127,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.setTabData(idx, key)
         self._tab_bar.setTabToolTip(idx, key)
         self._tab_guard = False
-        state = {
+        state: TabState = {
             "kind": kind,
             "scroll": None,
             "view_mode": view_mode.PREVIEW,
@@ -4356,7 +4357,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             # The detached window restores shared zoom from QSettings during
             # construction, so commit the active PDF's last wheel frame first.
             self._flush_pdf_zoom_pipeline()
-        state = dict(self._tab_state.get(key) or {})
+        state: TabState = dict(self._tab_state.get(key) or {})
         state["editor_document"] = None
         state["view_mode"] = view_mode.PREVIEW
         kind = state.get("kind") or document_kind(path)
@@ -4485,7 +4486,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._watch_current_file()
         self._refresh_icons()
 
-    def _refresh_stale_clean_editor_state(self, path: Path, state: dict) -> None:
+    def _refresh_stale_clean_editor_state(self, path: Path, state: TabState) -> None:
         """Refresh an inactive clean buffer whose source changed on disk."""
 
         document = state.get("editor_document")
@@ -6042,7 +6043,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         document = self._editor.create_buffer_document(text)
         previous_state = self._tab_state.get(self._active_path) or {}
         previous_document = previous_state.get("editor_document")
-        state = {
+        state: TabState = {
             "kind": self._current_kind,
             "scroll": None,
             "view_mode": mode,

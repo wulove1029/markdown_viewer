@@ -89,4 +89,10 @@ python_version = "3.13"
 ignore_missing_imports = true
 follow_imports = "skip"
 check_untyped_defs = true
-files = ["app/atomic_io.py", "app/file_types.py", "app/edit_backend.py"]
+files = ["app/atomic_io.py", "app/file_types.py", "app/edit_backend.py", "app/tab_state.py", "app/window.py"]
+
+[[tool.mypy.overrides]]
+module = "app.window"
+# Existing dynamic Qt/optional-object diagnostics (34 before TabState).
+# Keep TypedDict key/value diagnostics enabled during gradual adoption.
+disable_error_code = ["arg-type", "assignment", "attr-defined", "union-attr"]

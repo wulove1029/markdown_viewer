@@ -255,3 +255,15 @@ CI run：https://github.com/wulove1029/markdown_viewer/actions/runs/35526630330 
 
 首輪 CI：1 failed、1763 passed、82 skipped in 75.19s。失敗是 C2 測試將首次建立 Qt 進度對話框的 750ms 與固定 100ms 門檻比較。
 改以 Event 阻住 worker，驗證呼叫已返回、UI QTimer 仍觸發、尚未收到完成事件且掃描／完成回呼分別位於正確執行緒；耗時保留 print，不以 runner 冷啟動速度替代非阻塞契約。
+
+## D6 範圍
+
+原需求 D6 為「仍開放，依需要排入」清單，本輪不擴充 PDF 本文編輯、i18n、雲端同步等大型能力。相關既有限制維持追蹤；F6 補程式碼反向連結，不把它們宣稱為已實作。
+
+## E2
+
+新增 TabState(TypedDict, total=False) 的 17 個可選欄位，_tab_state 及接收分頁狀態的方法使用該契約；仍為相同 runtime dict，不改 session/sidecar 格式。
+window 納入漸進 mypy：原有 34 個 Qt／Optional 動態診斷按 arg-type/assignment/attr-defined/union-attr 暫不納管，TypedDict item/unknown-key 持續開啟；並非宣稱 window 所有型別問題已消除。
+`py -3 -X utf8 -m mypy` → 5 files 通過；Ruff 通過。
+`py -3 -X utf8 -m pytest tests/ -q` → 1788 passed、82 skipped in 61.07s。
+Fresh agent 移除 import/annotation 後 window AST 完全相同；TEMP typo `edtor_document` 負向測試確實觸發 typeddict-unknown-key。
