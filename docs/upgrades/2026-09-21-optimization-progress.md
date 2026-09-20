@@ -359,3 +359,9 @@ E7 遠端 lock CI run 35528253347 已綠燈。
 先比對兩份 dirnames 篩選 AST 完全相同，再抽共用 prune_directory_names；保留 root相對路徑、順序與 in-place 語意。檔案樹／recent Explorer 共用 file_ops.show_in_explorer(check=False)，recent 既有存在檢查不變。
 library/search/fileops/recent/browser 70 passed in 7.06s；新helper 2 passed in 0.27s；Ruff 通過。
 Fresh agent AST 與 import檢查通過，22 passed in 0.68s。
+
+## E11
+
+真實 WysiwygView／Chromium request interceptor，載入 Python code fence 並啟用 CodeMirror 區塊，light/dark 各遍歷 11 個 _CODE_THEMES，共 22 次；每次 readback data-cm-theme 等於指定值。exit 0，6 requests（HTML、index.css、index.min.js、glue、zh_TW、lute），highlight.js/styles 請求為 0。完整紀錄 TEMP/mdv-e11-theme-requests.json。
+目前 assets/vditor/dist/js/highlight.js/styles 遞迴 251 個檔案、335,039 bytes（249 CSS＋2 圖片），不是盤點的 76 檔／1.1MB；根目錄73 CSS，其他在子目錄。
+這只證明目前 Office CodeMirror 主題切換未請求那些檔案，不能證明其他 Vditor 輸出路徑永不使用；最大節省約0.32MiB，故本輪保留，未刪資源、不宣稱安全裁剪完成。
