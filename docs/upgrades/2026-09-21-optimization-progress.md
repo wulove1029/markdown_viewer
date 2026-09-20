@@ -395,3 +395,11 @@ Fresh agent核對55個代表路徑存在，QTextDocument唯一真值說明與wor
 
 新增 remaining-work 清單，保留C1/C3未達標、C6語系實際減量、資源／UPX評估、C8政策拒絕、D6選配及實體補驗步驟。4個程式檔共5條TODO反向連結，AST腳本確認與HEAD完全相同、路徑存在、Ruff通過。
 Fresh agent readback與AST驗收通過；E11檔案數249CSS+2images/335039bytes再次核對相同。
+
+## F3
+
+完整鎖版基準落檔 docs/upgrades/2026-09-21-test-baseline.md，含確切命令／日期／結果、Python3.13.5本機與3.13.15 runner差異；舊數字原因未確認。
+本機default 1812 passed、82 skipped in 61.16s；RUN_WEBENGINE_TESTS=1全套1887 passed、7 skipped in 436.86s，兩種collection都是1894／0error。
+遠端push run35529213221：1812/82/92.20s；手動run35529213096：一般1812/82/91.19s、WebEngine七模組93 passed/242.70s，均綠。
+7 skips為5個缺少私人Acrobat樣本、2個fixture同磁碟；另以D:測試來源／C:TEMP目的補跑cross-drive 2 passed、7 deselected in .34s。封裝worker HTML一致並正常shutdown exit0。
+發布前fresh agent讀回完整WE log、46設定／標籤／復原／PDF／release測試passed2.33s，無新增blocker；限制如remaining-work。

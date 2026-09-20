@@ -58,6 +58,8 @@ python-docx>=1.1
 
 ## 3. 執行程式（開發模式）
 
+本輪完整測試的命令、預設／WebEngine 兩組數字、跳過原因與封裝證據見 [2026-09-21 基準](docs/upgrades/2026-09-21-test-baseline.md)。
+
 ```bash
 py -3 main.py
 ```
