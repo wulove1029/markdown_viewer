@@ -378,3 +378,10 @@ Fresh agent對照CHANGELOG與tag、檢查兩份audit連結存在，驗收通過�
 ## F4
 
 README 關聯圖段落同步程式提示原句，另說明相對路徑、百分比編碼／錨點、code/image排除、重名與分群。實際 import graph_view._EMPTY_EDGE_HINT 並斷言索引範圍原文出現在README，exit0。
+
+## F3 前置：WebEngine 測試生命週期
+
+完整 RUN_WEBENGINE_TESTS=1 在鎖版環境重現 Windows native 0x80000003：trace 位於背景 Markdown parser 的 Garbage-collecting，GUI 正在下一個 table preview。預設跳過無法揭露此問題。
+flagged-only fixture 強參照保留每個QWebEngineView，結束時等待parser pool，在GUI執行緒close/deleteLater/DeferredDelete與gc.collect；不改產品WYSIWYG或同步模型。
+`RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu ... -m pytest tests/test_table_edit_webengine.py -q` → 31 passed in 144.57s。完整flagged suite正在重跑，不以單模組通過宣稱全套已過。
+Fresh agent 靜態指出直接建立QWebEnginePage與processEvents再提交工作仍是驗證界限，待全套結果；無旗標4tests與Ruff通過。
