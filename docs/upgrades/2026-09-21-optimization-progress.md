@@ -374,3 +374,7 @@ CHANGELOG 補回 [1.31.0] - 2026-09-08；日期以 v1.31.0 tag 的 commit日期�
 
 兩份2026-09-08 audit標頭與各P1章節回填已解決版本；v1.31.0資料／搜尋／設定、v1.32.0首頁／更新，長文完整解析、高DPI人工驗證等保留開放。R4標本輪Unreleased。回填v1.27歷史拖曳不能Undo的限制目前已不成立，引用既有真實WebEngine測試。
 Fresh agent對照CHANGELOG與tag、檢查兩份audit連結存在，驗收通過。
+
+## F4
+
+README 關聯圖段落同步程式提示原句，另說明相對路徑、百分比編碼／錨點、code/image排除、重名與分群。實際 import graph_view._EMPTY_EDGE_HINT 並斷言索引範圍原文出現在README，exit0。

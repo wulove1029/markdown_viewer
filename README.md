@@ -36,6 +36,14 @@ the current folder.
 See [[Project Plan]] and [[Meeting Notes|last week's notes]].
 ```
 
+Open **檢視 → 筆記關聯圖** to browse the library graph. Its indexed scope is:
+**已索引 [[wikilink]] 與 Markdown 相對連結 [text](path.md)；外部 URL 與非 Markdown 檔案不入圖。**
+Relative paths such as `../notes/README.md`, percent-encoded spaces and heading
+anchors resolve to the target note. Links inside code and image references do
+not create edges. Duplicate names include their parent folders; hover shows
+the library-relative path. Group by library, folder or tags; the choice is
+remembered, and groups can be hidden from the legend.
+
 ## Math
 
 Inline `$...$` and block `$$...$$` LaTeX math render offline via a bundled
