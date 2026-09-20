@@ -89,7 +89,10 @@ def test_folder_rename_walks_off_ui_thread_and_applies_mapping_on_ui(
         assert all(thread != ui_thread for thread in walk_threads)
     finally:
         release.set()
-    while view._rename_job is not None and timer.elapsed() < 10000:
+    # The UI contract above is independent of runner filesystem throughput.
+    # Start a separate completion deadline after releasing the worker.
+    timer.restart()
+    while view._rename_job is not None and timer.elapsed() < 60000:
         QTest.qWait(10)
     assert view._rename_job is None
     assert walk_threads and all(thread != ui_thread for thread in walk_threads)

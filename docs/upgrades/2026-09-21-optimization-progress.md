@@ -321,3 +321,8 @@ Fresh agent 確認移除範圍及兩張截圖，獨立 18 passed in 0.98s。
 純建構依功能抽出 file menu、format menu、toolbar controls/title 四個具名 helper；保留既有 format commands 資料表，主 menu 165 → 95 行、toolbar 110 → 29 行。未動 WYSIWYG 與需先補分支測試的資料安全函式。
 window integration／shortcuts／toolbar／combo 主題 168 passed in 15.13s；Ruff/mypy 通過。
 Fresh agent 將 helper inline 後兩個 builder AST 與 HEAD 完全一致，其他原方法 AST 均未變；Qt 整合 13 passed in 1.95s。
+
+## B1/C2 雲端完成等待修正
+
+探針移除後 run 35527463143 唯一失敗仍為 2000 檔改名完成超過 10 秒；UI trigger 為 8ms，非 UI 阻塞。保留 worker Event/UI heartbeat/thread 斷言，完成等待改為 release 後獨立 60 秒期限。
+`py -3 -X utf8 -m pytest tests/test_file_browser.py -q` → 24 passed in 5.14s；待 E7 固定環境後再次雲端驗證。
