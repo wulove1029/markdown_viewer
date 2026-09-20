@@ -60,3 +60,27 @@ def test_loads_legacy_entry_without_body_tags(tmp_path):
     idx = TagIndex(path)
     assert set(idx.all_tags()) == {"old", "front"}
     assert idx.files_with_tag("old") == [str(md.resolve())]
+
+
+def test_debounce_combines_ten_updates_and_explicit_flush_persists(qapp, tmp_path, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    from app import tag_index as module
+    writes = []
+    original = module.atomic_write_text
+    def write(*args, **kwargs):
+        writes.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module, "atomic_write_text", write)
+    index = TagIndex(tmp_path / "index.json")
+    index.enable_debounce(30)
+    for i in range(10):
+        index.update(tmp_path / f"{i}.md", _doc([f"tag{i}"], []))
+    assert writes == []
+    QTest.qWait(100)
+    assert writes == [1]
+    assert len(TagIndex(index._path).all_tags()) == 10
+    index.update(tmp_path / "last.md", _doc(["last"], []))
+    index.flush()
+    assert writes == [1, 1]
+    assert "last" in TagIndex(index._path).all_tags()

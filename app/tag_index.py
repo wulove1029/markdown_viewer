@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
+import logging
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths
+from PySide6.QtCore import QCoreApplication, QStandardPaths, QTimer
 
+from .atomic_io import atomic_write_text
 from .settings_store import legacy_data_path
 
 
@@ -22,6 +23,8 @@ class TagIndex:
     def __init__(self, path=None):
         self._path = Path(path) if path else _default_index_path()
         self._data: dict[str, dict] = {}
+        self._save_timer = None
+        self._dirty = False
         self._load()
 
     def _load(self):
@@ -31,12 +34,38 @@ class TagIndex:
             self._data = {}
 
     def _save(self):
+        self._dirty = True
+        if self._save_timer is not None:
+            self._save_timer.start()
+        else:
+            self.flush()
+
+    def enable_debounce(self, milliseconds: int = 250):
+        app = QCoreApplication.instance()
+        if app is None or self._save_timer is not None:
+            return
+        self._save_timer = QTimer(app)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(milliseconds)
+        self._save_timer.timeout.connect(self._flush_deferred)
+        app.aboutToQuit.connect(self._flush_deferred)
+
+    def _flush_deferred(self):
+        try:
+            self.flush()
+        except OSError:
+            logging.getLogger(__name__).warning("Could not flush tag cache", exc_info=True)
+
+    def flush(self):
+        if self._save_timer is not None:
+            self._save_timer.stop()
+        if not self._dirty:
+            return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
+        atomic_write_text(
+            self._path, json.dumps(self._data, ensure_ascii=False, indent=2), backup=False
         )
-        os.replace(tmp, self._path)
+        self._dirty = False
 
     def update(self, md_path, doc, front_tags=None, body_tags=None):
         key = str(Path(md_path).resolve())

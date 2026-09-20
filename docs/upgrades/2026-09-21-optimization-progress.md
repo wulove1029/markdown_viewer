@@ -157,3 +157,11 @@ Fresh agent 額外 8 threads／200 次輸出逐字相同；9 cache tests passed 
 相同參數 first_readable p50：150.91ms → lexer-only 143.57ms → 區塊快取 18.22ms。
 該工具此前已渲染相同文件；額外每次清空兩層快取的冷解析 p50 142.79ms，未達 <80ms。不能將暖快取速度宣稱為首次開啟速度。
 未降低子程序門檻：100KB 純解析約143ms，啟動子程序本身成本會抵銷收益；目前既有 GUI 背景渲染仍保留。
+
+## C4
+
+主視窗啟用 250ms debounce；獨立 TagIndex 預設保持同步。timer／aboutToQuit／closeEvent 強制 flush；寫入失敗保留 dirty 供重試並記 log。
+`py -3 -X utf8 -m pytest tests/test_tag_index.py tests/test_tag_rename.py tests/test_tag_delete_merge.py -q` → 16 passed in 1.08s。
+`py -3 -X utf8 -m pytest tests/ -q` → 1727 passed、82 skipped，62.03s；Ruff 通過。
+Fresh agent：6 tag tests + 1 真實 window close test 通過，額外 failure/retry 實跑通過。
+限制：程序遭強制終止時無法保證執行 flush；250ms 內尚未落盤的是可重建的 tag cache，筆記及註解原檔仍各自同步保存。

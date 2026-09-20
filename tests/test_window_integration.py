@@ -1811,6 +1811,19 @@ def test_split_preview_is_lazy_and_keeps_current_zoom_and_search_token(make_wind
     assert win._edit_preview is preview
 
 
+def test_window_close_flushes_deferred_tag_index(make_window, tmp_path):
+    from app.annotations import DocumentAnnotations
+    from app.tag_index import TagIndex
+    win = make_window()
+    index = TagIndex(tmp_path / "tags.json")
+    index.enable_debounce(10000)
+    win._tag_index = index
+    index.update(tmp_path / "note.md", DocumentAnnotations(doc_tags=["saved"]))
+    assert not index._path.exists()
+    win.close()
+    assert TagIndex(index._path).all_tags() == ["saved"]
+
+
 def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
     first, _second = md_files
     win = make_window()

@@ -364,6 +364,8 @@ class MainWindow(QMainWindow):
         self._graph_window: GraphWindow | None = None
 
         self._tag_index = TagIndex()
+        if hasattr(self._tag_index, "enable_debounce"):
+            self._tag_index.enable_debounce()
         self._tag_color_store = TagColorStore.load()
         self._active_tag = ""
         self._doc_annotations = DocumentAnnotations()
@@ -6758,6 +6760,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.restore_geometry(self)
 
     def closeEvent(self, event):
+        if hasattr(self._tag_index, "flush"):
+            try:
+                self._tag_index.flush()
+            except OSError:
+                log.warning("Could not flush tag cache on close", exc_info=True)
         self._flush_pdf_zoom_pipeline()
         # The pre-write copies of edited PDFs are a crash aid, not a feature;
         # they go away with the session.
