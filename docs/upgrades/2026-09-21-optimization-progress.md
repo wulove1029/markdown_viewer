@@ -347,3 +347,9 @@ B1/C2 修正後遠端 run 35528146915 已綠燈，鎖版 run 35528253347 尚在�
 
 重現 add/add/remove-first/add 後新任務 task_id=task2 且 start=after task2。新增 allocator 同時避開既有 Mermaid ID 與 after 參照；新任務為 task3，不把尚未修正的舊 after task1 重新指向新物件。原刪除造成的失效參照維持可見，不擅改使用者排程。
 model／Mermaid round-trip 7 passed in 0.12s；Ruff 通過。Fresh agent 4 passed in 0.08s，原反例、自訂 ID、多 after 參照實跑通過。
+
+## E9
+
+tools/write_release_notes.py 讀取當版 VERSION／RELEASE_NOTES，UTF-8 輸出至 runner TEMP；workflow body_path 指向相同檔案，不再附歷史CHANGELOG。CLI版號不符會非零退出。
+`tests/test_release_notes.py` 2 passed in 0.34s；Ruff 通過。Fresh agent 真CLI中文readback與2 tests（0.24s）通過。
+E7 遠端 lock CI run 35528253347 已綠燈。

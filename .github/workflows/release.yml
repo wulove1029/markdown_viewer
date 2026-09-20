@@ -55,8 +55,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
+      - name: Write current release notes
+        run: >-
+          py -3 -X utf8 tools/write_release_notes.py
+          --version "${{ github.ref_name }}"
+          --output "${{ runner.temp }}/release-notes.md"
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: CHANGELOG.md
+          body_path: ${{ runner.temp }}/release-notes.md
           files: installer_output/*.exe
