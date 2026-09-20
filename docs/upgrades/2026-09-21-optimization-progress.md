@@ -385,3 +385,8 @@ README 關聯圖段落同步程式提示原句，另說明相對路徑、百分�
 flagged-only fixture 強參照保留每個QWebEngineView，結束時等待parser pool，在GUI執行緒close/deleteLater/DeferredDelete與gc.collect；不改產品WYSIWYG或同步模型。
 `RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu ... -m pytest tests/test_table_edit_webengine.py -q` → 31 passed in 144.57s。完整flagged suite正在重跑，不以單模組通過宣稱全套已過。
 Fresh agent 靜態指出直接建立QWebEnginePage與processEvents再提交工作仍是驗證界限，待全套結果；無旗標4tests與Ruff通過。
+
+## F5
+
+DEVELOPMENT以啟動、編輯、PDF、復原、標籤、圖譜、匯出／更新、離線assets等功能分群，取代9模組過時tree；同步push CI與tag發版閘門／當版release notes。
+Fresh agent核對55個代表路徑存在，QTextDocument唯一真值說明與workflow一致，文件驗收通過。

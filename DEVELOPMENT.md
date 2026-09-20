@@ -141,7 +141,7 @@ git commit -m "Bump version to 1.2.3"
 git push
 ```
 
-此時 CI 不會有任何動作。
+此時 push CI 會執行測試、Ruff 與 mypy；全部通過後才推正式版本 tag。
 
 ### 6-3. 打 tag 觸發發布
 
@@ -152,10 +152,10 @@ git push origin v1.2.3
 
 tag 推上去後，GitHub Actions 會在 `windows-latest` 上自動執行：
 
-1. 安裝 Python 3.13、相依套件、PyInstaller、Inno Setup
-2. 從 tag 名稱反推版號，再跑一次 `bump_version.py` 同步（以 tag 為準，即使本機忘了改版號也沒關係）
+1. 安裝 Python 3.13 與 `requirements.lock`，先執行測試、Ruff、mypy，失敗停止
+2. 安裝 Inno Setup，從 tag 名稱同步版號（本機仍須先同步 CHANGELOG／RELEASE_NOTES）
 3. 重建圖示 → PyInstaller 打包 → Inno Setup 編譯安裝檔
-4. 將 `installer_output/*.exe` 上傳為 GitHub Release
+4. 從當版 `RELEASE_NOTES` 產生發布說明，將 `installer_output/*.exe` 上傳為 GitHub Release
 
 完成後可在 GitHub Releases 頁面下載 `MarkdownViewer_Setup_v1.2.3.exe`。
 
@@ -163,34 +163,23 @@ tag 推上去後，GitHub Actions 會在 `windows-latest` 上自動執行：
 
 ## 專案結構
 
-```
-markdown_viewer/
-├── main.py                  # 程式進入點
-├── requirements.txt         # Python 套件清單
-├── markdown_viewer.spec     # PyInstaller 設定
-├── installer.iss            # Inno Setup 安裝檔腳本
-├── .github/
-│   └── workflows/
-│       └── release.yml      # tag 觸發的自動發布流程
-├── ICON/
-│   ├── icon.png             # 原始圖示（RGBA PNG）
-│   └── icon.ico             # 多尺寸 ICO（自動產生）
-├── app/
-│   ├── version.py           # 版號（由 bump_version.py 更新）
-│   ├── window.py            # 主視窗
-│   ├── ribbon.py            # 左側圖示列
-│   ├── left_panel.py        # 左側面板（檔案/最近/目錄）
-│   ├── file_browser.py      # 檔案瀏覽樹
-│   ├── recent_files.py      # 最近開啟清單
-│   ├── toc.py               # 目錄（Table of Contents）
-│   ├── renderer.py          # Markdown 渲染（QWebEngineView）
-│   └── md_converter.py      # Markdown → HTML 轉換
-├── assets/
-│   └── obsidian-light.css   # 渲染樣式
-└── tools/
-    ├── build_icon.py        # PNG → ICO 轉換工具
-    └── bump_version.py      # 版號同步工具
-```
+以下按功能分群列代表入口，避免把全部模組逐一列出而再次過時。
+
+| 範圍 | 入口與責任 |
+|---|---|
+| 啟動與視窗 | `main.py`：日誌、URL scheme、單一實例 IPC；`app/window.py`：Qt 組裝、分頁與編輯協調 |
+| 編輯與渲染 | `app/editor.py`、`renderer.py`、`render_service.py`、`md_converter.py`：來源編輯、背景解析與預覽；`wysiwyg_view.py`：Office 影子文件橋接 |
+| 分頁與復原 | `app/tab_state.py`、`session_state.py`、`recovery.py`、`recovery_browser.py`；編輯唯一真值仍為分頁的 `QTextDocument` |
+| PDF | `app/pdf_flow.py` 協調；`pdf_view.py` 閱讀與畫布；`pdf_notes.py`／`pdf_highlights.py` sidecar；`pdf_annotation_writer.py` 內嵌註解；`pymupdf_loader.py` 共用延遲載入 |
+| 文件庫與連結 | `app/document_libraries.py`、`file_browser.py`、`global_search.py`、`links.py`、`graph_model.py`／`graph_view.py`；`file_ops.py` 與 `backlink_rename.py` 負責搬移／改名交易 |
+| 標籤與屬性 | `app/tag_flow.py`、`tag_index.py`、`doc_tags.py`；`frontmatter_properties.py`／`properties_panel.py` 保守修改 YAML 屬性 |
+| 工具流程 | `app/translation_flow.py`、`export_actions.py`、`update_flow.py`；沿用自由函式接收視窗的模式，公開 property 提供共用狀態 |
+| 介面與圖表 | `app/theme.py` 共用樣式；`format_commands.py` 格式命令；`mermaid_workspace.py` 與各圖表 model／canvas |
+| 離線資源 | `assets/vditor/`、`vditor_host.html`／`vditor_glue.js`、`katex/`、`mermaid.min.js`、預覽 CSS／JS 與 SVG 圖示；不要憑副檔名刪除動態載入資源 |
+| 品質與發布 | `tests/`、`pyproject.toml`、`requirements.lock`；`.github/workflows/ci.yml`／`release.yml`；`markdown_viewer.spec`／`installer.iss` |
+| 工具與證據 | `tools/`：benchmark、smoke、版號／發布說明工具；`docs/upgrades/`／`docs/audits/`：驗收與仍開放事項；`ICON/`：原始與產生圖示 |
+
+視窗拆分的共享狀態契約見 `translation_flow.py`／`tag_flow.py`／`pdf_flow.py`；WYSIWYG、模式切換與分頁持久化仍維持原有協調，不可把網頁內容改成保存真值。
 
 ---
 
