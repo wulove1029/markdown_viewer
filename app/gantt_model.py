@@ -65,7 +65,7 @@ class GanttChart:
         task = GanttTask(
             id=self.next_task_id(),
             name="New task",
-            task_id=f"task{len(self.all_tasks()) + 1}",
+            task_id=self.next_mermaid_task_id(),
             start=_default_task_start(section),
             duration="1d",
         )
@@ -88,6 +88,18 @@ class GanttChart:
         while f"T{idx}" in used:
             idx += 1
         return f"T{idx}"
+
+    def next_mermaid_task_id(self) -> str:
+        """Avoid existing IDs and references to deleted tasks when allocating."""
+        used = {task.task_id for task in self.all_tasks()}
+        for task in self.all_tasks():
+            parts = task.start.split()
+            if parts and parts[0] == "after":
+                used.update(parts[1:])
+        idx = 1
+        while f"task{idx}" in used:
+            idx += 1
+        return f"task{idx}"
 
 
 def default_gantt() -> GanttChart:

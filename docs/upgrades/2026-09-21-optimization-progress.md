@@ -342,3 +342,8 @@ Fresh agent 核對全部直接依賴滿足、YAML 可解析、三處版本斷言
 
 E7 PyInstaller 已成功 exit 0（122.866s），乾淨鎖版封裝 627,589,065 bytes，僅三個 WebEngine locale。相較全域環境語系精簡後 1,001,996,347 bytes 減少 374,407,282 bytes；相較最初全域封裝 1,046,108,202 bytes 減少 418,519,137 bytes。不同相依環境的整體差異，不能全歸因 locale。
 B1/C2 修正後遠端 run 35528146915 已綠燈，鎖版 run 35528253347 尚在執行。
+
+## E8 發現的甘特圖缺陷
+
+重現 add/add/remove-first/add 後新任務 task_id=task2 且 start=after task2。新增 allocator 同時避開既有 Mermaid ID 與 after 參照；新任務為 task3，不把尚未修正的舊 after task1 重新指向新物件。原刪除造成的失效參照維持可見，不擅改使用者排程。
+model／Mermaid round-trip 7 passed in 0.12s；Ruff 通過。Fresh agent 4 passed in 0.08s，原反例、自訂 ID、多 after 參照實跑通過。

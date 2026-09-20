@@ -37,3 +37,15 @@ def test_default_charts_do_not_share_mutable_state():
     first.remove_task("T2")
     assert second.task("T1").tags == ["active"]
     assert second.task("T2").start == "after plan"
+
+
+def test_delete_then_add_does_not_duplicate_or_retarget_mermaid_dependencies():
+    chart = GanttChart()
+    first, second = chart.add_task(), chart.add_task()
+    chart.remove_task(first.id)
+    third = chart.add_task()
+    assert third.task_id == "task3"
+    assert third.start == "after task2"
+    # A reference to a deleted task must not silently refer to the new task.
+    assert second.start == "after task1"
+    assert len({task.task_id for task in chart.all_tasks()}) == 2
