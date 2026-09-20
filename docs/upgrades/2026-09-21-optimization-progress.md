@@ -57,3 +57,10 @@ A4/A5 追加後 graph_view：8 passed in 0.43s。
 Puritygo 真實資料及 UI：84 節點、29 條邊、0 個重複真實標籤；見 A2、A3。
 需求列 1773 個測試為原始基準，本次全套 1785（增加 12）；追加 A5 後為 1786。
 本批不涉及 WebEngine 渲染實作；Qt 原生 graph offscreen 實跑已完成。
+
+## B1（本機檢查通過，遠端待授權）
+
+新增 Windows push/PR tests job、手動 WebEngine job、JUnit artifacts；失敗不允許忽略。
+PyYAML BaseLoader 實際解析與觸發器／runner／job 斷言通過；fresh agent 獨立檢查通過。
+GitHub runner 綠燈與故意失敗紅燈尚未執行，已依全域規則 R3 詢問推送驗證分支授權。
+A5 fresh agent 補驗：graph_view 8 passed in 0.43s，進度文件 read-back 通過。
