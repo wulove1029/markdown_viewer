@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from PyInstaller.utils.hooks import collect_data_files
+from tools.package_policy import filter_webengine_locales
 
 block_cipher = None
 
@@ -46,6 +47,10 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# The desktop UI is Chinese; retain both Chinese locales plus Chromium's
+# English fallback. Never filter resource packs outside qtwebengine_locales.
+a.datas = filter_webengine_locales(a.datas)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

@@ -165,3 +165,22 @@ Fresh agent 額外 8 threads／200 次輸出逐字相同；9 cache tests passed 
 `py -3 -X utf8 -m pytest tests/ -q` → 1727 passed、82 skipped，62.03s；Ruff 通過。
 Fresh agent：6 tag tests + 1 真實 window close test 通過，額外 failure/retry 實跑通過。
 限制：程序遭強制終止時無法保證執行 flush；250ms 內尚未落盤的是可重建的 tag cache，筆記及註解原檔仍各自同步保存。
+
+## C5（待決策）
+
+實際 WebEngine 載入 WYSIWYG Mermaid／PlantUML 範例時，document.scripts 包含兩者資源，Mermaid 產生 SVG；與「未使用」前提不符。
+已詢問保留功能或停用後裁剪，尚未收到選擇，故保留資源。沒有將可能破壞既有功能的裁剪當成完成。
+
+## C6（裁剪通過，體積目標未達）
+
+PyInstaller Analysis 後只過濾 qtwebengine_locales/*.pak，保留 zh-TW、zh-CN、en-US，不影響其他資源包。
+`py -3 -X utf8 -m pytest tests/test_package_policy.py -q` → 1 passed in 0.06s；Ruff 通過；fresh agent 額外驗證 Windows 路徑、其他 pak 與非 pak 資源均正確保留。
+實際 PyInstaller 建置成功（裁剪後 exit 0），輸出放 TEMP，未覆蓋現有 dist：
+
+| 指標（bytes） | 裁剪前 | 裁剪後 |
+|---|---:|---:|
+| 全封裝 | 1,046,108,202 | 1,001,996,347 |
+| 語系 | 45,767,560（53 檔） | 1,655,705（3 檔） |
+
+減少 44,111,855 bytes，約 42.07 MiB／4.22%，未達盤點預估 100 MB。建置環境額外套件被 hooks 收入，總量亦不同於盤點；後續 E7 以隔離鎖版環境重驗。
+使用裁剪後封裝的 locales/resources 路徑實跑 QWebEngineView，loadFinished 成功，JavaScript 讀回 `Locale resource smoke OK`，exit 0。這是資源載入驗證，尚非完整安裝版人工驗收。
