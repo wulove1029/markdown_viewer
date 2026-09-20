@@ -132,7 +132,7 @@ class _Worker:
         try:
             self.proc.wait(timeout=5)
         except Exception:  # pragma: no cover - process already reaped
-            pass
+            log.warning("kill: optional operation failed", exc_info=True)
 
 
 def _worker_command(port: int) -> tuple[list[str], dict]:
@@ -256,7 +256,7 @@ class RenderService:
             try:
                 proc.wait(timeout=5)
             except Exception:  # pragma: no cover - already reaped
-                pass
+                log.warning("_spawn: optional operation failed", exc_info=True)
             raise RenderWorkerError("render worker handshake token mismatch")
         worker = _Worker(proc, sock)
         with self._lock:
@@ -322,6 +322,7 @@ class RenderService:
             self.prewarm()
             raise
         except Exception as exc:
+            log.warning("Render worker transport failed", exc_info=True)
             self._retire(worker)
             self.prewarm()
             with self._lock:

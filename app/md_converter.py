@@ -1,6 +1,7 @@
 """Markdown to self-contained HTML converter."""
 
 import codecs
+import logging
 from collections import OrderedDict
 import sys
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import threading
 import unicodedata
 import urllib.parse
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -982,8 +985,10 @@ def _remote_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
     except render_service.RenderWorkerCancelled:
         raise RenderCancelled() from None
     except render_service.RenderWorkerError:
+        log.warning("Render worker failed; falling back to in-process parsing", exc_info=True)
         return None, None
     except Exception:  # pragma: no cover - never let IPC break a preview
+        log.warning("Render IPC failed; falling back to in-process parsing", exc_info=True)
         return None, None
 
 

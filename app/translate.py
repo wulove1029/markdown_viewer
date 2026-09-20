@@ -8,6 +8,10 @@ a context-menu handler on the UI thread.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 import json
 import urllib.error
 import urllib.parse
@@ -165,7 +169,7 @@ def _read(req: urllib.request.Request) -> bytes:
         try:
             detail = exc.read().decode("utf-8", "replace")[:200].strip()
         except Exception:  # noqa: BLE001 - the status code is the useful part
-            pass
+            log.warning("_read: optional operation failed", exc_info=True)
         if exc.code in (401, 403):
             raise TranslationError("翻譯服務拒絕存取（金鑰無效或額度用盡）") from exc
         if exc.code == 429:

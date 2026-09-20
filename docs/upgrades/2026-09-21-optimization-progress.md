@@ -78,3 +78,12 @@ atomic_write_bytes/text 回傳備份警示（正常仍 None），記錄 tracebac
 finally 清理暫存檔；清理若失敗記 log 且不遮蔽原始寫入錯誤；既有 Windows replace 重試保持不變。
 `py -3 -X utf8 -m pytest tests/test_atomic_io.py tests/test_editor_data_safety.py -q` → 72 passed in 8.41s。
 Fresh agent：72 passed in 8.29s；B2 補驗兩種 collection 的 1789 個 node IDs 完全相同（B3 增加 3 個測試）。
+
+## B4
+
+AST 重測 broad Exception + pass：17 → 0。高頻 fragment_render 用 debug，其餘 warning；窄型別合理防禦保持不變。
+需求所述 fallback 實際入口位於 md_converter._try_remote_body；同時記錄 transport failure 及本機 fallback。
+`py -3 -X utf8 -m pytest tests/ -q` → 1707 passed、82 skipped，55.71s。
+`py -3 -X utf8 -m pytest tests/test_render_service.py -q` → 23 passed in 6.79s；測試實際寫入 fallback.log 並確認錯誤原因。
+Fresh agent：23 passed in 6.93s，AST 與 WYSIWYG 不重構限制確認通過。
+RUN_WEBENGINE_TESTS=1 的四個 *_webengine.py 正在執行，結果後補；實際此 glob 為 4 檔，非需求記載的 7 檔。

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from copy import deepcopy
 import math
 
@@ -336,7 +340,7 @@ class _CanvasView(QGraphicsView):
             try:
                 self._canvas._update_temp_line(scene_pos)
             except Exception:
-                pass
+                log.warning("mouseMoveEvent: optional operation failed", exc_info=True)
 
     def mouseReleaseEvent(self, event):
         if self._is_panning:
@@ -864,7 +868,7 @@ class FlowchartCanvas(QWidget):
                 if isValid(self._temp_line_item):
                     self._scene.removeItem(self._temp_line_item)
             except Exception:
-                pass
+                log.warning("_clear_temp_line: optional operation failed", exc_info=True)
             self._temp_line_item = None
 
     def _update_info_bar(self):

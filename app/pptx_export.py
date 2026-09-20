@@ -16,6 +16,10 @@ generating a deck and reading it back with python-pptx.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 import io
 import struct
 import urllib.request
@@ -115,7 +119,7 @@ def _build_parser() -> MarkdownIt:
     try:
         md.enable("strikethrough")
     except Exception:  # pragma: no cover - depends on preset
-        pass
+        log.warning("_build_parser: optional operation failed", exc_info=True)
     if dollarmath_plugin:
         md.use(dollarmath_plugin)
     return md

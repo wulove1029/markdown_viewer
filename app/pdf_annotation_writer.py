@@ -18,6 +18,10 @@ No Qt here: the whole module is testable without a widget.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from contextlib import contextmanager
 from datetime import datetime
 import itertools
@@ -252,7 +256,7 @@ def add_reply(
                 try:
                     reply.set_colors(stroke=tuple(float(c) for c in stroke[:3]))
                 except Exception:
-                    pass
+                    log.warning("add_reply: optional operation failed", exc_info=True)
             reply.update()
             doc.xref_set_key(reply.xref, "IRT", f"{int(parent_xref)} 0 R")
             doc.xref_set_key(reply.xref, "M", f"({_pdf_now()})")
@@ -291,7 +295,7 @@ def edit_annotation(
             try:
                 doc.xref_set_key(int(xref), "RC", "null")
             except Exception:
-                pass
+                log.warning("edit_annotation: optional operation failed", exc_info=True)
         _save_incremental(doc, file_path)
     finally:
         doc.close()

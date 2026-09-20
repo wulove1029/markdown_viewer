@@ -25,6 +25,10 @@ under offscreen), so this is verified by manual GUI runs only.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 import json
 import math
 import shutil
@@ -119,12 +123,12 @@ class FragmentRenderer:
             try:
                 shutil.rmtree(self._tmp, ignore_errors=True)
             except Exception:
-                pass
+                log.debug("cleanup: optional operation failed", exc_info=True)
         if self._page is not None:
             try:
                 self._page.deleteLater()
             except Exception:
-                pass
+                log.debug("cleanup: optional operation failed", exc_info=True)
 
     # ------------------------------------------------------------------
     def _ensure_warm(self):
@@ -210,7 +214,7 @@ class FragmentRenderer:
                 try:
                     t()
                 except Exception:
-                    pass
+                    log.debug("finish: optional operation failed", exc_info=True)
             loop.quit()
 
         QTimer.singleShot(timeout_ms, lambda: finish(None))
@@ -259,7 +263,7 @@ class FragmentRenderer:
         try:
             self._page.loadFinished.disconnect(slot)
         except Exception:
-            pass
+            log.debug("_safe_disconnect: optional operation failed", exc_info=True)
 
     # ---- sizing + rasterize ----
     def _layout_for(self, rect):
@@ -290,7 +294,7 @@ class FragmentRenderer:
             try:
                 pix.set_dpi(dpi, dpi)  # so PowerPoint sizes the image physically
             except Exception:
-                pass
+                log.debug("_rasterize: optional operation failed", exc_info=True)
             self._n += 1
             out = self._tmp / f"frag_{self._n}.png"
             pix.save(str(out))

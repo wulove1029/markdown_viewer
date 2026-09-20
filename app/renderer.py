@@ -1,5 +1,9 @@
 """Right-side Markdown renderer (QWebEngineView wrapper)."""
 
+import logging
+
+log = logging.getLogger(__name__)
+
 import json
 import math
 import urllib.parse
@@ -315,7 +319,7 @@ class _MarkdownRenderWorker(QRunnable):
                     except RenderCancelled:
                         return
                     except Exception:  # a partial view never breaks the real one
-                        pass
+                        log.warning("run: optional operation failed", exc_info=True)
                 if self._cancelled():
                     return
                 html, headings = convert(self.path, self.theme, cancel=self.cancel)

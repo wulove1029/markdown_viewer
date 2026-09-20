@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
@@ -267,7 +271,7 @@ def _watch_for_cancel(cancel, response, done: threading.Event):
                 try:
                     response.close()
                 except Exception:
-                    pass
+                    log.warning("_run: optional operation failed", exc_info=True)
                 return
 
     watcher = threading.Thread(
@@ -389,7 +393,7 @@ def download_installer(
             try:
                 response.close()
             except Exception:
-                pass
+                log.warning("download_installer: optional operation failed", exc_info=True)
             if watcher is not None:
                 # Join the daemon so it cannot outlive the transfer it watches.
                 watcher.join(timeout=1.0)

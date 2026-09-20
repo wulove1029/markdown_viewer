@@ -1,5 +1,9 @@
 """Main application window with toolbar, side panel, and renderer workspace."""
 
+import logging
+
+log = logging.getLogger(__name__)
+
 import json
 import math
 import re
@@ -4961,7 +4965,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 if p.exists():
                     roots.append(p)
         except Exception:
-            pass
+            log.warning("Could not load document libraries for link indexing", exc_info=True)
         if self._current_file:
             roots.append(self._current_file.parent)
         seen: set[str] = set()

@@ -5,6 +5,7 @@ an in-flight parse can be stopped, which cannot be shown with a fake.
 """
 
 import os
+import logging
 import socket
 import subprocess
 import sys
@@ -167,7 +168,7 @@ def test_small_file_conversion_stays_in_process(monkeypatch, tmp_path):
     assert mc.convert_body(path) is not None
 
 
-def test_conversion_falls_back_in_process_when_the_child_fails(monkeypatch, tmp_path):
+def test_conversion_falls_back_in_process_when_the_child_fails(monkeypatch, tmp_path, caplog):
     path = tmp_path / "big.md"
     path.write_text("# Fallback\n\nbody\n", encoding="utf-8")
     monkeypatch.setattr(mc, "SUBPROCESS_MIN_BYTES", 1)
@@ -177,9 +178,19 @@ def test_conversion_falls_back_in_process_when_the_child_fails(monkeypatch, tmp_
 
     monkeypatch.setattr(render_service, "render_remote", boom)
 
-    body = mc.convert_body(path)
+    log_path = tmp_path / "fallback.log"
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    mc.log.addHandler(handler)
+    try:
+        body = mc.convert_body(path)
+    finally:
+        mc.log.removeHandler(handler)
+        handler.close()
 
     assert body is not None and "Fallback" in body.body
+    assert "child died" in log_path.read_text(encoding="utf-8")
+    assert "falling back to in-process parsing" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
 
 
 def test_cancelled_child_render_surfaces_as_render_cancelled(monkeypatch, tmp_path):
