@@ -42,8 +42,8 @@ from .theme import LIGHT, Theme, app_stylesheet
 
 _GRAPH_HINT = "拖曳空白處平移 · 滾輪縮放 · 拖曳節點調整位置 · 點擊筆記開啟"
 _EMPTY_EDGE_HINT = (
-    "筆記之間尚無 [[連結]]——在筆記內文輸入 [[筆記名]] 建立連結後，"
-    "關聯圖就會出現線條"
+    "目前尚無連線；已索引 [[wikilink]] 與 Markdown 相對連結 [text](path.md)；"
+    "外部 URL 與非 Markdown 檔案不入圖。"
 )
 
 

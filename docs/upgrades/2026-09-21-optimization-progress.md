@@ -42,3 +42,9 @@ README 範例：air_quality/README、app_flutter/README、docs/README。尚待 U
 含 18 節點／3 群 180 次 layout_step 的群內平均距離 < 跨群 50% 斷言、舊設定與重開保存、過期標籤案例。
 Fresh agent 複驗 40 passed in 0.64s；亮暗 Qt 截圖已檢視（offscreen 無內建字型，測試程序明確載入系統 Segoe UI 與微軟正黑體）。
 Puritygo Qt GraphWindow 實跑 84 node items、29 edge items、18 folder groups；不修改文件庫。
+
+
+## A4
+
+?????? wikilink?Markdown ??????????????????????
+`py -3 -X utf8 -m pytest tests/test_graph_view.py -q` ? 7 passed in 0.49s?fresh agent 7 passed in 0.40s?

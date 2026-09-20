@@ -156,8 +156,8 @@ def test_graph_hover_highlights_neighbors_and_zero_edge_hint(qapp):
     no_edges.build([(alone, "")])
     window.set_index(no_edges)
     assert window._hint.text() == (
-        "筆記之間尚無 [[連結]]——在筆記內文輸入 [[筆記名]] 建立連結後，"
-        "關聯圖就會出現線條"
+        "目前尚無連線；已索引 [[wikilink]] 與 Markdown 相對連結 [text](path.md)；"
+        "外部 URL 與非 Markdown 檔案不入圖。"
     )
     window.canvas.fit_graph()
     assert window.canvas.view.transform().m11() <= 1.5
