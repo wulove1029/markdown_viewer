@@ -6029,15 +6029,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 if answer == QMessageBox.StandardButton.Yes:
                     self._reload_preview()
             elif self._edit_mode and self._editor.is_modified():
-                answer = QMessageBox.question(
-                    self,
-                    "檔案已在外部變更",
-                    f"{name} 已被其他程式修改，但你有未儲存的編輯。\n"
-                    "要捨棄你的編輯並載入磁碟上的新版本嗎？",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-                if answer == QMessageBox.StandardButton.Yes:
-                    self._reload_editor_from_disk()
+                from .external_conflicts import handle_dirty_conflict
+                handle_dirty_conflict(self)
             else:
                 answer = QMessageBox.question(
                     self,

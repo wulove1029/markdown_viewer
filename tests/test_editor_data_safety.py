@@ -368,11 +368,7 @@ def test_dirty_external_reload_replaces_split_buffer_and_clears_snapshot(
     assert window._recovery_store.load(note) is not None
     note.write_text("disk v2 from another process", encoding="utf-8")
     window._loaded_signature = window._file_signature(note)
-    monkeypatch.setattr(
-        window_mod.QMessageBox,
-        "question",
-        lambda *args, **kwargs: window_mod.QMessageBox.StandardButton.Yes,
-    )
+    monkeypatch.setattr("app.external_conflicts.choose_action", lambda *args: "reload")
 
     window._prompt_external_change()
 
@@ -1512,9 +1508,9 @@ def test_external_change_waits_for_snapshot_then_prompts_for_dirty_wysiwyg(
 
     def keep_local_draft(*args, **_kwargs):
         prompts.append(args[1:3])
-        return window_mod.QMessageBox.StandardButton.No
+        return "cancel"
 
-    monkeypatch.setattr(window_mod.QMessageBox, "question", keep_local_draft)
+    monkeypatch.setattr("app.external_conflicts.choose_action", keep_local_draft)
 
     window._on_file_changed(str(note))
 
@@ -1528,9 +1524,7 @@ def test_external_change_waits_for_snapshot_then_prompts_for_dirty_wysiwyg(
     view.deliver_acknowledgement()
 
     assert len(prompts) == 1
-    title, message = prompts[0]
-    assert title == "檔案已在外部變更"
-    assert "但你有未儲存的編輯" in message
+    assert prompts[0] == (note,)
     assert window._editor.toPlainText() == "local draft newer than the shadow"
     assert window._editor.document().isModified() is True
     assert note.read_text(encoding="utf-8") == (

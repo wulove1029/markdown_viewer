@@ -221,3 +221,12 @@ Ruff 通過。Fresh agent 複驗 92 passed in 8.75s，確認四種成功路徑�
 `py -3 -X utf8 -m pytest tests/ -q` → 1753 passed、82 skipped in 61.24s；Ruff 通過。
 Fresh agent 找出並複驗修正未閉合／跳脫反引號及特殊檔名案例；額外驗證五種草稿防護、乾淨 buffer 同步及發布失敗回滾通過。
 完整套件首次停在舊的獨立 browser 測試之缺少索引服務警告；更新該測試接入真實準備器後全套通過，未降低正式程式的安全門檻。
+
+## D3
+
+有未儲存 QTextDocument 的外部變更對話框加入唯讀 unified diff、保留雙方、覆寫、捨棄與稍後處理；WYSIWYG 仍先完成原 snapshot gate。
+本機副本以 xb 排他建立、碰撞遞增名稱，flush/fsync 成功才載入外部版本；失敗保留草稿與副本路徑，不刪除可能被外部替換的檔案。
+預覽就地編輯沒有完整 QTextDocument，沿用既有捨棄確認；須先完成就地編輯才可使用完整文件差異／另存副本。
+`py -3 -X utf8 -m pytest tests/test_external_conflicts.py tests/test_editor_data_safety.py tests/test_window_integration.py -q` → 223 passed in 23.33s；最終失敗保留策略追加重跑 7 passed in 0.96s；Ruff 通過。
+`RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_wysiwyg_webengine.py -q` → 27 passed in 34.94s。
+Fresh agent 7 passed in 0.94s；實跑關閉後外部替換競態，確認失敗處理不誤刪外部檔案。
