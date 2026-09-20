@@ -4,12 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -36,6 +36,7 @@ def main():
     if args.repeats < 1:
         parser.error("repeats must be positive")
     from PySide6.QtWidgets import QApplication
+
     from app import md_converter
     from app.annotations import DocumentAnnotations
     from app.tag_index import TagIndex

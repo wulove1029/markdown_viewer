@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from app.links import LinkIndex, collect_markdown_files, extract_wikilinks, extract_markdown_links
+from app.links import (
+    LinkIndex,
+    collect_markdown_files,
+    extract_markdown_links,
+    extract_wikilinks,
+)
 
 
 def test_angle_links_respect_markdown_context():

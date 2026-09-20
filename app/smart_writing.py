@@ -8,7 +8,6 @@ from urllib.parse import urlsplit
 
 from .format_actions import TextEdit
 
-
 _FENCE_RE = re.compile(r"^( {0,3})(`{3,}|~{3,})(.*)$")
 _TASK_RE = re.compile(r"^([ \t]*)([-+*]) \[([ xX])\] (.*)$")
 _ORDERED_RE = re.compile(r"^([ \t]*)(\d+)([.)]) (.*)$")

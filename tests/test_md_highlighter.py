@@ -5,7 +5,6 @@ from PySide6.QtGui import QTextDocument
 from app.md_highlighter import MarkdownHighlighter
 from app.theme import DARK, LIGHT
 
-
 SAMPLE = """# Heading
 
 Some **bold** and *italic* and `code` and ~~strike~~.

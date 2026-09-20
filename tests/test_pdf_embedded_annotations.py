@@ -13,14 +13,13 @@ import pytest
 
 pymupdf = pytest.importorskip("pymupdf")
 
+import app.window as window_mod
 from app.pdf_embedded_annotations import (
     EmbeddedAnnotation,
     extract_embedded_annotations,
 )
 from app.pdf_embedded_annotations_panel import PdfEmbeddedAnnotationsPanel
 from app.pdf_view import PdfView
-import app.window as window_mod
-
 
 # --------------------------------------------------------------------------
 # Fixture PDFs
@@ -458,6 +457,7 @@ def test_window_activation_falls_back_to_jump_when_rect_is_empty():
 def test_closing_view_does_not_wait_for_in_flight_scan(qapp, annotated_pdf, monkeypatch):
     """A slow background scan must not stall closing/destroying the view."""
     import time
+
     import app.pdf_view as pdf_view_mod
 
     def slow_extract(path, password=""):

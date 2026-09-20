@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, QRectF, QSize, QTimer, QUrl, Qt
+from PySide6.QtCore import QByteArray, QMimeData, QRectF, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWebEngineCore import QWebEngineSettings

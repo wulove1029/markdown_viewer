@@ -1,5 +1,6 @@
 """Tests for Mermaid render HTML and template data."""
 
+from app.mermaid_format import format_mermaid_source
 from app.mermaid_render import build_preview_html, mermaid_asset_exists
 from app.mermaid_templates import (
     SNIPPETS,
@@ -8,7 +9,6 @@ from app.mermaid_templates import (
     snippet_by_id,
     template_by_id,
 )
-from app.mermaid_format import format_mermaid_source
 
 
 def test_templates_have_unique_ids_and_source():

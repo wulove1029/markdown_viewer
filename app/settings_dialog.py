@@ -19,13 +19,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QFrame,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -40,15 +40,24 @@ from .edit_backend import (
     DEFAULT_BACKEND,
     PREVIEW_DOUBLE_CLICK_DEFAULT,
     PREVIEW_DOUBLE_CLICK_INLINE,
-    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
     PREVIEW_DOUBLE_CLICK_WYSIWYG,
-    SETTINGS_KEY as EDIT_BACKEND_KEY,
     SPLIT_BACKEND,
     WYSIWYG_BACKEND,
     normalize_backend,
     normalize_preview_double_click,
 )
+from .edit_backend import (
+    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
+)
+from .edit_backend import (
+    SETTINGS_KEY as EDIT_BACKEND_KEY,
+)
 from .note_templates import default_subfolder
+from .reading_style import SPACING_KEY, WIDTH_KEY
+from .settings_store import APP as _APP
+
+# ── constants (must match window.py originals) ──────────────────────────
+from .settings_store import ORG as _ORG
 from .translate import (
     DEEPL_KEY,
     PROVIDER_KEY,
@@ -60,11 +69,6 @@ from .translate import (
     provider_info,
 )
 from .version import VERSION
-from .reading_style import WIDTH_KEY, SPACING_KEY
-
-# ── constants (must match window.py originals) ──────────────────────────
-
-from .settings_store import ORG as _ORG, APP as _APP
 
 _ZOOM_OPTIONS: list[int] = [80, 90, 100, 110, 125, 150, 175, 200]
 

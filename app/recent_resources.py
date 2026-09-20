@@ -8,14 +8,13 @@ metadata so callers can import it again and generate a fresh relative link.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 
 from .resource_links import decode_resource_path
-
 
 _RESOURCE_RE = re.compile(
     r"^(?P<image>!)?\[(?P<label>(?:\\.|[^\]])*)\]"

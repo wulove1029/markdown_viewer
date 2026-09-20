@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-from .settings_store import ORG, APP
-
 import math
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, QSettings
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSettings, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
-    QDialog,
     QComboBox,
-    QScrollArea,
+    QDialog,
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsObject,
@@ -21,6 +27,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -38,9 +45,9 @@ from .graph_model import (
     separate_overlapping_nodes,
 )
 from .links import LinkIndex
+from .settings_store import APP, ORG
 from .tag_index import TagIndex
 from .theme import LIGHT, Theme, app_stylesheet
-
 
 _GRAPH_HINT = "拖曳空白處平移 · 滾輪縮放 · 拖曳節點調整位置 · 點擊筆記開啟"
 _EMPTY_EDGE_HINT = (

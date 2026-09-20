@@ -7,8 +7,8 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt, QThreadPool, QTim
 from PySide6.QtGui import QContextMenuEvent, QFocusEvent, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QMenu
 
-from app.pdf_view import PdfView
 from app.pdf_embedded_annotations import EmbeddedAnnotation
+from app.pdf_view import PdfView
 
 pymupdf = pytest.importorskip("pymupdf")
 

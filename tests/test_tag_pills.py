@@ -10,9 +10,9 @@ from app.file_browser import (
     _PATH_ROLE,
     _TAGS_ROLE,
     FileBrowserView,
-    _TagPillDelegate,
     _pill_text_color,
     _relative_luminance,
+    _TagPillDelegate,
 )
 from app.tag_index import TagIndex
 

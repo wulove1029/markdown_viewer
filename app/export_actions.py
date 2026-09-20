@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from . import edit_backend
 from .file_types import is_markdown
 from .md_converter import read_text
-from .settings_store import ORG, APP
+from .settings_store import APP, ORG
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
 _PDF_PAGE_SIZES = {

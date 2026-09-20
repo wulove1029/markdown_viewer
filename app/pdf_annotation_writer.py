@@ -22,13 +22,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
-from contextlib import contextmanager
-from datetime import datetime
 import itertools
 import os
-from pathlib import Path
 import shutil
 import tempfile
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
 
 _PYMUPDF_UNSET = object()
 _pymupdf_module = _PYMUPDF_UNSET

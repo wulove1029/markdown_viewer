@@ -6,26 +6,28 @@ back from a worker is matched against the window's current request id, so a
 retry or a cancel can never be overwritten by the job it replaced.
 """
 
-from pathlib import Path
 import threading
 import time
 import weakref
+from pathlib import Path
 
 from PySide6.QtCore import (
     QEvent,
     QObject,
     QProcess,
     QSettings,
+    Qt,
     QThread,
     QTimer,
     QUrl,
-    Qt,
     Signal,
 )
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from shiboken6 import isValid
 
+from .settings_store import APP as _APP
+from .settings_store import ORG as _ORG
 from .toolbar_utilities import (
     UPDATE_AVAILABLE,
     UPDATE_CANCELLED,
@@ -48,8 +50,6 @@ from .updater import (
     verify_installer,
 )
 from .version import VERSION
-
-from .settings_store import ORG as _ORG, APP as _APP
 
 #: Progress signals are throttled to this interval so a fast local transfer
 #: cannot flood the GUI thread with repaint work.

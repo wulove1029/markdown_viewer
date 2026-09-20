@@ -4,9 +4,9 @@ import threading
 from PySide6.QtGui import QTextCursor
 
 from tests.test_editor_workspace_integration import (
+    _enter_markdown_editor,
     _isolated_workspace_dependencies,
     make_workspace_window,
-    _enter_markdown_editor,
 )
 
 

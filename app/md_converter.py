@@ -1,16 +1,16 @@
 """Markdown to self-contained HTML converter."""
 
 import codecs
-import logging
-from collections import OrderedDict
-import sys
-from dataclasses import dataclass
-from html import escape
 import json
+import logging
 import re
+import sys
 import threading
 import unicodedata
 import urllib.parse
+from collections import OrderedDict
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 
 log = logging.getLogger(__name__)

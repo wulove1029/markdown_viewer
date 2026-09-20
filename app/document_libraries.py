@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
 import os
-from pathlib import Path
-
-from .settings_store import legacy_data_path
 import string
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import QSettings, QStandardPaths
 
 from .file_types import SUPPORTED_EXTENSIONS, document_kind
+from .settings_store import legacy_data_path
 
 _SKIP_DIRS = {
     ".git",
@@ -31,7 +30,9 @@ _SKIP_DIRS = {
     "out",
 }
 
-from .settings_store import ORG as _ORG, APP as _APP
+from .settings_store import APP as _APP
+from .settings_store import ORG as _ORG
+
 EXCLUDED_FOLDERS_KEY = "excluded_folders"
 
 

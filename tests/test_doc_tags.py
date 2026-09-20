@@ -1,7 +1,7 @@
 import json
 
 from app import doc_tags
-from app.annotations import AnnotationStore, Annotation, DocumentAnnotations
+from app.annotations import Annotation, AnnotationStore, DocumentAnnotations
 from app.pdf_notes import PdfNoteStore
 
 

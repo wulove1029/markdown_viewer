@@ -1,9 +1,9 @@
 ﻿"""Regression checks for work avoided, cache bounds, and responsive IPC."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import QSizeF

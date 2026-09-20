@@ -1,7 +1,7 @@
 """Independent consumer-navigation acceptance checks using isolated sources."""
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings, Qt

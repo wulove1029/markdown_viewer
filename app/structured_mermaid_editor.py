@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
 
 from .structured_mermaid import StructuredDiagram, StructuredRow
 
-
 _KIND_TITLES = {
     "sequence": "Sequence Diagram",
     "class": "Class Diagram",

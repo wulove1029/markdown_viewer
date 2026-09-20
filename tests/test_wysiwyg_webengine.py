@@ -19,8 +19,8 @@ from PySide6.QtCore import (
     QMarginsF,
     QPoint,
     QSettings,
-    QTimer,
     Qt,
+    QTimer,
     QUrl,
 )
 from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument

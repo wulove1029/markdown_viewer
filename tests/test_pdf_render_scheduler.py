@@ -3,10 +3,12 @@
 from dataclasses import dataclass
 
 import pytest
-from PySide6.QtCore import QObject, QRect, QSize, Signal, Qt
+from PySide6.QtCore import QObject, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtPdf import (
     QPdfDocumentRenderOptions,
+)
+from PySide6.QtPdf import (
     QPdfPageRenderer as _RealQPdfPageRenderer,
 )
 

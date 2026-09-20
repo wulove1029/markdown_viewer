@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
 
 from .theme import LIGHT, Theme
 
-
 _TARGET_ROLE = Qt.ItemDataRole.UserRole
 _LEVEL_ROLE = Qt.ItemDataRole.UserRole.value + 1
 _DEPTH_ROLE = Qt.ItemDataRole.UserRole.value + 2

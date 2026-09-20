@@ -575,6 +575,7 @@ def active_format_actions(
 def apply_text_edit(editor, edit: TextEdit, *, edit_block: bool = True) -> bool:
     """Apply a computed text edit and restore its requested selection."""
     from PySide6.QtGui import QTextCursor  # local import keeps logic pure
+
     from .text_positions import py_to_qt_position
 
     original = editor.toPlainText()

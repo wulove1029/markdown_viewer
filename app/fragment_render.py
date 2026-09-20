@@ -35,7 +35,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QMarginsF, QSizeF, QTimer, QUrl, QEventLoop
+from PySide6.QtCore import QEventLoop, QMarginsF, QSizeF, QTimer, QUrl
 from PySide6.QtGui import QPageLayout, QPageSize
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 

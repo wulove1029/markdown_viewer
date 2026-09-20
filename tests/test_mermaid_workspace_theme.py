@@ -1,8 +1,8 @@
 """Tests for Mermaid workspace theme selection behavior."""
 
-from app.mermaid_workspace import MermaidWorkspaceDialog, _mermaid_workspace_stylesheet
 from app.flowchart_canvas import FlowchartCanvas
 from app.gantt_editor import GanttEditor
+from app.mermaid_workspace import MermaidWorkspaceDialog, _mermaid_workspace_stylesheet
 from app.structured_mermaid_editor import StructuredMermaidEditor
 from app.theme import DARK
 

@@ -101,6 +101,7 @@ def test_view_hit_test_finds_highlight_under_pointer(qapp):
 
 def test_context_menu_delete_action_requests_highlight_delete(qapp, monkeypatch):
     from PySide6.QtCore import QPoint, QTimer
+
     from app.pdf_view import PdfView
 
     def choose_delete(menu):

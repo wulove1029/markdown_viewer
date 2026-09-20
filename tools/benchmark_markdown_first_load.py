@@ -481,8 +481,8 @@ def measure_gui_heartbeat(app, work_fn, tick_ms: int = 50) -> dict:
 
 def measure_webengine_load(app, html: str, reps: int) -> dict:
     try:
-        from PySide6.QtWebEngineWidgets import QWebEngineView
         from PySide6.QtCore import QEventLoop, QTimer
+        from PySide6.QtWebEngineWidgets import QWebEngineView
     except Exception as exc:  # pragma: no cover - environment dependent
         return {"measured": False, "reason": f"QWebEngineView unavailable: {exc}"}
 

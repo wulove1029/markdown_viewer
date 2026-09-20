@@ -7,7 +7,8 @@ import pytest
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtTest import QTest
 
-from app import session_state, window as window_mod
+from app import session_state
+from app import window as window_mod
 from tests.test_editor_workspace_integration import (
     _isolated_workspace_dependencies,
     make_workspace_window,

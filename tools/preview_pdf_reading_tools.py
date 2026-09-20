@@ -1,16 +1,17 @@
 """Run an isolated real-window PDF smoke and save visual evidence."""
 
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -33,8 +34,8 @@ def main():
         settings = QSettings("markdown-viewer", "MarkdownViewer")
         settings.setValue("update_check_enabled", False)
         settings.sync()
-        import app.tag_index
         import app.recovery
+        import app.tag_index
         app.tag_index._default_index_path = lambda: root / "tags.json"
         app.recovery._default_recovery_dir = lambda: root / "recovery"
         from app.window import MainWindow

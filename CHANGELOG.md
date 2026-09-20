@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- 以 Ruff 統一 Python import 排序，排序差異獨立提交以利檢閱。
 - 新增 Windows push／pull request 測試 CI，並提供手動觸發的獨立 WebEngine 測試工作。
 - 補齊關聯圖混合連結、路徑解析、程式碼排除、重名節點及實際 Qt 連線顯示的回歸測試。
 - 關聯圖可切換文件庫、資料夾或標籤分群並記住選擇；同群節點集中排列，圖例可隱藏群組並水平捲動。

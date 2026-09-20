@@ -4,12 +4,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
-from collections.abc import Callable
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import tempfile
@@ -17,6 +14,9 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 
 from .version import LATEST_RELEASE_API, VERSION
 

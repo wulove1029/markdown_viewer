@@ -1,17 +1,18 @@
 """Isolated UI smoke/capture: never restores or writes the user's session."""
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 import argparse
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QSettings, QTimer, QUrl, QPoint, Qt
+from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, QUrl
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QFontDatabase
 
 
 def main():
@@ -32,8 +33,8 @@ def main():
         settings.sync()
         import app.tag_index
         app.tag_index._default_index_path = lambda: Path(folder) / "tags.json"
-        from app.window import MainWindow
         from app.md_converter import convert
+        from app.window import MainWindow
         app = QApplication([])
         for font in ("msjh.ttc", "msjhbd.ttc", "segoeui.ttf"):
             font_path = Path("C:/Windows/Fonts") / font

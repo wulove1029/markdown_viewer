@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 )
 
 from .smart_writing import fence_state_after_line
-
 from .theme import LIGHT, Theme
 
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s")

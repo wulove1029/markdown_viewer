@@ -13,11 +13,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from .settings_store import legacy_data_path
-
 from PySide6.QtCore import QStandardPaths
 
 from .atomic_io import atomic_write_text
+from .settings_store import legacy_data_path
 
 
 def _default_colors_path() -> Path:

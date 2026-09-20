@@ -8,7 +8,12 @@ from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Inches
 
-from app.docx_export import BODY_FONT, CODE_FONT, _content_width_emu, export_markdown_to_docx
+from app.docx_export import (
+    BODY_FONT,
+    CODE_FONT,
+    _content_width_emu,
+    export_markdown_to_docx,
+)
 from app.pptx_export import REMOTE_IMAGE_MAX_TOTAL_BYTES
 
 

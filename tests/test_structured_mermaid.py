@@ -6,7 +6,6 @@ from app.structured_mermaid import (
     render_structured_mermaid,
 )
 
-
 SEQUENCE = """sequenceDiagram
     participant User
     participant App

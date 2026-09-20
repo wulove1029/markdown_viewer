@@ -1,7 +1,7 @@
-from pathlib import Path
-from time import perf_counter
 import math
+from pathlib import Path
 from statistics import mean
+from time import perf_counter
 
 from app.document_libraries import DocumentLibrary
 from app.graph_model import (

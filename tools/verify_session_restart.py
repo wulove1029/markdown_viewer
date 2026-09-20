@@ -6,11 +6,11 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -38,9 +38,9 @@ def child(workspace: Path, stage: str, output: Path):
         assert not settings.allKeys()
     settings.setValue("update_check_enabled", False)
     settings.sync()
-    from app.url_schemes import register_document_schemes
-    import app.tag_index
     import app.recovery
+    import app.tag_index
+    from app.url_schemes import register_document_schemes
     app.tag_index._default_index_path = lambda: workspace / "tags.json"
     app.recovery._default_recovery_dir = lambda: workspace / "recovery"
     register_document_schemes()

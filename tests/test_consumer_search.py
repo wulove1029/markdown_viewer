@@ -9,7 +9,11 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtTest import QTest
 
 from app import global_search
-from app.global_search import GlobalSearchView, search_document_files, search_markdown_files
+from app.global_search import (
+    GlobalSearchView,
+    search_document_files,
+    search_markdown_files,
+)
 from app.md_converter import read_text_detailed
 
 

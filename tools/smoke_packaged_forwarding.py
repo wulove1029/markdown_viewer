@@ -1,11 +1,12 @@
 """Exercise the packaged second-instance path without opening a user session."""
 import json
 import os
-from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
-import subprocess
+from pathlib import Path
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QProcess, QTimer
 from PySide6.QtNetwork import QLocalServer

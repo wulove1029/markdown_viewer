@@ -6,9 +6,9 @@ import json
 import os
 from pathlib import Path
 
-from .settings_store import legacy_data_path
-
 from PySide6.QtCore import QStandardPaths
+
+from .settings_store import legacy_data_path
 
 
 def _default_index_path() -> Path:

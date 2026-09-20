@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-
 MIN_ZOOM_FACTOR = 0.5
 MAX_ZOOM_FACTOR = 3.0
 

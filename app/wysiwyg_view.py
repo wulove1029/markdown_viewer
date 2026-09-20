@@ -39,7 +39,9 @@ ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
 _LANG_MAP = {"zh_TW": "zh_TW", "en_US": "en_US"}
 
-from .settings_store import ORG as _SETTINGS_ORG, APP as _SETTINGS_APP
+from .settings_store import APP as _SETTINGS_APP
+from .settings_store import ORG as _SETTINGS_ORG
+
 _EDITOR_THEME_KEY = "wysiwyg_editor_theme"
 _CODE_THEME_KEY = "wysiwyg_code_theme"
 _MERMAID_THEME_KEY = "wysiwyg_mermaid_theme"

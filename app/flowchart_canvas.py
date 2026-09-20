@@ -6,10 +6,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
-from copy import deepcopy
 import math
+from copy import deepcopy
 
-from shiboken6 import isValid
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
@@ -33,16 +32,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QStackedWidget,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from .flowchart_model import (
+    FlowchartGraph,
     FlowEdge,
     FlowNode,
-    FlowchartGraph,
     auto_layout_graph,
     default_flowchart,
 )

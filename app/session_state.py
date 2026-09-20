@@ -9,21 +9,23 @@ from PySide6.QtWidgets import QDialog
 
 from .content_zoom import ZOOM_FACTORS, clamp_zoom_factor
 from .edit_backend import (
+    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
+)
+from .edit_backend import (
     SETTINGS_KEY as EDIT_BACKEND_KEY,
+)
+from .edit_backend import (
     SPLIT_BACKEND,
     WYSIWYG_BACKEND,
     normalize_backend,
-)
-from .edit_backend import (
-    PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
     normalize_preview_double_click,
 )
 from .file_types import document_kind, is_markdown, is_supported_document
 from .md_converter import set_user_css
-from .reading_style import WIDTH_KEY, SPACING_KEY, reading_css
+from .reading_style import SPACING_KEY, WIDTH_KEY, reading_css
 from .settings_dialog import SettingsDialog
-
-from .settings_store import ORG as _ORG, APP as _APP
+from .settings_store import APP as _APP
+from .settings_store import ORG as _ORG
 
 # Text content (Markdown / plain text / Office) and PDF zoom are remembered
 # separately: text zoom scales the font, PDF zoom scales the page, so a PDF

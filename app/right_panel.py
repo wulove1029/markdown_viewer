@@ -1,12 +1,12 @@
 """Right panel: TOC (top) + File browser (bottom), each collapsible."""
 
 from pathlib import Path
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton,
-                              QSplitter, QSizePolicy)
-from PySide6.QtCore import Qt
 
-from .toc import TocView
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QPushButton, QSizePolicy, QSplitter, QVBoxLayout, QWidget
+
 from .sidebar import SidebarView
+from .toc import TocView
 
 _BTN_STYLE = """
 QPushButton {

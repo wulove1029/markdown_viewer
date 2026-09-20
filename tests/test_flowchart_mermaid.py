@@ -10,7 +10,6 @@ from app.flowchart_mermaid import (
 )
 from app.flowchart_model import FlowchartGraph, auto_layout_graph
 
-
 SAMPLE = """flowchart LR
     A([Start]) --> B[Collect input]
     B --> C{Valid?}

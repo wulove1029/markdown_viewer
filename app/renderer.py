@@ -6,8 +6,8 @@ log = logging.getLogger(__name__)
 
 import json
 import math
-import urllib.parse
 import threading
+import urllib.parse
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -31,12 +31,11 @@ from PySide6.QtWebEngineCore import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QMenu, QMessageBox
 
+from . import md_converter, render_service
 from .annotation_bridge import AnnotationBridge
 from .attachment_security import attachment_open_policy
 from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
-from . import md_converter, render_service
-from .md_converter import convert, convert_text, state_page_html
-from .md_converter import RenderCancelled
+from .md_converter import RenderCancelled, convert, convert_text, state_page_html
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
 

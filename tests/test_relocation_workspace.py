@@ -3,11 +3,12 @@ from pathlib import Path
 
 from PySide6.QtGui import QTextCursor
 
-from app import edit_backend, file_ops, window as window_mod
+from app import edit_backend, file_ops
+from app import window as window_mod
 from tests.test_editor_data_safety import (
+    _DelayedSnapshotWysiwygView,
     _isolated_editor_dependencies,
     make_data_safety_window,
-    _DelayedSnapshotWysiwygView,
 )
 from tests.test_editor_workspace_integration import _enter_markdown_editor
 

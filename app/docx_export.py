@@ -22,12 +22,12 @@ from .pptx_export import (
     ListBlock,
     Para,
     Quote,
-    _RemoteImageBudget,
+    Run,
+    Table,
     _force_bold,
     _image_native_size_emu,
     _load_image_bytes,
-    Run,
-    Table,
+    _RemoteImageBudget,
     parse_elements,
 )
 

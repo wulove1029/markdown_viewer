@@ -1,7 +1,7 @@
 """Independent relocation acceptance, including actual Windows cross-drive IO."""
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 from markdown_it import MarkdownIt

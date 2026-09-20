@@ -124,7 +124,7 @@ def test_user_css_injected_and_clears_cache(tmp_path):
 
 
 def test_front_matter_renders_metadata_and_keeps_line_numbers():
-    from app.md_converter import parse_front_matter, front_matter_tags
+    from app.md_converter import front_matter_tags, parse_front_matter
     src = "---\ntitle: T\ntags: [a, b]\n---\n# H\n\n- [ ] todo\n"
     data, _ = parse_front_matter(src)
     assert data["title"] == "T"

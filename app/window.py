@@ -21,12 +21,11 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtGui import (
     QAction,
+    QCursor,
     QDragEnterEvent,
     QDropEvent,
-    QCursor,
     QGuiApplication,
     QImage,
     QKeySequence,
@@ -34,17 +33,18 @@ from PySide6.QtGui import (
     QTextCursor,
     QTextDocument,
 )
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
-    QInputDialog,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -54,20 +54,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import doc_tags as doc_tags_facade
+from . import (
+    edit_backend,
+    export_actions,
+    pdf_annotation_writer,
+    session_state,
+    update_flow,
+    view_mode,
+)
 from .annotations import Annotation, AnnotationStore, DocumentAnnotations
-from .attachments import import_attachment_file, markdown_attachment_link
 from .atomic_io import atomic_write_bytes
+from .attachments import import_attachment_file, markdown_attachment_link
+from .content_zoom import clamp_zoom_factor, step_zoom_factor
 from .document_libraries import DocumentLibraryStore
 from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
-from .content_zoom import clamp_zoom_factor, step_zoom_factor
-from . import edit_backend
 from .editor import EditorView
 from .editor_status import EditorStatus
-from .format_actions import apply_format_action
-from .format_commands import commands_for
-from .format_toolbar import FormatToolbar
-from . import export_actions, session_state, update_flow, view_mode
-from . import doc_tags as doc_tags_facade
 from .file_types import (
     document_kind,
     is_markdown,
@@ -75,7 +78,9 @@ from .file_types import (
     is_supported_document,
     is_text,
 )
-from .manage_tags_dialog import ManageTagsDialog
+from .format_actions import apply_format_action
+from .format_commands import commands_for
+from .format_toolbar import FormatToolbar
 from .graph_view import GraphWindow
 from .image_paste import (
     import_image_file,
@@ -85,18 +90,18 @@ from .image_paste import (
 from .inline_edit import extract_source_lines, replace_source_lines
 from .left_panel import LeftPanel
 from .links import LinkIndex, collect_markdown_files, read_docs
+from .manage_tags_dialog import ManageTagsDialog
+from .markdown_compat import (
+    office_compatibility_risks,
+    office_risk_labels,
+    office_warning_fingerprint,
+)
 from .md_converter import (
     body_hashtags,
     front_matter_tags,
     parse_front_matter,
     read_text,
     read_text_detailed,
-)
-from .new_note_dialog import NewNoteDialog
-from .markdown_compat import (
-    office_compatibility_risks,
-    office_risk_labels,
-    office_warning_fingerprint,
 )
 from .md_table import parse_table, serialize_table
 from .mermaid_blocks import (
@@ -106,6 +111,7 @@ from .mermaid_blocks import (
 )
 from .mermaid_templates import default_template
 from .mermaid_workspace import MermaidWorkspaceDialog
+from .new_note_dialog import NewNoteDialog
 from .note_templates import (
     default_subfolder,
     find_templates,
@@ -113,16 +119,11 @@ from .note_templates import (
     prepare_template_insertion,
     render_template_file,
 )
-from .pdf_notes import PdfNote, PdfNoteStore
-from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
-from . import pdf_annotation_writer
 from .pdf_embedded_annotations import extract_embedded_annotations
+from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
+from .pdf_notes import PdfNote, PdfNoteStore
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
-from .renderer import RendererView
-from .wysiwyg_view import WysiwygView
-from .recovery import RecoverySnapshot, RecoveryStore
-from .recovery_dialog import RecoveryDialog
 from .recent_resources import (
     RecentResource,
     decode_recent_resources,
@@ -130,8 +131,16 @@ from .recent_resources import (
     remember_recent_resource,
     resource_from_markdown,
 )
+from .recovery import RecoverySnapshot, RecoveryStore
+from .recovery_dialog import RecoveryDialog
+from .renderer import RendererView
+from .settings_store import APP as _APP
+from .settings_store import ORG as _ORG
 from .shortcuts import WINDOW_SHORTCUTS, shortcut_by_id
 from .shortcuts_dialog import ShortcutDialog
+from .tag_colors import TagColorStore
+from .tag_index import TagIndex
+from .text_positions import py_to_qt_position, qt_to_py_position
 from .theme import (
     HIT_TARGET,
     PANEL_WIDTH,
@@ -142,13 +151,10 @@ from .theme import (
     svg_icon,
     toolbar_stylesheet,
 )
-from .text_positions import py_to_qt_position, qt_to_py_position
-from .tag_colors import TagColorStore
-from .tag_index import TagIndex
 from .toolbar_utilities import (
-    ToolbarUtilities,
     UPDATE_AVAILABLE,
     UPDATE_CHECKING,
+    ToolbarUtilities,
 )
 from .translate import (
     DEEPL_KEY,
@@ -161,10 +167,10 @@ from .translate import (
 )
 from .translate_dialog import TranslationDialog
 from .updater import is_newer_version
-from .wikilink_completion import completion_candidates
 from .version import RELEASE_NOTES, VERSION
+from .wikilink_completion import completion_candidates
+from .wysiwyg_view import WysiwygView
 
-from .settings_store import ORG as _ORG, APP as _APP
 _PDF_ANNOTATION_AUTHOR_KEY = "pdf_annotation_author"
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
 _RECENT_TEMPLATES_KEY = "recent_editor_templates"

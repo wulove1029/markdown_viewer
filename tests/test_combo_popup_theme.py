@@ -1,7 +1,13 @@
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QVBoxLayout, QWidget
 
-from app.theme import DARK, LIGHT, app_stylesheet, apply_combo_popup_theme, toolbar_stylesheet
+from app.theme import (
+    DARK,
+    LIGHT,
+    app_stylesheet,
+    apply_combo_popup_theme,
+    toolbar_stylesheet,
+)
 
 
 def test_toolbar_popup_has_opaque_readable_surface_after_theme_switch(qapp):

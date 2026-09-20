@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import re
 
-
 FRONT_MATTER = "front_matter"
 WIKI_LINKS = "wiki_links"
 OBSIDIAN_CALLOUTS = "obsidian_callouts"

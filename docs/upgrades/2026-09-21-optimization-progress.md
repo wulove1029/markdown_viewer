@@ -102,3 +102,11 @@ RUN_WEBENGINE_TESTS=1 的四個 *_webengine.py 正在執行，結果後補；實
 首輪四模組同程序出現 Chromium GPU context lost 後卡住，已中止（exit 1），不計通過。
 後續改用 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu 並逐模組驗證。
 全文搜尋發現 7 個模組使用 RUN_WEBENGINE_TESTS，但只有 4 個檔名含 webengine；CI 手動 job 應明列全部 7 個。
+
+停用 GPU 後 inline_edit_webengine：9 passed in 43.81s；其餘六模組繼續驗證。
+
+## B6 第一階段：獨立 import 排序
+
+`py -3 -X utf8 -m ruff check app main.py tests tools --select I --fix` → 124 violations fixed、0 remaining，110 個檔案異動。
+`py -3 -X utf8 -m pytest tests/ -q` → 1710 passed、82 skipped，60.10s。
+僅 import 排序，與 lint/type 規則導入分開 commit。

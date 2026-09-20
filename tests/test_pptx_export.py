@@ -10,13 +10,13 @@ pytest.importorskip("pptx")
 from pptx import Presentation
 
 from app.pptx_export import (
+    REMOTE_IMAGE_MAX_TOTAL_BYTES,
+    REMOTE_IMAGE_TIMEOUT_SECONDS,
     Code,
     Heading,
     Image,
     ListBlock,
     Para,
-    REMOTE_IMAGE_MAX_TOTAL_BYTES,
-    REMOTE_IMAGE_TIMEOUT_SECONDS,
     Table,
     _load_image_bytes,
     export_markdown_to_pptx,

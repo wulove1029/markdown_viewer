@@ -1,6 +1,6 @@
 from PySide6.QtCore import QSettings, QStandardPaths
 
-from app.settings_store import APP, ORG, DISPLAY_NAME, legacy_data_path, settings
+from app.settings_store import APP, DISPLAY_NAME, ORG, legacy_data_path, settings
 
 
 def test_identity_and_existing_data_paths_are_preserved(qapp):
@@ -32,8 +32,9 @@ def test_settings_factory_reopens_saved_preferences(tmp_path, monkeypatch):
 
 
 def test_pdf_page_setup_uses_central_settings_identity(qapp, tmp_path, monkeypatch):
-    from app import export_actions
     from PySide6.QtWidgets import QDialog
+
+    from app import export_actions
     captured = []
     def fake_settings(org, app):
         captured.append((org, app))

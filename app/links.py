@@ -16,7 +16,13 @@ from markdown_it import MarkdownIt
 
 from .document_libraries import load_excluded_folders, should_skip_directory
 from .file_types import MARKDOWN_EXTENSIONS
-from .md_converter import mask_markdown_code, read_text, parse_front_matter, front_matter_tags, body_hashtags
+from .md_converter import (
+    body_hashtags,
+    front_matter_tags,
+    mask_markdown_code,
+    parse_front_matter,
+    read_text,
+)
 
 WIKILINK_RE = re.compile(
     r"\[\[[^\S\r\n]*([^\[\]|\r\n]+?)[^\S\r\n]*"

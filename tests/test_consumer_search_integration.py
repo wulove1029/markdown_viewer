@@ -1,11 +1,12 @@
 """Search results must navigate the actual document workspace."""
 from types import SimpleNamespace
 
-from app import edit_backend, window as window_mod
+from app import edit_backend
+from app import window as window_mod
 from tests.test_editor_data_safety import (
+    _DelayedSnapshotWysiwygView,
     _isolated_editor_dependencies,
     make_data_safety_window,
-    _DelayedSnapshotWysiwygView,
 )
 from tests.test_editor_workspace_integration import _enter_markdown_editor
 

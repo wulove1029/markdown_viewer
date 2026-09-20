@@ -23,11 +23,11 @@ overlay replaces.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import html
 import logging
-from pathlib import Path
 import re
+from dataclasses import dataclass, field
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

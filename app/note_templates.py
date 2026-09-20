@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 from typing import Iterable
 
 from .atomic_io import atomic_write_bytes
-
 
 _BLOCK_TEMPLATE_RE = re.compile(
     r"^\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~|\|)"

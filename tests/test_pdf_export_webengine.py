@@ -15,7 +15,6 @@ from PySide6.QtGui import QColor, QImage
 from app import export_actions
 from app.renderer import RendererView
 
-
 _skip_webengine = pytest.mark.skipif(
     os.environ.get("RUN_WEBENGINE_TESTS") != "1",
     reason="headless WebEngine is flaky; set RUN_WEBENGINE_TESTS=1 to run",

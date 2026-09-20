@@ -8,19 +8,17 @@ call from a ``QTimer`` and easy to test without a running window.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import json
 import os
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-
-from .settings_store import legacy_data_path
 from typing import Iterable
 
 from PySide6.QtCore import QStandardPaths
 
 from .atomic_io import atomic_write_text, sha256_hex
-
+from .settings_store import legacy_data_path
 
 SCHEMA_VERSION = 1
 _RECOVERY_FOLDER = "recovery"

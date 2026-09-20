@@ -1,9 +1,10 @@
 """Left-side panel: recent files + file browser."""
 
 from pathlib import Path
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTreeView, QAbstractItemView
+
+from PySide6.QtCore import QDir, QModelIndex, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QFileSystemModel
-from PySide6.QtCore import Qt, QDir, QSortFilterProxyModel, QModelIndex
+from PySide6.QtWidgets import QAbstractItemView, QTreeView, QVBoxLayout, QWidget
 
 from .recent_files import RecentFilesView
 

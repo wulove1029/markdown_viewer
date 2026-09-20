@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 MAX_COMPLETIONS = 50
 _ACTIVE_QUERY_RE = re.compile(r"\[\[([^\[\]\n|]*)$")
 

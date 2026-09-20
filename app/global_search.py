@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 from html import escape
-import os
 from pathlib import Path
-import re
 from threading import Event
 from typing import Callable, Iterable
 
-from PySide6.QtCore import QEvent, QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QEvent,
+    QObject,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QLabel,

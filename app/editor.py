@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 from .attachments import import_attachment_file, markdown_attachment_link
-from .editor_overlays import SelectionFormatBar, SlashCommandPopup
 from .editor_input import auto_pair_edit, backspace_pair_edit, tab_edit
+from .editor_overlays import SelectionFormatBar, SlashCommandPopup
 from .format_actions import (
     active_format_actions,
     apply_format_action,
@@ -43,7 +43,6 @@ from .smart_writing import (
 from .text_positions import py_to_qt_position, qt_to_py_position
 from .theme import LIGHT, Theme
 from .wikilink_completion import active_query, filter_completions
-
 
 # QTextCursor.selectedText() encodes line breaks as U+2029, not a newline.
 _PARAGRAPH_SEP = chr(0x2029)

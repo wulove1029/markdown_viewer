@@ -7,22 +7,22 @@ Unsupported resource syntax fails before any filesystem mutation.
 
 from __future__ import annotations
 
-from bisect import bisect_left
 import codecs
+import os
+import re
+from bisect import bisect_left
 from html import escape, unescape
 from html.parser import HTMLParser
-import os
 from pathlib import Path
-import re
 from urllib.parse import quote, unquote
 
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import UNESCAPE_ALL_RE, unescapeAll
-from markdown_it.rules_inline import image as image_rule, link as link_rule
+from markdown_it.rules_inline import image as image_rule
+from markdown_it.rules_inline import link as link_rule
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.dollarmath.index import math_inline_dollar
 from mdit_py_plugins.front_matter import front_matter_plugin
-
 
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _ATTRIBUTE = re.compile(

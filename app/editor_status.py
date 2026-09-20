@@ -16,7 +16,6 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from .theme import LIGHT, Theme
 
-
 _HAN_RANGES = (
     (0x3400, 0x4DBF),   # CJK Unified Ideographs Extension A
     (0x4E00, 0x9FFF),   # CJK Unified Ideographs

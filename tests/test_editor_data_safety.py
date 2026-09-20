@@ -13,8 +13,8 @@ import gc
 import json
 import sys
 import types
-from pathlib import Path
 import weakref
+from pathlib import Path
 
 import pytest
 import shiboken6

@@ -10,7 +10,6 @@ import pytest
 
 from app import translate as tr
 
-
 # ── chunking ────────────────────────────────────────────────────────────
 
 def test_split_chunks_is_lossless_and_respects_limit():

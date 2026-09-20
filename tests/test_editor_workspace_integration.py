@@ -15,16 +15,15 @@ from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtTest import QTest
 from shiboken6 import isValid
 
-from app import edit_backend
-from app import session_state
+from app import edit_backend, session_state
 from app import window as window_mod
 from app.recovery import RecoveryStore
 from tests.test_window_integration import (
+    _dispose_window,
     _FakePanel,
     _FakePdfView,
     _FakeRenderer,
     _FakeTagIndex,
-    _dispose_window,
 )
 
 

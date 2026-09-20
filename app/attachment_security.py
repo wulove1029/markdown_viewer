@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 BLOCKED_EXTENSIONS = frozenset(
     {
         ".appref-ms", ".application", ".bat", ".cmd", ".com", ".cpl",

@@ -11,10 +11,10 @@ All failures surface as ``OSError`` so UI callers can report them.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import warnings
+from pathlib import Path
 
 from .atomic_io import atomic_write_bytes
 from .document_relocation import rebase_markdown_bytes

@@ -5,16 +5,23 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QObject,
+    QSettings,
+    Qt,
+    QTimer,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QPushButton, QWidget
 from shiboken6 import isValid
 
-from app import edit_backend
-from app import export_actions
-from app import md_table
+from app import edit_backend, export_actions, md_table
 from app import recovery as recovery_mod
 from app import window as window_mod
 from app.shortcuts import WINDOW_SHORTCUTS

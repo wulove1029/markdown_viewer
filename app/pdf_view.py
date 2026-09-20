@@ -30,17 +30,17 @@ from pathlib import Path
 from PySide6.QtCore import (
     QElapsedTimer,
     QEvent,
-    QRect,
-    QSize,
     QObject,
     QPoint,
     QPointF,
+    QRect,
     QRectF,
     QRunnable,
+    QSize,
+    QSizeF,
     Qt,
     QThreadPool,
     QTimer,
-    QSizeF,
     Signal,
 )
 from PySide6.QtGui import QColor, QImage, QKeySequence, QPainter, QPen, QPixmap
@@ -74,16 +74,17 @@ def _pymupdf():
         _pymupdf_module = _mod
     return _pymupdf_module
 
-from . import pdf_annotation_overlay
+from . import pdf_annotation_overlay, pdf_metadata_cache
 from .pdf_annotation_card import PdfAnnotationCard
 from .pdf_embedded_annotations import (
     build_annotation_threads,
     extract_embedded_annotations,
+)
+from .pdf_embedded_annotations import (
     tooltip_text as embedded_annotation_tooltip,
 )
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
-from . import pdf_metadata_cache
 from .pdf_render_scheduler import PdfRenderScheduler, PdfRenderSpec
 from .theme import LIGHT, Theme
 

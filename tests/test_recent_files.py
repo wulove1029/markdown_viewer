@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSettings as QtQSettings, Qt
+from PySide6.QtCore import QSettings as QtQSettings
+from PySide6.QtCore import Qt
 
 from app import recent_files as recent_mod
 from app.recent_files import (

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QLabel,
     QPushButton,
     QVBoxLayout,
 )

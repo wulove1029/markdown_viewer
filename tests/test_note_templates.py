@@ -5,8 +5,8 @@ from datetime import datetime
 from app.note_templates import (
     find_templates,
     open_or_create_daily_note,
-    render_template,
     prepare_template_insertion,
+    render_template,
 )
 
 

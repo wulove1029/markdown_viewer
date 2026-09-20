@@ -1,7 +1,6 @@
 """Tests for the visual flowchart canvas widget."""
 
 import pytest
-
 from PySide6.QtCore import QPoint, Qt
 
 from app.flowchart_canvas import FlowchartCanvas

@@ -1,16 +1,19 @@
 """Compare HEAD and working-tree PDF loads and tree application, using synthetic data."""
 import os
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
 import types
+from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtWidgets import QApplication
 import shiboken6
+from PySide6.QtWidgets import QApplication
+
 from app.document_libraries import DocumentLibrary, DocumentLibraryStore
 from tools.benchmark_upgrade import measure
 
@@ -26,8 +29,9 @@ def baseline(name):
 
 
 def main():
-    from app import file_browser, pdf_view
     import pymupdf
+
+    from app import file_browser, pdf_view
     app = QApplication([])
     report = {"scope": "synthetic component load/application; excludes first paint"}
     with tempfile.TemporaryDirectory(prefix="mdv-layout-") as folder:

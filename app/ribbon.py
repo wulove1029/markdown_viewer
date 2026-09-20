@@ -1,7 +1,13 @@
 """Left icon ribbon — Obsidian-style."""
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QSpacerItem, QSizePolicy
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 _RIBBON_STYLE = """
 QWidget#ribbon {

@@ -16,9 +16,9 @@ from PySide6.QtWidgets import QStyleOptionViewItem
 from app.tags_panel import (
     _COUNT_ROLE,
     TagsPanel,
-    _TagNodeDelegate,
     _pill_text_color,
     _relative_luminance,
+    _TagNodeDelegate,
 )
 
 

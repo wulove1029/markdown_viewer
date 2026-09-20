@@ -4,8 +4,8 @@ These tests start real child processes: the whole point of the design is that
 an in-flight parse can be stopped, which cannot be shown with a fake.
 """
 
-import os
 import logging
+import os
 import socket
 import subprocess
 import sys

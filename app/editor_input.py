@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from .format_actions import TextEdit
 
-
 INDENT = " " * 4
 OPEN_TO_CLOSE: dict[str, str] = {
     "(": ")",

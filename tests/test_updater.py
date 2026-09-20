@@ -21,7 +21,6 @@ from app.updater import (
     verify_installer,
 )
 
-
 # --- version comparison -------------------------------------------------
 
 def test_version_tuple_strips_v_prefix():

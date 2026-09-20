@@ -3,7 +3,6 @@
 from app.gantt_editor import GanttEditor
 from app.gantt_mermaid import parse_gantt
 
-
 SAMPLE = """gantt
     title Mermaid Workspace Rollout
     dateFormat  YYYY-MM-DD

@@ -8,7 +8,8 @@ import pytest
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication
 
-from app import edit_backend, settings_dialog as settings_dialog_mod
+from app import edit_backend
+from app import settings_dialog as settings_dialog_mod
 from app.settings_dialog import SettingsDialog, _bool_from_qsettings
 
 _ORG = "markdown-viewer"

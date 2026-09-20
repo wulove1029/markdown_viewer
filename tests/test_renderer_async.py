@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from app.renderer import (
-    _MarkdownRenderWorker,
     _html_with_render_generation,
+    _MarkdownRenderWorker,
     _pending_scroll_target,
 )
 

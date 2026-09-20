@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import subprocess
-from time import perf_counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Callable
 
 from PySide6.QtCore import (
@@ -64,9 +64,9 @@ from .atomic_io import set_hidden
 from .document_libraries import (
     DocumentLibrary,
     DocumentLibraryStore,
+    discover_cloud_library_paths,
     load_excluded_folders,
     should_skip_directory,
-    discover_cloud_library_paths,
 )
 from .file_types import SUPPORTED_EXTENSIONS, is_pdf
 from .theme import LIGHT, Theme, collection_stylesheet, svg_icon

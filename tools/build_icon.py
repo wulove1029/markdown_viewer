@@ -2,7 +2,6 @@ from pathlib import Path
 
 from PIL import Image
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PNG_PATH = ROOT / "ICON" / "icon.png"
 ICO_PATH = ROOT / "ICON" / "icon.ico"

@@ -2,7 +2,8 @@
 
 from PySide6.QtGui import QTextCursor
 
-from app import edit_backend, file_browser, window as window_mod
+from app import edit_backend, file_browser
+from app import window as window_mod
 from app.document_libraries import DocumentLibraryStore
 from tests.test_editor_data_safety import (
     _DelayedSnapshotWysiwygView,
