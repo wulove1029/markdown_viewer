@@ -1,5 +1,7 @@
 from pathlib import Path
 from time import perf_counter
+import math
+from statistics import mean
 
 from app.document_libraries import DocumentLibrary
 from app.graph_model import (
@@ -70,6 +72,29 @@ def test_duplicate_labels_expand_until_unique_and_tooltips_are_relative():
     assert {"a/docs/README", "b/docs/README", "c/README", "unique"} == set(labels)
     assert {node.tooltip for node in graph.nodes} == {
         "a/docs/README.md", "b/docs/README.md", "c/README.md", "unique.md"}
+
+
+def test_folder_clusters_converge_more_tightly_than_cross_folder_distance():
+    graph = build_graph(_index([(f"/vault/{folder}/{i}.md", "")
+                                for folder in ("a", "b", "c") for i in range(6)]))
+    groups = assign_node_groups(graph.nodes, [], mode="folder")
+    positions = initial_positions(graph.nodes)
+    for i in range(180):
+        positions, _ = layout_step(positions, (), node_groups=groups,
+                                   temperature=max(.45, 14 * .975 ** i))
+    within, across = [], []
+    ids = list(positions)
+    for i, left in enumerate(ids):
+        for right in ids[i + 1:]:
+            distance = math.dist(positions[left], positions[right])
+            (within if groups[left] == groups[right] else across).append(distance)
+    assert mean(within) < mean(across) * .5
+
+
+def test_tag_grouping_is_deterministic_and_keeps_untagged_notes():
+    nodes = [GraphNode("a", "a", "/a.md"), GraphNode("b", "b", "/b.md")]
+    assert assign_node_groups(nodes, [], mode="tag", tags={"/a.md": {"z", "a"}}) == {
+        "a": "#a / #z", "b": "未標籤"}
 
 
 def test_build_graph_includes_edges_ghosts_and_isolated_notes():

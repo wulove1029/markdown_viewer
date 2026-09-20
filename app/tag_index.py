@@ -68,7 +68,7 @@ class TagIndex:
             | set(entry.get("body_tags", []))
         )
 
-    def tags_for(self, path) -> set[str]:
+    def tags_for(self, path, *, include_markdown: bool = True) -> set[str]:
         """Return the set of tags currently recorded for a resolved path.
 
         Type-neutral: works for markdown and PDF entries alike. Returns an
@@ -78,6 +78,8 @@ class TagIndex:
         entry = self._data.get(key)
         if not entry:
             return set()
+        if not include_markdown:
+            return set(entry.get("doc_tags", [])) | set(entry.get("annot_tags", []))
         return self._entry_tags(entry)
 
     def all_tags(self) -> list[str]:

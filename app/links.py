@@ -16,7 +16,7 @@ from markdown_it import MarkdownIt
 
 from .document_libraries import load_excluded_folders, should_skip_directory
 from .file_types import MARKDOWN_EXTENSIONS
-from .md_converter import mask_markdown_code, read_text
+from .md_converter import mask_markdown_code, read_text, parse_front_matter, front_matter_tags, body_hashtags
 
 WIKILINK_RE = re.compile(
     r"\[\[[^\S\r\n]*([^\[\]|\r\n]+?)[^\S\r\n]*"
@@ -148,6 +148,7 @@ class LinkIndex:
         self.raw_targets: dict[str, tuple[str, ...]] = {}
         self.typed_targets: dict[str, tuple[tuple[str, str], ...]] = {}
         self._by_path: dict[str, Path] = {}
+        self.tags: dict[str, set[str]] = {}
         self.completion_candidates: list[str] = []
 
     def build(self, docs) -> None:
@@ -162,8 +163,11 @@ class LinkIndex:
         self.backward = {}
         self.raw_targets = {}
         self.typed_targets = {}
+        self.tags = {}
         parser = _link_parser()
         for path, text in docs:
+            front, body = parse_front_matter(text)
+            self.tags[str(path)] = set(front_matter_tags(front)) | set(body_hashtags(body))
             targets: set[str] = set()
             raw_targets = [target for target, _alias in extract_wikilinks(text)]
             self.raw_targets[str(path)] = tuple(raw_targets)

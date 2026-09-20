@@ -1,12 +1,52 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtTest import QTest
 
 from app.document_libraries import DocumentLibrary
 from app.graph_view import GraphWindow
 from app.links import LinkIndex
 from app.theme import DARK
+
+
+def test_grouping_mode_persists_and_legacy_settings_default_to_library(qapp, tmp_path, monkeypatch):
+    settings = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.graph_view.QSettings", lambda *_: settings)
+    window = GraphWindow(lambda _: None)
+    assert window._group_mode.currentData() == "library"
+    index = LinkIndex()
+    index.build([(tmp_path / "a" / "one.md", "#topic"), (tmp_path / "b" / "two.md", "")])
+    window.set_index(index, libraries=[])
+    window._group_mode.setCurrentIndex(1)
+    assert len(window.canvas.group_names) == 2
+    assert window.canvas.cluster_groups
+    group = window.canvas.group_names[0]
+    window._legend_buttons[group].setChecked(False)
+    assert not next(item for item in window.canvas._node_items.values() if item.group == group).isVisible()
+    window.close()
+    reopened = GraphWindow(lambda _: None)
+    assert reopened._group_mode.currentData() == "folder"
+    reopened.set_index(index, libraries=[])
+    reopened._group_mode.setCurrentIndex(2)
+    assert "#topic" in reopened.canvas.group_names
+    reopened.close()
+
+
+def test_tag_groups_ignore_stale_source_tags(qapp, tmp_path, monkeypatch):
+    from app.tag_index import TagIndex
+    settings = QSettings(str(tmp_path / "prefs.ini"), QSettings.Format.IniFormat)
+    monkeypatch.setattr("app.graph_view.QSettings", lambda *_: settings)
+    cache = TagIndex(tmp_path / "tags.json")
+    note = tmp_path / "note.md"
+    cache._data[str(note.resolve())] = {"front_tags": ["removed"], "doc_tags": ["kept"]}
+    monkeypatch.setattr("app.graph_view.TagIndex", lambda: cache)
+    index = LinkIndex()
+    index.build([(note, "#current")])
+    window = GraphWindow(lambda _: None)
+    window.set_index(index, libraries=[])
+    window._group_mode.setCurrentIndex(2)
+    assert window.canvas.group_names == ("#current / #kept",)
+    window.close()
 
 
 def test_graph_tooltip_uses_library_relative_path(qapp, tmp_path):

@@ -33,3 +33,12 @@ Fresh agent 獨立驗收：graph model/view 16 passed in 1.31s，額外檢查副
 更正 A1 查找：必須設定正式 QCoreApplication 組織與名稱才會讀到實際 AppData。設定指向 D:\Puritygo，確實存在。
 唯讀實測 D:\Puritygo：84 檔、84 節點、29 條 markdown 邊，索引讀取加建圖 1.447s；真實節點標籤重複數 0。
 README 範例：air_quality/README、app_flutter/README、docs/README。尚待 UI 與完整回歸驗證。
+
+## A3
+
+新增依文件庫／資料夾／標籤切換，QSettings graph/group_mode 缺省 library；沿用群組按鈕隱藏／展開，圖例水平捲動。
+標籤使用本次文件索引及註解標籤，排除快取中已過期的 front/body tags；多標籤顯示排序後組合。
+測試：`py -3 -X utf8 -m pytest tests/test_links.py tests/test_graph_model.py tests/test_graph_view.py tests/test_tag_index.py -q` → 40 passed in 0.66s。
+含 18 節點／3 群 180 次 layout_step 的群內平均距離 < 跨群 50% 斷言、舊設定與重開保存、過期標籤案例。
+Fresh agent 複驗 40 passed in 0.64s；亮暗 Qt 截圖已檢視（offscreen 無內建字型，測試程序明確載入系統 Segoe UI 與微軟正黑體）。
+Puritygo Qt GraphWindow 實跑 84 node items、29 edge items、18 folder groups；不修改文件庫。

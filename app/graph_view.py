@@ -6,10 +6,12 @@ import math
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, QSettings
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
+    QComboBox,
+    QScrollArea,
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsObject,
@@ -34,6 +36,7 @@ from .graph_model import (
     separate_overlapping_nodes,
 )
 from .links import LinkIndex
+from .tag_index import TagIndex
 from .theme import LIGHT, Theme, app_stylesheet
 
 
@@ -291,6 +294,7 @@ class GraphCanvas(QWidget):
         self._timer.timeout.connect(self._layout_frame)
         self._iteration = 0
         self._temperature = 14.0
+        self.cluster_groups = False
 
     @property
     def graph(self) -> GraphData:
@@ -458,6 +462,7 @@ class GraphCanvas(QWidget):
                 self._graph.edges,
                 temperature=self._temperature,
                 pinned=self._pinned,
+                node_groups=self._node_groups if self.cluster_groups else None,
             )
             self._positions = separate_overlapping_nodes(
                 updated,
@@ -542,16 +547,31 @@ class GraphWindow(QDialog):
         self._theme = LIGHT
         self.canvas = GraphCanvas(on_open_path, self)
         self._legend_buttons: dict[str, QToolButton] = {}
+        self._index = None
+        self._libraries = []
+        self._current_path = None
+        self._settings = QSettings("markdown-viewer", "MarkdownViewer")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self._group_mode = QComboBox(self)
+        for label, mode in (("依文件庫", "library"), ("依資料夾", "folder"), ("依標籤", "tag")):
+            self._group_mode.addItem(label, mode)
+        selected = self._group_mode.findData(self._settings.value("graph/group_mode", "library"))
+        self._group_mode.setCurrentIndex(max(0, selected))
+        self._group_mode.currentIndexChanged.connect(self._change_group_mode)
+        layout.addWidget(self._group_mode)
         self._legend = QWidget(self)
         self._legend.setObjectName("graphLegend")
         self._legend_layout = QHBoxLayout(self._legend)
         self._legend_layout.setContentsMargins(12, 7, 12, 7)
         self._legend_layout.setSpacing(8)
-        layout.addWidget(self._legend)
+        self._legend_scroll = QScrollArea(self)
+        self._legend_scroll.setWidgetResizable(True)
+        self._legend_scroll.setFixedHeight(64)
+        self._legend_scroll.setWidget(self._legend)
+        layout.addWidget(self._legend_scroll)
         layout.addWidget(self.canvas, 1)
         hint = QLabel(_GRAPH_HINT)
         hint.setObjectName("graphHint")
@@ -576,12 +596,24 @@ class GraphWindow(QDialog):
             except Exception:
                 libraries = []
         graph = build_graph(index, libraries)
-        groups = assign_node_groups(graph.nodes, libraries)
+        self._index, self._libraries, self._current_path = index, libraries, current_path
+        mode = self._group_mode.currentData()
+        cache = TagIndex() if mode == "tag" else None
+        tags = {node.path: cache.tags_for(node.path, include_markdown=False) | index.tags.get(node.path, set())
+                for node in graph.nodes if node.path} if cache else {}
+        groups = assign_node_groups(graph.nodes, libraries, mode=mode, tags=tags)
+        self.canvas.cluster_groups = mode != "library"
         self.canvas.set_graph(graph, current_path, groups)
         self._hint.setText(_EMPTY_EDGE_HINT if not graph.edges else _GRAPH_HINT)
         self._rebuild_legend()
 
+    def _change_group_mode(self):
+        self._settings.setValue("graph/group_mode", self._group_mode.currentData())
+        if self._index is not None:
+            self.set_index(self._index, self._current_path, self._libraries)
+
     def set_current_path(self, path: str | None):
+        self._current_path = path
         self.canvas.set_current_path(path)
 
     def apply_theme(self, theme: Theme):
@@ -590,6 +622,8 @@ class GraphWindow(QDialog):
             app_stylesheet(theme)
             + f"QWidget#graphLegend {{ background: {theme.surface}; border-bottom: 1px solid {theme.border}; }}"
             + f"QLabel#graphHint {{ background: {theme.surface}; color: {theme.text_muted}; border-top: 1px solid {theme.border}; }}"
+            + f"QWidget#graphLegend QToolButton {{ background: {theme.surface}; color: {theme.text}; border: 1px solid {theme.border}; padding: 4px; }}"
+            + f"QWidget#graphLegend QToolButton:checked {{ background: {theme.surface_alt}; }}"
         )
         self.canvas.apply_theme(theme)
         self._rebuild_legend()
@@ -599,6 +633,7 @@ class GraphWindow(QDialog):
             child = self._legend_layout.takeAt(0)
             widget = child.widget()
             if widget is not None:
+                widget.hide()
                 widget.deleteLater()
         self._legend_buttons = {}
         groups = self.canvas.group_names
@@ -623,3 +658,4 @@ class GraphWindow(QDialog):
             self._legend_buttons[group] = button
         self._legend_layout.addStretch(1)
         self._legend.setVisible(bool(groups))
+        self._legend_scroll.setVisible(bool(groups))

@@ -124,6 +124,8 @@ def assign_node_groups(
     libraries: Iterable[object],
     *,
     unmatched_group: str = "其他",
+    mode: str = "library",
+    tags: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, str | None]:
     """Assign real nodes to their containing document library.
 
@@ -146,6 +148,21 @@ def assign_node_groups(
             assignments[node.id] = None
             continue
         node_path = _normalized_group_path(node.path)
+        if mode == "folder":
+            parent = Path(node.path).parent
+            group = parent.as_posix()
+            for name, root in roots:
+                normalized_parent = _normalized_group_path(str(parent))
+                if normalized_parent == root or normalized_parent.startswith(f"{root}/"):
+                    suffix = parent.as_posix()[len(root):].lstrip("/")
+                    group = f"{name}/{suffix}" if suffix else name
+                    break
+            assignments[node.id] = group
+            continue
+        if mode == "tag":
+            values = sorted(set((tags or {}).get(node.path, ())), key=str.casefold)
+            assignments[node.id] = " / ".join(f"#{tag}" for tag in values) or "未標籤"
+            continue
         group = next(
             (
                 name
@@ -329,6 +346,7 @@ def layout_step(
     temperature: float = 12.0,
     ideal_length: float = 90.0,
     pinned: Iterable[str] = (),
+    node_groups: Mapping[str, str | None] | None = None,
 ) -> tuple[dict[str, tuple[float, float]], float]:
     """Run one bounded Fruchterman-Reingold-style iteration.
 
@@ -338,6 +356,11 @@ def layout_step(
     if not ids:
         return {}, 0.0
     fixed = set(pinned)
+    groups = sorted({g for g in (node_groups or {}).values() if g})
+    radius = max(200.0, ideal_length * math.sqrt(len(ids)) * 0.8)
+    centers = {group: (radius * math.cos(2 * math.pi * i / len(groups)),
+                       radius * math.sin(2 * math.pi * i / len(groups)))
+               for i, group in enumerate(groups)}
     displacement = {node_id: [0.0, 0.0] for node_id in ids}
     epsilon = 0.01
 
@@ -386,8 +409,13 @@ def layout_step(
             step = min(max_step, magnitude)
             dx, dy = dx / magnitude * step, dy / magnitude * step
         # A light pull toward the origin keeps disconnected components nearby.
-        dx -= x * 0.015
-        dy -= y * 0.015
+        center = centers.get((node_groups or {}).get(node_id))
+        if center is not None:
+            dx += (center[0] - x) * 0.08
+            dy += (center[1] - y) * 0.08
+        else:
+            dx -= x * 0.015
+            dy -= y * 0.015
         updated[node_id] = (x + dx, y + dy)
         total_movement += math.hypot(dx, dy)
     return updated, total_movement
