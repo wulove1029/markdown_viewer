@@ -4,6 +4,9 @@
 
 ### Added
 - 導入 Ruff E/F/I 與逐檔既有問題清單，三個純邏輯模組納入 mypy，CI 增加 lint／型別檢查。
+
+### Changed
+- 並排編輯預覽改為首次進入 SPLIT 才建立，沿用目前縮放與搜尋狀態，後續切換重用元件。
 - 以 Ruff 統一 Python import 排序，排序差異獨立提交以利檢閱。
 - 新增 Windows push／pull request 測試 CI，並提供手動觸發的獨立 WebEngine 測試工作。
 - 補齊關聯圖混合連結、路徑解析、程式碼排除、重名節點及實際 Qt 連線顯示的回歸測試。

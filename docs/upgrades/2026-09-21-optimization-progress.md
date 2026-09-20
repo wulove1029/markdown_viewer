@@ -122,3 +122,19 @@ MainWindow 型別使用 TYPE_CHECKING 匯入；ruff/mypy 加入 dev requirements
 
 `py -3 -X utf8 -m pytest tests/test_atomic_io.py tests/test_edit_backend.py -q` → 29 passed in 0.22s；import main 成功。
 Fresh agent 確認 74 個 ignore 均為既有確切檔名，新檔 F821 確實攔截；ruff/mypy 獨立執行通過。
+
+## C1（功能通過，效能門檻未達）
+
+_edit_preview 預設 None，首次 SPLIT 透過 _ensure_edit_preview 建立並接線；設定／搜尋／捲動呼叫點皆保護 None。
+`py -3 -X utf8 -m pytest tests/ -q` → 1711 passed、82 skipped，59.48s。
+fresh agent window/data safety：215 passed in 24.13s；追加 token/splitter 斷言 1 passed、157 deselected in 1.20s。Ruff/mypy 通過。
+修改前後各 10 次 subprocess（offscreen、disable-gpu、隔離設定）p50：
+
+| 量測 | 前 | 後 |
+|---|---:|---:|
+| 既有 import main 牆鐘 | 249.18ms | 246.07ms |
+| 真實 MainWindow 建構 | 375.23ms | 357.32ms |
+
+import main 不建構視窗，不能衡量此改動；建構改善 17.91ms／4.77%，未達 15% 或 150ms 門檻。
+主 RendererView 仍承擔首次 Chromium 初始化，因此第二個元件的省時有限。未為追求門檻擴大 PDF 懶建構範圍。
+原始 40 筆量測在系統暫存 mdv-startup-benchmark.json；測量包含本機背景驗證負載，不作普遍啟動速度承諾。

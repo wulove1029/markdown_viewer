@@ -732,7 +732,7 @@ def test_pdf_wheel_zoom_is_remembered_apart_from_text_content_zoom(
     assert float(settings.value("pdf_zoom")) == pytest.approx(1.6)
     assert float(settings.value("content_zoom")) == pytest.approx(1.25)
     assert win._renderer._zoom == pytest.approx(1.25)
-    assert win._edit_preview._zoom == pytest.approx(1.25)
+    assert win._ensure_edit_preview()._zoom == pytest.approx(1.25)
     assert win._pdf_view.zoom_calls[-1] == (1.6, None)
     assert win._pdf_zoom_sync_timer.isActive() is False
 
@@ -806,7 +806,7 @@ def test_keyboard_zoom_uses_fast_discrete_stops(make_window):
 
     assert win._content_zoom == pytest.approx(1.5)
     assert win._renderer._zoom == pytest.approx(1.5)
-    assert win._edit_preview._zoom == pytest.approx(1.5)
+    assert win._ensure_edit_preview()._zoom == pytest.approx(1.5)
     assert float(settings.value("content_zoom")) == pytest.approx(1.5)
 
     win._apply_zoom(1.17)
@@ -888,7 +888,7 @@ def test_pending_pdf_wheel_zoom_flushes_before_switch_and_reload(
     # The Markdown that follows keeps its own zoom.
     assert win._content_zoom == pytest.approx(1.0)
     assert win._renderer._zoom == pytest.approx(1.0)
-    assert win._edit_preview._zoom == pytest.approx(1.0)
+    assert win._ensure_edit_preview()._zoom == pytest.approx(1.0)
     assert win._pending_pdf_wheel_zoom is None
     assert win._pdf_zoom_sync_timer.isActive() is False
 
@@ -1073,7 +1073,7 @@ def test_web_preview_unhandled_escape_closes_open_search(make_window):
     win._editor_search_bar.show()
     win._set_search_escape_enabled(True)
     generation = win._active_search_escape_generation
-    win._edit_preview.bridge.unhandledEscape.emit(generation)
+    win._ensure_edit_preview().bridge.unhandledEscape.emit(generation)
     assert win._editor_search_bar.isHidden()
 
 
@@ -1792,6 +1792,25 @@ def test_recent_attachment_is_reimported_with_a_safe_link_for_another_note(
 
 
 # --- view modes: preview / edit / split (階段 2a) ---
+def test_split_preview_is_lazy_and_keeps_current_zoom_and_search_token(make_window, md_files):
+    win = make_window()
+    assert win._edit_preview is None
+    win.open_path(str(md_files[0]))
+    win._apply_zoom(1.5)
+    win._set_search_escape_enabled(True)
+    assert win._edit_preview is None
+    win._toggle_split_mode()
+    preview = win._edit_preview
+    assert preview is not None
+    assert preview._zoom == pytest.approx(1.5)
+    assert preview.search_escape_generation == win._active_search_escape_generation
+    assert win._editor_split.count() == 2
+    assert preview.text_renders
+    win._toggle_split_mode()
+    win._toggle_split_mode()
+    assert win._edit_preview is preview
+
+
 def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
     first, _second = md_files
     win = make_window()
@@ -1803,7 +1822,7 @@ def test_ctrl_e_toggles_preview_and_plain_edit(make_window, md_files):
     assert win._view_mode == "edit"
     assert win._edit_mode is True
     assert win._stack.currentWidget() is win._editor_split
-    assert win._edit_preview.isHidden()  # plain edit: no preview pane
+    assert win._edit_preview is None  # plain edit never constructs a preview
     assert win._editor.toPlainText() == first.read_text(encoding="utf-8")
 
     win._toggle_edit_mode()  # Ctrl+E again -> back to preview
@@ -2196,7 +2215,7 @@ def test_editor_scroll_sync_only_drives_preview_in_split(make_window, md_files):
     win.open_path(str(first))
 
     win._sync_preview_scroll()  # preview mode: must not touch the preview
-    assert win._edit_preview.ratio_calls == []
+    assert win._edit_preview is None
 
     win._toggle_split_mode()
     win._edit_preview.ratio_calls.clear()
@@ -3964,7 +3983,7 @@ def test_new_txt_note_opens_plain_editor_not_split(make_window, tmp_path):
     assert win._current_kind == "text"
     assert win._view_mode == "edit"
     assert win._editor._plain_text_mode is True
-    assert not win._edit_preview.isVisibleTo(win._editor_split)
+    assert win._edit_preview is None
 
 
 def test_new_md_source_note_save_and_reopen_round_trips(

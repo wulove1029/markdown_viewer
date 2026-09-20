@@ -810,14 +810,14 @@ def test_wysiwyg_wheel_zoom_applies_one_final_factor_and_defers_persistence(
     zoom_call_count = len(view.zoom_factors)
     settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
     renderer_zoom = window._renderer._zoom
-    preview_zoom = window._edit_preview._zoom
+    preview_zoom = window._ensure_edit_preview()._zoom
 
     view.zoom_requested.emit(3)
 
     assert window._content_zoom == pytest.approx(1.5)
     assert view.zoom_factors[zoom_call_count:] == [pytest.approx(1.5)]
     assert window._renderer._zoom == pytest.approx(renderer_zoom)
-    assert window._edit_preview._zoom == pytest.approx(preview_zoom)
+    assert window._ensure_edit_preview()._zoom == pytest.approx(preview_zoom)
     assert settings.value("content_zoom") is None
     assert window._pending_office_zoom == pytest.approx(1.5)
     assert window._office_zoom_sync_timer.isActive()
@@ -828,7 +828,7 @@ def test_wysiwyg_wheel_zoom_applies_one_final_factor_and_defers_persistence(
     window._commit_office_zoom()
 
     assert window._renderer._zoom == pytest.approx(1.5)
-    assert window._edit_preview._zoom == pytest.approx(1.5)
+    assert window._ensure_edit_preview()._zoom == pytest.approx(1.5)
     assert view.zoom_factors[zoom_call_count:] == [pytest.approx(1.5)]
     assert float(settings.value("content_zoom")) == pytest.approx(1.5)
     assert window._pending_office_zoom is None
@@ -879,14 +879,14 @@ def test_wysiwyg_keyboard_zoom_updates_only_visible_page_until_idle(
         [1.1, 1.25, 1.5]
     )
     assert window._renderer._zoom == pytest.approx(1.0)
-    assert window._edit_preview._zoom == pytest.approx(1.0)
+    assert window._edit_preview is None
     assert settings.value("content_zoom") is None
     assert window._office_zoom_sync_timer.isActive()
 
     window._commit_office_zoom()
 
     assert window._renderer._zoom == pytest.approx(1.5)
-    assert window._edit_preview._zoom == pytest.approx(1.5)
+    assert window._ensure_edit_preview()._zoom == pytest.approx(1.5)
     assert view.zoom_factors[zoom_call_count:] == pytest.approx(
         [1.1, 1.25, 1.5]
     )
@@ -910,7 +910,7 @@ def test_pending_wysiwyg_wheel_zoom_flushes_before_view_transition(
 
     assert float(settings.value("content_zoom")) == pytest.approx(1.25)
     assert window._renderer._zoom == pytest.approx(1.25)
-    assert window._edit_preview._zoom == pytest.approx(1.25)
+    assert window._ensure_edit_preview()._zoom == pytest.approx(1.25)
     assert window._pending_office_zoom is None
     assert window._office_zoom_sync_timer.isActive() is False
     assert window._stack.currentWidget() is window._renderer
@@ -927,7 +927,7 @@ def test_pending_wysiwyg_zoom_flushes_before_source_split_becomes_visible(
     settings = session_state.QSettings("markdown-viewer", "MarkdownViewer")
 
     window._wysiwyg_view.zoom_requested.emit(2)
-    assert window._edit_preview._zoom == pytest.approx(1.0)
+    assert window._edit_preview is None
     assert settings.value("content_zoom") is None
 
     window._toggle_split_mode()
@@ -936,7 +936,7 @@ def test_pending_wysiwyg_zoom_flushes_before_source_split_becomes_visible(
     assert window._view_mode == view_mode.SPLIT
     assert window._stack.currentWidget() is window._editor_split
     assert window._renderer._zoom == pytest.approx(1.25)
-    assert window._edit_preview._zoom == pytest.approx(1.25)
+    assert window._ensure_edit_preview()._zoom == pytest.approx(1.25)
     assert float(settings.value("content_zoom")) == pytest.approx(1.25)
     assert window._pending_office_zoom is None
     assert window._office_zoom_sync_timer.isActive() is False

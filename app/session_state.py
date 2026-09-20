@@ -452,7 +452,8 @@ def apply_zoom(
 ):
     """Apply and persist the text content zoom (Markdown / text / Office)."""
     window._content_zoom = window._renderer.set_zoom(clamp_zoom_factor(factor))
-    window._edit_preview.set_zoom(window._content_zoom)
+    if window._edit_preview is not None:
+        window._edit_preview.set_zoom(window._content_zoom)
     if sync_wysiwyg and window._wysiwyg_view is not None:
         window._wysiwyg_view.page().setZoomFactor(window._content_zoom)
     QSettings(_ORG, _APP).setValue(CONTENT_ZOOM_KEY, window._content_zoom)

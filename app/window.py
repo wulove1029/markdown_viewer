@@ -515,14 +515,7 @@ class MainWindow(QMainWindow):
         # Split mode is a split pane: editor on the left, a live preview on
         # the right, kept in sync as you type (debounced) and scroll. Edit
         # mode reuses the same splitter with the preview pane hidden.
-        self._edit_preview = RendererView()
-        self._edit_preview.set_zoom(self._content_zoom)
-        self._edit_preview.wikilink_clicked.connect(self._on_wikilink_clicked)
-        self._edit_preview.local_doc_clicked.connect(self._on_local_doc_clicked)
-        self._edit_preview.translate_requested.connect(self._translate_selection)
-        self._edit_preview.bridge.unhandledEscape.connect(
-            self._on_preview_unhandled_escape
-        )
+        self._edit_preview = None
 
         self._editor_search_bar = self._build_editor_search_bar()
         self._editor_search_bar.hide()
@@ -546,11 +539,7 @@ class MainWindow(QMainWindow):
 
         self._editor_split = QSplitter(Qt.Orientation.Horizontal)
         self._editor_split.addWidget(editor_pane)
-        self._editor_split.addWidget(self._edit_preview)
         self._editor_split.setStretchFactor(0, 1)
-        self._editor_split.setStretchFactor(1, 1)
-        self._editor_split.setSizes([480, 480])
-        self._edit_preview.setVisible(False)
 
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(400)
@@ -1713,7 +1702,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         generation = self._search_escape_counter if enabled else 0
         self._active_search_escape_generation = generation
         self._renderer.set_search_escape_generation(generation)
-        self._edit_preview.set_search_escape_generation(generation)
+        if self._edit_preview is not None:
+            self._edit_preview.set_search_escape_generation(generation)
 
     def _editor_find_flags(self):
         flags = QTextDocument.FindFlag(0)
@@ -2142,12 +2132,31 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _apply_split_visibility(self):
         split = self._view_mode == view_mode.SPLIT
-        self._edit_preview.setVisible(split)
+        if split:
+            self._ensure_edit_preview()
+        if self._edit_preview is not None:
+            self._edit_preview.setVisible(split)
         if split:
             sizes = self._editor_split.sizes()
             if len(sizes) == 2 and sizes[1] == 0:
                 total = max(sum(sizes), 2)
                 self._editor_split.setSizes([total // 2, total - total // 2])
+
+    def _ensure_edit_preview(self):
+        """Create the live preview only when the split pane is requested."""
+        if self._edit_preview is None:
+            preview = RendererView()
+            preview.set_zoom(self._content_zoom)
+            preview.wikilink_clicked.connect(self._on_wikilink_clicked)
+            preview.local_doc_clicked.connect(self._on_local_doc_clicked)
+            preview.translate_requested.connect(self._translate_selection)
+            preview.bridge.unhandledEscape.connect(self._on_preview_unhandled_escape)
+            preview.set_search_escape_generation(self._active_search_escape_generation)
+            self._editor_split.addWidget(preview)
+            self._editor_split.setStretchFactor(1, 1)
+            self._editor_split.setSizes([480, 480])
+            self._edit_preview = preview
+        return self._edit_preview
 
     # ── Markdown formatting (toolbar, slash menu, and shortcuts) ───────
 
@@ -3948,7 +3957,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         text = self._editor.toPlainText()
         base = QUrl.fromLocalFile(str(self._current_file.parent) + "/")
-        self._edit_preview.render_markdown_text(
+        self._ensure_edit_preview().render_markdown_text(
             text,
             self._theme_name,
             title=self._current_file.stem,
@@ -3966,7 +3975,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         bar = self._editor.verticalScrollBar()
         ratio = view_mode.editor_scroll_ratio(bar.value(), bar.maximum())
         self._preview_scroll_ratio = ratio
-        self._edit_preview.scroll_to_ratio(ratio)
+        self._ensure_edit_preview().scroll_to_ratio(ratio)
 
     def _update_dirty_ui(self):
         if not self._current_file:
