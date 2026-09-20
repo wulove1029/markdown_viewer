@@ -34,6 +34,7 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       RUN_WEBENGINE_TESTS: "1"
+      QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,7 +43,12 @@ jobs:
       - name: Install dependencies
         run: py -3 -X utf8 -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Run WebEngine integration tests
-        run: py -3 -X utf8 -m pytest tests/ -k webengine --junitxml=webengine-results.xml
+        run: >-
+          py -3 -X utf8 -m pytest
+          tests/test_annotation_bridge.py tests/test_renderer_source_navigation.py
+          tests/test_translate_menus.py tests/test_inline_edit_webengine.py
+          tests/test_table_edit_webengine.py tests/test_pdf_export_webengine.py
+          tests/test_wysiwyg_webengine.py --junitxml=webengine-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
