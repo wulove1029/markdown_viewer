@@ -289,3 +289,9 @@ Fresh agent 比對 11 個函式 body AST、參數與 wrapper 一致，Qt／CRUD 
 
 B1 紅燈探針 run 35527130561 確實攔截故意失敗案例；同次另暴露 2000 檔背景改名在 runner 超過完成等待 10 秒，待校正完成等待上限並保留 UI 非阻塞斷言。探針已以 26854cd 移除，未進 main。
 另查 CI log：setup-python 3.13 後 `py -3` 實際選到 runner 3.14.7；E7 將明確約束 launcher 版本並記錄實際版本。
+
+## E1 第三群：PDF
+
+34 個 PDF 操作方法抽至 pdf_flow，模組說明 window 共享狀態、UI 與回呼契約；保存仍用既有 Store/writer，未改 WYSIWYG 同步。window.py 6581 → 6293 行；三群累計 6862 → 6293（減少 569 行）。
+`py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 61.28s；Ruff/mypy 通過。
+Fresh agent 34 方法 body AST／簽章／參數一致；PDF writer、markup、reading、notes、highlights 139 passed、5 skipped，window PDF Qt 整合 9 passed。
