@@ -673,6 +673,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.setAcceptDrops(True)
 
+        from PySide6.QtWidgets import QDockWidget
+
+        from .properties_panel import PropertiesPanel
+        self._properties_panel = PropertiesPanel(self._save_properties)
+        self._properties_dock = QDockWidget("屬性", self)
+        self._properties_dock.setObjectName("propertiesDock")
+        self._properties_dock.setWidget(self._properties_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._properties_dock)
+        self._properties_dock.hide()
+        self._properties_dock.visibilityChanged.connect(
+            lambda visible: self._refresh_properties_panel() if visible else None
+        )
+
         self._install_shortcuts()
 
         self._build_menu_bar()
@@ -811,6 +824,7 @@ class MainWindow(QMainWindow):
 
         view_menu = bar.addMenu("檢視(&V)")
         view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
+        view_menu.addAction(self._properties_dock.toggleViewAction())
         view_menu.addAction(command_act("view.graph", "筆記關聯圖"))
         view_menu.addSeparator()
         view_menu.addAction(command_act("view.zoom_in", "放大"))
@@ -4446,6 +4460,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editor.set_document_path(None)
         self._editor.set_plain_text_mode(False)
         self._current_file = None
+        self._refresh_properties_panel()
         self._current_kind = ""
         self._current_front_tags = []
         self._current_body_tags = []
@@ -4520,10 +4535,38 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         except RuntimeError:
             pass
 
+    def _refresh_properties_panel(self):
+        dock = getattr(self, "_properties_dock", None)
+        if dock is not None and dock.isVisible():
+            self._properties_panel.set_document(self._current_file)
+
+    def _save_properties(self, path, before, after):
+        if path != self._current_file or not is_markdown(path):
+            raise OSError("目前文件已切換，請重新開啟屬性面板。")
+        state = self._tab_state.get(str(path), {})
+        document = state.get("editor_document")
+        if (self._edit_mode or self._preview_editing
+                or (isinstance(document, QTextDocument) and document.isModified())):
+            raise OSError("請先儲存並離開文件編輯模式，再儲存屬性。")
+        if state.get("pending_recovery") or self._recovery_store.load(path) is not None:
+            raise OSError("文件有待復原草稿，請先處理草稿。")
+        if path.read_bytes() != before:
+            raise OSError("磁碟文件已變更，請重新開啟屬性面板後再編輯。")
+        if before == after:
+            return True
+        warning = atomic_write_bytes(path, after)
+        self._loaded_signature = self._file_signature(path)
+        self._refresh_stale_clean_editor_state(path, state)
+        self._reload_preview()
+        self._refresh_link_index(force=True)
+        self.statusBar().showMessage(warning or "已儲存屬性，本文保持原樣。", 5000)
+        return True
+
     def _load_document(self, path: Path, kind: str):
         """Load *path* into the shared viewer, restoring its saved view state."""
         self._flush_pdf_zoom_pipeline()
         self._current_file = path
+        self._refresh_properties_panel()
         self._current_kind = kind
         self._prepare_recovery_state(path, kind)
         tab_state = self._tab_state.get(str(path)) or {}

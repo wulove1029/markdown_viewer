@@ -238,3 +238,17 @@ PdfHighlightsPanel 雙擊或右鍵進入就地文字編輯；新文字以既有 
 PdfMarkupPanel 以文件路徑切換取消舊草稿，避免複製 PDF/sidecar 的相同 ID 造成跨檔寫入；同檔刷新保持失敗草稿。
 `py -3 -X utf8 -m pytest tests/test_pdf_markup_editing.py tests/test_pdf_highlights.py tests/test_pdf_embedded_annotations.py -q` → 111 passed、5 skipped in 4.24s；Ruff 通過。
 Fresh agent 4 passed in 0.62s，驗證舊 JSON、幾何與標籤保留、writer 失敗不改 model 及路徑切換接線。
+
+## D5
+
+右側 Properties dock 由「檢視 → 屬性」開啟，key/value 表格可新增及編輯，明確按儲存才寫檔；關閉面板不改既有唯讀 front matter 顯示。
+PyYAML safe parser 提供節點範圍，只替換已編輯值並拼回原始本文 bytes；保留 UTF-8/BOM/UTF-16 endian/Big5、未知欄位與尾端註解。新增 runtime dependency PyYAML>=6.0。
+重複 key、非字串 key、anchors/aliases、非區塊式頂層及不合法 YAML 保守拒絕 GUI 修改；既有未知標準 YAML 欄位不重寫。新值使用 JSON-compatible YAML，日期字串需加引號。
+儲存前確認目前路徑、無編輯／草稿衝突且原始 bytes 未被外部修改；經 atomic_io 保存與備份，刷新渲染及索引。
+`py -3 -X utf8 -m pytest tests/ -q` → 1785 passed、82 skipped in 61.78s；最終尾端註解修正 `tests/test_frontmatter_properties.py tests/test_properties_panel.py` → 24 passed in 0.99s；Ruff 通過。
+Fresh agent 24 passed in 0.95s，額外 nested block scalar + 尾端註解驗證通過。Qt offscreen 實跑截圖已查看，表格與新增／儲存按鈕可見，截圖在 TEMP/mdv-properties-panel.png。
+
+## B1 遠端驗證進行中
+
+使用者追加發布授權後，推送驗證分支 optimization-20260921（截至 D4）；遠端 main 尚維持 7fa7d2c。
+CI run：https://github.com/wulove1029/markdown_viewer/actions/runs/35526630330 。尚未得出綠燈／刻意紅燈結論。
