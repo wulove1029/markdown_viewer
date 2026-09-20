@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from . import doc_tags as doc_tags_facade
 from .pdf_embedded_annotations_panel import PdfEmbeddedAnnotationsPanel
 from .pdf_notes_panel import PdfNotesPanel
-from .theme import LIGHT, Theme, collection_stylesheet
+from .theme import LIGHT, Theme, collection_stylesheet, menu_stylesheet
 
 # Shared highlighter palette (kept in sync with pdf_view.PALETTE).
 PALETTE: list[tuple[str, str]] = [
@@ -151,11 +151,7 @@ class PdfHighlightsPanel(QWidget):
             return
         hid = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
-        menu.setStyleSheet(
-            f"QMenu {{ background: {self._theme.surface};"
-            f" border: 1px solid {self._theme.border}; color: {self._theme.text}; }}"
-            f"QMenu::item:selected {{ background: {self._theme.surface_hover}; }}"
-        )
+        menu.setStyleSheet(menu_stylesheet(self._theme))
         jump = QAction("跳到此標記", self)
         jump.triggered.connect(lambda: self._callbacks.get("activated", lambda _i: None)(hid))
         menu.addAction(jump)

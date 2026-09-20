@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .theme import LIGHT, Theme, collection_stylesheet
+from .theme import LIGHT, Theme, collection_stylesheet, menu_stylesheet
 
 
 class PdfNotesPanel(QWidget):
@@ -87,11 +87,7 @@ class PdfNotesPanel(QWidget):
             return
         note_id = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
-        menu.setStyleSheet(
-            f"QMenu {{ background: {self._theme.surface}; border: 1px solid {self._theme.border};"
-            f" color: {self._theme.text}; }}"
-            f"QMenu::item:selected {{ background: {self._theme.surface_hover}; }}"
-        )
+        menu.setStyleSheet(menu_stylesheet(self._theme))
         jump = QAction("跳到此頁", self)
         jump.triggered.connect(lambda: self._callbacks.get("activated", lambda _i: None)(note_id))
         edit = QAction("編輯註記", self)

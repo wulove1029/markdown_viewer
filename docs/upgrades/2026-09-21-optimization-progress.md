@@ -308,3 +308,10 @@ Fresh agent 機械替換 AST 正確，九組 getter/setter 實跑通過，sessio
 三份 _pymupdf 改用同一 lazy loader／Lock／快取；原模組 alias 仍可局部 monkeypatch。原 unavailable 測試改 patch alias，避免依赖已移除的私有 cache。
 PDF embedded/password/reading 121 passed、5 skipped in 5.98s；loader 新測試 2 passed in 0.22s；Ruff 通過。
 Fresh agent 104 passed、5 skipped in 5.02s；新程序驗證 import 未提前載入 PyMuPDF，8 threads／32 次呼叫取得同一 module。
+
+## E5
+
+六處 QMenu 改用 theme.menu_stylesheet，採 recent_files 完整樣式（selected／disabled／separator）。
+`py -3 -X utf8 -m pytest tests/test_combo_popup_theme.py tests/test_settings_dialog_theme.py tests/test_mermaid_workspace_theme.py tests/test_recent_files.py tests/test_pdf_markup_editing.py -q` → 18 passed in 1.00s；Ruff 通過。
+實跑 QMenu 亮／暗 screenshot TEMP/mdv-menu-light.png、mdv-menu-dark.png，已檢視文字、選取背景與停用狀態。offscreen harness 額外載入系統 Segoe UI 字型以呈現文字，產品未改字型流程。
+Fresh agent 確認移除範圍及兩張截圖，獨立 18 passed in 0.98s。

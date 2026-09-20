@@ -71,7 +71,7 @@ from .document_libraries import (
     should_skip_directory,
 )
 from .file_types import SUPPORTED_EXTENSIONS, is_pdf
-from .theme import LIGHT, Theme, collection_stylesheet, svg_icon
+from .theme import LIGHT, Theme, collection_stylesheet, menu_stylesheet, svg_icon
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _LIBRARY_ROLE = Qt.ItemDataRole.UserRole.value + 1
@@ -1856,23 +1856,7 @@ QWidget#fileBrowser QPushButton:pressed {{
 """
 
     def _menu_stylesheet(self) -> str:
-        theme = self._theme
-        return f"""
-QMenu {{
-    background: {theme.surface};
-    border: 1px solid {theme.border};
-    border-radius: 4px;
-    color: {theme.text};
-}}
-QMenu::item {{
-    padding: 6px 20px;
-    color: {theme.text};
-}}
-QMenu::item:selected {{
-    background: {theme.surface_hover};
-    color: {theme.text};
-}}
-"""
+        return menu_stylesheet(self._theme)
 
 
 class LibraryManagerDialog(QDialog):

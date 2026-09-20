@@ -288,6 +288,33 @@ def svg_icon(name: str, color: str, size: int = 20) -> QIcon:
     return QIcon(pixmap)
 
 
+def menu_stylesheet(theme: Theme) -> str:
+    return f"""
+QMenu {{
+    background: {theme.surface};
+    border: 1px solid {theme.border};
+    border-radius: 4px;
+    color: {theme.text};
+}}
+QMenu::item {{
+    padding: 6px 20px;
+    color: {theme.text};
+}}
+QMenu::item:selected {{
+    background: {theme.surface_hover};
+    color: {theme.text};
+}}
+QMenu::item:disabled {{
+    color: {theme.text_subtle};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {theme.border};
+    margin: 4px 8px;
+}}
+"""
+
+
 def app_stylesheet(theme: Theme) -> str:
     combo_arrow = _combo_arrow_url(theme)
     return f"""
@@ -335,28 +362,7 @@ QMenuBar::item:pressed {{
     background: {theme.surface_active};
     color: {theme.text};
 }}
-QMenu {{
-    background: {theme.surface};
-    border: 1px solid {theme.border};
-    color: {theme.text};
-}}
-QMenu::item {{
-    background: transparent;
-    color: {theme.text};
-    padding: 6px 24px 6px 16px;
-}}
-QMenu::item:selected {{
-    background: {theme.surface_hover};
-    color: {theme.text};
-}}
-QMenu::item:disabled {{
-    color: {theme.text_subtle};
-}}
-QMenu::separator {{
-    height: 1px;
-    background: {theme.border};
-    margin: 4px 8px;
-}}
+{menu_stylesheet(theme)}
 QDialog {{
     background: {theme.window};
     color: {theme.text};

@@ -72,7 +72,7 @@ from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
 from .pdf_render_scheduler import PdfRenderScheduler, PdfRenderSpec
 from .pymupdf_loader import load_pymupdf as _pymupdf
-from .theme import LIGHT, Theme
+from .theme import LIGHT, Theme, menu_stylesheet
 
 # Highlighter palette shared with the markdown annotation layer.
 PALETTE: list[tuple[str, str]] = [
@@ -1790,12 +1790,7 @@ class PdfView(QAbstractScrollArea):
 
     def _build_context_menu(self, pos: QPoint) -> QMenu:
         menu = QMenu(self)
-        menu.setStyleSheet(
-            f"QMenu {{ background: {self._theme.surface};"
-            f" border: 1px solid {self._theme.border}; color: {self._theme.text}; }}"
-            f"QMenu::item:selected {{ background: {self._theme.surface_hover}; }}"
-            f"QMenu::item:disabled {{ color: {self._theme.text_subtle}; }}"
-        )
+        menu.setStyleSheet(menu_stylesheet(self._theme))
         ready = bool(self._page_sizes)
         select = menu.addAction("文字選取工具")
         select.setCheckable(True)

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from .file_types import is_pdf
 from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
-from .theme import LIGHT, Theme, svg_icon
+from .theme import LIGHT, Theme, menu_stylesheet, svg_icon
 
 _PATHS_KEY = "recent_files"
 _OPENED_AT_KEY = "recent_file_opened_at"
@@ -642,31 +642,7 @@ QListWidget#recentFilesList::item:disabled {{
         return menu
 
     def _menu_stylesheet(self) -> str:
-        theme = self._theme
-        return f"""
-QMenu {{
-    background: {theme.surface};
-    border: 1px solid {theme.border};
-    border-radius: 4px;
-    color: {theme.text};
-}}
-QMenu::item {{
-    padding: 6px 20px;
-    color: {theme.text};
-}}
-QMenu::item:selected {{
-    background: {theme.surface_hover};
-    color: {theme.text};
-}}
-QMenu::item:disabled {{
-    color: {theme.text_subtle};
-}}
-QMenu::separator {{
-    height: 1px;
-    background: {theme.border};
-    margin: 4px 8px;
-}}
-"""
+        return menu_stylesheet(self._theme)
 
     @staticmethod
     def _open_location_path(path: str | None):
