@@ -49,8 +49,7 @@ from .updater import (
 )
 from .version import VERSION
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 
 #: Progress signals are throttled to this interval so a fast local transfer
 #: cannot flood the GUI thread with repaint work.

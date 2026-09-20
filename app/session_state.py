@@ -23,8 +23,7 @@ from .md_converter import set_user_css
 from .reading_style import WIDTH_KEY, SPACING_KEY, reading_css
 from .settings_dialog import SettingsDialog
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 
 # Text content (Markdown / plain text / Office) and PDF zoom are remembered
 # separately: text zoom scales the font, PDF zoom scales the page, so a PDF

@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
+
+from .settings_store import legacy_data_path
 import string
 from uuid import uuid4
 
@@ -29,8 +31,7 @@ _SKIP_DIRS = {
     "out",
 }
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 EXCLUDED_FOLDERS_KEY = "excluded_folders"
 
 
@@ -38,7 +39,7 @@ def _default_store_path() -> Path:
     base = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
     )
-    return Path(base or ".") / "markdown-viewer" / "document_libraries.json"
+    return legacy_data_path(base) / "markdown-viewer" / "document_libraries.json"
 
 
 @dataclass(frozen=True)

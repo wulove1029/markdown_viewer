@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+
+from .settings_store import legacy_data_path
 from typing import Iterable
 
 from PySide6.QtCore import QStandardPaths
@@ -30,7 +32,7 @@ def _default_recovery_dir() -> Path:
     base = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
     )
-    return Path(base or ".") / "markdown-viewer" / _RECOVERY_FOLDER
+    return legacy_data_path(base) / "markdown-viewer" / _RECOVERY_FOLDER
 
 
 def _absolute_path(path: str | Path) -> Path:

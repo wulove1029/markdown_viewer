@@ -87,3 +87,18 @@ AST 重測 broad Exception + pass：17 → 0。高頻 fragment_render 用 debug�
 `py -3 -X utf8 -m pytest tests/test_render_service.py -q` → 23 passed in 6.79s；測試實際寫入 fallback.log 並確認錯誤原因。
 Fresh agent：23 passed in 6.93s，AST 與 WYSIWYG 不重構限制確認通過。
 RUN_WEBENGINE_TESTS=1 的四個 *_webengine.py 正在執行，結果後補；實際此 glob 為 4 檔，非需求記載的 7 檔。
+
+## B5
+
+集中 ORG/APP 與 settings()；applicationName 對齊 MarkdownViewer、顯示名稱仍 Markdown Viewer。
+額外查證：AppDataLocation 受 applicationName 影響，故使用 legacy_data_path 保留 5 類舊資料位置；不能只改名稱。
+完整回歸：1709 passed、82 skipped，62.57s。Fresh agent 發現 PDF 設定漏匯入，已修正並補真實對話框取消測試。
+`py -3 -X utf8 -m pytest tests/test_settings_store.py tests/test_pdf_export.py -q` → 34 passed in 0.71s；fresh agent 34 passed in 0.64s。
+獨立驗證舊／新 applicationName 的文件庫、標籤索引、標籤顏色、復原、logs 五個實際路徑完全一致。
+設定保存重開以隔離 INI 實跑，不修改使用者登錄偏好；正式 QSettings() 與 settings() 的 fileName 一致。
+
+## WebEngine 驗證備註
+
+首輪四模組同程序出現 Chromium GPU context lost 後卡住，已中止（exit 1），不計通過。
+後續改用 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu 並逐模組驗證。
+全文搜尋發現 7 個模組使用 RUN_WEBENGINE_TESTS，但只有 4 個檔名含 webengine；CI 手動 job 應明列全部 7 個。

@@ -24,8 +24,7 @@ from PySide6.QtWidgets import (
 from .file_types import is_pdf
 from .theme import LIGHT, Theme, svg_icon
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 _PATHS_KEY = "recent_files"
 _OPENED_AT_KEY = "recent_file_opened_at"
 _MAX = 10

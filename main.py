@@ -13,6 +13,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
 from app.version import VERSION
+from app.settings_store import APP, ORG, DISPLAY_NAME, legacy_data_path
 
 log = logging.getLogger("markdown_viewer")
 
@@ -25,7 +26,7 @@ def _setup_logging() -> None:
     base = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
     )
-    log_dir = Path(base or ".") / "logs"
+    log_dir = legacy_data_path(base) / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
@@ -154,9 +155,10 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
     app = QApplication(sys.argv)
-    app.setApplicationName("Markdown Viewer")
+    app.setApplicationName(APP)
+    app.setApplicationDisplayName(DISPLAY_NAME)
     app.setApplicationVersion(VERSION)
-    app.setOrganizationName("markdown-viewer")
+    app.setOrganizationName(ORG)
     _setup_logging()
     log.info("Markdown Viewer %s starting", VERSION)
 

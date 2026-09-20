@@ -64,8 +64,7 @@ from .reading_style import WIDTH_KEY, SPACING_KEY
 
 # ── constants (must match window.py originals) ──────────────────────────
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 
 _ZOOM_OPTIONS: list[int] = [80, 90, 100, 110, 125, 150, 175, 200]
 

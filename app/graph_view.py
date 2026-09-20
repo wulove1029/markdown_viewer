@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .settings_store import ORG, APP
+
 import math
 from pathlib import Path
 from typing import Callable
@@ -550,7 +552,7 @@ class GraphWindow(QDialog):
         self._index = None
         self._libraries = []
         self._current_path = None
-        self._settings = QSettings("markdown-viewer", "MarkdownViewer")
+        self._settings = QSettings(ORG, APP)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

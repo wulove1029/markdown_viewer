@@ -13,6 +13,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .settings_store import legacy_data_path
+
 from PySide6.QtCore import QStandardPaths
 
 from .atomic_io import atomic_write_text
@@ -22,7 +24,7 @@ def _default_colors_path() -> Path:
     base = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
     )
-    return Path(base or ".") / "markdown-viewer" / "tag_colors.json"
+    return legacy_data_path(base) / "markdown-viewer" / "tag_colors.json"
 
 
 def _stable_hash(tag: str) -> int:

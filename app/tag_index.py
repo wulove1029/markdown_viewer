@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+from .settings_store import legacy_data_path
+
 from PySide6.QtCore import QStandardPaths
 
 
@@ -13,7 +15,7 @@ def _default_index_path() -> Path:
     base = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
     )
-    return Path(base or ".") / "markdown-viewer" / "tag_index.json"
+    return legacy_data_path(base) / "markdown-viewer" / "tag_index.json"
 
 
 class TagIndex:

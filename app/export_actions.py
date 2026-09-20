@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from . import edit_backend
 from .file_types import is_markdown
 from .md_converter import read_text
+from .settings_store import ORG, APP
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
 _PDF_PAGE_SIZES = {
@@ -248,7 +249,7 @@ def export_html(window):
 
 
 def ask_page_setup(window):
-    settings = QSettings("markdown-viewer", "MarkdownViewer")
+    settings = QSettings(ORG, APP)
     last_size = settings.value("pdf_page_size", "A4") or "A4"
     last_orient = settings.value("pdf_orientation", "portrait") or "portrait"
 

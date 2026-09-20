@@ -164,8 +164,7 @@ from .updater import is_newer_version
 from .wikilink_completion import completion_candidates
 from .version import RELEASE_NOTES, VERSION
 
-_ORG = "markdown-viewer"
-_APP = "MarkdownViewer"
+from .settings_store import ORG as _ORG, APP as _APP
 _PDF_ANNOTATION_AUTHOR_KEY = "pdf_annotation_author"
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
 _RECENT_TEMPLATES_KEY = "recent_editor_templates"
