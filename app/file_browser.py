@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -48,6 +49,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -655,6 +657,27 @@ class _ScanJob(QRunnable):
         if self.token.cancelled:
             return
         self.signals.finished.emit(self.generation, self.request, results)
+
+
+class _RenameSignals(QObject):
+    finished = Signal(object, object)
+
+
+class _RenameFolderJob(QRunnable):
+    def __init__(self, folder: Path, name: str):
+        super().__init__()
+        self.folder = folder
+        self.name = name
+        self.cancel = threading.Event()
+        self.signals = _RenameSignals()
+
+    def run(self):
+        try:
+            mapping = file_ops.rename_folder(self.folder, self.name, cancel=self.cancel)
+        except Exception as exc:
+            self.signals.finished.emit(None, exc)
+        else:
+            self.signals.finished.emit(mapping, None)
 
 
 class FileBrowserView(QWidget):
@@ -1525,20 +1548,44 @@ class FileBrowserView(QWidget):
         self.refresh_libraries()
 
     def _rename_folder_action(self, path: str):
+        if getattr(self, "_rename_job", None) is not None:
+            return
         folder = Path(path)
         name, ok = QInputDialog.getText(
             self, "重新命名資料夾", "新名稱：", text=folder.name
         )
         if not ok or not name.strip() or name.strip() == folder.name:
             return
-        try:
-            mapping = file_ops.rename_folder(folder, name.strip())
-        except OSError as exc:
-            QMessageBox.warning(self, "重新命名失敗", f"無法重新命名資料夾：\n{exc}")
+        job = _RenameFolderJob(folder, name.strip())
+        self._rename_job = job
+        progress = QProgressDialog("正在準備資料夾重新命名…", "取消", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.canceled.connect(job.cancel.set)
+        self.destroyed.connect(job.cancel.set)
+        self._rename_progress = progress
+        self._tree.setEnabled(False)
+        job.signals.finished.connect(self._folder_rename_finished)
+        progress.show()
+        QThreadPool.globalInstance().start(job)
+
+    @Slot(object, object)
+    def _folder_rename_finished(self, mapping, error):
+        job = self._rename_job
+        self._rename_job = None
+        self._rename_progress.close()
+        self._rename_progress.deleteLater()
+        self._tree.setEnabled(True)
+        if isinstance(error, InterruptedError):
             return
-        new_folder = folder.with_name(name.strip())
-        self._migrate_expanded_prefix(str(folder), str(new_folder))
+        if error is not None:
+            QMessageBox.warning(self, "重新命名失敗", f"無法重新命名資料夾：\n{error}")
+            return
+        new_folder = job.folder.with_name(job.name)
+        self._migrate_expanded_prefix(str(job.folder), str(new_folder))
         self._finish_migration(mapping, select=new_folder)
+        if not mapping:
+            self.refresh_libraries()
 
     def _rename_file_action(self, path: str):
         p = Path(path)

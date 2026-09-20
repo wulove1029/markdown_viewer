@@ -45,6 +45,82 @@ def _make_view(tmp_path, monkeypatch, libraries, tag_index=None):
     return FileBrowserView(lambda _path: None, tag_index=tag_index)
 
 
+def test_folder_rename_walks_off_ui_thread_and_applies_mapping_on_ui(
+    qapp, tmp_path, monkeypatch
+):
+    import threading
+
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtTest import QTest
+
+    from app import file_ops
+    folder = tmp_path / "old"
+    folder.mkdir()
+    for i in range(2000):
+        (folder / f"{i}.md").touch()
+    view = _make_view(tmp_path, monkeypatch, [])
+    monkeypatch.setattr("app.file_browser.QInputDialog.getText", lambda *_a, **_k: ("new", True))
+    ui_thread = threading.get_ident()
+    walk_threads = []
+    walk = file_ops.os.walk
+    def tracked_walk(*args, **kwargs):
+        walk_threads.append(threading.get_ident())
+        yield from walk(*args, **kwargs)
+    monkeypatch.setattr(file_ops.os, "walk", tracked_walk)
+    completed = []
+    monkeypatch.setattr(view, "_finish_migration", lambda mapping, **_k:
+                        completed.append((mapping, threading.get_ident())))
+    timer = QElapsedTimer()
+    timer.start()
+    view._rename_folder_action(str(folder))
+    trigger_ms = timer.elapsed()
+    assert trigger_ms < 100
+    print(f"2000-file rename UI trigger: {trigger_ms} ms")
+    while view._rename_job is not None and timer.elapsed() < 10000:
+        QTest.qWait(10)
+    assert view._rename_job is None
+    assert walk_threads and all(thread != ui_thread for thread in walk_threads)
+    assert len(completed[0][0]) == 2000
+    assert completed[0][1] == ui_thread
+    assert not folder.exists()
+    view.close()
+
+
+def test_folder_rename_can_cancel_and_rejects_second_request(qapp, tmp_path, monkeypatch):
+    import threading
+
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtTest import QTest
+
+    from app import file_ops
+    folder = tmp_path / "old"
+    folder.mkdir()
+    view = _make_view(tmp_path, monkeypatch, [])
+    prompts = []
+    monkeypatch.setattr("app.file_browser.QInputDialog.getText",
+                        lambda *_a, **_k: (prompts.append(1) or "new", True))
+    started, release = threading.Event(), threading.Event()
+    walk = file_ops.os.walk
+    def slow_walk(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        yield from walk(*args, **kwargs)
+    monkeypatch.setattr(file_ops.os, "walk", slow_walk)
+    view._rename_folder_action(str(folder))
+    assert started.wait(5)
+    view._rename_folder_action(str(folder))
+    assert len(prompts) == 1
+    view._rename_progress.canceled.emit()
+    release.set()
+    timer = QElapsedTimer()
+    timer.start()
+    while view._rename_job is not None and timer.elapsed() < 5000:
+        QTest.qWait(10)
+    assert view._rename_job is None
+    assert folder.exists() and not (tmp_path / "new").exists()
+    view.close()
+
+
 def test_tag_filter_keeps_matching_library_and_survives_refresh(
     qapp, tmp_path, monkeypatch
 ):

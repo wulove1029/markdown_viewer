@@ -138,3 +138,12 @@ fresh agent window/data safety：215 passed in 24.13s；追加 token/splitter �
 import main 不建構視窗，不能衡量此改動；建構改善 17.91ms／4.77%，未達 15% 或 150ms 門檻。
 主 RendererView 仍承擔首次 Chromium 初始化，因此第二個元件的省時有限。未為追求門檻擴大 PDF 懶建構範圍。
 原始 40 筆量測在系統暫存 mdv-startup-benchmark.json；測量包含本機背景驗證負載，不作普遍啟動速度承諾。
+
+## C2
+
+QRunnable 背景掃描；取消於 rename 前生效，主執行緒 Slot 套用 mapping。準備中模態進度與樹狀停用避免重複 UI 操作。
+掃描失敗不更名；commit 前驗證來源 identity、目的碰撞、每層目錄 metadata 和檔名集合，避免外部同步新增造成 mapping 遺漏。
+NTFS 目錄 mtime 實測可能延遲，不能單靠 timestamp，故加入 scandir 集合驗證；最終 rename 前再次確認取消。
+`py -3 -X utf8 -m pytest tests/test_file_ops.py tests/test_file_browser.py tests/test_document_relocation.py tests/test_relocation_workspace.py -q` → 82 passed in 7.26s。
+2000 檔測試 QElapsedTimer 觸發 1ms；斷言 os.walk 不在 UI thread、mapping callback 在 UI thread。
+Fresh agent 複驗 50 passed in 5.82s，巢狀目錄外部新增安全中止；最終 cancel check 已補。

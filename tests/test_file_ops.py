@@ -147,6 +147,47 @@ def test_rename_folder_maps_every_file(tmp_path):
     assert not folder.exists()
 
 
+def test_cancel_folder_rename_before_commit_keeps_original(tmp_path):
+    from threading import Event
+    folder = tmp_path / "old"
+    folder.mkdir()
+    (folder / "a.md").write_bytes(b"original")
+    cancel = Event()
+    cancel.set()
+    with pytest.raises(InterruptedError):
+        file_ops.rename_folder(folder, "new", cancel=cancel)
+    assert (folder / "a.md").read_bytes() == b"original"
+    assert not (tmp_path / "new").exists()
+
+
+def test_folder_rename_detects_destination_created_during_scan(tmp_path, monkeypatch):
+    folder = tmp_path / "old"
+    folder.mkdir()
+    (folder / "a.md").write_bytes(b"original")
+    walk = file_ops.os.walk
+    def racing_walk(*args, **kwargs):
+        yield from walk(*args, **kwargs)
+        (tmp_path / "new").mkdir()
+    monkeypatch.setattr(file_ops.os, "walk", racing_walk)
+    with pytest.raises(FileExistsError):
+        file_ops.rename_folder(folder, "new")
+    assert (folder / "a.md").read_bytes() == b"original"
+
+
+def test_folder_rename_aborts_if_contents_change_during_scan(tmp_path, monkeypatch):
+    folder = tmp_path / "old"
+    folder.mkdir()
+    walk = file_ops.os.walk
+    def racing_walk(*args, **kwargs):
+        yield from walk(*args, **kwargs)
+        (folder / "new.md").write_bytes(b"external")
+    monkeypatch.setattr(file_ops.os, "walk", racing_walk)
+    with pytest.raises(OSError, match="contents changed"):
+        file_ops.rename_folder(folder, "new")
+    assert (folder / "new.md").read_bytes() == b"external"
+    assert not (tmp_path / "new").exists()
+
+
 def test_delete_document_permanent_removes_sidecars(tmp_path, monkeypatch):
     doc = tmp_path / "note.md"
     doc.write_text("# note", encoding="utf-8")

@@ -253,7 +253,7 @@ def move_document(path: str | Path, dest_folder: str | Path) -> dict[str, str]:
     return rename_document(path, dest)
 
 
-def rename_folder(old: str | Path, new_name: str) -> dict[str, str]:
+def rename_folder(old: str | Path, new_name: str, *, cancel=None) -> dict[str, str]:
     """Rename directory *old* to *new_name*; map every file old -> new."""
     old = Path(old)
     new_name = new_name.strip()
@@ -264,13 +264,47 @@ def rename_folder(old: str | Path, new_name: str) -> dict[str, str]:
         return {}
     if new.exists():
         raise OSError(f"已存在同名項目：{new}")
-    old.rename(new)
+    identity = old.stat()
+    directory_signatures = {old: (identity.st_ino, identity.st_mtime_ns)}
+    directory_entries = {}
     mapping: dict[str, str] = {}
-    for dirpath, _dirnames, filenames in os.walk(new):
+    def check_cancel():
+        if cancel is not None and cancel.is_set():
+            raise InterruptedError("Folder rename cancelled before commit")
+
+    def scan_error(error):
+        raise error
+
+    for dirpath, dirnames, filenames in os.walk(old, onerror=scan_error):
+        check_cancel()
+        directory_entries[Path(dirpath)] = set(dirnames) | set(filenames)
+        for dirname in dirnames:
+            directory = Path(dirpath) / dirname
+            metadata = directory.stat()
+            directory_signatures[directory] = (metadata.st_ino, metadata.st_mtime_ns)
         for filename in filenames:
-            new_file = Path(dirpath) / filename
-            old_file = old / new_file.relative_to(new)
+            check_cancel()
+            old_file = Path(dirpath) / filename
+            new_file = new / old_file.relative_to(old)
             mapping[str(old_file)] = str(new_file)
+    check_cancel()
+    current = old.stat()
+    if (identity.st_dev, identity.st_ino) != (current.st_dev, current.st_ino):
+        raise OSError("Folder changed during rename preparation")
+    for directory, signature in directory_signatures.items():
+        metadata = directory.stat()
+        if (metadata.st_ino, metadata.st_mtime_ns) != signature:
+            raise OSError("Folder contents changed during rename preparation")
+    # Windows may defer directory timestamp updates. Compare names as well.
+    for directory, names in directory_entries.items():
+        check_cancel()
+        with os.scandir(directory) as entries:
+            if {entry.name for entry in entries} != names:
+                raise OSError("Folder contents changed during rename preparation")
+    if new.exists():
+        raise FileExistsError(str(new))
+    check_cancel()
+    old.rename(new)
     return mapping
 
 
