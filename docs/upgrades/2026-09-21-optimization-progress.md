@@ -315,3 +315,9 @@ Fresh agent 104 passed、5 skipped in 5.02s；新程序驗證 import 未提前�
 `py -3 -X utf8 -m pytest tests/test_combo_popup_theme.py tests/test_settings_dialog_theme.py tests/test_mermaid_workspace_theme.py tests/test_recent_files.py tests/test_pdf_markup_editing.py -q` → 18 passed in 1.00s；Ruff 通過。
 實跑 QMenu 亮／暗 screenshot TEMP/mdv-menu-light.png、mdv-menu-dark.png，已檢視文字、選取背景與停用狀態。offscreen harness 額外載入系統 Segoe UI 字型以呈現文字，產品未改字型流程。
 Fresh agent 確認移除範圍及兩張截圖，獨立 18 passed in 0.98s。
+
+## E6
+
+純建構依功能抽出 file menu、format menu、toolbar controls/title 四個具名 helper；保留既有 format commands 資料表，主 menu 165 → 95 行、toolbar 110 → 29 行。未動 WYSIWYG 與需先補分支測試的資料安全函式。
+window integration／shortcuts／toolbar／combo 主題 168 passed in 15.13s；Ruff/mypy 通過。
+Fresh agent 將 helper inline 後兩個 builder AST 與 HEAD 完全一致，其他原方法 AST 均未變；Qt 整合 13 passed in 1.95s。

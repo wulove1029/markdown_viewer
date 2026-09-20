@@ -768,22 +768,7 @@ class MainWindow(QMainWindow):
             action.setProperty("commandId", command_id)
             return action
 
-        file_menu = bar.addMenu("檔案(&F)")
-        file_menu.addAction(command_act("file.new", "新增筆記…"))
-        file_menu.addAction(command_act("file.open", "開啟…"))
-        file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
-        file_menu.addAction(command_act("file.daily_note", "開啟今日筆記"))
-        file_menu.addAction(act(
-            "待復原草稿…", lambda: session_state.show_pending_recovery(self, notify_empty=True)
-        ))
-        file_menu.addAction(act("重新載入", self._reload_current))
-        file_menu.addSeparator()
-        file_menu.addAction(command_act("file.export_pdf", "匯出 PDF…"))
-        file_menu.addAction(act("匯出 PPT…", self._export_pptx))
-        file_menu.addAction(act("匯出 Word…", self._export_docx))
-        file_menu.addAction(act("匯出 HTML…", self._export_html))
-        file_menu.addSeparator()
-        file_menu.addAction(act("離開", self.close))
+        self._build_file_menu(bar, act, command_act)
 
         self._edit_menu = bar.addMenu("編輯(&E)")
         self._source_edit_action = command_act(
@@ -821,6 +806,66 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(command_act("search.library", "搜尋所有文件庫"))
         self._edit_menu.aboutToShow.connect(self._update_native_edit_actions)
 
+        self._build_format_menu(bar, act)
+
+        view_menu = bar.addMenu("檢視(&V)")
+        view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
+        view_menu.addAction(self._properties_dock.toggleViewAction())
+        view_menu.addAction(command_act("view.graph", "筆記關聯圖"))
+        view_menu.addSeparator()
+        view_menu.addAction(command_act("view.zoom_in", "放大"))
+        view_menu.addAction(command_act("view.zoom_out", "縮小"))
+        view_menu.addAction(command_act("view.zoom_reset", "重設縮放"))
+        view_menu.addSeparator()
+        view_menu.addAction(command_act("tabs.next", "下一個分頁"))
+        view_menu.addAction(command_act("tabs.previous", "上一個分頁"))
+        view_menu.addAction(command_act("tabs.close", "關閉分頁"))
+        view_menu.addSeparator()
+        self._theme_action = act("切換深色模式", self._toggle_theme)
+        view_menu.addAction(self._theme_action)
+        view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
+
+        tools_menu = bar.addMenu("工具(&T)")
+        tools_menu.addAction(
+            command_act("tools.mermaid_workspace", "Mermaid 工作區...")
+        )
+        tools_menu.addAction(act("編輯 Mermaid 圖表...", self._edit_mermaid_diagram))
+        tools_menu.addAction(act("插入 Mermaid 圖表...", self._insert_mermaid_diagram))
+
+        settings_menu = bar.addMenu("設定(&S)")
+        settings_menu.addAction(act("偏好設定…", self._open_preferences))
+        settings_menu.addAction(
+            act("PDF 註解作者…", self._edit_pdf_annotation_author)
+        )
+
+        help_menu = bar.addMenu("說明(&H)")
+        help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
+        self._update_action = act("檢查更新…", self._on_update_button_clicked)
+        self._update_action.setEnabled(
+            self._toolbar_utilities.update_state != UPDATE_CHECKING
+        )
+        help_menu.addAction(self._update_action)
+        help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
+
+    def _build_file_menu(self, bar, act, command_act):
+        file_menu = bar.addMenu("檔案(&F)")
+        file_menu.addAction(command_act("file.new", "新增筆記…"))
+        file_menu.addAction(command_act("file.open", "開啟…"))
+        file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
+        file_menu.addAction(command_act("file.daily_note", "開啟今日筆記"))
+        file_menu.addAction(act(
+            "待復原草稿…", lambda: session_state.show_pending_recovery(self, notify_empty=True)
+        ))
+        file_menu.addAction(act("重新載入", self._reload_current))
+        file_menu.addSeparator()
+        file_menu.addAction(command_act("file.export_pdf", "匯出 PDF…"))
+        file_menu.addAction(act("匯出 PPT…", self._export_pptx))
+        file_menu.addAction(act("匯出 Word…", self._export_docx))
+        file_menu.addAction(act("匯出 HTML…", self._export_html))
+        file_menu.addSeparator()
+        file_menu.addAction(act("離開", self.close))
+
+    def _build_format_menu(self, bar, act):
         self._format_menu = bar.addMenu("格式(&O)")
         group_labels = {
             "text": "文字",
@@ -877,44 +922,93 @@ class MainWindow(QMainWindow):
         resource_menu.addAction(act("最近使用的資源…", self._insert_recent_resource))
         self._format_menu.aboutToShow.connect(self._update_format_menu_actions)
 
-        view_menu = bar.addMenu("檢視(&V)")
-        view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
-        view_menu.addAction(self._properties_dock.toggleViewAction())
-        view_menu.addAction(command_act("view.graph", "筆記關聯圖"))
-        view_menu.addSeparator()
-        view_menu.addAction(command_act("view.zoom_in", "放大"))
-        view_menu.addAction(command_act("view.zoom_out", "縮小"))
-        view_menu.addAction(command_act("view.zoom_reset", "重設縮放"))
-        view_menu.addSeparator()
-        view_menu.addAction(command_act("tabs.next", "下一個分頁"))
-        view_menu.addAction(command_act("tabs.previous", "上一個分頁"))
-        view_menu.addAction(command_act("tabs.close", "關閉分頁"))
-        view_menu.addSeparator()
-        self._theme_action = act("切換深色模式", self._toggle_theme)
-        view_menu.addAction(self._theme_action)
-        view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
-
-        tools_menu = bar.addMenu("工具(&T)")
-        tools_menu.addAction(
-            command_act("tools.mermaid_workspace", "Mermaid 工作區...")
+    def _build_toolbar_controls(self):
+        self._sidebar_btn = self._toolbar_button(
+            "panel-left", "收合側邊欄", self._toggle_sidebar
         )
-        tools_menu.addAction(act("編輯 Mermaid 圖表...", self._edit_mermaid_diagram))
-        tools_menu.addAction(act("插入 Mermaid 圖表...", self._insert_mermaid_diagram))
-
-        settings_menu = bar.addMenu("設定(&S)")
-        settings_menu.addAction(act("偏好設定…", self._open_preferences))
-        settings_menu.addAction(
-            act("PDF 註解作者…", self._edit_pdf_annotation_author)
+        self._open_btn = self._toolbar_button(
+            "file-text", "開啟 Markdown 或 PDF 文件", self._panel_open_file
         )
-
-        help_menu = bar.addMenu("說明(&H)")
-        help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
-        self._update_action = act("檢查更新…", self._on_update_button_clicked)
-        self._update_action.setEnabled(
-            self._toolbar_utilities.update_state != UPDATE_CHECKING
+        self._search_btn = self._toolbar_button(
+            "search", "搜尋目前文件", self._toggle_search
         )
-        help_menu.addAction(self._update_action)
-        help_menu.addAction(act("關於 Markdown Viewer", self._show_about))
+        self._reload_btn = self._toolbar_button(
+            "refresh", "重新載入文件", self._reload_current
+        )
+        self._edit_btn = self._toolbar_button(
+            "pencil", "使用原始 Markdown 編輯 (Ctrl+E)", self._cycle_view_mode
+        )
+        self._mermaid_btn = self._toolbar_button(
+            "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
+        )
+        self._wysiwyg_btn = self._toolbar_button(
+            "layers",
+            "使用 Office 視覺編輯器 (Ctrl+Shift+W)；再次按下回到預覽",
+            self._toggle_office_mode,
+        )
+        self._wysiwyg_btn.setCheckable(True)
+        self._reading_mode_combo = QComboBox()
+        self._reading_mode_combo.setObjectName("readingModeSelector")
+        self._reading_mode_combo.setAccessibleName("文件閱讀與編輯模式")
+        self._reading_mode_combo.setMinimumWidth(132)
+        for label, mode in (("閱讀", "preview"), ("Markdown", "edit"),
+                            ("並排預覽", "split"), ("Office 編輯", "office")):
+            self._reading_mode_combo.addItem(label, mode)
+        self._reading_mode_combo.activated.connect(self._select_reading_mode)
+        self._editor_mode_badge = QLabel("")
+        self._editor_mode_badge.setObjectName("editorModeBadge")
+        self._editor_mode_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._editor_mode_badge.setMinimumHeight(24)
+        self._editor_mode_badge.hide()
+        self._export_btn = self._toolbar_button(
+            "file-down", "匯出 PDF", self._export_pdf
+        )
+        self._side_notes_btn = self._toolbar_button(
+            "panel-right", "顯示旁註卡片", self._toggle_annotation_side_notes
+        )
+        self._side_notes_btn.setCheckable(True)
+        self._side_notes_btn.setChecked(self._side_notes_visible)
+        self._highlight_btn = self._toolbar_button(
+            "highlighter", "螢光筆模式（在 PDF 拖曳選取即標記）", self._toggle_pen_mode
+        )
+        self._highlight_btn.setCheckable(True)
+        self._highlight_btn.setEnabled(False)
+        self._toolbar_utilities = ToolbarUtilities(
+            self._theme,
+            theme_name=self._theme_name,
+            current_version=VERSION,
+        )
+        self._theme_btn = self._toolbar_utilities.theme_button
+        self._update_btn = self._toolbar_utilities.update_button
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        self._update_btn.clicked.connect(self._on_update_button_clicked)
+        if self._cached_update_version:
+            self._toolbar_utilities.set_update_state(
+                UPDATE_AVAILABLE, version=self._cached_update_version
+            )
+
+    def _build_toolbar_title(self):
+        title_wrap = QWidget()
+        title_wrap.setMinimumWidth(0)
+        title_wrap.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        title_layout = QVBoxLayout(title_wrap)
+        title_layout.setContentsMargins(10, 0, 10, 0)
+        title_layout.setSpacing(0)
+
+        self._toolbar_title = QLabel("Markdown Viewer")
+        self._toolbar_title.setMinimumWidth(0)
+        self._toolbar_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._toolbar_title.setObjectName("toolbarTitle")
+        self._toolbar_subtitle = QLabel("尚未載入文件")
+        self._toolbar_subtitle.setMinimumWidth(0)
+        self._toolbar_subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._toolbar_subtitle.setObjectName("toolbarSubtitle")
+
+        title_layout.addStretch()
+        title_layout.addWidget(self._toolbar_title)
+        title_layout.addWidget(self._toolbar_subtitle)
+        title_layout.addStretch()
+        return title_wrap
 
     def _update_native_edit_actions(self) -> None:
         editing = self._edit_mode
@@ -1038,90 +1132,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(8, 0, 10, 0)
         layout.setSpacing(4)
 
-        self._sidebar_btn = self._toolbar_button(
-            "panel-left", "收合側邊欄", self._toggle_sidebar
-        )
-        self._open_btn = self._toolbar_button(
-            "file-text", "開啟 Markdown 或 PDF 文件", self._panel_open_file
-        )
-        self._search_btn = self._toolbar_button(
-            "search", "搜尋目前文件", self._toggle_search
-        )
-        self._reload_btn = self._toolbar_button(
-            "refresh", "重新載入文件", self._reload_current
-        )
-        self._edit_btn = self._toolbar_button(
-            "pencil", "使用原始 Markdown 編輯 (Ctrl+E)", self._cycle_view_mode
-        )
-        self._mermaid_btn = self._toolbar_button(
-            "workflow", "Mermaid 工作區 (Ctrl+Shift+M)", self._open_mermaid_workspace
-        )
-        self._wysiwyg_btn = self._toolbar_button(
-            "layers",
-            "使用 Office 視覺編輯器 (Ctrl+Shift+W)；再次按下回到預覽",
-            self._toggle_office_mode,
-        )
-        self._wysiwyg_btn.setCheckable(True)
-        self._reading_mode_combo = QComboBox()
-        self._reading_mode_combo.setObjectName("readingModeSelector")
-        self._reading_mode_combo.setAccessibleName("文件閱讀與編輯模式")
-        self._reading_mode_combo.setMinimumWidth(132)
-        for label, mode in (("閱讀", "preview"), ("Markdown", "edit"),
-                            ("並排預覽", "split"), ("Office 編輯", "office")):
-            self._reading_mode_combo.addItem(label, mode)
-        self._reading_mode_combo.activated.connect(self._select_reading_mode)
-        self._editor_mode_badge = QLabel("")
-        self._editor_mode_badge.setObjectName("editorModeBadge")
-        self._editor_mode_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._editor_mode_badge.setMinimumHeight(24)
-        self._editor_mode_badge.hide()
-        self._export_btn = self._toolbar_button(
-            "file-down", "匯出 PDF", self._export_pdf
-        )
-        self._side_notes_btn = self._toolbar_button(
-            "panel-right", "顯示旁註卡片", self._toggle_annotation_side_notes
-        )
-        self._side_notes_btn.setCheckable(True)
-        self._side_notes_btn.setChecked(self._side_notes_visible)
-        self._highlight_btn = self._toolbar_button(
-            "highlighter", "螢光筆模式（在 PDF 拖曳選取即標記）", self._toggle_pen_mode
-        )
-        self._highlight_btn.setCheckable(True)
-        self._highlight_btn.setEnabled(False)
-        self._toolbar_utilities = ToolbarUtilities(
-            self._theme,
-            theme_name=self._theme_name,
-            current_version=VERSION,
-        )
-        self._theme_btn = self._toolbar_utilities.theme_button
-        self._update_btn = self._toolbar_utilities.update_button
-        self._theme_btn.clicked.connect(self._toggle_theme)
-        self._update_btn.clicked.connect(self._on_update_button_clicked)
-        if self._cached_update_version:
-            self._toolbar_utilities.set_update_state(
-                UPDATE_AVAILABLE, version=self._cached_update_version
-            )
+        self._build_toolbar_controls()
 
-        title_wrap = QWidget()
-        title_wrap.setMinimumWidth(0)
-        title_wrap.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        title_layout = QVBoxLayout(title_wrap)
-        title_layout.setContentsMargins(10, 0, 10, 0)
-        title_layout.setSpacing(0)
-
-        self._toolbar_title = QLabel("Markdown Viewer")
-        self._toolbar_title.setMinimumWidth(0)
-        self._toolbar_title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._toolbar_title.setObjectName("toolbarTitle")
-        self._toolbar_subtitle = QLabel("尚未載入文件")
-        self._toolbar_subtitle.setMinimumWidth(0)
-        self._toolbar_subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self._toolbar_subtitle.setObjectName("toolbarSubtitle")
-
-        title_layout.addStretch()
-        title_layout.addWidget(self._toolbar_title)
-        title_layout.addWidget(self._toolbar_subtitle)
-        title_layout.addStretch()
+        title_wrap = self._build_toolbar_title()
 
         layout.addWidget(self._sidebar_btn)
         layout.addWidget(self._open_btn)
