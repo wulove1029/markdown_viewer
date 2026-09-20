@@ -147,3 +147,13 @@ NTFS 目錄 mtime 實測可能延遲，不能單靠 timestamp，故加入 scandi
 `py -3 -X utf8 -m pytest tests/test_file_ops.py tests/test_file_browser.py tests/test_document_relocation.py tests/test_relocation_workspace.py -q` → 82 passed in 7.26s。
 2000 檔測試 QElapsedTimer 觸發 1ms；斷言 os.walk 不在 UI thread、mapping callback 在 UI thread。
 Fresh agent 複驗 50 passed in 5.82s，巢狀目錄外部新增安全中止；最終 cancel check 已補。
+
+## C3（暖快取達標，冷解析未達）
+
+lexer LRU 64 項；高亮區塊 LRU 計入 lang/code/HTML 字串的 sys.getsizeof，預算 4 MiB（不含容器與 lexer 開銷）。超長語言名稱不入快取。
+`py -3 -X utf8 -m pytest tests/test_highlight_cache.py tests/test_md_converter_features.py tests/test_md_converter_body.py -q` → 133 passed in 0.97s；Ruff 通過。
+Fresh agent 額外 8 threads／200 次輸出逐字相同；9 cache tests passed in 0.30s，5MiB 語言名稱不被保留。
+基準指令：`py -3 -X utf8 tools/benchmark_markdown_first_load.py --output <TEMP>/mdv-code-{before,cached}.json --tmp-dir <TEMP>/mdv-code-bench --categories code_heavy --sizes 100kb --warm-reps 1 --switch-reps 1 --contention-reps 1 --first-readable-reps 5 --skip-cold --skip-gui --skip-webengine --skip-memory`。
+相同參數 first_readable p50：150.91ms → lexer-only 143.57ms → 區塊快取 18.22ms。
+該工具此前已渲染相同文件；額外每次清空兩層快取的冷解析 p50 142.79ms，未達 <80ms。不能將暖快取速度宣稱為首次開啟速度。
+未降低子程序門檻：100KB 純解析約143ms，啟動子程序本身成本會抵銷收益；目前既有 GUI 背景渲染仍保留。

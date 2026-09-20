@@ -10,6 +10,7 @@ import unicodedata
 import urllib.parse
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import lru_cache
 from html import escape
 from pathlib import Path
 
@@ -116,6 +117,17 @@ def set_user_css(css: str) -> None:
         _user_css = css or ""
         _CONVERT_CACHE.clear()  # cached HTML embeds the old stylesheet
 _FORMATTER = HtmlFormatter(style="one-dark")
+_HIGHLIGHT_CACHE = OrderedDict()
+_HIGHLIGHT_CACHE_MAX_BYTES = 4 * 1024 * 1024
+
+
+@lru_cache(maxsize=64)
+def _code_lexer(lang: str):
+    """Reuse lexer setup while conversion is serialized by _CONVERT_LOCK."""
+    try:
+        return get_lexer_by_name(lang) if lang else TextLexer()
+    except Exception:
+        return TextLexer()
 
 
 def _highlight_code(code: str, lang: str, _attrs: str) -> str:
@@ -125,11 +137,23 @@ def _highlight_code(code: str, lang: str, _attrs: str) -> str:
         # data-diagram keeps the source so we can re-render on theme switch.
         src = escape(code.strip())
         return f'<pre class="mermaid" data-diagram="{src}">{src}</pre>'
-    try:
-        lexer = get_lexer_by_name(lang) if lang else TextLexer()
-    except Exception:
-        lexer = TextLexer()
-    return highlight(code, lexer, _FORMATTER)
+    if len(lang) > 128:
+        return highlight(code, TextLexer(), _FORMATTER)
+    key = (lang, code)
+    with _CONVERT_LOCK:
+        cached = _HIGHLIGHT_CACHE.get(key)
+        if cached is not None:
+            _HIGHLIGHT_CACHE.move_to_end(key)
+            return cached[0]
+        rendered = highlight(code, _code_lexer(lang), _FORMATTER)
+        size = sum(sys.getsizeof(value) for value in (lang, code, rendered))
+        if size <= _HIGHLIGHT_CACHE_MAX_BYTES:
+            _HIGHLIGHT_CACHE[key] = (rendered, size)
+            total = sum(entry[1] for entry in _HIGHLIGHT_CACHE.values())
+            while total > _HIGHLIGHT_CACHE_MAX_BYTES:
+                _, (_, removed_size) = _HIGHLIGHT_CACHE.popitem(last=False)
+                total -= removed_size
+        return rendered
 
 
 def _mermaid_script(theme: str) -> str:
