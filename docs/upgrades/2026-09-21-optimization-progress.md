@@ -267,3 +267,16 @@ window 納入漸進 mypy：原有 34 個 Qt／Optional 動態診斷按 arg-type/
 `py -3 -X utf8 -m mypy` → 5 files 通過；Ruff 通過。
 `py -3 -X utf8 -m pytest tests/ -q` → 1788 passed、82 skipped in 61.07s。
 Fresh agent 移除 import/annotation 後 window AST 完全相同；TEMP typo `edtor_document` 負向測試確實觸發 typeddict-unknown-key。
+
+## E1 第一群：翻譯
+
+6 個方法抽至 translation_flow，window 保留原名稱 wrapper；window.py 6862 → 6796 行（以換行符計）。
+`py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 61.31s；Ruff/mypy 通過。
+`RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_translate_menus.py -q` → 9 passed in 0.60s。
+真實 TranslationDialog 實跑快取內容、過期回應不覆蓋較新選取；服務回應用測試替身，未傳送使用者文字到外部 API。
+Fresh agent 比對 6 個 body AST、簽章及 wrapper 參數完全一致；獨立 63 passed in 1.05s。
+
+## B1 綠燈與紅燈探針
+
+CI 綠燈：https://github.com/wulove1029/markdown_viewer/actions/runs/35526841674 ，1870 collected、1788 passed、82 skipped in 131.72s，lint/mypy 通過。
+隔離 TEMP worktree 的 ci-gate-probe-20260921 分支已推送刻意失敗測試 cba22ad；不在 main 或正式驗證分支。待確認紅燈後移除。
