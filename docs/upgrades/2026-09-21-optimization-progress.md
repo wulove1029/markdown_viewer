@@ -302,3 +302,9 @@ MainWindow 九個 property 保留原私有欄位；session_state/export_actions 
 `py -3 -X utf8 -m pytest tests/ -q` → 1790 passed、82 skipped in 60.24s；Ruff/mypy 通過。
 `RUN_WEBENGINE_TESTS=1 QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu py -3 -X utf8 -m pytest tests/test_pdf_export_webengine.py -q` → 1 passed in 6.99s。
 Fresh agent 機械替換 AST 正確，九組 getter/setter 實跑通過，session/export 48 passed in 6.78s。
+
+## E4
+
+三份 _pymupdf 改用同一 lazy loader／Lock／快取；原模組 alias 仍可局部 monkeypatch。原 unavailable 測試改 patch alias，避免依赖已移除的私有 cache。
+PDF embedded/password/reading 121 passed、5 skipped in 5.98s；loader 新測試 2 passed in 0.22s；Ruff 通過。
+Fresh agent 104 passed、5 skipped in 5.02s；新程序驗證 import 未提前載入 PyMuPDF，8 threads／32 次呼叫取得同一 module。

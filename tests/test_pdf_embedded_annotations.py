@@ -198,7 +198,7 @@ def test_none_path_is_empty():
 def test_pymupdf_unavailable_degrades_to_empty(tmp_path, monkeypatch):
     import app.pdf_embedded_annotations as mod
 
-    monkeypatch.setattr(mod, "_pymupdf_module", None)
+    monkeypatch.setattr(mod, "_pymupdf", lambda: None)
     path = tmp_path / "whatever.pdf"
     path.write_bytes(b"%PDF-1.4")
     assert mod.extract_embedded_annotations(path) == []

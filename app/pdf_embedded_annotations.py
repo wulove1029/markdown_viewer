@@ -29,23 +29,13 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .pymupdf_loader import load_pymupdf as _pymupdf
+
 logger = logging.getLogger(__name__)
 
 # PyMuPDF is optional at runtime (see pdf_view._pymupdf for the rationale).
-_PYMUPDF_UNSET = object()
-_pymupdf_module = _PYMUPDF_UNSET
 
 
-def _pymupdf():
-    """Return the pymupdf module, importing it lazily; None if unavailable."""
-    global _pymupdf_module
-    if _pymupdf_module is _PYMUPDF_UNSET:
-        try:
-            import pymupdf as _mod
-        except Exception:  # pragma: no cover - import guard
-            _mod = None
-        _pymupdf_module = _mod
-    return _pymupdf_module
 
 
 # Annotation subtypes worth surfacing to a reader. Popup is intentionally

@@ -30,8 +30,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-_PYMUPDF_UNSET = object()
-_pymupdf_module = _PYMUPDF_UNSET
+from .pymupdf_loader import load_pymupdf as _pymupdf
 
 _session_backup_dir: Path | None = None
 # Every write keeps its own copy, so a sequence of edits can each be recovered
@@ -46,15 +45,6 @@ class AnnotationWriteError(Exception):
     """A write was refused or failed; ``str(...)`` is shown to the user."""
 
 
-def _pymupdf():
-    global _pymupdf_module
-    if _pymupdf_module is _PYMUPDF_UNSET:
-        try:
-            import pymupdf as _mod
-        except Exception:  # pragma: no cover - import guard
-            _mod = None
-        _pymupdf_module = _mod
-    return _pymupdf_module
 
 
 def default_author() -> str:

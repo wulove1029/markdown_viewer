@@ -59,21 +59,6 @@ from PySide6.QtWidgets import (
 # PyMuPDF is only needed for outline extraction, yet importing it costs about
 # half a second on a cold start (native DLLs), so it is loaded on first use
 # instead of at startup: most sessions begin with a Markdown file, not a PDF.
-_PYMUPDF_UNSET = object()
-_pymupdf_module = _PYMUPDF_UNSET
-
-
-def _pymupdf():
-    """Return the pymupdf module, importing it lazily; None if unavailable."""
-    global _pymupdf_module
-    if _pymupdf_module is _PYMUPDF_UNSET:
-        try:
-            import pymupdf as _mod
-        except Exception:  # pragma: no cover - import guard
-            _mod = None
-        _pymupdf_module = _mod
-    return _pymupdf_module
-
 from . import pdf_annotation_overlay, pdf_metadata_cache
 from .pdf_annotation_card import PdfAnnotationCard
 from .pdf_embedded_annotations import (
@@ -86,6 +71,7 @@ from .pdf_embedded_annotations import (
 from .pdf_highlights import DEFAULT_COLOR
 from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
 from .pdf_render_scheduler import PdfRenderScheduler, PdfRenderSpec
+from .pymupdf_loader import load_pymupdf as _pymupdf
 from .theme import LIGHT, Theme
 
 # Highlighter palette shared with the markdown annotation layer.
