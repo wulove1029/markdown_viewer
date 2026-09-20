@@ -369,3 +369,8 @@ Fresh agent AST 與 import檢查通過，22 passed in 0.68s。
 ## F1
 
 CHANGELOG 補回 [1.31.0] - 2026-09-08；日期以 v1.31.0 tag 的 commit日期確認。腳本比對補標題後該段本文完整存在於原HEAD、未改動，exit0。
+
+## F2
+
+兩份2026-09-08 audit標頭與各P1章節回填已解決版本；v1.31.0資料／搜尋／設定、v1.32.0首頁／更新，長文完整解析、高DPI人工驗證等保留開放。R4標本輪Unreleased。回填v1.27歷史拖曳不能Undo的限制目前已不成立，引用既有真實WebEngine測試。
+Fresh agent對照CHANGELOG與tag、檢查兩份audit連結存在，驗收通過。
