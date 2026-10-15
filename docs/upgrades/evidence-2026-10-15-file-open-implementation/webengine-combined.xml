@@ -27,22 +27,22 @@ tmp_path = WindowsPath('C:/Users/USER01/AppData/Local/Temp/mdv-webengine-verifie
         markdown = (
             "# Initial\n\n![alt](images/pic.png)\n\n```python\nprint(1)\n```"
         )
-    
+
         view = WysiwygView()
         view.resize(1100, 700)
         push_calls = []
         theme_calls = []
         original_push = view._push_markdown
         original_apply_theme = view._apply_theme_name
-    
+
         def record_push(*args):
             push_calls.append(args)
             return original_push(*args)
-    
+
         def record_theme(*args):
             theme_calls.append(args)
             return original_apply_theme(*args)
-    
+
         view._push_markdown = record_push
         view._apply_theme_name = record_theme
         try:
