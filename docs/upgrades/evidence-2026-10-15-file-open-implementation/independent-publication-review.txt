@@ -1,0 +1,11 @@
+2026-10-15 v1.35.0 遠端發布獨立核對
+結論：通過。僅執行唯讀 gh api / gh run view，未修改遠端或產品、未重跑測試。
+Annotated tag refs/tags/v1.35.0 的 tag object 為 b5c715b2e8c21f0a3fcc0a286008648690a68b5b；解參照 commit 為 1578af4a5f283d51f35732f7f0b1f152379d26fc，與預期一致。
+CI run 38697461450：completed / success，headSha 為上述 commit。
+Release run 38697852606：completed / success，headSha 為上述 commit。
+https://github.com/wulove1029/markdown_viewer/releases/tag/v1.35.0
+Release draft=false、prerelease=false、tag_name=v1.35.0。
+唯一 asset：MarkdownViewer_Setup_v1.35.0.exe，size=167181729 bytes。
+GitHub asset digest=sha256:2a5ddb3c87cbd8a1f1292914c3ef7155a8daece371250a64a5100b73f827f813，與預期一致。
+本 agent 核對遠端 metadata，未下載安裝檔重算 hash，也未實際安裝操作；下載 hash 由主代理核對。
+上述查詢 exit code 均為0。

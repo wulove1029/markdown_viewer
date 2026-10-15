@@ -13,7 +13,8 @@
 - [x] 第三批：PDF 有界熱門頁預覽、附屬資訊背景化、分批尺寸；中型複雜 Markdown 與 TXT 開檔。
 - [x] 相關測試、完整預設回歸、MainWindow offscreen smoke、同機前後量測。
 - [x] Fresh agent 獨立驗收與 PDF 部分尺寸快取追加審查。
-- [ ] 鎖版打包 EXE、實體桌面操作與程序樹 RSS 驗證（本次未完成，不能視為發版驗收）。
+- [x] 後續依使用者授權，以 GitHub Actions 鎖版環境驗證及打包，發布 v1.35.0；詳見同日發布紀錄。
+- [ ] 實體桌面操作、打包 EXE 效能量測與程序樹 RSS 驗證（仍未完成，不能以原始碼代理量測取代）。
 
 ## 已確定的介面
 
@@ -64,4 +65,4 @@ py -3 -X utf8 tools/benchmark_file_switching.py --output tmp/switch-result.json 
 py -3 -X utf8 tools/benchmark_pdf_switching.py --pages 3000 --reps 30 --rounds 3 --output tmp/pdf-switch-result.json
 ```
 
-桌面／EXE 待驗步驟：依 DEVELOPMENT.md 在鎖版環境打包；開 A.md、B.md、PDF 與 5 MB TXT，連續切換並核對最後選定文件、捲動位置；來源與 Office 輸入未儲存文字後往返，確認文字與 undo 保留；PDF 回到原頁、外部修改後重載，確認不顯示舊 raster。現有安裝版 EXE 未被覆寫，本次沒有發版。
+桌面／EXE 待驗步驟：使用已發布的 v1.35.0 安裝檔；開 A.md、B.md、PDF 與 5 MB TXT，連續切換並核對最後選定文件、捲動位置；來源與 Office 輸入未儲存文字後往返，確認文字與 undo 保留；PDF 回到原頁、外部修改後重載，確認不顯示舊 raster。原始碼驗收階段沒有發版；後續使用者另行授權提交與發布，已完成 GitHub Actions 鎖版打包，見 `2026-10-15-release-1.35.0.md`。本機現有安裝版未被覆寫。
