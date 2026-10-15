@@ -1,0 +1,238 @@
+{
+  "root": "E:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 100000,
+  "category": "long_prose",
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 29.5683000003919,
+      "ready_ms": 398.7381999977515,
+      "full_ready_ms": 417.6329000001715,
+      "max_ui_gap_ms": 163.72769999725278,
+      "full_max_ui_gap_ms": 163.72769999725278,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.433800000086194
+        },
+        {
+          "method": "_load_document",
+          "ms": 18.609599999763304
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 18.737800000963034
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 36.32890000153566,
+      "ready_ms": 135.16660000095726,
+      "full_ready_ms": 137.72590000007767,
+      "max_ui_gap_ms": 36.992900000768714,
+      "full_max_ui_gap_ms": 36.992900000768714,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6792999993194826
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.02700000171899
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.098199998174096
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032000025385059416
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.513700002164114,
+      "ready_ms": 96.3861000018369,
+      "full_ready_ms": 102.62000000147964,
+      "max_ui_gap_ms": 17.345899999781977,
+      "full_max_ui_gap_ms": 17.345899999781977,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7834999996703118
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.147600001189858
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.195899997896049
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.025999999925261,
+      "ready_ms": 81.00269999704324,
+      "full_ready_ms": 86.386399998446,
+      "max_ui_gap_ms": 17.116200000600656,
+      "full_max_ui_gap_ms": 17.116200000600656,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.9957000002032146
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.568500001478242
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.68279999869992
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031000017770566046
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-switch-benchmark-ls53dwx2",
+  "pyside": "6.11.0",
+  "mode": "offscreen",
+  "settings": "\\HKEY_CURRENT_USER\\Software\\markdown-viewer\\MarkdownViewer",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT readiness is buffer installed/event processing, not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 101168,
+    "B.md": 101168
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": null,
+  "summary": {
+    "sync_ms": {
+      "n": 2,
+      "p50_ms": 8.769850001044688,
+      "p95_ms": 10.025999999925261,
+      "max_ms": 10.025999999925261
+    },
+    "ready_ms": {
+      "n": 2,
+      "p50_ms": 88.69439999944007,
+      "p95_ms": 96.3861000018369,
+      "max_ms": 96.3861000018369
+    },
+    "full_ready_ms": {
+      "n": 2,
+      "p50_ms": 94.50319999996282,
+      "p95_ms": 102.62000000147964,
+      "max_ms": 102.62000000147964
+    },
+    "max_ui_gap_ms": {
+      "n": 2,
+      "p50_ms": 17.231050000191317,
+      "p95_ms": 17.345899999781977,
+      "max_ms": 17.345899999781977
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 35.098199998174096,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 35.02700000171899,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 18.737800000963034,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 18.609599999763304,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 9.68279999869992,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 9.568500001478242,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 7.195899997896049,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 7.147600001189858,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "load_file",
+      "ms": 1.433800000086194,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "load_file",
+      "ms": 0.9957000002032146,
+      "path": "B.md",
+      "warm": true
+    }
+  ],
+  "passed": true
+}

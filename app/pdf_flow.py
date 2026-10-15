@@ -11,10 +11,10 @@ outside this module. Persistence remains in the existing PDF stores/writer.
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from . import pdf_annotation_writer
+from . import pdf_annotation_writer, pdf_metadata_cache
 from .pdf_embedded_annotations import extract_embedded_annotations
 from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_notes import PdfNote, PdfNoteStore
@@ -34,8 +34,7 @@ def open_pdf(self, path: Path):
     try:
         # Password prompts (if any) belong above the PDF view.
         self._stack.setCurrentWidget(self._pdf_view)
-        loaded = self._pdf_view.load(path)
-        self._pdf_view.restore_page(page)
+        loaded = self._pdf_view.load(path, restore_page=page)
     finally:
         self._restoring_pdf_page = False
     # Drop the previous file's bookmarks immediately. PdfView starts the
@@ -51,16 +50,16 @@ def open_pdf(self, path: Path):
                 "無法開啟此 PDF：檔案可能已損毀或無法讀取。", 6000
             )
     # Page-anchored notes + text highlights live in the "標註" tab.
-    self._pdf_notes = PdfNoteStore.load(path)
-    self._pdf_highlights = PdfHighlightStore.load(path)
-    self._pdf_view.set_highlights(self._pdf_highlights)
-    self._panel.show_pdf_notes(True)
-    self._panel.set_annotations_enabled(True)
-    # Point the 文件標籤 field at this PDF and surface any tags it already
-    # carries so they show up (with a count) in the 標籤 side panel/filters.
-    self._set_pdf_panel_document(path)
-    self._index_doc_tags(path)
-    self._refresh_tags_panel()
+    with PdfNoteStore.scoped_read(path):
+        self._pdf_notes = PdfNoteStore.load(path)
+        self._pdf_highlights = PdfHighlightStore.load(path)
+        self._pdf_view.set_highlights(self._pdf_highlights)
+        self._panel.show_pdf_notes(True)
+        self._panel.set_annotations_enabled(True)
+        # Notes, the document-tag field, and the index share one sidecar read.
+        self._set_pdf_panel_document(path)
+        self._index_doc_tags(path)
+        self._refresh_tags_panel()
     self._refresh_pdf_notes_panel()
     self._refresh_pdf_highlights_panel()
     # Embedded (Adobe-authored) annotations load in the background — see
@@ -310,6 +309,65 @@ def edit_pdf_annotation_author(self):
     self.statusBar().showMessage(f"PDF 註解作者已設為「{name}」", 3000)
 
 
+class _WriteCheckSignals(QObject):
+    finished = Signal(object, object, str)
+
+
+class _WriteCheckTask(QRunnable):
+    def __init__(self, path, signature):
+        super().__init__()
+        self.setAutoDelete(False)
+        self.path, self.signature = path, signature
+        self.signals = _WriteCheckSignals()
+
+    def run(self):
+        try:
+            reason = pdf_annotation_writer.writable_reason(self.path) or ""
+        except Exception:
+            reason = "無法讀取此 PDF，無法寫入註解"
+        self.signals.finished.emit(self.path, self.signature, reason)
+
+
+class _WriteCheckController(QObject):
+    """One running permission probe and one replaceable latest request."""
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        self.running = None
+        self.pending = None
+        self.request_id = 0
+        self.running_id = 0
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._start)
+
+    def request(self, path):
+        self.request_id += 1
+        self.pending = (path, pdf_metadata_cache.signature(path), self.request_id)
+        if self.running is None:
+            self.timer.start(0)
+
+    def _start(self):
+        if self.running is not None or self.pending is None:
+            return
+        path, signature, self.running_id = self.pending
+        self.pending = None
+        task = _WriteCheckTask(path, signature)
+        self.running = task
+        task.signals.finished.connect(self._finished)
+        QThreadPool.globalInstance().start(task)
+
+    def _finished(self, path, signature, reason):
+        self.running = None
+        window = self.window
+        if (self.running_id == self.request_id
+                and window._current_kind == "pdf" and window._current_file == path
+                and pdf_metadata_cache.signature(path) == signature):
+            window._pdf_view.set_annotation_write_blocked(reason)
+        if self.pending is not None:
+            self.timer.start(0)
+
+
 def refresh_pdf_annotation_write_state(self):
     """Tell the view whether this PDF can take new annotations, and why not.
 
@@ -320,8 +378,11 @@ def refresh_pdf_annotation_write_state(self):
     if self._current_kind != "pdf" or self._current_file is None:
         self._pdf_view.set_annotation_write_blocked("尚未開啟 PDF")
         return
-    reason = pdf_annotation_writer.writable_reason(self._current_file) or ""
-    self._pdf_view.set_annotation_write_blocked(reason)
+    self._pdf_view.set_annotation_write_blocked("正在確認 PDF 註解寫入權限…")
+    controller = getattr(self, "_pdf_write_check_controller", None)
+    if controller is None:
+        controller = self._pdf_write_check_controller = _WriteCheckController(self)
+    controller.request(self._current_file)
 
 
 def perform_pdf_annotation_write(self, action, focus_xref) -> bool:
@@ -342,6 +403,9 @@ def perform_pdf_annotation_write(self, action, focus_xref) -> bool:
         return False
     # Our own save: keep the file watcher from offering to reload.
     self._loaded_signature = self._file_signature(path)
+    # The writer rechecks permissions inside _open_for_write immediately before
+    # mutation. Its successful save invalidates every old raster/geometry entry.
+    self._pdf_view.invalidate_cached_document(path)
     self._pdf_embedded_annotations = extract_embedded_annotations(path)
     self._refresh_pdf_embedded_annotations_panel()
     self._pdf_view.annotation_card().clear_reply_input()

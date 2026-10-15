@@ -1,14 +1,99 @@
 """Tag panel and document-level tag operations delegated from MainWindow."""
 
+import threading
 from pathlib import Path
 
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from . import doc_tags as doc_tags_facade
 from .annotations import AnnotationStore, DocumentAnnotations
+from .document_metadata import cached_metadata, read_metadata, signature
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .manage_tags_dialog import ManageTagsDialog
 from .md_converter import body_hashtags, front_matter_tags, parse_front_matter, read_text
+
+
+class _MetadataSignals(QObject):
+    ready = Signal(int, object, object)
+    failed = Signal(int, object, str)
+
+
+class _MetadataWorker(QRunnable):
+    def __init__(self, generation, path, cancel):
+        super().__init__()
+        self.generation = generation
+        self.path = path
+        self.cancel = cancel
+        self.signals = _MetadataSignals()
+
+    def run(self):
+        try:
+            result = read_metadata(self.path, cancel=self.cancel)
+        except Exception as exc:
+            if not self.cancel.is_set():
+                self.signals.failed.emit(self.generation, self.path, str(exc))
+        else:
+            if not self.cancel.is_set():
+                self.signals.ready.emit(self.generation, self.path, result)
+
+
+def cancel_metadata(self):
+    previous = getattr(self, "_metadata_cancel", None)
+    if previous is not None:
+        previous.set()
+    self._metadata_generation = getattr(self, "_metadata_generation", 0) + 1
+    self._metadata_cancel = threading.Event()
+
+
+def request_metadata(self, *, render_pending=False):
+    """Never read the Markdown body on the GUI thread during navigation."""
+    cancel_metadata(self)
+    path = self._current_file
+    self._front_tags_pending = bool(path and is_markdown(path))
+    if not self._front_tags_pending:
+        return
+    generation = self._metadata_generation
+    result = cached_metadata(path)
+    if result is not None:
+        apply_metadata(self, generation, path, result)
+        return
+    # A preview render already extracts metadata from the same decoded input.
+    # Pure editor workspaces need only the cheaper metadata operation.
+    if render_pending:
+        return
+    worker = _MetadataWorker(generation, path, self._metadata_cancel)
+    worker.signals.ready.connect(self._on_document_metadata_ready)
+    worker.signals.failed.connect(self._on_document_metadata_failed)
+    QThreadPool.globalInstance().start(worker)
+
+
+def apply_metadata(self, generation, path, result):
+    if (generation != getattr(self, "_metadata_generation", -1)
+            or path != self._current_file or self._current_kind != "markdown"):
+        return
+    try:
+        changed = result.signature is not None and result.signature != signature(path)
+    except OSError:
+        changed = True
+    if changed:
+        # A watcher/reload will submit a fresh request. Never erase old index
+        # entries with incomplete or obsolete data in the meantime.
+        return
+    self._current_front_tags = list(result.front_tags)
+    self._current_body_tags = list(result.body_tags)
+    self._front_tags_pending = False
+    self._tag_index.update(
+        path, self._doc_annotations,
+        front_tags=self._current_front_tags, body_tags=self._current_body_tags,
+    )
+    self._refresh_tags_panel()
+
+
+def metadata_failed(self, generation, path, _error):
+    if generation == getattr(self, "_metadata_generation", -1) and path == self._current_file:
+        # Keep the unknown state: saving annotations must preserve cached tags.
+        self.statusBar().showMessage("文件標籤尚未載入，可重新載入文件再試。", 4000)
 
 
 def merged_tag_rows(

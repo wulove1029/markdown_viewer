@@ -4,18 +4,23 @@ import logging
 
 log = logging.getLogger(__name__)
 
+import html as html_module
 import json
 import math
 import threading
 import urllib.parse
+from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QDir,
     QFile,
     QIODevice,
     QMarginsF,
     QObject,
     QRunnable,
+    Qt,
+    QTemporaryFile,
     QThreadPool,
     QTimer,
     QUrl,
@@ -29,15 +34,17 @@ from PySide6.QtWebEngineCore import (
     QWebEngineUrlScheme,
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWidgets import QMenu, QMessageBox
+from PySide6.QtWidgets import QLabel, QMenu, QMessageBox, QVBoxLayout, QWidget
 
 from . import md_converter, render_service
 from .annotation_bridge import AnnotationBridge
 from .attachment_security import attachment_open_policy
-from .file_types import document_kind, is_markdown, is_pdf, is_supported_document
+from .file_types import is_markdown, is_pdf, is_supported_document
 from .md_converter import RenderCancelled, convert, convert_text, state_page_html
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
+_RENDER_ERROR_META = "markdown-viewer-render-error"
+_LOADING_DELAY_MS = 140
 
 _UNHANDLED_ESCAPE_JS = r"""
 (function () {
@@ -130,13 +137,38 @@ def _html_with_render_generation(html: str, generation: int) -> str:
     return marker + html
 
 
-def _html_with_early_scroll(html: str, scroll_y: int) -> str:
+def _html_with_early_scroll(html: str, scroll_y: int, anchor=None) -> str:
     """Scroll before first paint so a reload never flashes the top of the page.
 
     The loadFinished restore in _on_markdown_load_checked still runs afterwards
     (idempotent); this only removes the visible jump while it is pending.
     """
-    script = f"<script>window.scrollTo(0, {int(scroll_y)});</script>"
+    # Block line + viewport offset survives changed wrapping and late images.
+    # Any real navigation input cancels late restores, so images never drag a
+    # reader back after they have started scrolling or editing the page.
+    anchor_json = json.dumps(anchor)
+    script = f"""<script>(function() {{
+        window.__mdReadingRestore = {anchor_json} || {{}};
+        window.__mdApplyReadingRestore = function() {{
+            var a = window.__mdReadingRestore;
+            if (!a) return;
+            var block = a.line == null ? null : document.querySelector(
+                '[data-src-start="' + Number(a.line) + '"]');
+            if (block) window.scrollTo(0, window.scrollY + block.getBoundingClientRect().top - a.offset);
+            else window.scrollTo(0, {int(scroll_y)});
+        }};
+        window.__mdApplyReadingRestore();
+        requestAnimationFrame(window.__mdApplyReadingRestore);
+        document.addEventListener('load', function(e) {{
+            if (e.target && e.target.tagName === 'IMG') window.__mdApplyReadingRestore();
+        }}, true);
+        ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function(name) {{
+            document.addEventListener(name, function() {{
+                window.__mdReadingRestore = null; window.__mdReadingInteracted = true;
+            }},
+                {{capture: true, passive: true, once: true}});
+        }});
+    }})();</script>"""
     if "</body>" in html:
         return html.replace("</body>", script + "\n</body>", 1)
     return html + script
@@ -209,6 +241,13 @@ class _DocumentPage(QWebEnginePage):
             # Same-document fragment (footnote/anchor) -> let it scroll.
             if url.matches(self.url(), QUrl.UrlFormattingOption.RemoveFragment):
                 return True
+            base_url = getattr(self._view, "_html_base_url", None)
+            if (url.hasFragment() and base_url is not None
+                    and url.matches(base_url, QUrl.UrlFormattingOption.RemoveFragment)):
+                # A file-backed large preview keeps the original document's
+                # base URL; its fragment must not navigate to a directory.
+                self._view.scroll_to(url.fragment())
+                return False
             if scheme in ("http", "https", "mailto"):
                 QDesktopServices.openUrl(url)
                 return False
@@ -247,6 +286,53 @@ class _RenderSignals(QObject):
     partial_ready = Signal(int, object, str, list, int)
 
 
+class _LoadingShield(QWidget):
+    """Intercept old-page input immediately; display a hint only for slow loads."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName("previewLoadingShield")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._label = QLabel(self)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setWordWrap(True)
+        layout = QVBoxLayout(self)
+        layout.addStretch()
+        layout.addWidget(self._label)
+        layout.addStretch()
+        self.hide()
+
+    def arm(self, path: Path):
+        self.setStyleSheet("#previewLoadingShield { background: transparent; }")
+        self._label.setText(f"正在讀取：{path.name}")
+        self._label.hide()
+        self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def reveal(self, theme: str):
+        background = "rgba(28, 30, 34, 210)" if theme == "dark" else "rgba(248, 249, 251, 220)"
+        foreground = "#e8e8e8" if theme == "dark" else "#353b45"
+        self.setStyleSheet(
+            f"#previewLoadingShield {{ background: {background}; }}"
+            f"QLabel {{ color: {foreground}; padding: 20px; font-size: 15px; }}"
+        )
+        self._label.show()
+
+    def keyPressEvent(self, event):
+        event.accept()
+
+    def keyReleaseEvent(self, event):
+        event.accept()
+
+    def wheelEvent(self, event):
+        event.accept()
+
+    def contextMenuEvent(self, event):
+        event.accept()
+
+
 class _MarkdownRenderWorker(QRunnable):
     """Run Markdown conversion off the GUI thread."""
 
@@ -282,12 +368,7 @@ class _MarkdownRenderWorker(QRunnable):
         path = self.path
         if md_converter.has_cached_body(path):
             return  # the full body is already cached; it will arrive instantly
-        result = md_converter.read_text(path)
-        if result is None or self._cancelled():
-            return
-        partial = md_converter.render_partial_body(
-            result[0], size, cancel=self.cancel
-        )
+        partial = md_converter.render_file_partial(path, size, cancel=self.cancel)
         if partial is None or self._cancelled():
             return  # one giant block: keep the loading page, no fake prefix
         rendered, _prefix_bytes = partial
@@ -312,7 +393,8 @@ class _MarkdownRenderWorker(QRunnable):
                     # Warm the killable render worker while the prefix renders
                     # here, so its startup overlaps the fast preview.
                     render_service.prewarm()
-                if size >= md_converter.FAST_PREVIEW_MIN_BYTES:
+                if (not md_converter.has_cached_body(self.path)
+                        and md_converter.should_fast_preview(self.path, size)):
                     try:
                         self._emit_fast_preview(size)
                     except RenderCancelled:
@@ -337,6 +419,7 @@ class _MarkdownRenderWorker(QRunnable):
                 self.theme,
                 "錯誤",
             )
+            html = html.replace("</head>", f'<meta name="{_RENDER_ERROR_META}" content="true"></head>', 1)
             headings = []
             source = self.path
         if self.cancel is None or not self.cancel.is_set():
@@ -352,6 +435,10 @@ class RendererView(QWebEngineView):
     # (search text, percent of the document loaded) when a search misses only
     # because fast text reading has not loaded the rest of the document yet.
     partial_search_missed = Signal(str, int)
+    # Verified document identity plus two animation frames, not loadFinished.
+    # Arguments are renderer generation, document path, and partial preview.
+    content_ready = Signal(int, str, bool)
+    render_failed = Signal(int, str)
 
     def __init__(self, on_headings_ready=None, parent=None):
         super().__init__(parent)
@@ -373,6 +460,7 @@ class RendererView(QWebEngineView):
         self._partial_preview_active = False
         self._partial_scope_percent = 0
         self._partial_restore: dict | None = None
+        self._partial_user_navigated = False
         self._pending_export: tuple | None = None
         # Scroll ratio to re-apply once a live-preview (text) render loads, so
         # the debounced re-render doesn't snap the preview back to the top.
@@ -381,7 +469,27 @@ class RendererView(QWebEngineView):
         self._render_pool = QThreadPool.globalInstance()
         self._pending_text_base_url: QUrl | None = None
         self._scroll_y = 0  # last polled vertical scroll (for per-tab restore)
+        self._scroll_anchor = None
+        self._pending_reading_anchor = None
+        self._document_signature = None
+        self._reading_positions = OrderedDict()
         self._search_escape_generation = 0
+        self._loading_generation: int | None = None
+        self._loading_shield = _LoadingShield(self)
+        self._loading_timer = QTimer(self)
+        self._loading_timer.setSingleShot(True)
+        self._loading_timer.setInterval(_LOADING_DELAY_MS)
+        self._loading_timer.timeout.connect(self._reveal_loading)
+        self._frame_serial = 0
+        self._frame_request = None
+        self._frame_polls = 0
+        self._frame_timer = QTimer(self)
+        self._frame_timer.setSingleShot(True)
+        self._frame_timer.setInterval(16)
+        self._frame_timer.timeout.connect(self._poll_content_frame)
+        self._render_failed_generation: int | None = None
+        self._html_files = []
+        self._html_base_url = None
         self.setAcceptDrops(True)
         # The built-in PDF viewer is plugin-based, so both attributes are
         # required; PdfViewerEnabled alone leaves the PDF blank / downloaded.
@@ -420,11 +528,15 @@ class RendererView(QWebEngineView):
         # explicitly opts in (e.g. the split-mode preview pane) never arms the
         # double-click-to-WYSIWYG gesture; see set_preview_double_click_mode.
         self._preview_dblclick_mode = "inline"
-        self.page().loadFinished.connect(self._inject_annotations)
-
         self.show_empty()
 
     def _next_render_generation(self) -> int:
+        self._inactive = False
+        if hasattr(self, "_loading_shield"):
+            self._finish_loading()
+            self._frame_timer.stop()
+            self._frame_request = None
+        self._render_failed_generation = None
         previous = getattr(self, "_render_cancel", None)
         if previous is not None:
             previous.set()
@@ -434,6 +546,7 @@ class RendererView(QWebEngineView):
         self._partial_preview_active = False
         self._partial_scope_percent = 0
         self._partial_restore = None
+        self._partial_user_navigated = False
         pending_export = getattr(self, "_pending_export", None)
         if pending_export is not None:
             # The document being exported is gone; never silently drop the
@@ -444,6 +557,147 @@ class RendererView(QWebEngineView):
                 on_done(filepath, False)
         self._render_generation += 1
         return self._render_generation
+
+    def deactivate(self):
+        """Cancel this surface when another document or an editor takes over."""
+        self._remember_reading_position()
+        self._next_render_generation()
+        self._inactive = True
+        self._current_path = None
+        self._pending_text_base_url = None
+        self._pending_find = None
+        self._pending_scroll = None
+        self._pending_scroll_generation = None
+        self._pending_ratio = None
+        self._current_anchor = ""
+        self._spy_timer.stop()
+        self.stop()
+
+    @staticmethod
+    def _reading_signature(path):
+        try:
+            stat = path.stat()
+            return (str(path.resolve()), stat.st_mtime_ns, stat.st_size,
+                    stat.st_dev, stat.st_ino)
+        except OSError:
+            return None
+
+    def _remember_reading_position(self):
+        if (self._loaded_markdown_generation != self._render_generation
+                or not self._current_path or not self._scroll_anchor
+                or self._document_signature is None):
+            return
+        key = str(self._current_path)
+        self._reading_positions.pop(key, None)
+        self._reading_positions[key] = (
+            self._document_signature, self._scroll_y, dict(self._scroll_anchor)
+        )
+        while len(self._reading_positions) > 32:
+            self._reading_positions.popitem(last=False)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_loading_shield"):
+            self._loading_shield.setGeometry(self.rect())
+
+    def _reveal_loading(self):
+        if self._loading_generation == self._render_generation:
+            self._loading_shield.reveal(self._theme)
+
+    def _finish_loading(self):
+        self._loading_timer.stop()
+        self._loading_generation = None
+        had_focus = self._loading_shield.hasFocus()
+        self._loading_shield.hide()
+        if had_focus:
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _schedule_content_frame(self, generation: int, path: Path):
+        self._frame_serial += 1
+        serial = self._frame_serial
+        self._frame_request = (generation, path, self._partial_preview_active, serial)
+        phase = "partial" if self._partial_preview_active else "full"
+        self._frame_polls = 0
+        self.page().runJavaScript(f"""(function() {{
+            requestAnimationFrame(function() {{ requestAnimationFrame(function() {{
+                var m = document.querySelector('meta[name="{_RENDER_GENERATION_META}"]');
+                var p = document.querySelector('meta[name="markdown-viewer-render-phase"]');
+                if (m && Number(m.content) === {generation} && p && p.content === "{phase}")
+                    window.__mdReadableFrame = {serial};
+            }}); }});
+        }})()""")
+        self._frame_timer.start()
+
+    def _poll_content_frame(self):
+        request = self._frame_request
+        if request is None:
+            return
+        generation, path, _partial, serial = request
+        if self._stale_render(generation, path):
+            self._frame_request = None
+            return
+        self._frame_polls += 1
+        self.page().runJavaScript(
+            "(function(){"
+            f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
+            f"return !!(m && Number(m.content)==={generation} && "
+            f"window.__mdReadableFrame==={serial} && document.body);"
+            "})()",
+            lambda ready, request=request: self._on_content_frame_checked(request, ready),
+        )
+
+    def _set_document_html(self, html: str, base_url: QUrl | None = None):
+        """Avoid Chromium's 2 MiB encoded-data URL limit for large previews.
+
+        A small page retains setHtml's lightweight path. Larger pages use an
+        owned, auto-removed temporary file, with at most two files retained so
+        replacing an in-flight navigation never removes its source too soon.
+        Local asset permissions are unchanged; the base remains the source
+        document directory. No user file is written or removed.
+        """
+        self._html_base_url = base_url
+        payload = html.encode("utf-8")
+        # Three encoded bytes per UTF-8 byte is a conservative upper bound;
+        # do not build a multi-megabyte percent-encoded copy on the UI thread.
+        if len(payload) * 3 < 2 * 1024 * 1024 - 30:
+            if base_url is None:
+                self.page().setHtml(html)
+            else:
+                self.page().setHtml(html, base_url)
+            return
+        if base_url is not None:
+            base = html_module.escape(base_url.toString(), quote=True)
+            html = html.replace("<head>", f'<head><base href="{base}">', 1)
+            payload = html.encode("utf-8")
+        temporary = QTemporaryFile(QDir.tempPath() + "/markdown-viewer-XXXXXX.html", self)
+        temporary.setAutoRemove(True)
+        if not temporary.open() or temporary.write(payload) != len(payload):
+            temporary.remove()
+            temporary.deleteLater()
+            self._render_failed_generation = self._render_generation
+            error = self._state_html("無法預覽 Markdown", "無法建立大型文件預覽暫存檔。", "錯誤")
+            error = _html_with_render_generation(error, self._render_generation)
+            error = error.replace("</head>", '<meta name="markdown-viewer-render-phase" content="full"></head>', 1)
+            self.page().setHtml(error)
+            return
+        temporary.close()
+        self._html_files.append(temporary)
+        while len(self._html_files) > 2:
+            old = self._html_files.pop(0)
+            old.deleteLater()
+        self.page().load(QUrl.fromLocalFile(temporary.fileName()))
+
+    def _on_content_frame_checked(self, request, ready):
+        if request != self._frame_request or self._stale_render(request[0], request[1]):
+            return
+        if ready:
+            self._frame_request = None
+            self.content_ready.emit(request[0], str(request[1]), request[2])
+        elif self._frame_polls < 120:
+            # Hidden WebEngine views may not produce frames; polling is bounded.
+            self._frame_timer.start()
+        else:
+            self._frame_request = None
 
     def contextMenuEvent(self, event):
         # annotations.js consumes the event itself when the click lands on an
@@ -478,6 +732,8 @@ class RendererView(QWebEngineView):
         return menu
 
     def _on_page_load_finished(self, ok):
+        if self._inactive:
+            return
         if ok:
             # Re-apply zoom: a freshly loaded page otherwise resets to 1.0.
             self.setZoomFactor(self._zoom_factor)
@@ -488,6 +744,13 @@ class RendererView(QWebEngineView):
             "})()"
         )
         if ok and self._current_path and is_markdown(self._current_path):
+            js = (
+                "(function(){"
+                f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
+                "var p=document.querySelector('meta[name=\"markdown-viewer-render-phase\"]');"
+                "return JSON.stringify({generation:m ? m.content : null,phase:p ? p.content : null});"
+                "})()"
+            )
             generation = self._render_generation
             path = self._current_path
             self.page().runJavaScript(
@@ -510,6 +773,25 @@ class RendererView(QWebEngineView):
             )
         else:
             self._spy_timer.stop()
+            if not ok:
+                # stop()/replacement can also emit loadFinished(False). Only
+                # release the shield once the active navigation is no longer
+                # running; stale false completions must not expose the old page.
+                generation, path = self._render_generation, self._current_path
+                QTimer.singleShot(0, lambda: self._on_failed_navigation(generation, path))
+            elif self._current_path is None:
+                self._inject_annotations(True)
+
+    def _on_failed_navigation(self, generation, path):
+        if generation != self._render_generation or path != self._current_path:
+            return
+        if self.page().isLoading() or self._loading_generation != generation:
+            return
+        # The parser may still be working while the previous navigation stops.
+        if getattr(self, "_submitted_generation", None) != generation:
+            return
+        self._finish_loading()
+        self.render_failed.emit(generation, str(path or ""))
 
     def _on_markdown_load_checked(self, generation: int, path: Path, loaded_generation):
         if (
@@ -518,6 +800,16 @@ class RendererView(QWebEngineView):
             or not is_markdown(path)
         ):
             return
+
+        if isinstance(loaded_generation, str) and loaded_generation.startswith("{"):
+            try:
+                loaded = json.loads(loaded_generation)
+            except (ValueError, TypeError):
+                return
+            expected_phase = "partial" if self._partial_preview_active else "full"
+            if loaded.get("phase") != expected_phase:
+                return
+            loaded_generation = loaded.get("generation")
 
         try:
             loaded_generation = int(loaded_generation)
@@ -533,7 +825,11 @@ class RendererView(QWebEngineView):
         if pending_export is not None and not self._partial_preview_active:
             filepath, on_done, layout = pending_export
             self._pending_export = None
-            self.export_pdf(filepath, on_done, layout)
+            if self._render_failed_generation == generation:
+                if on_done is not None:
+                    on_done(filepath, False)
+            else:
+                self.export_pdf(filepath, on_done, layout)
         target, self._pending_scroll, self._pending_scroll_generation = (
             _pending_scroll_target(
                 self._pending_scroll,
@@ -542,7 +838,10 @@ class RendererView(QWebEngineView):
             )
         )
         if target is not None:
-            self.page().runJavaScript(f"window.scrollTo(0, {target})")
+            self.page().runJavaScript(
+                "if(window.__mdApplyReadingRestore) window.__mdApplyReadingRestore();"
+                f"else window.scrollTo(0, {target});"
+            )
         if self._pending_find and self._pending_find[0] == loaded_generation:
             _generation, text = self._pending_find
             self._pending_find = None
@@ -550,6 +849,12 @@ class RendererView(QWebEngineView):
         if self._source_line_reveal and self._source_line_reveal[0] == generation:
             self._apply_source_line_reveal(self._source_line_reveal)
         self._spy_timer.start()
+        self._finish_loading()
+        if self._render_failed_generation == generation:
+            self.render_failed.emit(generation, str(path))
+        else:
+            self._inject_annotations(True)
+            self._schedule_content_frame(generation, path)
 
     def _on_text_load_checked(self, generation: int, loaded_generation):
         try:
@@ -566,6 +871,7 @@ class RendererView(QWebEngineView):
             _generation, ratio = self._pending_ratio
             self._pending_ratio = None
             self.scroll_to_ratio(ratio)
+        self._inject_annotations(True)
 
     def set_zoom(self, factor: float):
         self._zoom_factor = max(0.5, min(3.0, factor))
@@ -619,15 +925,12 @@ class RendererView(QWebEngineView):
     def show_loading(self, path: Path):
         self._current_anchor = ""
         self._spy_timer.stop()
-        kind = document_kind(path)
-        label = "PDF" if kind == "pdf" else "Markdown"
-        self.setHtml(
-            self._state_html(
-                f"正在載入 {label}",
-                f"正在讀取：{path.name}",
-                "載入中",
-            )
+        self._loading_generation = self._render_generation
+        self._loading_shield.arm(path)
+        self.page().runJavaScript(
+            "window.__inlineEdit && window.__inlineEdit.setEnabled(false);"
         )
+        self._loading_timer.start()
 
     def load_file(
         self,
@@ -636,22 +939,28 @@ class RendererView(QWebEngineView):
         show_loading: bool = True,
     ):
         path = Path(filepath)
+        self._remember_reading_position()
         generation = self._next_render_generation()
         self._pending_find = None
         self._pending_ratio = None
         self._pending_text_base_url = None
         self._current_path = path
+        self._document_signature = self._reading_signature(path)
+        remembered = self._reading_positions.get(str(path))
+        self._pending_reading_anchor = (
+            remembered[2] if remembered and remembered[0] == self._document_signature
+            and scroll_y is not None and abs(remembered[1] - scroll_y) <= 2 else None
+        )
+        self._scroll_anchor = None
         self._scroll_y = int(scroll_y) if scroll_y else 0
         # Restore a remembered scroll position once the page finishes loading.
         self._pending_scroll = int(scroll_y) if scroll_y else None
         self._pending_scroll_generation = generation if self._pending_scroll else None
-        if show_loading:
-            self.show_loading(path)
-        else:
-            # In-place reload: keep the current page on screen until the new
-            # render is ready instead of flashing the loading placeholder.
-            self._current_anchor = ""
-            self._spy_timer.stop()
+        # Even an in-place reload blocks old-page edits while its replacement
+        # is pending. The optional hint never creates a second WebEngine page.
+        self.show_loading(path)
+        if not show_loading:
+            self._loading_timer.stop()
         self._finish_load_file(path, generation)
 
     def _finish_load_file(self, path: Path, generation: int):
@@ -706,7 +1015,13 @@ class RendererView(QWebEngineView):
         self._partial_scope_percent = int(percent)
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
         html = _html_with_render_generation(html, generation)
-        self.page().setHtml(html, base_url)
+        html = html.replace("</head>", '<meta name="markdown-viewer-render-phase" content="partial"></head>', 1)
+        html = _html_with_early_scroll(
+            html, self._pending_scroll or 0, getattr(self, "_pending_reading_anchor", None)
+        )
+        self._frame_request = None
+        self._submitted_generation = generation
+        self._set_document_html(html, base_url)
         if self._on_headings_ready:
             self._on_headings_ready(headings)
 
@@ -716,17 +1031,27 @@ class RendererView(QWebEngineView):
         path = Path(source)
         base_url = QUrl.fromLocalFile(str(path.parent) + "/")
         html = _html_with_render_generation(html, generation)
+        html = html.replace("</head>", '<meta name="markdown-viewer-render-phase" content="full"></head>', 1)
+        self._frame_request = None
+        self._render_failed_generation = (
+            generation if f'name="{_RENDER_ERROR_META}"' in html else None
+        )
         restore = self._partial_restore
         if restore is not None and restore["generation"] == generation:
             # Re-arm what the partial page consumed, and keep the reader where
             # they already scrolled to inside the prefix.
             self._pending_find = restore["pending_find"]
-            if restore["pending_scroll"] is not None:
+            if getattr(self, "_partial_user_navigated", False):
+                self._pending_scroll = self._scroll_y
+                self._pending_scroll_generation = generation
+                self._pending_reading_anchor = getattr(self, "_scroll_anchor", None)
+            elif restore["pending_scroll"] is not None:
                 self._pending_scroll = restore["pending_scroll"]
                 self._pending_scroll_generation = restore["pending_scroll_generation"]
             elif self._scroll_y > 0:
                 self._pending_scroll = self._scroll_y
                 self._pending_scroll_generation = generation
+                self._pending_reading_anchor = getattr(self, "_scroll_anchor", None)
         self._partial_restore = None
         self._partial_preview_active = False
         self._partial_scope_percent = 0
@@ -734,8 +1059,11 @@ class RendererView(QWebEngineView):
             self._pending_scroll is not None
             and self._pending_scroll_generation == generation
         ):
-            html = _html_with_early_scroll(html, self._pending_scroll)
-        self.page().setHtml(html, base_url)
+            html = _html_with_early_scroll(
+                html, self._pending_scroll, getattr(self, "_pending_reading_anchor", None)
+            )
+        self._submitted_generation = generation
+        self._set_document_html(html, base_url)
         if self._on_headings_ready:
             self._on_headings_ready(headings)
 
@@ -745,11 +1073,21 @@ class RendererView(QWebEngineView):
         # Preserve the scroll position across a reload (reload button, external
         # change, save) instead of jumping back to the top.
         if is_markdown(self._current_path):
-            self.page().runJavaScript("window.scrollY", self._reload_at_scroll)
+            generation, path = self._render_generation, self._current_path
+            self.page().runJavaScript(
+                "window.scrollY",
+                lambda scroll, generation=generation, path=path: (
+                    self._reload_at_scroll(scroll, generation, path)
+                ),
+            )
         else:
             self.load_file(self._current_path)
 
-    def _reload_at_scroll(self, scroll_y):
+    def _reload_at_scroll(self, scroll_y, generation=None, path=None):
+        if generation is not None and (
+            generation != self._render_generation or path != self._current_path
+        ):
+            return
         if self._current_path:
             self.load_file(
                 self._current_path,
@@ -770,10 +1108,7 @@ class RendererView(QWebEngineView):
         self._pending_scroll = None
         self._pending_scroll_generation = None
         self._pending_ratio = None
-        if base_url is not None:
-            self.page().setHtml(html, base_url)
-        else:
-            self.page().setHtml(html)
+        self._set_document_html(html, base_url)
 
     def render_markdown_text(
         self,
@@ -809,10 +1144,7 @@ class RendererView(QWebEngineView):
         html = _html_with_render_generation(html, generation)
         base_url = self._pending_text_base_url
         self._pending_text_base_url = None
-        if base_url is not None:
-            self.page().setHtml(html, base_url)
-        else:
-            self.page().setHtml(html)
+        self._set_document_html(html, base_url)
 
     def scroll_y(self) -> int:
         """Last polled vertical scroll position in px (0 when unknown)."""
@@ -822,6 +1154,7 @@ class RendererView(QWebEngineView):
         ratio = max(0.0, min(1.0, ratio))
         js = (
             "(function(){"
+            "window.__mdReadingRestore=null;"
             "var d=document.documentElement,b=document.body;"
             "var h=Math.max(d.scrollHeight,b.scrollHeight)-window.innerHeight;"
             f"window.scrollTo(0, h*{ratio});"
@@ -839,7 +1172,7 @@ class RendererView(QWebEngineView):
         return ""
 
     def _inject_annotations(self, ok):
-        if not ok:
+        if not ok or self._inactive:
             return
         if not self._current_path or not is_markdown(self._current_path):
             # Live/split previews deliberately skip annotation and inline-edit
@@ -862,7 +1195,10 @@ class RendererView(QWebEngineView):
             json.dumps(self._preview_dblclick_mode)
         )
         self.page().runJavaScript(
-            self._qwebchannel_js
+            "(function(){"
+            f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
+            f"if(!m || Number(m.content)!=={self._render_generation}) return;\n"
+            + self._qwebchannel_js
             + "\n"
             + self._annotations_js
             + "\n"
@@ -877,6 +1213,7 @@ class RendererView(QWebEngineView):
             + "window.__mdSearchEscapeGeneration = %d;\n"
             % self._search_escape_generation
             + boot
+            + "\n})();"
         )
 
     def set_search_escape_generation(self, generation: int):
@@ -894,6 +1231,8 @@ class RendererView(QWebEngineView):
         state rather than defaulting back to enabled.
         """
         self._inline_edit_enabled = bool(enabled)
+        if self._loaded_markdown_generation != self._render_generation:
+            return
         self.page().runJavaScript(
             "window.__inlineEdit && window.__inlineEdit.setEnabled(%s)"
             % json.dumps(self._inline_edit_enabled)
@@ -909,6 +1248,8 @@ class RendererView(QWebEngineView):
         page loaded later boots with the right state.
         """
         self._preview_dblclick_mode = "wysiwyg" if mode == "wysiwyg" else "inline"
+        if self._loaded_markdown_generation != self._render_generation:
+            return
         self.page().runJavaScript(
             "window.__inlineEdit && window.__inlineEdit.setDoubleClickMode(%s)"
             % json.dumps(self._preview_dblclick_mode)
@@ -916,6 +1257,8 @@ class RendererView(QWebEngineView):
 
     def set_annotations(self, annotations: list[dict]):
         self._annot_json = json.dumps(annotations, ensure_ascii=False)
+        if self._loaded_markdown_generation != self._render_generation:
+            return
         self.page().runJavaScript(
             "window.__annot && window.__annot.render(%s)" % json.dumps(self._annot_json)
         )
@@ -1025,6 +1368,7 @@ class RendererView(QWebEngineView):
         self._cancel_source_line_reveal()
         anchor_json = json.dumps(anchor)
         js = f"""(function() {{
+            window.__mdReadingRestore = null;
             var el = document.getElementById({anchor_json});
             if (!el) {{ return; }}
             var reduce = window.matchMedia &&
@@ -1038,6 +1382,8 @@ class RendererView(QWebEngineView):
         generation = self._render_generation
 
         def finished(result):
+            if generation != self._render_generation:
+                return
             if not result and getattr(self, "_partial_preview_active", False):
                 # Never fail silently on a partially loaded document: say what
                 # is loaded and search again once the full preview arrives.
@@ -1137,6 +1483,9 @@ class RendererView(QWebEngineView):
         )
 
     def _poll_active_heading(self):
+        generation, path = self._render_generation, self._current_path
+        if self._loaded_markdown_generation != generation or path is None:
+            return
         js = """(function() {
             var hs = document.querySelectorAll('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]');
             var active = '';
@@ -1144,14 +1493,44 @@ class RendererView(QWebEngineView):
                 if (hs[i].getBoundingClientRect().top <= 80) { active = hs[i].id; }
                 else { break; }
             }
-            return [active, window.scrollY];
+            var reading = null;
+            // Hit-test a few viewport points instead of scanning every source
+            // block on each poll of a large document.
+            var x = window.innerWidth / 2;
+            for (var y of [40, 80, 140]) {
+                var hit = document.elementFromPoint(x, y);
+                var block = hit && hit.closest('[data-src-start]');
+                if (block) {
+                    var r = block.getBoundingClientRect();
+                    reading = {line:Number(block.getAttribute('data-src-start')),offset:r.top};
+                    break;
+                }
+            }
+            return JSON.stringify([active, window.scrollY, reading, !!window.__mdReadingInteracted]);
         })()"""
-        self.page().runJavaScript(js, self._on_spy_result)
+        self.page().runJavaScript(
+            js, lambda result, generation=generation, path=path: (
+                self._on_spy_result(result, generation, path)
+            ),
+        )
 
-    def _on_spy_result(self, result):
-        if isinstance(result, (list, tuple)) and len(result) == 2:
-            anchor, scroll = result
+    def _on_spy_result(self, result, generation=None, path=None):
+        if generation is not None and (
+            generation != self._render_generation or path != self._current_path
+        ):
+            return
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (ValueError, TypeError):
+                return
+        if isinstance(result, (list, tuple)) and len(result) in (2, 3, 4):
+            anchor, scroll = result[:2]
             self._scroll_y = int(scroll or 0)
+            if len(result) >= 3:
+                self._scroll_anchor = result[2]
+            if len(result) >= 4 and self._partial_preview_active:
+                self._partial_user_navigated = bool(result[3])
         else:
             anchor = result
         anchor = anchor or ""

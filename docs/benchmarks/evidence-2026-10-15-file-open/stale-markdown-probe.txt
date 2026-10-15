@@ -1,0 +1,11 @@
+﻿Date: 2026-10-15 (Asia/Taipei)
+Environment: Python 3.13.6, PySide6 6.11.0; not aligned with requirements.lock
+Command: py -3 -X utf8 -m pytest docs/benchmarks/evidence-2026-10-15-file-open/test_stale_markdown_probe.py -q -s -p no:cacheprovider --basetemp <new TEMP path>
+Basetemp: C:\Users\USER01\AppData\Local\Temp\mdv-stale-probe-867a7190517e4c3b9b16a0906329b43f
+{"target_kind": "text", "window_current_kind": "text", "renderer_current_path": "source.md", "old_render_cancelled": false, "old_result_considered_stale": false, "toc_before": [], "toc_after": [[1, "OLD RESULT", "old-result"]], "late_old_headings_accepted": true, "scope": "controlled callback; real MainWindow and RendererView methods; browser/PDF/panel are fakes"}
+.{"target_kind": "pdf", "window_current_kind": "pdf", "renderer_current_path": "source.md", "old_render_cancelled": false, "old_result_considered_stale": false, "toc_before": [], "toc_after": [[1, "OLD RESULT", "old-result"]], "late_old_headings_accepted": true, "scope": "controlled callback; real MainWindow and RendererView methods; browser/PDF/panel are fakes"}
+.{"target_kind": "markdown", "window_current_kind": "markdown", "renderer_current_path": "target.md", "old_render_cancelled": true, "old_result_considered_stale": true, "toc_before": [], "toc_after": [], "late_old_headings_accepted": false, "scope": "controlled callback; real MainWindow and RendererView methods; browser/PDF/panel are fakes"}
+.
+3 passed in 2.85s
+
+Exit code: 0

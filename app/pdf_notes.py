@@ -10,6 +10,8 @@ highlights — pinned to the exact selected glyphs — live separately in
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +59,20 @@ class PdfNote:
 
 
 class PdfNoteStore:
+    _opening_snapshot: ContextVar = ContextVar("pdf_opening_sidecar", default=None)
+
+    @classmethod
+    @contextmanager
+    def scoped_read(cls, pdf_path):
+        """Share one read during open; never cache data across later edits."""
+        path = Path(pdf_path).resolve()
+        data = cls._read_sidecar(path)
+        token = cls._opening_snapshot.set((path, data))
+        try:
+            yield
+        finally:
+            cls._opening_snapshot.reset(token)
+
     @staticmethod
     def sidecar_path(pdf_path) -> Path:
         p = Path(pdf_path)
@@ -65,6 +81,9 @@ class PdfNoteStore:
     @classmethod
     def _read_sidecar(cls, pdf_path) -> dict:
         """Load the raw sidecar dict, quarantining a corrupt file to ``.bak``."""
+        snapshot = cls._opening_snapshot.get()
+        if snapshot is not None and snapshot[0] == Path(pdf_path).resolve():
+            return snapshot[1]
         path = cls.sidecar_path(pdf_path)
         if not path.exists():
             return {}

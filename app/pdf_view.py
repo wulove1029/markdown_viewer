@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from math import ceil, floor
 from pathlib import Path
+from time import perf_counter
 
 from PySide6.QtCore import (
     QElapsedTimer,
@@ -188,10 +189,15 @@ class PdfView(QAbstractScrollArea):
     page_note_requested = Signal(int)  # page under the context menu, 0-based
     status_message = Signal(str)
     pen_mode_changed = Signal(bool)
+    # Emitted after the requested reading page's pixels were actually drawn.
+    first_raster_painted = Signal(int, object, int, bool)
 
     PAGE_MARGIN = 12   # gutter around the page column (px)
     PAGE_SPACING = 12  # gap between pages (px)
     _CACHE_BUDGET_BYTES = 192 * 1024 * 1024
+    _PREVIEW_BUDGET_BYTES = 32 * 1024 * 1024
+    _GEOMETRY_BATCH_MS = 5
+    _GEOMETRY_EAGER_PAGES = 128
     _RENDER_IDLE_MS = 120
     _RENDER_DISPATCH_MS = 0
     _TILE_SIZE = 512  # physical pixels
@@ -213,6 +219,7 @@ class PdfView(QAbstractScrollArea):
         self._search.countChanged.connect(self._on_search_count)
 
         self._path: Path | None = None
+        self._geometry_signature = None
         self._theme: Theme = LIGHT
         self._password = ""      # open-password accepted for the current file
         self._locked = False     # encrypted file left unopened (needs password)
@@ -279,6 +286,14 @@ class PdfView(QAbstractScrollArea):
         self._scale = 1.0
         self._pending_page: int | None = None
         self._current_page = 0
+        self._geometry_pending: set[int] = set()
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.timeout.connect(self._complete_geometry_batch)
+        self._geometry_scale_width: float | None = None
+        self._readable_page = 0
+        self._readable_generation = -1
+        self._reused_preview_pages: set[int] = set()
 
         # --- selection ---
         self._dragging = False
@@ -349,7 +364,8 @@ class PdfView(QAbstractScrollArea):
         # then replace it with exact full-page or visible-tile images produced
         # off the GUI thread.  The byte-budgeted cache can later store texture
         # handles instead of QPixmaps when the compositor moves to RHI.
-        self._cache = PdfRenderCache(self._CACHE_BUDGET_BYTES)
+        self._cache = PdfRenderCache(self._CACHE_BUDGET_BYTES - self._PREVIEW_BUDGET_BYTES)
+        self._document_previews = PdfRenderCache(self._PREVIEW_BUDGET_BYTES)
         self._render_scheduler = PdfRenderScheduler(self, max_inflight=2)
         self._render_scheduler.rendered.connect(self._on_rendered_image)
         self._render_scheduler.capacity_available.connect(
@@ -379,13 +395,27 @@ class PdfView(QAbstractScrollArea):
         self.horizontalScrollBar().setSingleStep(40)
 
     # ================= loading =================
-    def load(self, path) -> bool:
+    def load(self, path, *, restore_page: int = 0, force_reload: bool = False) -> bool:
         """Load *path*, prompting for a password when the PDF is encrypted.
 
         Returns True when the document opened; False when it is still locked —
         the user cancelled the prompt or the file could not be read.
         """
         path = Path(path)
+        if self._geometry_pending and self._geometry_signature is not None:
+            # Rapid tab switches may happen before the idle geometry batches.
+            # Retain known sizes so revisiting does not reopen the same PDFium
+            # page tree just to discover the reading page's dimensions again.
+            pdf_metadata_cache.put_partial_sizes(
+                self._geometry_signature, self._page_sizes, self._geometry_pending,
+            )
+        if force_reload or path == self._path:
+            self.invalidate_cached_document(path)
+        self._geometry_timer.stop()
+        self._geometry_pending.clear()
+        self._geometry_scale_width = None
+        self._readable_page = max(0, int(restore_page))
+        self._reused_preview_pages.clear()
         # Preserve the final wheel delta when a reload or tab switch happens
         # before the short frame timer has fired.
         self.flush_pending_wheel_zoom()
@@ -418,7 +448,7 @@ class PdfView(QAbstractScrollArea):
         # A page-restore request belongs to the file being loaded; never let a
         # previous (e.g. cancelled-encrypted) file's pending page leak into this
         # one and scroll it to the wrong page.
-        self._pending_page = None
+        self._pending_page = self._readable_page
         err = self._authenticate_and_load(candidate)
         if err == QPdfDocument.Error.None_:
             self._render_backend_ready = self._render_scheduler.begin_document(
@@ -426,6 +456,7 @@ class PdfView(QAbstractScrollArea):
                 path,
                 self._password,
             )
+            self._restore_document_previews(self._readable_page)
             self._schedule_render_dispatch()
             return True
         # Failed to open. Distinguish "needs a password" (cancelled encrypted
@@ -437,6 +468,27 @@ class PdfView(QAbstractScrollArea):
         self._relayout()
         self.viewport().update()
         return False
+
+    def invalidate_cached_document(self, path) -> None:
+        """Explicit reload/watcher/write invalidation, including same-stat files."""
+        path = Path(path)
+        self._document_previews.invalidate_document(pdf_metadata_cache.path_key(path))
+        pdf_metadata_cache.invalidate(path)
+
+    @staticmethod
+    def _preview_options():
+        # Theme and sidecar/embedded annotations are overlays, never in pixels;
+        # PDF rotation is part of the source signature, with no UI rotation.
+        return ("pdfium", 1, "white-page", "no-annotations", "source-rotation")
+
+    def _restore_document_previews(self, page):
+        for pixmap, byte_size, meta in self._document_previews.restore_previews(
+            self._geometry_signature, self._preview_options(), page,
+            self._load_generation, self._dpr100(),
+        ):
+            key = self._preview_render_key(page, meta.page_px, meta.dpr100)
+            if self._cache.put(key, pixmap, byte_size, meta):
+                self._reused_preview_pages.add(page)
 
     def _authenticate_and_load(self, candidate: str):
         """Load the document, looping a password prompt while it stays locked.
@@ -497,15 +549,32 @@ class PdfView(QAbstractScrollArea):
         if status != QPdfDocument.Status.Ready:
             return
         count = self._doc.pageCount()
+        self._readable_page = min(self._readable_page, max(0, count - 1))
         key = getattr(self, "_geometry_signature", None)
-        cached = pdf_metadata_cache.get_sizes(key, count)
+        cached = pdf_metadata_cache.get_partial_sizes(key, count)
         if cached is not None:
-            self._page_sizes = [QSizeF(w, h) for w, h in cached]
-        else:
-            # TODO(docs/upgrades/2026-09-21-remaining-work.md): Stage cold page geometry.
+            fallback = next((size for size in cached if size is not None), (595.0, 842.0))
+            self._page_sizes = [QSizeF(*(size or fallback)) for size in cached]
+            self._geometry_pending = {index for index, size in enumerate(cached) if size is None}
+            self._ensure_page_geometry(self._readable_page)
+            if count > self._GEOMETRY_EAGER_PAGES:
+                self._geometry_scale_width = self._page_sizes[0].width()
+        elif count <= self._GEOMETRY_EAGER_PAGES:
             self._page_sizes = [self._doc.pagePointSize(i) for i in range(count)]
             if self._path and pdf_metadata_cache.signature(self._path) == key:
                 pdf_metadata_cache.put_sizes(key, self._page_sizes)
+        else:
+            # Keep QPdfDocument on the GUI thread. Start with the reading page
+            # and neighbours, and yield between bounded geometry batches.
+            first = self._doc.pagePointSize(self._readable_page)
+            self._page_sizes = [QSizeF(first) for _ in range(count)]
+            self._geometry_pending = set(range(count))
+            self._ensure_page_geometry(self._readable_page)
+            # A stable reference page gives the same fit scale on later returns
+            # even when the saved reading page has a different paper size.
+            self._page_sizes[0] = self._doc.pagePointSize(0)
+            self._geometry_pending.discard(0)
+            self._geometry_scale_width = self._page_sizes[0].width()
         self._cache.clear()
         self._text_bounds.clear()
         self._page_texts.clear()
@@ -520,10 +589,48 @@ class PdfView(QAbstractScrollArea):
     def restore_page(self, page0: int) -> None:
         """Jump to *page0* now if loaded, otherwise once the document is ready."""
         page0 = max(0, int(page0))
+        if self._readable_generation != self._load_generation:
+            self._readable_page = min(page0, max(0, len(self._page_sizes) - 1))
         if self._doc.status() == QPdfDocument.Status.Ready and self._page_tops:
             self.jump_to_page(page0)
         else:
             self._pending_page = page0
+
+    def _ensure_page_geometry(self, page):
+        changed = False
+        for index in range(max(0, page - 2), min(len(self._page_sizes), page + 4)):
+            if index in self._geometry_pending:
+                self._page_sizes[index] = self._doc.pagePointSize(index)
+                self._geometry_pending.discard(index)
+                changed = True
+        return changed
+
+    def _complete_geometry_batch(self):
+        if not self._geometry_pending or self._doc.status() != QPdfDocument.Status.Ready:
+            return
+        page = self.current_page()
+        old_scale = self._scale
+        y_point = (self.verticalScrollBar().value() - self._page_tops[page]) / old_scale
+        x_point = (self.horizontalScrollBar().value() - self._page_lefts[page]) / old_scale
+        self._ensure_page_geometry(page)
+        deadline = perf_counter() + self._GEOMETRY_BATCH_MS / 1000
+        while self._geometry_pending and perf_counter() < deadline:
+            index = self._geometry_pending.pop()
+            self._page_sizes[index] = self._doc.pagePointSize(index)
+        # Block transient scrollbar notifications while preserving page/point.
+        vbar, hbar = self.verticalScrollBar(), self.horizontalScrollBar()
+        old_v, old_h = vbar.blockSignals(True), hbar.blockSignals(True)
+        self._relayout()
+        vbar.setValue(round(self._page_tops[page] + y_point * self._scale))
+        hbar.setValue(round(self._page_lefts[page] + x_point * self._scale))
+        vbar.blockSignals(old_v)
+        hbar.blockSignals(old_h)
+        self.viewport().update()
+        self._schedule_render_dispatch()
+        if self._geometry_pending:
+            self._geometry_timer.start(16)
+        elif self._path and pdf_metadata_cache.signature(self._path) == self._geometry_signature:
+            pdf_metadata_cache.put_sizes(self._geometry_signature, self._page_sizes)
 
     # ================= layout =================
     def _relayout(self) -> None:
@@ -540,7 +647,10 @@ class PdfView(QAbstractScrollArea):
             return
         vpw = max(1, self.viewport().width())
         max_w = max((s.width() for s in self._page_sizes), default=1.0) or 1.0
-        base = (vpw - 2 * self.PAGE_MARGIN) / max_w
+        # Freezing fit width while progressively discovering wider pages avoids
+        # repeated automatic zoom changes in mixed-paper-size documents.
+        fit_width = self._geometry_scale_width or max_w
+        base = (vpw - 2 * self.PAGE_MARGIN) / fit_width
         self._scale = max(0.05, base) * self._zoom_factor
         scale = self._scale
         content_w = max(vpw, int(max_w * scale) + 2 * self.PAGE_MARGIN)
@@ -1047,6 +1157,10 @@ class PdfView(QAbstractScrollArea):
             int(image.sizeInBytes()),
             meta,
         ):
+            self._document_previews.remember_preview(
+                self._geometry_signature, self._preview_options(), pixmap,
+                int(image.sizeInBytes()), meta,
+            )
             self._failed_render_keys.discard(spec.key)
             self.viewport().update()
         self._pump_render_queue()
@@ -1170,6 +1284,7 @@ class PdfView(QAbstractScrollArea):
         oy = self.verticalScrollBar().value()
         vp_h = self.viewport().height()
         content_page_seen = False
+        readable_seen = False
         for p in range(len(self._page_sizes)):
             top = self._page_tops[p]
             w, h = self._page_pix[p]
@@ -1177,12 +1292,20 @@ class PdfView(QAbstractScrollArea):
             if sy + h < 0 or sy > vp_h:
                 continue
             sx = self._page_lefts[p] - ox
-            content_page_seen = self._paint_page_raster(
-                painter, p, sx, sy, w, h
-            ) or content_page_seen
+            painted = self._paint_page_raster(painter, p, sx, sy, w, h)
+            content_page_seen = painted or content_page_seen
+            readable_seen = readable_seen or (painted and p == self._readable_page)
             self._paint_overlays(painter, p, ox, oy)
         self._paint_popup_leaders(painter)
         painter.end()
+        if readable_seen and self._readable_generation != self._load_generation:
+            self._readable_generation = self._load_generation
+            self.first_raster_painted.emit(
+                self._load_generation, self._path, self._readable_page,
+                self._readable_page in self._reused_preview_pages,
+            )
+            if self._geometry_pending:
+                self._geometry_timer.start(16)
         self._schedule_render_dispatch()
         if (
             self._doc.status() == QPdfDocument.Status.Ready
@@ -2239,6 +2362,9 @@ class PdfView(QAbstractScrollArea):
         if not self._page_tops:
             return
         page0 = max(0, min(int(page0), len(self._page_tops) - 1))
+        if self._ensure_page_geometry(page0):
+            self._relayout()
+        self._restore_document_previews(page0)
         self.verticalScrollBar().setValue(
             max(0, int(self._page_tops[page0]) - self.PAGE_MARGIN)
         )

@@ -1,0 +1,8 @@
+Independent review final — 2026-10-15
+獨立審查結論：未發現尚未修正的交付阻擋問題。
+已 read-back root 最終修正：_leave_wysiwyg_ui_keeping_buffer 已 load_file(current_file, scroll_y=state.scroll) + request_metadata；_leave_edit_ui 在 persist_state=True 時恢復 load_file + metadata，並取消 _edit_preview。Office parked / source exit 的 renderer identity 問題已解決。
+獨立實跑：test_independent_acceptance.py，2 passed, 1 warning in 38.88s，exit code 0。
+命令：py -3.13 -B -X pycache_prefix=C:/Windows/Temp/markdown-viewer-independent-no-pyc -X utf8 -u -m pytest docs/upgrades/evidence-2026-10-15-file-open-implementation/test_independent_acceptance.py -q -o faulthandler_timeout=20
+驗證：大型 TXT pending 無法誤存上一份 dirty buffer；真實非同步讀取／分批 document construction 跨檔取消後返回完整文字，且為 clean 文件。警告為 pytest cache WinError 5。
+限制：properties panel 仍是延後同步讀取，不可宣稱全面背景化；整體效能、全套回歸及打包結果以 root 可追溯證據為準。
+原 independent-implementation-review.txt 的 Add-Content 程序 PID29984 卡住且 Stop-Process 後仍持鎖，本檔保存最終結果，避免覆寫或刪除被鎖檔案。其他測試探測均已停止或正常結束。

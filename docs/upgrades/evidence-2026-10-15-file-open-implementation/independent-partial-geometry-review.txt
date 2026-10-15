@@ -1,0 +1,9 @@
+2026-10-15 獨立補充審查：PDF partial geometry cache
+結論：通過，未發現阻擋問題。
+檢視 app/pdf_metadata_cache.py、app/pdf_view.py 與 test_rapid_return_preserves_partial_geometry_without_reopening_known_pages。
+load 先保存原文件已知尺寸，隨後 force_reload / 同路徑 reload 明確 invalidate，故不會用剛寫入的舊尺寸滿足強制重載。
+外部修改由包含 mtime / size / ctime / inode / Windows ChangeTime 的 signature 區隔；partial 僅保存舊 signature，不能命中新版。
+未讀尺寸存 None，get_sizes 拒絕任何含 None 的 entry；get_partial_sizes 保留 pending 狀態。還原時只查詢閱讀頁附近尚未取得的尺寸。
+完整及部分尺寸共用既有 _SIZES LRU、最多 8 文件 / 50000 頁；沒有額外無界 cache。
+獨立純 Python 實跑 exit 0：PASS partial-not-full, version rejection, invalidate, combined LRU bounds, complete publication。
+根代理執行 GUI regression 與 benchmark，本補充不代替其數據。

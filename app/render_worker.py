@@ -20,6 +20,7 @@ from pathlib import Path
 
 
 def _serve_connection(sock: socket.socket) -> None:
+    from .document_metadata import extract_metadata
     from .md_converter import RenderCancelled, read_text, render_body
     from .render_service import recv_frame, send_frame
 
@@ -35,7 +36,7 @@ def _serve_connection(sock: socket.socket) -> None:
         if op == "shutdown":
             return
         try:
-            if op == "render_file":
+            if op in ("render_file", "metadata_file"):
                 path = request.get("path")
                 try:
                     result = read_text(Path(path))
@@ -50,9 +51,11 @@ def _serve_connection(sock: socket.socket) -> None:
                     send_frame(sock, {"ok": False, "error":
                                       f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{Path(path).name}"})
                     continue
-                body = render_body(result[0])
-            elif op == "render_text":
-                body = render_body(request.get("text") or "")
+                body = (extract_metadata(result[0]) if op == "metadata_file"
+                        else render_body(result[0]))
+            elif op in ("render_text", "metadata_text"):
+                text = request.get("text") or ""
+                body = extract_metadata(text) if op == "metadata_text" else render_body(text)
             elif op == "ping":
                 send_frame(sock, {"ok": True, "body": None})
                 continue

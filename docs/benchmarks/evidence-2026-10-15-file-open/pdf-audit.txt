@@ -1,0 +1,76 @@
+PDF 開檔／切檔唯讀查核證據（2026-10-15，Asia/Taipei）
+
+範圍
+- 使用者重點：程式已開啟後換檔、切換分頁的順暢度。
+- 本檔保存程式查核、既有測試與單次合成探測；未更動應用程式。
+- 下列單次時間不是 P50/P95、不是 first paint，也不是實體桌面驗收。
+
+環境
+- 工作目錄 E:\markdown_viewer，PowerShell。
+- Python 3.14.4 (tags/v3.14.4:23116f9, Apr 7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]。
+- Windows-11-10.0.26200-SP0；PySide6 6.11.0。
+- 測試由 tests/conftest.py 設 QT_QPA_PLATFORM=offscreen；探測亦明確設 offscreen。
+
+已實跑既有測試
+命令：
+py -3 -X utf8 -m pytest tests/test_pdf_view.py tests/test_pdf_async_rendering.py tests/test_pdf_render_scheduler.py tests/test_pdf_password.py tests/test_upgrade_performance.py -q
+結果：exit 0；47 passed, 1 warning in 3.39s。
+warning 原文：PytestCacheWarning: could not create cache path E:\markdown_viewer\.pytest_cache\v\cache\nodeids: [WinError 183] 當檔案已存在時，無法建立該檔案。: 'E:\\markdown_viewer\\.pytest_cache\\v\\cache'
+限制：其中非同步 canvas tests 使用 fake scheduler；確認行為契約，不代表使用者桌面沒有卡頓。
+
+單次合成 PdfView.load 探測（成功的第二次執行）
+- 以 PyMuPDF 建立 100／1000／3000 頁空白 PDF；同一程序先清 geometry cache 再 cold load，同一文件立即再 warm load。
+- 不執行 event loop／first paint，不建立 MainWindow，因此不含 sidecar、writable_reason 或完整 open_path。
+- PyMuPDF 已因建立樣本而 import，無法由此量測其首次 import 成本。
+- 成功執行 exit 0；每個組合僅一個樣本，順序及 OS file cache 未控制。
+100 頁：cold geometry 22.996 ms；warm geometry 6.637 ms。
+1000 頁：cold geometry 85.034 ms；warm geometry 41.763 ms。
+3000 頁：cold geometry 174.695 ms；warm geometry 99.347 ms。
+- 可重現程式：pdf-load-probe.py。保存的是成功 inline probe 的等價腳本，補上從檔案執行必要的 repo sys.path；此保存版本未另行重跑。
+- 可重現命令：py -3 -X utf8 docs/benchmarks/evidence-2026-10-15-file-open/pdf-load-probe.py
+
+已證實的現行程式行為（不是耗時結論）
+1. A→B→A 仍重載共用 viewer：app/window.py 的 _activate_tab → _load_document → _open_pdf；app/pdf_flow.py:37 呼叫 PdfView.load。
+   app/pdf_view.py:393 重設 pipeline 並 clear_cache=True，:412-414 清 raster／文字 bounds／page text；:394 新增 generation；:479 再 QPdfDocument.load。
+   app/pdf_render_scheduler.py:70-79 另開第二個 QPdfDocument 作 immutable render snapshot；舊 session 在 :177-189 排空後關閉。
+   因此切回 A 不會直接沿用已渲染 A 頁面；這是確定機制，實際體感成本仍需 A→B→A 完整量測。
+2. 已有 geometry cache：app/pdf_view.py:501；app/pdf_metadata_cache.py:5-6 限 50000 頁／8 文件，:9-15 以 path/stat 簽章失效。
+   cache miss 仍在 Ready callback 同步逐頁 pagePointSize（app/pdf_view.py:506）；warm cache 只省尺寸讀取，不省兩次文件 load、全頁 layout 及 raster 重建。
+3. open_pdf 首屏返回前仍同步呼叫 writable_reason：app/pdf_flow.py:71、:323 → app/pdf_annotation_writer.py:137、:148。
+   其中 _pymupdf() 可在第一次使用時 import，隨後 mupdf.open/can_save_incrementally；是否為主要瓶頸尚未量測。
+4. notes/highlights/tags 在 open_pdf:54-65 同步載入；PdfNoteStore._read_sidecar 每次 exists/read_text/json.loads（app/pdf_notes.py:66-91）。
+   文件標籤的 facade 又讀同一 notes sidecar（app/doc_tags.py:31-37；app/tag_flow.py:38）；有合併讀取機會，遠端 I/O 放大量仍待測。
+5. 可見頁查找與 paint 仍迴圈掃全部頁數：app/pdf_view.py:772-780、:1173-1178。可評估 bisect，但不是目前已證實主因。
+
+不要重複排程的已完成改善
+- QPdfPageRenderer 使用 MultiThreaded（app/pdf_render_scheduler.py:79）；paint 不同步 render，已有 tests/test_pdf_async_rendering.py:145 保護。
+- 首個真實 raster paint 後才送 outline worker（app/pdf_view.py:1187-1196）；embedded annotations 再延後，且有 generation/path guard（:2296-2333）。
+- 16 ms wheel 合併、120 ms exact-render idle、保留縮放 preview、可見 tile 優先、每個 session 最多 2 in-flight requests，皆已有測試。
+- PDF 頁面尺寸記憶體 cache 已存在，但沒有解決首次 cold geometry。
+- TagIndex 無內容改變就不存（app/tag_index.py:91-92）；app/window.py:341-342 啟用 250 ms debounce。8 月報告「每次開 PDF 無條件重寫索引」已過時。
+
+A→B→A 改善方案與風險（待實作，不宣稱已完成）
+- 優先：在目前共用 viewer 外加有限文件／頁面 preview cache，使用文件簽章、頁碼、DPR、尺寸與註解版本識別；切回先顯示已驗證 preview，再補精確 raster。
+  需先解開現有 raster key 對 load generation 的依賴，同時保留晚到結果的 generation guard；不能只取消 clear_cache，否則會有跨檔錯圖。
+- 其次：快取 outline 與註解 metadata，且 writable_reason 移至首屏後背景檢查，等待期間停用寫入並清楚顯示檢查中。
+  原件替換、外部修改、sidecar 更新與 reload 必須失效；註解真正寫入仍需重驗，不能以舊 capability 結果做寫入授權。
+- 較大選項：只保留最近 2-3 個 PDF session/viewer，切回免重載；優點最直接，代價是文件 handles、搜尋／密碼 state、render worker 與記憶體生命週期更複雜。
+  現行每個 view raster budget 192 MiB（pdf_view.py:194），若直接每 tab 一個 view 會隨頁籤倍增；必須跨文件總預算及 LRU eviction，關閉時釋放 Windows 檔案 handle。
+- 頁碼／縮放、暗色主題、DPR、旋轉／混合尺寸、加密 PDF、外部覆寫、同檔 reload、PDF→Markdown、快速 A→B→A 與舊 worker 晚到，均須納入正確性驗收。
+- 先依完整量測決定優先順序，避免只看到 cold geometry 就忽略使用者最常遇到的 warm tab switching。
+
+建議量測設計
+- 分程式已開啟的新 PDF、A→B→A、不同頁碼恢復、快速連續切檔；process-cold 另外列，不混為一談。
+- 量入口→首個實際內容 paint（content_page_seen），入口→可互動、16 ms heartbeat 最大 gap/P95、metadata-ready，以及切 20 輪的 RSS/handles。
+- 30 次以上重複與 warm-up 分離；混合尺寸／圖像或複雜向量／大量書籤或註解／本機與實際慢磁碟分組。
+- 對目前 app/pdf_view.py:1187-1196 seam 加觀測，不以 open_path 返回或白底 paint 當首屏。
+- tests/test_pdf_password.py、test_pdf_view.py、test_pdf_async_rendering.py、test_pdf_render_scheduler.py、test_upgrade_performance.py 提供回歸保護。
+- tools/benchmark_layout.py:36 明確排除 first paint，:62-71 連載同檔 30 次未逐輪清 geometry cache，中位主要是 warm load，不能當 cold baseline。
+- tools/preview_pdf_reading_tools.py 與 tools/verify_session_restart.py 可支援真視窗及頁碼恢復驗證；不是現成首屏效能工具。
+
+失敗及環境副作用紀錄
+- 第一次 inline 探測執行 exit 1：TemporaryDirectory cleanup 時 view.close() 未釋放所有 Qt PDF 文件 handles，對 100.pdf 得到 PermissionError [WinError 32]。
+- 後續實驗程式改為明確 close 主文件與 scheduler session.document，接著 shiboken6.delete(view)，第二次執行成功 exit 0；沒有修改應用程式。
+- 首次實驗暫存目錄：C:\Users\USER01\AppData\Local\Temp\mdv-pdf-open-audit-54rq8roc。
+- 曾以同一 PowerShell 確認 Resolve-Path 等於該絕對路徑，擬列出內容並 Remove-Item -LiteralPath ... -Recurse -Force；整個工具呼叫在執行前被自動審核拒絕，回報 blocked by policy，故路徑驗證／列目錄也未執行。
+- 未以其他工具繞過；該首次暫存目錄可能仍存在。成功探測自身的暫存清理由 TemporaryDirectory 正常完成。

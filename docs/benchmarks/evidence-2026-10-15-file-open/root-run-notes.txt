@@ -1,0 +1,27 @@
+查核日期：2026-10-15（Asia/Taipei）
+Repository：E:\markdown_viewer
+HEAD：6914c03；app/version.py：1.34.0
+交付：改善計畫與診斷證據，未更動 app、tests 或既有 tools。
+
+根 agent 執行環境：PY_PYTHON3=3.13，Python 3.13.6，PySide6 6.11.0。
+完整依賴不等於 requirements.lock；PDF 子任務另用 Python 3.14.4，詳 pdf-audit.txt。
+
+Markdown 元件 benchmark（成功）：
+py -3 -X utf8 tools/benchmark_markdown_first_load.py --sizes '100kb,1mb' --categories 'long_prose,code_heavy' --warm-reps 5 --switch-reps 3 --contention-reps 1 --first-readable-reps 3 --skip-webengine --skip-gui --skip-memory --tmp-dir tmp/bench-file-open-2026-10-15 --output docs/benchmarks/evidence-2026-10-15-file-open/markdown-components.json
+exit 0；完整輸出 markdown-components.log。
+重要：warm_reopen_once 每次清 _CONVERT_CACHE；不代表熱門分頁返回，不是端到端首屏。
+未測 WebEngine、GUI heartbeat、memory；cold 每組僅一次、warm 每組五次。
+首次未將 --sizes 字串引號包住，被 PowerShell 轉成數字而 exit 1；保留 markdown-components-argv-error.log。
+
+同步標籤擷取（成功）：
+py -3 -X utf8 docs/benchmarks/evidence-2026-10-15-file-open/tag_scan_probe.py
+exit 0；輸出 tag-scan.json、tag-scan.log。
+100 KB：n=5，total p50=6.9423 ms，max=22.3985 ms。
+1 MB：n=5，total p50=80.6142 ms，max=86.8711 ms。
+5 MB：n=5，total p50=367.2177 ms，max=444.6378 ms。
+上述尺寸是 base synthetic prose；每份另加 12 bytes 的空行與 #probetag，實際 bytes 見 JSON。
+首次 probe 用 #probe_tag，斷言失敗 exit 1；查現有 hashtag 規則後改用 #probetag，未更動產品規則。
+此 probe 量測 read_text + parse_front_matter + front_matter_tags + body_hashtags，不含 tag index、panel 或 MainWindow，不能把測量值直接當整體改善收益。
+
+三份 .log 最初由 PowerShell 轉向輸出成 UTF-16，已無損轉存 UTF-8 並 read-back 成功；JSON 與保存腳本均 UTF-8。
+本次測試分組有重疊，不將 54 + 47 + 3 當成不重複的總測試數。

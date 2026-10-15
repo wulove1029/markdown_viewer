@@ -25,6 +25,9 @@ def renderer_stub():
         _pending_scroll=None, _pending_scroll_generation=None,
         _current_path=Path("note.md"),
         _spy_timer=SimpleNamespace(start=lambda: None, stop=lambda: None),
+        _finish_loading=lambda: None, _render_failed_generation=None,
+        _inject_annotations=lambda _ok: None,
+        _schedule_content_frame=lambda _generation, _path: None,
         page=lambda: page,
     )
     stub._apply_source_line_reveal = lambda request: RendererView._apply_source_line_reveal(stub, request)

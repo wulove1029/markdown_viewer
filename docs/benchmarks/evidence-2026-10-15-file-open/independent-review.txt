@@ -1,0 +1,41 @@
+獨立 read-back 驗收紀錄
+日期：2026-10-15（Asia/Taipei）
+Reviewer：fresh agent /root/plan_independent_review
+Repository：E:\markdown_viewer；HEAD 6914c03；版本 1.34.0
+交付物：docs/2026-10-15-file-open-smoothness-plan.md
+結論：修正明確文件錯誤後通過。這是改善計畫的驗收，並非效能改善已完成。
+
+驗收範圍與方式
+- 完整 read-back 計畫兩次，並讀取 markdown-tests.txt、stale-markdown-probe.txt、pdf-audit.txt、root-run-notes.txt、兩份 JSON、三份探測 Python 腳本及成功 log 結尾。
+- 逐一核對關鍵程式行號與現況：window、renderer、tag_flow、pdf_flow、pdf_view、pdf_annotation_writer、md_converter、file_browser；核對 main.py 的延後匯入與事件式 IPC，以及既有 remaining-work 記錄。
+- 唯讀 Python 查核 exit 0：引用的原始碼、測試與工具路徑存在；三份探測腳本 ast.parse 成功；兩份 JSON 可解析。
+- 從原始 samples 重新計算標籤三組中位數／最大值、1 MB code-heavy 中位數，與計畫一致；不是重跑效能測試。
+- read-back 證據資料夾中的既存文字檔可用 UTF-8(-sig) 解碼，包含根 agent 已轉存的 .log。
+- git status 僅顯示新增計畫及證據資料夾；根 agent 的唯讀 git diff --name-only 亦為空。未修改 app、既有 tests 或 tools；本 reviewer 只修改計畫並新增本檔。
+
+已修正的文件錯誤
+1. _load_document 為 app/window.py:4576，更新標籤 :4613，啟動預覽 :4619；tag_flow 全文讀取 :49，body_hashtags :53（原列 :58 為索引參數）。
+2. _activate_tab 為 window.py:4415；RendererView.load_file :632；stale guard :673；還原編輯文件為 window.py:4663，TXT 讀檔／建文件為 :3697／:3710。
+3. PDF view.load 呼叫為 pdf_flow.py:37，pipeline reset 為 pdf_view.py:393，raster cache clear 為 :412，sidecar 同步工作從 pdf_flow.py:54 起。
+4. PDF 測試實為五模組，與 Markdown 組重複 test_upgrade_performance.py；不以 54 + 47 + 3 宣稱不重複的測試總數。
+5. Markdown／標籤環境為 Python 3.13.6；PDF 為 Python 3.14.4。PySide6 均為 6.11.0，均不代表 requirements.lock 的發布環境。
+6. PDF 探測樣本為合成空白頁，非文字頁；174.70／99.35 ms 僅代表單次 PdfView.load，不含 first raster paint 或 MainWindow 附屬工作。
+7. 工期精確加總為 5.5–10 日（排程抓 6–10 日），P0＋P1 為 1.5–3 日（排程抓 2–3 日）。
+8. body cache 已保存 headings；P2 明定重用，避免把既有功能列作新增工作。
+
+證據重算摘要
+- 標籤一般文章：100 KB n=5，p50 6.94 ms；1 MB n=5，p50 80.61 ms；5 MB n=5，p50 367.22 ms、max 444.64 ms。
+- Markdown code-heavy/1mb：n=5，p50 2757.83 ms。benchmark warm_reopen_once 每次清除 body cache，不是熱門分頁快取命中結果。
+- 測試記錄：Markdown 54 passed／1.72 s／exit 0；PDF 47 passed／3.39 s／exit 0，1 warning；受控 stale probe 3 passed／2.85 s／exit 0。
+- stale probe 使用真實切換／generation／ready 方法配合 browser、PDF、TOC spies，斷言確認 TXT/PDF 接受舊 headings、MD 對照拒絕。PASS 代表重現現況，不代表問題已修復，也不代表自然操作發生率。
+
+可執行性與必要保留
+- 分期有依賴、量測點、樣本、驗收門檻與回退條件；P0 校正排序，P1 先處理同步標籤及跨格式失效，P2/P3 分開交付，P4 才做完整回歸與打包驗收，符合使用者聚焦已啟動後換檔／切分頁的要求。
+- 既有背景 Markdown 解析、部分預覽、body cache、PDF 排程／geometry cache／延後大綱、背景文件樹均保留，未重複當成尚未實作。
+- 無完整實體桌面首屏／GUI／打包基線；p95、30% 改善與毫秒門檻均屬後續目標。現有少量合成元件量測只能支持診斷排序，不保證整體改善幅度。
+- PDF 保存的可重跑腳本是成功 inline probe 的等價保存版，新增 repo sys.path 後未再實跑；本次只做 AST 檢查。完整限制已於 pdf-audit.txt 明載。
+- PDF 首次探測殘留暫存目錄及清理自動審核拒絕已記於 pdf-audit.txt；未重試或繞過。
+- 工期為單人粗估；完整 MainWindow 量測與效能數據可能改變排序／估時，較重多 WebEngine page／虛擬化方案另估。
+- 未儲存 buffer、Office live snapshot、undo、草稿、跨檔 token、快取失效／容量、PDF 密碼與註解安全條件齊備。使用者只要求計畫，本輪未進入產品實作。
+
+全部必要驗收條件已核對，計畫的獨立 read-back 項目可標記通過。

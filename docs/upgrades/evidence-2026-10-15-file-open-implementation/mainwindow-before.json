@@ -1,0 +1,2226 @@
+{
+  "root": "E:\\markdown_viewer\\tmp\\file-open-source",
+  "label": "baseline",
+  "python": "3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 100000,
+  "category": "long_prose",
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 130.18539999757195,
+      "ready_ms": 911.5246000001207,
+      "full_ready_ms": 914.1968000003544,
+      "max_ui_gap_ms": 174.27289999977802,
+      "full_max_ui_gap_ms": 174.27289999977802,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008700000762473792
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 23.897999999462627
+        },
+        {
+          "method": "load_file",
+          "ms": 3.4826000010070857
+        },
+        {
+          "method": "_load_document",
+          "ms": 118.75899999722606
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 118.89520000113407
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 72.7748999997857,
+      "ready_ms": 239.1263000026811,
+      "full_ready_ms": 243.03140000120038,
+      "max_ui_gap_ms": 76.6829999993206,
+      "full_max_ui_gap_ms": 76.6829999993206,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032999996619764715
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 15.584499997203238
+        },
+        {
+          "method": "load_file",
+          "ms": 7.289699999091681
+        },
+        {
+          "method": "_load_document",
+          "ms": 71.36500000342494
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 71.6203999982099
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 29.676799997105263,
+      "ready_ms": 158.74029999758932,
+      "full_ready_ms": 161.53959999792278,
+      "max_ui_gap_ms": 32.356899999285815,
+      "full_max_ui_gap_ms": 32.356899999285815,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0022999993234407157
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.875000000349246
+        },
+        {
+          "method": "load_file",
+          "ms": 3.291400000307476
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.127300000254763
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.215999998996267
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.485300000786083,
+      "ready_ms": 176.59890000140877,
+      "full_ready_ms": 183.19229999906383,
+      "max_ui_gap_ms": 26.82220000133384,
+      "full_max_ui_gap_ms": 26.82220000133384,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031999989005271345
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.176699998235563
+        },
+        {
+          "method": "load_file",
+          "ms": 4.26800000059302
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.906999999278923
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.985600001149578
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 29.161200000089593,
+      "ready_ms": 169.9707000007038,
+      "full_ready_ms": 173.2851999986451,
+      "max_ui_gap_ms": 29.244900000776397,
+      "full_max_ui_gap_ms": 29.244900000776397,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0025000008463393897
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.369100000185426
+        },
+        {
+          "method": "load_file",
+          "ms": 4.549500001303386
+        },
+        {
+          "method": "_load_document",
+          "ms": 28.617100000701612
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 28.801099997508572
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 24.822100000164937,
+      "ready_ms": 148.53859999857377,
+      "full_ready_ms": 153.2815999999002,
+      "max_ui_gap_ms": 27.06169999873964,
+      "full_max_ui_gap_ms": 27.06169999873964,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0021999985619913787
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 11.553200001799269
+        },
+        {
+          "method": "load_file",
+          "ms": 3.1662000001233537
+        },
+        {
+          "method": "_load_document",
+          "ms": 24.583399997936795
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 24.620100000902312
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.458100001036655,
+      "ready_ms": 139.0386999992188,
+      "full_ready_ms": 141.59949999884702,
+      "max_ui_gap_ms": 29.041900001175236,
+      "full_max_ui_gap_ms": 29.041900001175236,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.576099997502752
+        },
+        {
+          "method": "load_file",
+          "ms": 4.006200000731042
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.848000001133187
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.925400001142407
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 23.063799999363255,
+      "ready_ms": 147.7634999973816,
+      "full_ready_ms": 151.49860000019544,
+      "max_ui_gap_ms": 25.604399997973815,
+      "full_max_ui_gap_ms": 25.604399997973815,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0021999985619913787
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.201000000553904
+        },
+        {
+          "method": "load_file",
+          "ms": 3.3039000009011943
+        },
+        {
+          "method": "_load_document",
+          "ms": 22.650499999144813
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 22.83259999967413
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 20.048999998834915,
+      "ready_ms": 120.38430000029621,
+      "full_ready_ms": 123.38140000065323,
+      "max_ui_gap_ms": 22.25679999901331,
+      "full_max_ui_gap_ms": 22.25679999901331,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.066900001518661
+        },
+        {
+          "method": "load_file",
+          "ms": 2.710799999476876
+        },
+        {
+          "method": "_load_document",
+          "ms": 19.52019999953336
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 19.604199998866534
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 21.878300001844764,
+      "ready_ms": 192.75950000155717,
+      "full_ready_ms": 196.7079999994894,
+      "max_ui_gap_ms": 26.625999998941552,
+      "full_max_ui_gap_ms": 26.625999998941552,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0026999987312592566
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.50219999847468
+        },
+        {
+          "method": "load_file",
+          "ms": 4.414099999848986
+        },
+        {
+          "method": "_load_document",
+          "ms": 21.449400002893526
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 21.534699997573625
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.337700002040947,
+      "ready_ms": 169.68650000126217,
+      "full_ready_ms": 173.82560000260128,
+      "max_ui_gap_ms": 33.5962000026484,
+      "full_max_ui_gap_ms": 33.5962000026484,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036000019463244826
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 13.979499999550171
+        },
+        {
+          "method": "load_file",
+          "ms": 3.661499998997897
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.932099998608464
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.013499999971827
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 23.615300000528805,
+      "ready_ms": 138.89840000047116,
+      "full_ready_ms": 141.29490000050282,
+      "max_ui_gap_ms": 25.899200001731515,
+      "full_max_ui_gap_ms": 25.899200001731515,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.010600000678095967
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.501300002739299
+        },
+        {
+          "method": "load_file",
+          "ms": 2.267399999254849
+        },
+        {
+          "method": "_load_document",
+          "ms": 22.79899999848567
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 22.9581000021426
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 24.034799997025402,
+      "ready_ms": 178.7769999973534,
+      "full_ready_ms": 184.07469999874593,
+      "max_ui_gap_ms": 26.58769999834476,
+      "full_max_ui_gap_ms": 26.58769999834476,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0025999979698099196
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.440699999890057
+        },
+        {
+          "method": "load_file",
+          "ms": 3.541199999745004
+        },
+        {
+          "method": "_load_document",
+          "ms": 23.61190000010538
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 23.750299998937408
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 22.31949999986682,
+      "ready_ms": 157.95409999918775,
+      "full_ready_ms": 166.21110000050976,
+      "max_ui_gap_ms": 24.589600001490908,
+      "full_max_ui_gap_ms": 24.589600001490908,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0034000004234258085
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.286699998483527
+        },
+        {
+          "method": "load_file",
+          "ms": 4.470100000617094
+        },
+        {
+          "method": "_load_document",
+          "ms": 22.011600001860643
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 22.060399998736102
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 27.79989999908139,
+      "ready_ms": 213.8115999987349,
+      "full_ready_ms": 217.94819999922765,
+      "max_ui_gap_ms": 30.10770000037155,
+      "full_max_ui_gap_ms": 30.10770000037155,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00540000110049732
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.381200001575053
+        },
+        {
+          "method": "load_file",
+          "ms": 3.7455999990925193
+        },
+        {
+          "method": "_load_document",
+          "ms": 27.242600001045503
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 27.33099999750266
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 27.30149999842979,
+      "ready_ms": 228.37069999877713,
+      "full_ready_ms": 234.5845999989251,
+      "max_ui_gap_ms": 29.70400000049267,
+      "full_max_ui_gap_ms": 29.70400000049267,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006499998562503606
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.91669999732403
+        },
+        {
+          "method": "load_file",
+          "ms": 5.449899999803165
+        },
+        {
+          "method": "_load_document",
+          "ms": 26.496999998926185
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 26.64580000055139
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 35.054600000876235,
+      "ready_ms": 172.56070000075852,
+      "full_ready_ms": 174.95950000011362,
+      "max_ui_gap_ms": 37.7507000011974,
+      "full_max_ui_gap_ms": 37.7507000011974,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030000010156072676
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.794400001439499
+        },
+        {
+          "method": "load_file",
+          "ms": 6.628800001635682
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.77490000275429
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.657300002436386
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.02709999823128,
+      "ready_ms": 181.70739999914076,
+      "full_ready_ms": 186.70079999719746,
+      "max_ui_gap_ms": 34.40469999986817,
+      "full_max_ui_gap_ms": 34.40469999986817,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0025999979698099196
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 15.042600000015227
+        },
+        {
+          "method": "load_file",
+          "ms": 7.395299999188865
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.682100001489744
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.74569999828236
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.199200001428835,
+      "ready_ms": 195.9671000004164,
+      "full_ready_ms": 199.64579999941634,
+      "max_ui_gap_ms": 28.817800000979332,
+      "full_max_ui_gap_ms": 28.817800000979332,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.216700000251876
+        },
+        {
+          "method": "load_file",
+          "ms": 4.226000000926433
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.82750000146916
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.889299999107607
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 25.98790000047302,
+      "ready_ms": 167.7596999979869,
+      "full_ready_ms": 171.52599999826634,
+      "max_ui_gap_ms": 28.174099999887403,
+      "full_max_ui_gap_ms": 28.174099999887403,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006599999323952943
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.7729999977455
+        },
+        {
+          "method": "load_file",
+          "ms": 4.0862000023480505
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.36139999938314
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.46480000091833
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 24.099400001432514,
+      "ready_ms": 152.32470000046305,
+      "full_ready_ms": 156.32990000085556,
+      "max_ui_gap_ms": 26.382600000943057,
+      "full_max_ui_gap_ms": 26.382600000943057,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.920799998828443
+        },
+        {
+          "method": "load_file",
+          "ms": 2.776699999230914
+        },
+        {
+          "method": "_load_document",
+          "ms": 23.08860000266577
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 23.508100002800347
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 20.157599999947706,
+      "ready_ms": 181.0765000009269,
+      "full_ready_ms": 186.31730000197422,
+      "max_ui_gap_ms": 22.338599999784492,
+      "full_max_ui_gap_ms": 22.338599999784492,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0029000002541579306
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.034400001633912
+        },
+        {
+          "method": "load_file",
+          "ms": 3.755300000193529
+        },
+        {
+          "method": "_load_document",
+          "ms": 19.830600002023857
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 19.894799999747192
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 25.314399998023873,
+      "ready_ms": 150.26049999869429,
+      "full_ready_ms": 153.68970000054105,
+      "max_ui_gap_ms": 27.64279999973951,
+      "full_max_ui_gap_ms": 27.64279999973951,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 11.772699999710312
+        },
+        {
+          "method": "load_file",
+          "ms": 3.240699999878416
+        },
+        {
+          "method": "_load_document",
+          "ms": 24.778400002105627
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 24.891199998819502
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 19.756999998207903,
+      "ready_ms": 157.59239999897545,
+      "full_ready_ms": 161.4510999970662,
+      "max_ui_gap_ms": 22.00009999796748,
+      "full_max_ui_gap_ms": 22.00009999796748,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0022999993234407157
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.458000000449829
+        },
+        {
+          "method": "load_file",
+          "ms": 3.1527000028290786
+        },
+        {
+          "method": "_load_document",
+          "ms": 19.470999999612104
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 19.543499998690095
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.242799998726696,
+      "ready_ms": 164.2543999987538,
+      "full_ready_ms": 166.64550000132294,
+      "max_ui_gap_ms": 29.30679999917629,
+      "full_max_ui_gap_ms": 29.30679999917629,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0026999987312592566
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.243100001185667
+        },
+        {
+          "method": "load_file",
+          "ms": 3.7147000002732966
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.623300000006566
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.907100000040373
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.965499998274026,
+      "ready_ms": 133.7688999992679,
+      "full_ready_ms": 136.16130000082194,
+      "max_ui_gap_ms": 33.2553000007465,
+      "full_max_ui_gap_ms": 33.2553000007465,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031000017770566046
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 16.959600001428043
+        },
+        {
+          "method": "load_file",
+          "ms": 3.9968999990378506
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.636300001788186
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.704000000696396
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 23.152899997512577,
+      "ready_ms": 162.51410000040778,
+      "full_ready_ms": 169.38519999894197,
+      "max_ui_gap_ms": 25.362199998198776,
+      "full_max_ui_gap_ms": 25.362199998198776,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030000010156072676
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.07949999984703
+        },
+        {
+          "method": "load_file",
+          "ms": 3.539400000590831
+        },
+        {
+          "method": "_load_document",
+          "ms": 22.7573999982269
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 22.84469999722205
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 25.262800001655705,
+      "ready_ms": 133.7463999989268,
+      "full_ready_ms": 136.37139999991632,
+      "max_ui_gap_ms": 25.348399998620152,
+      "full_max_ui_gap_ms": 25.348399998620152,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.31650000004447
+        },
+        {
+          "method": "load_file",
+          "ms": 2.572199999121949
+        },
+        {
+          "method": "_load_document",
+          "ms": 24.489299998094793
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 24.7269999999844
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.977499998698477,
+      "ready_ms": 192.93539999853238,
+      "full_ready_ms": 196.75329999881797,
+      "max_ui_gap_ms": 33.19329999794718,
+      "full_max_ui_gap_ms": 33.19329999794718,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.361900000541937
+        },
+        {
+          "method": "load_file",
+          "ms": 5.173199999262579
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.498699998133816
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.59959999882267
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 28.850899998360546,
+      "ready_ms": 182.746300000872,
+      "full_ready_ms": 186.83299999975134,
+      "max_ui_gap_ms": 31.516899998678127,
+      "full_max_ui_gap_ms": 31.516899998678127,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030999981390777975
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.223400000541005
+        },
+        {
+          "method": "load_file",
+          "ms": 5.672300001606345
+        },
+        {
+          "method": "_load_document",
+          "ms": 28.38749999864376
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 28.470699999161297
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 19.21280000169645,
+      "ready_ms": 108.03730000043288,
+      "full_ready_ms": 110.91830000077607,
+      "max_ui_gap_ms": 21.608999999443768,
+      "full_max_ui_gap_ms": 21.608999999443768,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037000027077738196
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.583199996792246
+        },
+        {
+          "method": "load_file",
+          "ms": 3.0643999998574145
+        },
+        {
+          "method": "_load_document",
+          "ms": 18.810700003086822
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 18.868700000894023
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.755400002002716,
+      "ready_ms": 146.35439999983646,
+      "full_ready_ms": 150.70019999984652,
+      "max_ui_gap_ms": 29.08680000109598,
+      "full_max_ui_gap_ms": 29.08680000109598,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 11.533199998666532
+        },
+        {
+          "method": "load_file",
+          "ms": 3.0251999996835366
+        },
+        {
+          "method": "_load_document",
+          "ms": 26.373500000772765
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 26.440800000273157
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 16.58519999909913,
+      "ready_ms": 140.29980000123032,
+      "full_ready_ms": 144.2309000012756,
+      "max_ui_gap_ms": 18.84090000021388,
+      "full_max_ui_gap_ms": 18.84090000021388,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00799999907030724
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 6.97299999956158
+        },
+        {
+          "method": "load_file",
+          "ms": 2.3035999984131195
+        },
+        {
+          "method": "_load_document",
+          "ms": 16.22000000133994
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 16.269200001261197
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 20.211600000038743,
+      "ready_ms": 146.55369999672985,
+      "full_ready_ms": 149.09279999847058,
+      "max_ui_gap_ms": 22.493099997518584,
+      "full_max_ui_gap_ms": 22.493099997518584,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0024000000848900527
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.216800000809599
+        },
+        {
+          "method": "load_file",
+          "ms": 3.967299999203533
+        },
+        {
+          "method": "_load_document",
+          "ms": 19.748900002014125
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 19.82290000159992
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.30840000064927,
+      "ready_ms": 201.64830000067013,
+      "full_ready_ms": 205.3961999990861,
+      "max_ui_gap_ms": 36.99580000102287,
+      "full_max_ui_gap_ms": 36.99580000102287,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030999981390777975
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.045100000250386
+        },
+        {
+          "method": "load_file",
+          "ms": 5.333299999620067
+        },
+        {
+          "method": "_load_document",
+          "ms": 28.87430000191671
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.45430000181659
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 26.90679999795975,
+      "ready_ms": 161.1739999971178,
+      "full_ready_ms": 163.9071999998123,
+      "max_ui_gap_ms": 31.745299998874543,
+      "full_max_ui_gap_ms": 31.745299998874543,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.747000000264961
+        },
+        {
+          "method": "load_file",
+          "ms": 2.9577999994216952
+        },
+        {
+          "method": "_load_document",
+          "ms": 26.29460000025574
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 26.41840000069351
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 17.307099999015918,
+      "ready_ms": 155.8160000022326,
+      "full_ready_ms": 159.7172000001592,
+      "max_ui_gap_ms": 21.510700000362704,
+      "full_max_ui_gap_ms": 21.510700000362704,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0026000016077887267
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 6.932600001164246
+        },
+        {
+          "method": "load_file",
+          "ms": 2.4501999978383537
+        },
+        {
+          "method": "_load_document",
+          "ms": 16.811199999210658
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 16.866899997694418
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 20.897999998851446,
+      "ready_ms": 142.2623999969801,
+      "full_ready_ms": 145.1686999971571,
+      "max_ui_gap_ms": 23.52909999899566,
+      "full_max_ui_gap_ms": 23.52909999899566,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036000019463244826
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 10.019900000770576
+        },
+        {
+          "method": "load_file",
+          "ms": 3.3427000016672537
+        },
+        {
+          "method": "_load_document",
+          "ms": 20.126999999774853
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 20.184900000458583
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 18.352400002186187,
+      "ready_ms": 131.59960000120918,
+      "full_ready_ms": 134.83410000117146,
+      "max_ui_gap_ms": 22.136600000521867,
+      "full_max_ui_gap_ms": 22.136600000521867,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0024000000848900527
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 6.559999997989507
+        },
+        {
+          "method": "load_file",
+          "ms": 2.270599998155376
+        },
+        {
+          "method": "_load_document",
+          "ms": 18.083799997839378
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 18.127799998183036
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 18.32999999896856,
+      "ready_ms": 128.7752999996883,
+      "full_ready_ms": 131.3460000019404,
+      "max_ui_gap_ms": 20.73489999747835,
+      "full_max_ui_gap_ms": 20.73489999747835,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0024000000848900527
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.167799998569535
+        },
+        {
+          "method": "load_file",
+          "ms": 3.907399997842731
+        },
+        {
+          "method": "_load_document",
+          "ms": 18.059400001220638
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 18.122599998605438
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 20.893199998681666,
+      "ready_ms": 141.74869999988005,
+      "full_ready_ms": 145.87649999884889,
+      "max_ui_gap_ms": 23.146499999711523,
+      "full_max_ui_gap_ms": 23.146499999711523,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0024000000848900527
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.975600001373095
+        },
+        {
+          "method": "load_file",
+          "ms": 4.404800001793774
+        },
+        {
+          "method": "_load_document",
+          "ms": 20.617600002879044
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 20.68169999984093
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 21.725499998865416,
+      "ready_ms": 116.07159999766736,
+      "full_ready_ms": 118.72279999806779,
+      "max_ui_gap_ms": 23.935499997605802,
+      "full_max_ui_gap_ms": 23.935499997605802,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0026999987312592566
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.122100000240607
+        },
+        {
+          "method": "load_file",
+          "ms": 3.160399999615038
+        },
+        {
+          "method": "_load_document",
+          "ms": 21.377300003223354
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 21.447300001455005
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 24.16309999898658,
+      "ready_ms": 162.15689999808092,
+      "full_ready_ms": 165.51089999848045,
+      "max_ui_gap_ms": 26.42539999942528,
+      "full_max_ui_gap_ms": 26.42539999942528,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0024999972083605826
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 9.451800000533694
+        },
+        {
+          "method": "load_file",
+          "ms": 3.579399999580346
+        },
+        {
+          "method": "_load_document",
+          "ms": 23.58230000027106
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 23.7885999995342
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.052600002818508,
+      "ready_ms": 174.9904999996943,
+      "full_ready_ms": 177.6999000030628,
+      "max_ui_gap_ms": 32.349600001907675,
+      "full_max_ui_gap_ms": 32.349600001907675,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007300001016119495
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 14.488900000287686
+        },
+        {
+          "method": "load_file",
+          "ms": 3.6423000019567553
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.695999997784384
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.77120000286959
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 22.268200002145022,
+      "ready_ms": 148.91390000047977,
+      "full_ready_ms": 151.8742000007478,
+      "max_ui_gap_ms": 26.074100002006162,
+      "full_max_ui_gap_ms": 26.074100002006162,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0027000023692380637
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.625100002769614
+        },
+        {
+          "method": "load_file",
+          "ms": 5.721799996535992
+        },
+        {
+          "method": "_load_document",
+          "ms": 21.91810000294936
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 21.981900001264876
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 28.85019999666838,
+      "ready_ms": 194.50919999871985,
+      "full_ready_ms": 198.87779999771737,
+      "max_ui_gap_ms": 31.281099996704143,
+      "full_max_ui_gap_ms": 31.281099996704143,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030000010156072676
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 11.524100002134219
+        },
+        {
+          "method": "load_file",
+          "ms": 3.359700000146404
+        },
+        {
+          "method": "_load_document",
+          "ms": 28.302099999564234
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 28.439800000342075
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.31519999806187,
+      "ready_ms": 202.876200000901,
+      "full_ready_ms": 215.26950000043144,
+      "max_ui_gap_ms": 33.56029999849852,
+      "full_max_ui_gap_ms": 33.56029999849852,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0027000023692380637
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.767000000167172
+        },
+        {
+          "method": "load_file",
+          "ms": 3.616000001784414
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.955900001572445
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.050899997353554
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 29.213600002549356,
+      "ready_ms": 156.32390000246232,
+      "full_ready_ms": 166.43160000239732,
+      "max_ui_gap_ms": 31.49930000290624,
+      "full_max_ui_gap_ms": 31.49930000290624,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031999989005271345
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.419700000464218
+        },
+        {
+          "method": "load_file",
+          "ms": 3.9517999975942075
+        },
+        {
+          "method": "_load_document",
+          "ms": 28.7361000009696
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 28.836400000727735
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.85480000099051,
+      "ready_ms": 199.89300000088406,
+      "full_ready_ms": 203.98980000027223,
+      "max_ui_gap_ms": 41.509600003337255,
+      "full_max_ui_gap_ms": 41.509600003337255,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005000001692678779
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 16.011600000638282
+        },
+        {
+          "method": "load_file",
+          "ms": 6.386600001860643
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.287199997284915
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.405400002375245
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 28.567699999257457,
+      "ready_ms": 202.4015999995754,
+      "full_ready_ms": 208.86740000059945,
+      "max_ui_gap_ms": 30.695100002049003,
+      "full_max_ui_gap_ms": 30.695100002049003,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006800000846851617
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 13.848200000211364
+        },
+        {
+          "method": "load_file",
+          "ms": 3.218699999706587
+        },
+        {
+          "method": "_load_document",
+          "ms": 27.999999998428393
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 28.122100000473438
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.32809999908204,
+      "ready_ms": 209.1684000006353,
+      "full_ready_ms": 218.00200000143377,
+      "max_ui_gap_ms": 36.349300000438234,
+      "full_max_ui_gap_ms": 36.349300000438234,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007200000254670158
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 16.26399999804562
+        },
+        {
+          "method": "load_file",
+          "ms": 4.150500000832835
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.477800000080606
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.59559999848716
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 24.69310000014957,
+      "ready_ms": 180.4959000000963,
+      "full_ready_ms": 189.6435000016936,
+      "max_ui_gap_ms": 27.30610000071465,
+      "full_max_ui_gap_ms": 27.30610000071465,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 8.618699997896329
+        },
+        {
+          "method": "load_file",
+          "ms": 3.030299998499686
+        },
+        {
+          "method": "_load_document",
+          "ms": 24.16599999924074
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 24.267900000268128
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 28.064300000551157,
+      "ready_ms": 201.7431000022043,
+      "full_ready_ms": 206.30220000020927,
+      "max_ui_gap_ms": 31.336200001533143,
+      "full_max_ui_gap_ms": 31.336200001533143,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005100002454128116
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.8018000021984335
+        },
+        {
+          "method": "load_file",
+          "ms": 6.126399999629939
+        },
+        {
+          "method": "_load_document",
+          "ms": 27.165300001797732
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 27.38849999877857
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.65740000078222,
+      "ready_ms": 197.66940000044997,
+      "full_ready_ms": 203.8243999995757,
+      "max_ui_gap_ms": 43.60470000028727,
+      "full_max_ui_gap_ms": 43.60470000028727,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 15.543400000751717
+        },
+        {
+          "method": "load_file",
+          "ms": 6.551300000865012
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.7988999975496
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.01870000138297
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 21.93279999846709,
+      "ready_ms": 157.51709999676677,
+      "full_ready_ms": 163.66529999868362,
+      "max_ui_gap_ms": 24.207599999499507,
+      "full_max_ui_gap_ms": 24.207599999499507,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030999981390777975
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 7.629600000655046
+        },
+        {
+          "method": "load_file",
+          "ms": 4.441900000529131
+        },
+        {
+          "method": "_load_document",
+          "ms": 21.592600001895335
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 21.64220000122441
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.701300002168864,
+      "ready_ms": 183.85370000032708,
+      "full_ready_ms": 188.49670000054175,
+      "max_ui_gap_ms": 33.95680000176071,
+      "full_max_ui_gap_ms": 33.95680000176071,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0029999973776284605
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 13.654800000949763
+        },
+        {
+          "method": "load_file",
+          "ms": 3.929899998183828
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.718100002559368
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.14350000032573
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.91600000052131,
+      "ready_ms": 247.72239999947487,
+      "full_ready_ms": 252.89189999966766,
+      "max_ui_gap_ms": 38.21790000074543,
+      "full_max_ui_gap_ms": 38.21790000074543,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031999989005271345
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 11.805999998614425
+        },
+        {
+          "method": "load_file",
+          "ms": 5.627399998047622
+        },
+        {
+          "method": "_load_document",
+          "ms": 34.40010000122129
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.522300000389805
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.097799999581184,
+      "ready_ms": 216.479700000491,
+      "full_ready_ms": 219.68610000112676,
+      "max_ui_gap_ms": 42.968699999619275,
+      "full_max_ui_gap_ms": 42.968699999619275,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 15.443000000232132
+        },
+        {
+          "method": "load_file",
+          "ms": 5.669000001944369
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.15079999912996
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.30979999838746
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.012599998590304,
+      "ready_ms": 219.88109999801964,
+      "full_ready_ms": 228.46519999802695,
+      "max_ui_gap_ms": 40.08539999995264,
+      "full_max_ui_gap_ms": 40.08539999995264,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008200000593205914
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 13.427800000499701
+        },
+        {
+          "method": "load_file",
+          "ms": 4.8843000004126225
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.24890000052983
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.45889999886276
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.72749999957159,
+      "ready_ms": 201.99260000299546,
+      "full_ready_ms": 205.17760000075214,
+      "max_ui_gap_ms": 42.961400002241135,
+      "full_max_ui_gap_ms": 42.961400002241135,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007899998308857903
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 14.782300000661053
+        },
+        {
+          "method": "load_file",
+          "ms": 7.409600002574734
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.831699999718694
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.99980000278447
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 35.45500000109314,
+      "ready_ms": 243.81559999892488,
+      "full_ready_ms": 251.1250999996264,
+      "max_ui_gap_ms": 40.24019999997108,
+      "full_max_ui_gap_ms": 40.24019999997108,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 12.59840000057011
+        },
+        {
+          "method": "load_file",
+          "ms": 6.613800000195624
+        },
+        {
+          "method": "_load_document",
+          "ms": 34.48179999759304
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.652900001674425
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 35.89379999903031,
+      "ready_ms": 183.71639999895706,
+      "full_ready_ms": 187.24769999971613,
+      "max_ui_gap_ms": 38.22709999803919,
+      "full_max_ui_gap_ms": 38.22709999803919,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030999981390777975
+        },
+        {
+          "method": "_update_front_tags",
+          "ms": 13.30729999972391
+        },
+        {
+          "method": "load_file",
+          "ms": 4.382999999506865
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.33210000023246
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.45260000100825
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-switch-benchmark-7c3p1_om",
+  "pyside": "6.11.0",
+  "mode": "offscreen",
+  "settings": "\\HKEY_CURRENT_USER\\Software\\markdown-viewer\\MarkdownViewer",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 101168,
+    "B.md": 101168
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": null,
+  "summary": {
+    "sync_ms": {
+      "n": 60,
+      "p50_ms": 26.47170000091137,
+      "p95_ms": 39.097799999581184,
+      "max_ms": 40.65740000078222
+    },
+    "ready_ms": {
+      "n": 60,
+      "p50_ms": 168.72309999962454,
+      "p95_ms": 219.88109999801964,
+      "max_ms": 247.72239999947487
+    },
+    "full_ready_ms": {
+      "n": 60,
+      "p50_ms": 172.40559999845573,
+      "p95_ms": 228.46519999802695,
+      "max_ms": 252.89189999966766
+    },
+    "max_ui_gap_ms": {
+      "n": 60,
+      "p50_ms": 29.064350001135608,
+      "p95_ms": 41.509600003337255,
+      "max_ms": 43.60470000028727
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 118.89520000113407,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 118.75899999722606,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 71.6203999982099,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 71.36500000342494,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 40.01870000138297,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 39.7988999975496,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 39.45889999886276,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 39.24890000052983,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 38.99980000278447,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 38.831699999718694,
+      "path": "B.md",
+      "warm": true
+    }
+  ],
+  "passed": true
+}

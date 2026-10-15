@@ -1,0 +1,841 @@
+{
+  "python": "3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]",
+  "pyside": "6.11.0",
+  "root": "E:\\markdown_viewer",
+  "scope": "offscreen PdfView real target raster; excludes MainWindow/desktop",
+  "rounds": 3,
+  "reps_per_round": 30,
+  "results": [
+    {
+      "pages": 3000,
+      "target_page": 1500,
+      "file_bytes": 1485400,
+      "dpr": 1.0,
+      "cold": {
+        "readable_ms": 188.41379999867058,
+        "load_ms": 159.70480000032694,
+        "max_gap_ms": 159.76299999965704,
+        "reused": false,
+        "cache_bytes": 27374256
+      },
+      "warm": {
+        "p50_ms": 54.89934999968682,
+        "p95_ms": 60.357599999406375,
+        "max_gap_p95_ms": 55.84810000073048,
+        "reused_count": 90
+      },
+      "measurements": [
+        {
+          "readable_ms": 54.788199999165954,
+          "load_ms": 48.73269999734475,
+          "max_gap_ms": 50.251000000571366,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 0
+        },
+        {
+          "readable_ms": 54.60220000168192,
+          "load_ms": 48.969200001010904,
+          "max_gap_ms": 50.1222000020789,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 1
+        },
+        {
+          "readable_ms": 54.882000000361586,
+          "load_ms": 49.89429999841377,
+          "max_gap_ms": 51.085999999486376,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 2
+        },
+        {
+          "readable_ms": 55.39709999720799,
+          "load_ms": 50.13019999751123,
+          "max_gap_ms": 51.43799999859766,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 3
+        },
+        {
+          "readable_ms": 54.85520000001998,
+          "load_ms": 49.765199997636955,
+          "max_gap_ms": 50.774100000126055,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 4
+        },
+        {
+          "readable_ms": 53.24110000219662,
+          "load_ms": 48.13560000184225,
+          "max_gap_ms": 49.222600002394756,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 5
+        },
+        {
+          "readable_ms": 60.357599999406375,
+          "load_ms": 54.749499999161344,
+          "max_gap_ms": 56.140299999242416,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 6
+        },
+        {
+          "readable_ms": 54.52859999786597,
+          "load_ms": 49.0189999982249,
+          "max_gap_ms": 50.178400000731926,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 7
+        },
+        {
+          "readable_ms": 55.04169999767328,
+          "load_ms": 50.050800000462914,
+          "max_gap_ms": 50.11670000021695,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 8
+        },
+        {
+          "readable_ms": 54.22589999943739,
+          "load_ms": 48.30729999957839,
+          "max_gap_ms": 49.337199998262804,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 9
+        },
+        {
+          "readable_ms": 52.748000001884066,
+          "load_ms": 47.56660000202828,
+          "max_gap_ms": 47.61440000220318,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 10
+        },
+        {
+          "readable_ms": 53.065199997945456,
+          "load_ms": 48.01189999852795,
+          "max_gap_ms": 49.18969999926048,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 11
+        },
+        {
+          "readable_ms": 53.9152000019385,
+          "load_ms": 47.981800002162345,
+          "max_gap_ms": 48.99250000016764,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 12
+        },
+        {
+          "readable_ms": 54.33959999936633,
+          "load_ms": 49.48090000107186,
+          "max_gap_ms": 49.49990000022808,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 13
+        },
+        {
+          "readable_ms": 54.1787000001932,
+          "load_ms": 48.838200000318466,
+          "max_gap_ms": 50.01830000037444,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 14
+        },
+        {
+          "readable_ms": 56.62339999980759,
+          "load_ms": 50.85189999954309,
+          "max_gap_ms": 52.375300001585856,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 15
+        },
+        {
+          "readable_ms": 55.14730000140844,
+          "load_ms": 49.89280000154395,
+          "max_gap_ms": 50.969800002349075,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 16
+        },
+        {
+          "readable_ms": 52.26269999911892,
+          "load_ms": 46.81360000176937,
+          "max_gap_ms": 47.858599999017315,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 17
+        },
+        {
+          "readable_ms": 53.8486000004923,
+          "load_ms": 48.50980000264826,
+          "max_gap_ms": 48.613400002068374,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 18
+        },
+        {
+          "readable_ms": 53.6342000013974,
+          "load_ms": 48.46520000137389,
+          "max_gap_ms": 49.414400000387104,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 19
+        },
+        {
+          "readable_ms": 52.64940000051865,
+          "load_ms": 47.22870000114199,
+          "max_gap_ms": 47.26519999894663,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 20
+        },
+        {
+          "readable_ms": 54.91669999901205,
+          "load_ms": 48.98179999872809,
+          "max_gap_ms": 50.319199999648845,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 21
+        },
+        {
+          "readable_ms": 51.47009999927832,
+          "load_ms": 46.6627999994671,
+          "max_gap_ms": 47.696000001451466,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 22
+        },
+        {
+          "readable_ms": 53.20899999787798,
+          "load_ms": 48.12780000065686,
+          "max_gap_ms": 49.50199999802862,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 23
+        },
+        {
+          "readable_ms": 51.62439999912749,
+          "load_ms": 47.03200000221841,
+          "max_gap_ms": 48.12579999997979,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 24
+        },
+        {
+          "readable_ms": 54.6634999991511,
+          "load_ms": 49.0395000015269,
+          "max_gap_ms": 50.69060000096215,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 25
+        },
+        {
+          "readable_ms": 53.953200000250945,
+          "load_ms": 48.91660000066622,
+          "max_gap_ms": 50.093700003344566,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 26
+        },
+        {
+          "readable_ms": 54.83190000086324,
+          "load_ms": 49.19090000112192,
+          "max_gap_ms": 50.3668999990623,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 27
+        },
+        {
+          "readable_ms": 66.00410000100965,
+          "load_ms": 57.03939999875729,
+          "max_gap_ms": 58.50869999994757,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 28
+        },
+        {
+          "readable_ms": 57.87349999809521,
+          "load_ms": 52.03249999976833,
+          "max_gap_ms": 52.07940000036615,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 0,
+          "repetition": 29
+        },
+        {
+          "readable_ms": 58.2207000006747,
+          "load_ms": 52.07370000061928,
+          "max_gap_ms": 53.4455999986676,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 0
+        },
+        {
+          "readable_ms": 75.8507999998983,
+          "load_ms": 69.82330000028014,
+          "max_gap_ms": 71.37779999902705,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 1
+        },
+        {
+          "readable_ms": 57.0495000029041,
+          "load_ms": 50.91240000183461,
+          "max_gap_ms": 52.53609999999753,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 2
+        },
+        {
+          "readable_ms": 55.5370000001858,
+          "load_ms": 49.58220000116853,
+          "max_gap_ms": 50.82380000021658,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 3
+        },
+        {
+          "readable_ms": 56.563900001492584,
+          "load_ms": 48.9899999993213,
+          "max_gap_ms": 51.50330000105896,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 4
+        },
+        {
+          "readable_ms": 55.94120000023395,
+          "load_ms": 49.98370000248542,
+          "max_gap_ms": 51.70470000302885,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 5
+        },
+        {
+          "readable_ms": 54.674300001352094,
+          "load_ms": 48.42120000103023,
+          "max_gap_ms": 49.70569999932195,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 6
+        },
+        {
+          "readable_ms": 53.93499999991036,
+          "load_ms": 48.126800000318326,
+          "max_gap_ms": 49.27540000062436,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 7
+        },
+        {
+          "readable_ms": 56.02639999779058,
+          "load_ms": 49.371399996744,
+          "max_gap_ms": 51.09709999669576,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 8
+        },
+        {
+          "readable_ms": 57.62770000001183,
+          "load_ms": 51.277300000947434,
+          "max_gap_ms": 52.76410000078613,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 9
+        },
+        {
+          "readable_ms": 56.32849999892642,
+          "load_ms": 50.471200000174576,
+          "max_gap_ms": 52.14469999918947,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 10
+        },
+        {
+          "readable_ms": 56.198499998572515,
+          "load_ms": 49.511000001075445,
+          "max_gap_ms": 49.57519999879878,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 11
+        },
+        {
+          "readable_ms": 56.24549999993178,
+          "load_ms": 50.040500002069166,
+          "max_gap_ms": 50.10960000072373,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 12
+        },
+        {
+          "readable_ms": 54.82370000027004,
+          "load_ms": 47.99060000004829,
+          "max_gap_ms": 48.0481000013242,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 13
+        },
+        {
+          "readable_ms": 56.75309999787714,
+          "load_ms": 51.247999999759486,
+          "max_gap_ms": 51.2810999971407,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 14
+        },
+        {
+          "readable_ms": 53.771900002175244,
+          "load_ms": 48.07530000107363,
+          "max_gap_ms": 49.92510000010952,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 15
+        },
+        {
+          "readable_ms": 58.23510000118404,
+          "load_ms": 52.104400001553586,
+          "max_gap_ms": 53.536899999016896,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 16
+        },
+        {
+          "readable_ms": 56.06189999889466,
+          "load_ms": 49.992600001132814,
+          "max_gap_ms": 51.622999999381136,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 17
+        },
+        {
+          "readable_ms": 56.40019999918877,
+          "load_ms": 49.78339999797754,
+          "max_gap_ms": 51.09699999957229,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 18
+        },
+        {
+          "readable_ms": 57.30210000183433,
+          "load_ms": 50.89550000047893,
+          "max_gap_ms": 52.806499999860534,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 19
+        },
+        {
+          "readable_ms": 53.54979999901843,
+          "load_ms": 47.87500000020373,
+          "max_gap_ms": 49.03879999983474,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 20
+        },
+        {
+          "readable_ms": 53.72469999929308,
+          "load_ms": 48.02130000098259,
+          "max_gap_ms": 49.53860000023269,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 21
+        },
+        {
+          "readable_ms": 55.30039999939618,
+          "load_ms": 49.23609999968903,
+          "max_gap_ms": 50.522400000772905,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 22
+        },
+        {
+          "readable_ms": 54.7939000025508,
+          "load_ms": 49.36270000325749,
+          "max_gap_ms": 50.50889999984065,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 23
+        },
+        {
+          "readable_ms": 60.316200000670506,
+          "load_ms": 52.755699998670025,
+          "max_gap_ms": 52.85379999986617,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 24
+        },
+        {
+          "readable_ms": 54.51419999735663,
+          "load_ms": 48.19929999939632,
+          "max_gap_ms": 48.22929999863845,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 25
+        },
+        {
+          "readable_ms": 54.08969999916735,
+          "load_ms": 47.93219999919529,
+          "max_gap_ms": 47.96870000063791,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 26
+        },
+        {
+          "readable_ms": 55.41559999983292,
+          "load_ms": 49.10819999713567,
+          "max_gap_ms": 50.52789999899687,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 27
+        },
+        {
+          "readable_ms": 55.14559999937774,
+          "load_ms": 49.74959999890416,
+          "max_gap_ms": 50.90320000090287,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 28
+        },
+        {
+          "readable_ms": 53.6619000013161,
+          "load_ms": 48.21860000083689,
+          "max_gap_ms": 49.692799999320414,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 1,
+          "repetition": 29
+        },
+        {
+          "readable_ms": 52.743799999007024,
+          "load_ms": 47.59890000059386,
+          "max_gap_ms": 48.68039999928442,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 0
+        },
+        {
+          "readable_ms": 56.053399999655085,
+          "load_ms": 49.624400002358016,
+          "max_gap_ms": 51.65350000243052,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 1
+        },
+        {
+          "readable_ms": 53.81869999837363,
+          "load_ms": 47.75789999985136,
+          "max_gap_ms": 48.905999999988126,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 2
+        },
+        {
+          "readable_ms": 54.3106999975862,
+          "load_ms": 47.87229999783449,
+          "max_gap_ms": 49.79029999958584,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 3
+        },
+        {
+          "readable_ms": 53.798499997355975,
+          "load_ms": 47.98719999962486,
+          "max_gap_ms": 49.64059999838355,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 4
+        },
+        {
+          "readable_ms": 53.653499999199994,
+          "load_ms": 47.83700000189128,
+          "max_gap_ms": 49.861800001963275,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 5
+        },
+        {
+          "readable_ms": 56.86040000000503,
+          "load_ms": 50.408700000843965,
+          "max_gap_ms": 50.72990000189748,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 6
+        },
+        {
+          "readable_ms": 54.27559999952791,
+          "load_ms": 48.862300001928816,
+          "max_gap_ms": 50.048200002493104,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 7
+        },
+        {
+          "readable_ms": 55.88189999980386,
+          "load_ms": 50.004700002318714,
+          "max_gap_ms": 51.69720000048983,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 8
+        },
+        {
+          "readable_ms": 54.74289999983739,
+          "load_ms": 48.81800000293879,
+          "max_gap_ms": 50.01280000215047,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 9
+        },
+        {
+          "readable_ms": 55.81429999801912,
+          "load_ms": 50.062700000125915,
+          "max_gap_ms": 51.39169999893056,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 10
+        },
+        {
+          "readable_ms": 56.27969999841298,
+          "load_ms": 50.25309999837191,
+          "max_gap_ms": 51.458799996908056,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 11
+        },
+        {
+          "readable_ms": 54.71229999966454,
+          "load_ms": 48.9951999988989,
+          "max_gap_ms": 50.26229999930365,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 12
+        },
+        {
+          "readable_ms": 55.35859999872628,
+          "load_ms": 49.29600000104983,
+          "max_gap_ms": 50.55410000204574,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 13
+        },
+        {
+          "readable_ms": 62.32280000040191,
+          "load_ms": 55.501400001958245,
+          "max_gap_ms": 57.04450000121142,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 14
+        },
+        {
+          "readable_ms": 55.811499998526415,
+          "load_ms": 50.002299998595845,
+          "max_gap_ms": 50.03189999843016,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 15
+        },
+        {
+          "readable_ms": 59.55649999668822,
+          "load_ms": 53.007399998023175,
+          "max_gap_ms": 54.3004999999539,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 16
+        },
+        {
+          "readable_ms": 56.45640000147978,
+          "load_ms": 50.515099999756785,
+          "max_gap_ms": 51.81500000253436,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 17
+        },
+        {
+          "readable_ms": 58.41139999756706,
+          "load_ms": 51.369199998589465,
+          "max_gap_ms": 53.02549999760231,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 18
+        },
+        {
+          "readable_ms": 58.28530000144383,
+          "load_ms": 50.17339999903925,
+          "max_gap_ms": 53.39530000128434,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 19
+        },
+        {
+          "readable_ms": 52.733600001374725,
+          "load_ms": 47.23000000012689,
+          "max_gap_ms": 48.77140000098734,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 20
+        },
+        {
+          "readable_ms": 54.560599997785175,
+          "load_ms": 48.38739999831887,
+          "max_gap_ms": 50.29450000074576,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 21
+        },
+        {
+          "readable_ms": 52.42299999736133,
+          "load_ms": 47.53849999906379,
+          "max_gap_ms": 48.61799999707728,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 22
+        },
+        {
+          "readable_ms": 57.54549999983283,
+          "load_ms": 51.81490000177291,
+          "max_gap_ms": 53.03930000081891,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 23
+        },
+        {
+          "readable_ms": 60.42230000093696,
+          "load_ms": 54.603700002189726,
+          "max_gap_ms": 55.84810000073048,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 24
+        },
+        {
+          "readable_ms": 54.4186000006448,
+          "load_ms": 49.31320000105188,
+          "max_gap_ms": 50.37140000058571,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 25
+        },
+        {
+          "readable_ms": 57.43339999753516,
+          "load_ms": 51.65799999667797,
+          "max_gap_ms": 51.705499998206506,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 26
+        },
+        {
+          "readable_ms": 57.062500000029104,
+          "load_ms": 49.86110000027111,
+          "max_gap_ms": 49.94060000171885,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 27
+        },
+        {
+          "readable_ms": 58.53909999859752,
+          "load_ms": 51.652399997692555,
+          "max_gap_ms": 53.34210000000894,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 28
+        },
+        {
+          "readable_ms": 54.02250000042841,
+          "load_ms": 48.35879999882309,
+          "max_gap_ms": 49.69630000050529,
+          "reused": true,
+          "cache_bytes": 33008976,
+          "round": 2,
+          "repetition": 29
+        }
+      ]
+    }
+  ]
+}

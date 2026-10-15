@@ -65,6 +65,8 @@ class _Bridge(QObject):
 
 
 class _FakeRenderer(QWidget):
+    content_ready = Signal(int, str, bool)
+    render_failed = Signal(int, str)
     home_action_requested = Signal(str)
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
@@ -88,6 +90,9 @@ class _FakeRenderer(QWidget):
         self.inline_edit_enabled = True
         self.search_escape_generation = 0
         self.preview_double_click_mode = "inline"
+
+    def deactivate(self):
+        self.deactivated = getattr(self, "deactivated", 0) + 1
 
     def set_annotation_side_notes_visible(self, visible):
         self._side_notes_visible = bool(visible)
@@ -239,7 +244,7 @@ class _FakePdfView(QWidget):
     def close_annotation_card(self):
         self.cards_shown.append(None)
 
-    def load(self, path):
+    def load(self, path, *, restore_page=0, force_reload=False):
         self.loaded.append(Path(path))
         self._load_generation += 1
         return True
@@ -409,6 +414,9 @@ class _FakeTagIndex:
 
     def update(self, *args, **kwargs):
         self.updates.append((args, kwargs))
+
+    def update_annotation_tags(self, *args, **kwargs):
+        self.update(*args, **kwargs)
 
     def files_with_tag(self, _tag):
         return []
@@ -1173,6 +1181,9 @@ def test_body_tags_update_when_markdown_is_opened_and_saved(make_window, tmp_pat
     win = make_window()
 
     win.open_path(str(note))
+    from app.document_metadata import read_metadata
+    read_metadata(note)
+    win._renderer.content_ready.emit(1, str(note), False)
     assert win._tag_index.updates[-1][1]["body_tags"] == ["opened"]
 
     win._toggle_edit_mode()
@@ -2517,6 +2528,9 @@ def test_inline_edit_commit_refreshes_the_tag_index(make_window, tmp_path):
     note.write_text("# Heading\n\ntext #before\n", encoding="utf-8")
     win = make_window()
     win.open_path(str(note))
+    from app.document_metadata import read_metadata
+    read_metadata(note)
+    win._renderer.content_ready.emit(1, str(note), False)
     assert win._tag_index.updates[-1][1]["body_tags"] == ["before"]
 
     _inline_handlers(win)["commit"](2, 2, "text #before", "text #after")

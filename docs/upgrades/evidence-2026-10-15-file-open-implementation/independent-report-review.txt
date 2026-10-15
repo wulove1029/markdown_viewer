@@ -1,0 +1,7 @@
+2026-10-15 最終報告獨立 read-back（本輪未執行測試）
+已讀 docs/upgrades/2026-10-15-file-open-implementation.md 全文；列出的主要 evidence 檔案均存在且非空。
+未發現誇大：報告區分 MainWindow offscreen DOM 雙 frame 代理與實體首幀、PdfView 元件與完整 MainWindow，明列 3000 頁 timer gap P95 55.85ms 未達 50ms，以及首次冷開／網路／雲端 30% 未證實、鎖版 EXE／實體桌面／RSS 未完成。
+WebEngine 結果仍標待補，未把尚在執行的測試算通過。完整預設回歸有列 skipped 數及原因，來源碼驗收未被稱為發布驗收。
+建議文字收尾：續作紀錄的「待最終回歸」與「正在定位」改為歷史式並指向最終節，避免讀者誤認尚未修復。
+原始 JSON 延遲後已成功 read-back：Markdown n=60，ready P95 219.8811→136.7762、gap P95 41.5096→22.4494；PDF 各 n=90，100頁18.8441→10.9729、3000頁84.5341→60.3576、最終gap55.8481，均與報告四捨五入值相符。未重新跑效能測試。
+JUnit read-back：tests1953、skipped89、failures0、errors0，即1864 passed；XML time86.525秒，報告86.55秒可屬pytest終端總時間差異，不影響結論。

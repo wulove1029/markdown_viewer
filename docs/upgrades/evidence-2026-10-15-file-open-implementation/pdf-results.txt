@@ -1,0 +1,49 @@
+PDF implementation evidence (2026-10-15)
+Environment: Windows, Python launcher PY_PYTHON3=3.13; Qt offscreen.
+Baseline command: py -3 -X utf8 docs/benchmarks/evidence-2026-10-15-file-open/pdf-load-probe.py
+Baseline exit 0; PdfView.load ONLY (not first readable paint, one sample each):
+100 pages cold_geometry 19.193 ms / warm_geometry 4.378 ms
+1000 pages cold_geometry 70.120 ms / warm_geometry 29.206 ms
+3000 pages cold_geometry 228.434 ms / warm_geometry 111.412 ms
+
+Step 1 implemented: cross-document raster previews with 32 MiB LRU;
+active raster budget reduced from 192 to 160 MiB so total remains 192 MiB.
+Keys: normalized path, mtime, size, ctime, inode, NTFS change time,
+page, DPR, pixel dimensions, PDFium pipeline version/no annotation options.
+Theme and annotations remain separate overlays and are not baked into pixels.
+Generation rejection remains; accepted previews are reassociated explicitly.
+Same-path reload and successful annotation writes invalidate old previews.
+First raster seam emits only after target page pixels have actually painted.
+
+Step 2 implemented: scoped sidecar read shared by notes/tag field/tag index;
+write eligibility is background work with one active and one latest pending
+request, source-version and request guards, pending write UI disabled.
+Writer's existing _open_for_write revalidates permissions on actual write.
+
+Step 3 implemented: documents over 128 pages use reading-page-first geometry,
+GUI-thread 5 ms batches, reading-page/point anchoring and stable fit scale.
+All QPdfDocument access remains on its owning GUI thread.
+Regression tests:
+py -3 -X utf8 -m pytest tests/test_pdf_switch_smoothness.py
+  tests/test_pdf_render_cache.py tests/test_pdf_view.py tests/test_pdf_password.py
+  tests/test_pdf_async_rendering.py tests/test_pdf_notes.py tests/test_pdf_doc_tags.py
+  tests/test_pdf_embedded_annotations.py tests/test_pdf_render_scheduler.py
+  tests/test_upgrade_performance.py -q -o cache_dir=tmp/pytest-pdf-switch-cache
+161 passed, 5 skipped in 89.59s; exit 0.
+5 skipped require private Acrobat sample PDFs absent on this machine.
+New 7 contracts cover cross-document generation-safe raster reuse, actual
+target paint signal, reload/same-size same-mtime external changes, LRU/options/
+DPR/page/version identity, mixed-size geometry anchor, shared sidecar read,
+and background permission check coalescing/stale-document/stale-version guards.
+
+Earlier run: 1 failed because a synthetic scheduler test injects results before
+load; initialized _geometry_signature to None and reran all above successfully.
+Imports app.pdf_view/app.pdf_flow succeeded. app.window import initially paused
+in PySide source-inspection/file readline, then completed; no workaround applied.
+
+Standalone real-raster benchmark running:
+py -3 -X utf8 tools/benchmark_pdf_switching.py --output
+  docs/upgrades/evidence-2026-10-15-file-open-implementation/pdf-raster-after.json
+Each warm case: 30 A-B-A switches per round, 3 rounds, target middle page.
+Uses actual _paint_page_raster result then completed paintEvent (not load return).
+Offscreen PdfView only, does not measure desktop compositor or MainWindow.

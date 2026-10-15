@@ -1,0 +1,14 @@
+﻿獨立驗收進度（2026-10-15）
+審查者：fresh independent_implementation_review agent。
+已讀當前三批產品 diff、新增 tests、implementation.md 及全域 03-judgment。
+已確認兩條與 root 發現同源的退回預覽問題：
+1. app/window.py _leave_wysiwyg_ui_keeping_buffer 原 line 3095：_activate_editor_state 已 deactivate renderer，Office Esc parked 只切 stack，不重新建立當前文件。已通知 root 納入修正。
+2. app/window.py _leave_edit_ui 原 line 3809：只 stop preview debounce，未 deactivate _edit_preview；split 預覽仍可在換檔後背景運行。已通知 root。
+補充限制：properties panel 是延後至事件迴圈，仍同步 path.read_bytes + PropertiesDocument.parse；不能描述為完全背景化。
+資料安全檢查：metadata generation/path/signature guard、pending tag annotation persist、PDF version/options/DPR key、TXT partial document 不發布、dirty editor 文件身份，未發現額外已確認毀損問題。
+獨立實跑：test_independent_acceptance.py 已建立，驗證大型 TXT pending 無法誤存上一份 dirty 文件、真實非同步 TXT 快速切換與完整返回；執行中，尚未判定通過。
+獨立實跑結果：PASS，2 passed, 1 warning in 38.88s，exit code 0。
+命令：py -3.13 -B -X pycache_prefix=C:/Windows/Temp/markdown-viewer-independent-no-pyc -X utf8 -u -m pytest docs/upgrades/evidence-2026-10-15-file-open-implementation/test_independent_acceptance.py -q -o faulthandler_timeout=20
+兩項驗收：大型 TXT 載入中 Ctrl+S/save 不會誤存前一份 dirty buffer；真實 TXT 非同步讀取／chunk construction 跨檔取消並返回完整文字，未修改 dirty 狀態。
+警告僅 pytest .pytest_cache 目錄 WinError 5 存取拒絕，不是測試失敗。首次 default bytecode cache collection 卡住，已中止本 agent 的舊探測程序；更換 pycache_prefix 後完成。
+目前沒有剩餘本 agent 探測程序。root 的 preview-return 修正完成後仍需重讀最終 diff；此紀錄尚未宣稱三批整體驗收通過。

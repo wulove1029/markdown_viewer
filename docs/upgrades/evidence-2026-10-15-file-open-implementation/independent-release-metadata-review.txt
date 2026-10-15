@@ -1,0 +1,7 @@
+2026-10-15 v1.35.0 發布資料唯讀審查
+結論：通過。
+app/version.py VERSION、installer.iss MyAppVersion、CHANGELOG.md 最新已發布版本條目均為1.35.0；CHANGELOG日期為2026-10-15。
+app/version.py 的 RELEASE_NOTES 三項敘述符合前輪已審實作，未宣稱全部效能門檻通過、未給不適用的跨情境效能保證，並導向量測與限制紀錄。
+CHANGELOG Validation 保留 Chromium 組合逾時與隔離重跑的區別、offscreen/PdfView量測範圍，以及55.85ms高於50ms的限制。
+tools/write_release_notes.py 從 app/version.py RELEASE_NOTES 產生當版文字並檢查 tag版本一致；沒有根目錄 RELEASE_NOTES.md，這是目前工具的正常設計，不是缺檔。
+本次僅讀檔核對，不重跑測試、不操作git提交或發布；CI與tag閘門由主代理處理。

@@ -1,0 +1,9 @@
+﻿Metadata step 1: added pure-Python bounded metadata cache, complete-render tag reuse, metadata-only child operation, cancellable line scan. Tests pending.
+Metadata step 2:
+- Added should_fast_preview() complexity hint (64 KiB sample) for >=256 KiB code-heavy sources.
+- Added render_file_partial() bounded 128 KiB read / 32 KiB preferred block-boundary parse; partial metadata is never published as full tags.
+- Added 22 metadata contracts, including real subprocess transport and cancellation, dirty-buffer isolation, coalescing, signature changes, bounded cache, legacy encoding prefixes.
+- First related run: Python 3.13.6; tests/test_document_metadata.py tests/test_inline_hashtags.py tests/test_md_converter_body.py tests/test_render_service.py tests/test_fast_preview.py => 176 passed, 1 pytest-cache permissions warning, 28.88 s, exit 0.
+- Ruff targeted files => All checks passed, exit 0 (after correcting one local import layout).
+- Component probe: metadata-probe.py exit 0. 5 MB synthetic prose read+tag median: baseline HEAD 504.87 ms vs new 64.12 ms; metadata cache lookup p95 0.33 ms. This excludes UI, first paint and panels and was measured during parallel development; it is not a complete application responsiveness claim.
+Final focused rerun: 177 passed in 28.70s, exit 0, -p no:cacheprovider. Full output: metadata-tests.txt. Real metadata child cancellation passed. No product packaging/desktop first-paint validation in this subtask.

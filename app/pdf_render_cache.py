@@ -8,7 +8,7 @@ estimated byte cost and immutable metadata used to find a preview for a page.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import log
 from typing import Any, Hashable, Iterable
 
@@ -52,6 +52,30 @@ class PdfRenderCache:
     def clear(self) -> None:
         self._items.clear()
         self._bytes_used = 0
+
+    def invalidate_document(self, path_key: str) -> None:
+        """Remove persisted previews for every version of one document."""
+        for key in list(self._items):
+            if isinstance(key, tuple) and key[0] == "document" and key[1][0] == path_key:
+                self.remove(key)
+
+    def remember_preview(self, signature, options, value, byte_size, meta) -> bool:
+        """Keep only whole-page, annotation-free rasters across document loads."""
+        if signature is None or meta.kind not in ("page", "preview") or meta.clip:
+            return False
+        key = ("document", signature, options, meta.page, meta.dpr100, meta.page_px)
+        return self.put(key, value, byte_size, meta)
+
+    def restore_previews(self, signature, options, page, generation, dpr100):
+        """Reassociate validated pixels with a new load, never an old callback."""
+        found = []
+        for key, entry in list(self._items.items()):
+            if (key[0] == "document" and key[1] == signature and key[2] == options
+                    and entry.meta.page == page and entry.meta.dpr100 == dpr100):
+                self._items.move_to_end(key)
+                found.append((entry.value, entry.byte_size,
+                              replace(entry.meta, generation=generation, kind="preview")))
+        return found
 
     def get(self, key: Hashable, default=None):
         entry = self._items.get(key)

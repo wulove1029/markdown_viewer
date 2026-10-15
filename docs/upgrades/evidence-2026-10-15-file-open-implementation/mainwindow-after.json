@@ -1,0 +1,1978 @@
+{
+  "root": "E:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 100000,
+  "category": "long_prose",
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 16.38240000102087,
+      "ready_ms": 272.93959999951767,
+      "full_ready_ms": 277.3102999999537,
+      "max_ui_gap_ms": 26.122200000827434,
+      "full_max_ui_gap_ms": 26.122200000827434,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6111000002420042
+        },
+        {
+          "method": "_load_document",
+          "ms": 13.394099998549791
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 13.467100001435028
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005899997631786391
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 42.08239999934449,
+      "ready_ms": 117.58689999987837,
+      "full_ready_ms": 120.1708000007784,
+      "max_ui_gap_ms": 43.32269999940763,
+      "full_max_ui_gap_ms": 43.32269999940763,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6162999998196028
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.655900000274414
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.697100001125364
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006299997039604932
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.940399998915382,
+      "ready_ms": 104.33280000142986,
+      "full_ready_ms": 108.35059999953955,
+      "max_ui_gap_ms": 16.75260000047274,
+      "full_max_ui_gap_ms": 16.75260000047274,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6004999995639082
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.659799997782102
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.707299999310635
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.700999999244232,
+      "ready_ms": 85.27289999983623,
+      "full_ready_ms": 90.5700999974215,
+      "max_ui_gap_ms": 15.945099999953527,
+      "full_max_ui_gap_ms": 15.945099999953527,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7498000013583805
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.320699999283534
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.394699998869328
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.251099997025449,
+      "ready_ms": 107.87229999914416,
+      "full_ready_ms": 111.38019999998505,
+      "max_ui_gap_ms": 17.434299999877112,
+      "full_max_ui_gap_ms": 17.434299999877112,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.116100000217557
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.54169999770238
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.746500000095693
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 15.19199999893317,
+      "ready_ms": 144.4566999998642,
+      "full_ready_ms": 147.87149999756366,
+      "max_ui_gap_ms": 30.65459999925224,
+      "full_max_ui_gap_ms": 30.65459999925224,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.5863000005774666
+        },
+        {
+          "method": "_load_document",
+          "ms": 14.742200000910088
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 14.870999999402557
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.017400001524947584
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.004199997842079,
+      "ready_ms": 107.07949999778066,
+      "full_ready_ms": 110.6949999993958,
+      "max_ui_gap_ms": 16.552599998249207,
+      "full_max_ui_gap_ms": 16.552599998249207,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8017000000108965
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.70380000237492
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.762500001874287
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004999998054699972
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.142199997266289,
+      "ready_ms": 131.39719999890076,
+      "full_ready_ms": 135.54329999897163,
+      "max_ui_gap_ms": 17.867200000182493,
+      "full_max_ui_gap_ms": 17.867200000182493,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.753100001020357
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.718699999415549
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.803200002555968
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005600002623395994
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.674699998868164,
+      "ready_ms": 112.50329999893438,
+      "full_ready_ms": 115.13130000093952,
+      "max_ui_gap_ms": 18.58910000009928,
+      "full_max_ui_gap_ms": 18.58910000009928,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6410999994841404
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.377400001540082
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.428400000615511
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.01049999991664663
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.629200002062134,
+      "ready_ms": 117.32610000035493,
+      "full_ready_ms": 122.04399999973248,
+      "max_ui_gap_ms": 18.471299998054747,
+      "full_max_ui_gap_ms": 18.471299998054747,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8170000000973232
+        },
+        {
+          "method": "_load_document",
+          "ms": 11.283299998467555
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 11.351599998306483
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005299996701069176
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 18.584699999337317,
+      "ready_ms": 163.17540000090958,
+      "full_ready_ms": 165.7928999993601,
+      "max_ui_gap_ms": 20.315199999458855,
+      "full_max_ui_gap_ms": 20.315199999458855,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0556000015640166
+        },
+        {
+          "method": "_load_document",
+          "ms": 17.949199998838594
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 18.030300001555588
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.01849999898695387
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.636200000793906,
+      "ready_ms": 118.85980000079144,
+      "full_ready_ms": 121.75510000088252,
+      "max_ui_gap_ms": 17.22899999731453,
+      "full_max_ui_gap_ms": 17.22899999731453,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8017000000108965
+        },
+        {
+          "method": "_load_document",
+          "ms": 11.365200000000186
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 11.420800001360476
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.960600000544218,
+      "ready_ms": 145.414399998117,
+      "full_ready_ms": 151.30320000025677,
+      "max_ui_gap_ms": 22.449399999459274,
+      "full_max_ui_gap_ms": 22.449399999459274,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.5590000002703164
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.261900002660695
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.549799997534137
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007399998139590025
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.385099998529768,
+      "ready_ms": 136.7762000008952,
+      "full_ready_ms": 139.5742999993672,
+      "max_ui_gap_ms": 17.079799999919487,
+      "full_max_ui_gap_ms": 17.079799999919487,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6947000001673587
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.984499996789964
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.054099999251775
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 13.096099999529542,
+      "ready_ms": 130.41599999996834,
+      "full_ready_ms": 133.92089999979362,
+      "max_ui_gap_ms": 21.573699999862583,
+      "full_max_ui_gap_ms": 21.573699999862583,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4102000022830907
+        },
+        {
+          "method": "_load_document",
+          "ms": 12.668899998971028
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 12.768100001267157
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.052200000936863944
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.458199998131022,
+      "ready_ms": 102.82860000006622,
+      "full_ready_ms": 106.60639999696286,
+      "max_ui_gap_ms": 16.647500000544824,
+      "full_max_ui_gap_ms": 16.647500000544824,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7201000007626135
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.045400001719827
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.09780000054161
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.821499999408843,
+      "ready_ms": 93.19069999764906,
+      "full_ready_ms": 100.63850000005914,
+      "max_ui_gap_ms": 17.165400000521913,
+      "full_max_ui_gap_ms": 17.165400000521913,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7492999975511339
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.491600001230836
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.544600000983337
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007000002369750291
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.85850000163191,
+      "ready_ms": 111.04100000011385,
+      "full_ready_ms": 114.89630000141915,
+      "max_ui_gap_ms": 18.30799999879673,
+      "full_max_ui_gap_ms": 18.30799999879673,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8299000000988599
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.554000000411179
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.618699998303782
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.365600002231076,
+      "ready_ms": 82.24280000285944,
+      "full_ready_ms": 93.44340000097873,
+      "max_ui_gap_ms": 17.970999997487525,
+      "full_max_ui_gap_ms": 17.970999997487525,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6326000002445653
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.122600000002421
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.161399997130502
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.150800000497838,
+      "ready_ms": 130.28040000062902,
+      "full_ready_ms": 133.7411999993492,
+      "max_ui_gap_ms": 18.456400001014117,
+      "full_max_ui_gap_ms": 18.456400001014117,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6578000029549003
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.863800001563504
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.933099998102989
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.011299998732283711
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.521100000711158,
+      "ready_ms": 113.7233000008564,
+      "full_ready_ms": 117.09740000151214,
+      "max_ui_gap_ms": 21.451900000101887,
+      "full_max_ui_gap_ms": 21.451900000101887,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7131999991543125
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.260099999664817
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.294200001022546
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006099999154685065
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.951399999001296,
+      "ready_ms": 106.29010000047856,
+      "full_ready_ms": 110.04870000033407,
+      "max_ui_gap_ms": 16.52069999909145,
+      "full_max_ui_gap_ms": 16.52069999909145,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6157999996503349
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.675600001675775
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.717299999058014
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.63759999992908,
+      "ready_ms": 103.56270000193035,
+      "full_ready_ms": 106.66610000043875,
+      "max_ui_gap_ms": 17.51259999946342,
+      "full_max_ui_gap_ms": 17.51259999946342,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.167499998700805
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.25279999844497
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.342000000993721
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.958499998698244,
+      "ready_ms": 106.7425999972329,
+      "full_ready_ms": 110.36669999884907,
+      "max_ui_gap_ms": 17.718600000080187,
+      "full_max_ui_gap_ms": 17.718600000080187,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6276999993133359
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.687099998496706
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.750300003157463
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.338700001535472,
+      "ready_ms": 105.4550000008021,
+      "full_ready_ms": 108.02150000017718,
+      "max_ui_gap_ms": 17.748199999914505,
+      "full_max_ui_gap_ms": 17.748199999914505,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1205000009795185
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.06839999879594
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.115699998801574
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0041000021155923605
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 14.899900001182687,
+      "ready_ms": 134.58820000232663,
+      "full_ready_ms": 138.15450000038254,
+      "max_ui_gap_ms": 26.58970000265981,
+      "full_max_ui_gap_ms": 26.58970000265981,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6654999997408595
+        },
+        {
+          "method": "_load_document",
+          "ms": 14.539899999363115
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 14.6281999986968
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009499999578110874
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 12.76039999720524,
+      "ready_ms": 120.90709999756655,
+      "full_ready_ms": 124.94239999796264,
+      "max_ui_gap_ms": 16.690599997673417,
+      "full_max_ui_gap_ms": 16.690599997673417,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7277000004251022
+        },
+        {
+          "method": "_load_document",
+          "ms": 12.420400002156384
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 12.498200001573423
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 13.539999999920838,
+      "ready_ms": 98.16720000162604,
+      "full_ready_ms": 101.18520000105491,
+      "max_ui_gap_ms": 17.338599998765858,
+      "full_max_ui_gap_ms": 17.338599998765858,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1354999987815972
+        },
+        {
+          "method": "_load_document",
+          "ms": 13.127400001394562
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 13.196699997934047
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.739000000990927,
+      "ready_ms": 90.6849000020884,
+      "full_ready_ms": 103.71950000262586,
+      "max_ui_gap_ms": 17.886100002215244,
+      "full_max_ui_gap_ms": 17.886100002215244,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7552000024588779
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.40940000145929
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.459799999604002
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.701700000732671,
+      "ready_ms": 116.5484999983164,
+      "full_ready_ms": 120.58400000023539,
+      "max_ui_gap_ms": 17.953499998839106,
+      "full_max_ui_gap_ms": 17.953499998839106,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6830000020272564
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.263700001611141
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.326899998995941
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.236999998393003,
+      "ready_ms": 105.91420000127982,
+      "full_ready_ms": 111.64659999849391,
+      "max_ui_gap_ms": 16.039699999964796,
+      "full_max_ui_gap_ms": 16.039699999964796,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6952000003366265
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.915000002161833
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.992499999294523
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008999999408842996
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 16.80779999878723,
+      "ready_ms": 132.0605999972031,
+      "full_ready_ms": 140.24589999826276,
+      "max_ui_gap_ms": 18.34679999956279,
+      "full_max_ui_gap_ms": 18.34679999956279,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2973000011697877
+        },
+        {
+          "method": "_load_document",
+          "ms": 16.29239999965648
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 16.402599998400547
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0104000027931761
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.015599997132085,
+      "ready_ms": 107.28139999991981,
+      "full_ready_ms": 110.03060000075493,
+      "max_ui_gap_ms": 17.390400000294903,
+      "full_max_ui_gap_ms": 17.390400000294903,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8087999995041173
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.720600002765423
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.771900000487221
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004099998477613553
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.197499999572756,
+      "ready_ms": 102.74130000107107,
+      "full_ready_ms": 108.22230000121635,
+      "max_ui_gap_ms": 19.704900001670467,
+      "full_max_ui_gap_ms": 19.704900001670467,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6530999999085907
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.84839999707765
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.958999998867512
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0035000011848751456
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 12.04669999788166,
+      "ready_ms": 116.78659999961383,
+      "full_ready_ms": 120.00089999855845,
+      "max_ui_gap_ms": 18.602699998155003,
+      "full_max_ui_gap_ms": 18.602699998155003,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7648999999219086
+        },
+        {
+          "method": "_load_document",
+          "ms": 11.618699998507509
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 11.73680000283639
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0042000028770416975
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 11.464799998066155,
+      "ready_ms": 110.64819999955944,
+      "full_ready_ms": 114.03570000038599,
+      "max_ui_gap_ms": 18.88619999954244,
+      "full_max_ui_gap_ms": 18.88619999954244,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.5839000004925765
+        },
+        {
+          "method": "_load_document",
+          "ms": 11.102500000561122
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 11.26010000007227
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0029000002541579306
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.9923000012058765,
+      "ready_ms": 76.8220999998448,
+      "full_ready_ms": 82.0095000017318,
+      "max_ui_gap_ms": 23.380800001177704,
+      "full_max_ui_gap_ms": 23.380800001177704,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6676000011793803
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.714399998803856
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.779299998219358
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005999998393235728
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.16409999949974,
+      "ready_ms": 95.55600000021514,
+      "full_ready_ms": 98.82020000077318,
+      "max_ui_gap_ms": 17.40609999978915,
+      "full_max_ui_gap_ms": 17.40609999978915,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6184000012581237
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.832299997768132
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.93189999947208
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0035999983083456755
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.561299997381866,
+      "ready_ms": 104.56369999883464,
+      "full_ready_ms": 107.65829999945709,
+      "max_ui_gap_ms": 16.182299998035887,
+      "full_max_ui_gap_ms": 16.182299998035887,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.077400000212947
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.17319999987376
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.294700000988087
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 6.99959999838029,
+      "ready_ms": 92.76440000030561,
+      "full_ready_ms": 96.45239999736077,
+      "max_ui_gap_ms": 16.689000000042142,
+      "full_max_ui_gap_ms": 16.689000000042142,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6549999998242129
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.754800000635441
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.795799999963492
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032999996619764715
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.090499999525491,
+      "ready_ms": 112.72530000132974,
+      "full_ready_ms": 115.10759999873699,
+      "max_ui_gap_ms": 18.253300000651507,
+      "full_max_ui_gap_ms": 18.253300000651507,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8119000012811739
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.632300003024284
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.6799000016762875
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032000025385059416
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.398499998089392,
+      "ready_ms": 97.6922999980161,
+      "full_ready_ms": 101.11509999842383,
+      "max_ui_gap_ms": 15.92250000248896,
+      "full_max_ui_gap_ms": 15.92250000248896,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.638900000922149
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.13750000068103
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.175999999162741
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0041000021155923605
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.835800002794713,
+      "ready_ms": 101.64720000102534,
+      "full_ready_ms": 104.95320000336505,
+      "max_ui_gap_ms": 17.93040000120527,
+      "full_max_ui_gap_ms": 17.93040000120527,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6565000003320165
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.570199999463512
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.625700000062352
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032999996619764715
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.217999999033054,
+      "ready_ms": 83.59410000048229,
+      "full_ready_ms": 89.06189999834169,
+      "max_ui_gap_ms": 15.595300003042212,
+      "full_max_ui_gap_ms": 15.595300003042212,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7134999978006817
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.830799997464055
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.905900001787813
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.897699997964082,
+      "ready_ms": 109.36609999771463,
+      "full_ready_ms": 112.8019999996468,
+      "max_ui_gap_ms": 17.014600001857616,
+      "full_max_ui_gap_ms": 17.014600001857616,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.6539000025659334
+        },
+        {
+          "method": "_load_document",
+          "ms": 9.397599998919759
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 9.48179999977583
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.9087999984039925,
+      "ready_ms": 99.96749999845633,
+      "full_ready_ms": 102.37250000136555,
+      "max_ui_gap_ms": 16.70399999784422,
+      "full_max_ui_gap_ms": 16.70399999784422,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6032999990566168
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.656399997358676
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.692800001677824
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0034999975468963385
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.6179000025149435,
+      "ready_ms": 99.07100000054925,
+      "full_ready_ms": 102.68960000030347,
+      "max_ui_gap_ms": 18.4800000024552,
+      "full_max_ui_gap_ms": 18.4800000024552,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7397000008495525
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.30190000103903
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.35770000028424
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007799997547408566
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 6.882699999550823,
+      "ready_ms": 101.23999999996158,
+      "full_ready_ms": 105.07350000261795,
+      "max_ui_gap_ms": 17.314400000032037,
+      "full_max_ui_gap_ms": 17.314400000032037,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6121000005805399
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.637599999521626
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.675500000710599
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0031000017770566046
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.220099997037323,
+      "ready_ms": 106.06749999715248,
+      "full_ready_ms": 109.79169999700389,
+      "max_ui_gap_ms": 16.357599997718353,
+      "full_max_ui_gap_ms": 16.357599997718353,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7337999995797873
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.421200000157114
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.971999999630498
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.192799999960698,
+      "ready_ms": 97.7521999993769,
+      "full_ready_ms": 101.21380000055069,
+      "max_ui_gap_ms": 16.71139999962179,
+      "full_max_ui_gap_ms": 16.71139999962179,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.7019000004220288
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.93350000094506
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.970700000441866
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007300001016119495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.417099998041522,
+      "ready_ms": 121.62539999917499,
+      "full_ready_ms": 124.18279999837978,
+      "max_ui_gap_ms": 18.415800001093885,
+      "full_max_ui_gap_ms": 18.415800001093885,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.961599998845486
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.078300001216121
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.133799998176983
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 6.849800000054529,
+      "ready_ms": 67.21029999971506,
+      "full_ready_ms": 72.394599999825,
+      "max_ui_gap_ms": 16.45039999857545,
+      "full_max_ui_gap_ms": 16.45039999857545,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6270000012591481
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.572900001629023
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.614699999772711
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0032999996619764715
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.235699999000644,
+      "ready_ms": 98.86379999807104,
+      "full_ready_ms": 102.00679999979911,
+      "max_ui_gap_ms": 18.631499999173684,
+      "full_max_ui_gap_ms": 18.631499999173684,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6121000005805399
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.003500002610963
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.042600002023391
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004999998054699972
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.368200000200886,
+      "ready_ms": 93.19139999934123,
+      "full_ready_ms": 101.47720000168192,
+      "max_ui_gap_ms": 16.739700000471203,
+      "full_max_ui_gap_ms": 17.009499999403488,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.663800001348136
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.134799998311792
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.177299998147646
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 10.739500001363922,
+      "ready_ms": 101.6620000009425,
+      "full_ready_ms": 105.9348000017053,
+      "max_ui_gap_ms": 18.86930000182474,
+      "full_max_ui_gap_ms": 18.86930000182474,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8880999994289596
+        },
+        {
+          "method": "_load_document",
+          "ms": 10.4618000004848
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 10.523299999476876
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 6.958699999813689,
+      "ready_ms": 102.48979999960284,
+      "full_ready_ms": 105.99030000230414,
+      "max_ui_gap_ms": 16.685200000210898,
+      "full_max_ui_gap_ms": 16.685200000210898,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6503000004158821
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.6413000022294
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.685600001219427
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 9.137400000327034,
+      "ready_ms": 103.00660000211792,
+      "full_ready_ms": 107.91650000101072,
+      "max_ui_gap_ms": 17.842099998233607,
+      "full_max_ui_gap_ms": 17.842099998233607,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.5819999969389755
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.898099997168174
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.941200001572724
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0029000002541579306
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.3398999993514735,
+      "ready_ms": 99.98020000057295,
+      "full_ready_ms": 103.2971999993606,
+      "max_ui_gap_ms": 17.67950000066776,
+      "full_max_ui_gap_ms": 17.67950000066776,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.5977000000711996
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.090699997206684
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.136200001696125
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0041000021155923605
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.174500002292916,
+      "ready_ms": 74.56110000202898,
+      "full_ready_ms": 79.8800000011397,
+      "max_ui_gap_ms": 16.36339999822667,
+      "full_max_ui_gap_ms": 16.379499997128733,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6084999986342154
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.927300000825198
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.966400000237627
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0027999994927085936
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 8.994300002086675,
+      "ready_ms": 102.05080000014277,
+      "full_ready_ms": 105.3862000007939,
+      "max_ui_gap_ms": 21.878700001252582,
+      "full_max_ui_gap_ms": 21.878700001252582,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.8157999982358888
+        },
+        {
+          "method": "_load_document",
+          "ms": 8.637099999759812
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 8.694600001035724
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 7.358899998507695,
+      "ready_ms": 100.86120000050869,
+      "full_ready_ms": 103.87429999900633,
+      "max_ui_gap_ms": 19.64389999920968,
+      "full_max_ui_gap_ms": 19.64389999920968,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6732000001647975
+        },
+        {
+          "method": "_load_document",
+          "ms": 7.051299999147886
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 7.092699997883756
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0029000002541579306
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 6.801499999710359,
+      "ready_ms": 100.92530000110855,
+      "full_ready_ms": 103.50060000200756,
+      "max_ui_gap_ms": 17.669900000328198,
+      "full_max_ui_gap_ms": 17.669900000328198,
+      "rss_tree_bytes": null,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.6950999995751772
+        },
+        {
+          "method": "_load_document",
+          "ms": 6.538699999509845
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 6.574800001544645
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\USER01\\AppData\\Local\\Temp\\mdv-switch-benchmark-8b6k51aa",
+  "pyside": "6.11.0",
+  "mode": "offscreen",
+  "settings": "\\HKEY_CURRENT_USER\\Software\\markdown-viewer\\MarkdownViewer",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 101168,
+    "B.md": 101168
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": null,
+  "summary": {
+    "sync_ms": {
+      "n": 60,
+      "p50_ms": 9.144100000412436,
+      "p95_ms": 14.899900001182687,
+      "max_ms": 18.584699999337317
+    },
+    "ready_ms": {
+      "n": 60,
+      "p50_ms": 104.44825000013225,
+      "p95_ms": 136.7762000008952,
+      "max_ms": 163.17540000090958
+    },
+    "full_ready_ms": {
+      "n": 60,
+      "p50_ms": 108.12190000069677,
+      "p95_ms": 140.24589999826276,
+      "max_ms": 165.7928999993601
+    },
+    "max_ui_gap_ms": {
+      "n": 60,
+      "p50_ms": 17.699050000373973,
+      "p95_ms": 22.449399999459274,
+      "max_ms": 30.65459999925224
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 40.697100001125364,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 40.655900000274414,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 18.030300001555588,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 17.949199998838594,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 16.402599998400547,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 16.29239999965648,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 14.870999999402557,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 14.742200000910088,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 14.6281999986968,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 14.539899999363115,
+      "path": "B.md",
+      "warm": true
+    }
+  ],
+  "passed": true
+}

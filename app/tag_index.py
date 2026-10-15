@@ -99,6 +99,12 @@ class TagIndex:
             | set(entry.get("body_tags", []))
         )
 
+    def update_annotation_tags(self, path, doc):
+        """Persist annotation changes without erasing pending Markdown tags."""
+        entry = self._data.get(str(Path(path).resolve()), {})
+        self.update(path, doc, front_tags=entry.get("front_tags", []),
+                    body_tags=entry.get("body_tags", []))
+
     def tags_for(self, path, *, include_markdown: bool = True) -> set[str]:
         """Return the set of tags currently recorded for a resolved path.
 

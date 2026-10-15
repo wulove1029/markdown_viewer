@@ -678,7 +678,7 @@ def _ends_hashtag(char: str) -> bool:
     return char.isspace() or char == "#" or unicodedata.category(char).startswith("P")
 
 
-def body_hashtags(text: str) -> list[str]:
+def body_hashtags(text: str, *, cancel=None) -> list[str]:
     """Extract inline ``#tags`` outside fenced and inline code.
 
     A hashtag starts at the beginning of a line or after whitespace. Its value
@@ -689,7 +689,18 @@ def body_hashtags(text: str) -> list[str]:
     tags: list[str] = []
     seen: set[str] = set()
 
-    for visible in mask_markdown_code(text).splitlines():
+    in_fence = False
+    # Skip ordinary prose without allocating a second full masked document.
+    # Poll between lines so metadata-only work can stop without parsing HTML.
+    for index, line in enumerate((text or "").splitlines()):
+        if index % 128 == 0 and cancel is not None and cancel.is_set():
+            raise RenderCancelled()
+        if _BACKTICK_FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence or "#" not in line:
+            continue
+        visible = _mask_inline_code(line) if "`" in line else line
         for match in re.finditer(r"(?<!\S)#", visible):
             start = match.end()
             if start >= len(visible) or _ends_hashtag(visible[start]):
@@ -794,6 +805,9 @@ class RenderedBody:
     mermaid: bool
     code_copy: bool
     math: bool
+    # Defaults preserve the existing five-argument constructor and IPC shape.
+    front_tags: tuple[str, ...] = ()
+    body_tags: tuple[str, ...] = ()
 
 
 class RenderCancelled(Exception):
@@ -812,7 +826,7 @@ def render_body(text: str, *, cancel=None) -> RenderedBody:
             raise RenderCancelled()
         # Render the full text (front_matter_plugin strips the YAML from the output
         # but the source line numbers stay intact, so task-list data-line is correct).
-        front, _body = parse_front_matter(text)
+        front, source_body = parse_front_matter(text)
         body = _PARSER.render(text)
         body_with_anchors, headings = _inject_anchors(body)
         body_with_anchors = _front_matter_html(front) + body_with_anchors
@@ -822,6 +836,8 @@ def render_body(text: str, *, cancel=None) -> RenderedBody:
             mermaid='class="mermaid"' in body_with_anchors,
             code_copy='class="highlight"' in body_with_anchors,
             math='class="math' in body_with_anchors,
+            front_tags=tuple(front_matter_tags(front)),
+            body_tags=tuple(body_hashtags(source_body, cancel=cancel)),
         )
 
 
@@ -832,6 +848,66 @@ _DETAILS_CLOSE_ANY_RE = re.compile(r"^ {0,3}</details>", re.IGNORECASE)
 
 def _line_bytes(line: str) -> int:
     return len(line) if line.isascii() else len(line.encode("utf-8"))
+
+
+def _read_prefix(path: Path, max_bytes: int) -> str | None:
+    """Decode a bounded sample without treating a split UTF-8 tail as GBK."""
+    with path.open("rb") as stream:
+        raw = stream.read(max_bytes)
+    if raw.startswith(codecs.BOM_UTF8):
+        encodings = ("utf-8-sig",)
+    elif raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        encodings = ("utf-16",)
+    else:
+        encodings = ("utf-8", "cp950", "gbk")
+    for encoding in encodings:
+        try:
+            # final=False buffers at most a trailing incomplete character. The
+            # incomplete last line is discarded by render_file_partial below.
+            decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+            text = decoder.decode(raw, final=False)
+            return text.replace("\r\n", "\n").replace("\r", "\n")
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def should_fast_preview(path: Path, size: int) -> bool:
+    """Bounded complexity hint for medium code-heavy documents (worker only).
+
+    The full 2 MiB rule remains. A smaller file opts in only when a 64 KiB
+    sample has many code fences: Pygments makes this shape materially slower
+    than plain prose. This is a heuristic, not a first-paint time guarantee.
+    """
+    if size >= FAST_PREVIEW_MIN_BYTES:
+        return True
+    if size < SUBPROCESS_MIN_BYTES:
+        return False
+    sample = _read_prefix(path, 64 * 1024)
+    if sample is None:
+        return False
+    return sum(1 for line in sample.splitlines() if _FENCE_RE.match(line)) >= 16
+
+
+def render_file_partial(path: Path, total_bytes: int, *, cancel=None):
+    """Read/render a bounded prefix rather than decoding the full large file.
+
+    At most 128 KiB is read with the standard settings, and the preferred
+    parser budget is 32 KiB. If no complete block fits, return None; full
+    rendering still happens in the child and partial output is never cached.
+    """
+    if cancel is not None and cancel.is_set():
+        raise RenderCancelled()
+    budget = min(FAST_PREVIEW_PREFIX_BYTES, 32 * 1024)
+    scan_budget = min(FAST_PREVIEW_MAX_SCAN_BYTES, max(budget * 4, 64 * 1024))
+    text = _read_prefix(path, scan_budget)
+    if text is None:
+        return None
+    if total_bytes > scan_budget:
+        # Keep only complete physical lines. The split still requires a blank
+        # line outside all open Markdown constructs, including fences/YAML.
+        text = text[:text.rfind("\n") + 1]
+    return render_partial_body(text, total_bytes, max_bytes=budget, cancel=cancel)
 
 
 def fast_preview_split(
@@ -971,7 +1047,8 @@ _CONVERT_CACHE_BYTES = 64 * 1024 * 1024
 def _body_bytes(rendered):
     return (sys.getsizeof(rendered.body) + sys.getsizeof(rendered.headings)
             + sum(sys.getsizeof(h) + sum(sys.getsizeof(v) for v in h)
-                  for h in rendered.headings))
+                  for h in rendered.headings)
+            + sum(sys.getsizeof(t) for t in rendered.front_tags + rendered.body_tags))
 
 
 def _body_signature(path):
@@ -1038,6 +1115,8 @@ def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
         if cached is not None:
             _CONVERT_CACHE[cache_key] = cached
     if cached is not None:
+        from .document_metadata import remember_rendered
+        remember_rendered(path, cached, cache_key)
         return cached, None
 
     rendered = None
@@ -1057,6 +1136,8 @@ def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
             return rendered, None  # never cache a file changed while reading
     except OSError:
         return rendered, None
+    from .document_metadata import remember_rendered
+    remember_rendered(path, rendered, cache_key)
     with _CONVERT_LOCK:
         for old_key in list(_CONVERT_CACHE):
             if old_key[0] == cache_key[0]:
@@ -1181,4 +1262,6 @@ def state_page_html(title: str, message: str, theme: str = "light", label: str =
 
 
 def _error_page(message: str, theme: str = "light") -> str:
-    return state_page_html("無法預覽 Markdown", message, theme, "錯誤")
+    return state_page_html("無法預覽 Markdown", message, theme, "錯誤").replace(
+        "</head>", '<meta name="markdown-viewer-render-error" content="true"></head>', 1
+    )

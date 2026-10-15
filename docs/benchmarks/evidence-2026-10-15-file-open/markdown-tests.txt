@@ -1,0 +1,56 @@
+﻿Markdown open/switch analysis verification
+Date: 2026-10-15 (Asia/Taipei)
+Environment: PY_PYTHON3=3.13; QT_QPA_PLATFORM=offscreen
+Release venv unavailable at TEMP/mdv-release-venv/Scripts/python.exe
+Command: py -3 -X utf8 -m pytest tests/test_fast_preview.py tests/test_renderer_async.py tests/test_upgrade_performance.py tests/test_text_support.py -q -p no:cacheprovider --basetemp <new TEMP path>
+Basetemp: C:\Users\USER01\AppData\Local\Temp\mdv-open-tests-14aebd78ad734352b5b47acde4259292
+Environment versions and lock comparison:
+executable=C:\Users\USER01\AppData\Local\Programs\Python\Python313\python.exe
+python=3.13.6 (tags/v3.13.6:4e66535, Aug  6 2025, 14:36:00) [MSC v.1944 64 bit (AMD64)]
+PySide6: installed=6.11.0; locked=6.11.2; match=False
+markdown-it-py: installed=4.0.0; locked=4.2.0; match=False
+mdit-py-plugins: installed=0.5.0; locked=0.6.1; match=False
+Pygments: installed=2.20.0; locked=2.21.0; match=False
+pytest: installed=9.0.3; locked=9.1.1; match=False
+py : Traceback (most recent call last):
+位於 線路:19 字元:6
++ '@ | py -3 -X utf8 - 2>&1 | Tee-Object -Variable envOutput
++      ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\USER01\AppData\Local\Programs\Python\Python313\Lib\importlib\metadata\__init__.py", line 407, in from_
+name
+    return next(iter(cls.discover(name=name)))
+StopIteration
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 7, in <module>
+  File "C:\Users\USER01\AppData\Local\Programs\Python\Python313\Lib\importlib\metadata\__init__.py", line 987, in versi
+on
+    return distribution(distribution_name).version
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\USER01\AppData\Local\Programs\Python\Python313\Lib\importlib\metadata\__init__.py", line 960, in distr
+ibution
+    return Distribution.from_name(distribution_name)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\USER01\AppData\Local\Programs\Python\Python313\Lib\importlib\metadata\__init__.py", line 409, in from_
+name
+    raise PackageNotFoundError(name)
+importlib.metadata.PackageNotFoundError: No package metadata was found for pytest-qt
+
+......................................................                   [100%]
+54 passed in 1.72s
+
+Exit code: 0
+Environment audit follow-up: pytest-qt metadata is absent; the selected tests do not require qtbot and all 54 passed. This run is not a locked-release validation.
+PySide6=6.11.0
+markdown-it-py=4.0.0
+mdit-py-plugins=0.5.0
+Pygments=2.20.0
+pytest=9.0.3
+pytest-qt=NOT INSTALLED
+
+Environment audit follow-up exit code: 0

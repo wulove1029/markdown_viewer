@@ -208,6 +208,7 @@ class _StubRenderer:
     _stale_render = _R._stale_render
     _on_file_partial_ready = _R._on_file_partial_ready
     _on_file_render_ready = _R._on_file_render_ready
+    _set_document_html = _R._set_document_html
     is_partial_preview = _R.is_partial_preview
     export_pdf = _R.export_pdf
     find_text = _R.find_text

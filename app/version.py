@@ -1,12 +1,12 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.34.0"
+VERSION = "1.35.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "關聯圖支援 Markdown 相對連結、重名路徑辨識，以及文件庫／資料夾／標籤分群。",
-    "新增 YAML 屬性面板、筆記改名同步 wikilink、外部異動差異與保留雙方，"
-    "改善 PDF 註解編輯與匯出完成操作。",
-    "改善背景改名、高亮快取與封裝體積，補強存檔警示、設定相容性及自動測試；完整變更與尚未達標項目見專案交付紀錄。",
+    "改善換檔與分頁切換：共用標籤解析、取消過期預覽，並保留閱讀位置與未儲存的編輯內容。",
+    "PDF 返回原頁可重用有界預覽與頁面尺寸快取，大型純文字改為背景讀取及分批建立內容。",
+    "改善複雜 Markdown 的部分預覽與大型 HTML 載入，"
+    "補強來源／Office 返回預覽及跨檔取消；量測與限制見交付紀錄。",
 ]
 
 GITHUB_OWNER = "wulove1029"

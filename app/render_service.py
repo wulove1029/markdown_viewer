@@ -294,7 +294,7 @@ class RenderService:
 
     # -- rendering ---------------------------------------------------------
 
-    def render(self, *, path=None, text=None, cancel=None):
+    def render(self, *, path=None, text=None, cancel=None, metadata_only=False):
         """Render in a child process.
 
         Returns ``(rendered_body, error_message)`` exactly like
@@ -309,7 +309,8 @@ class RenderService:
         if cancel is not None and cancel.is_set():
             self._release(worker)
             raise RenderWorkerCancelled()
-        request = {"op": "render_file" if path is not None else "render_text",
+        operation = "metadata" if metadata_only else "render"
+        request = {"op": operation + ("_file" if path is not None else "_text"),
                    "path": str(path) if path is not None else None,
                    "text": text}
         deadline = time.monotonic() + _REQUEST_TIMEOUT_S
@@ -360,6 +361,10 @@ def shutdown() -> None:
 
 def render_remote(*, path=None, text=None, cancel=None):
     return _SERVICE.render(path=path, text=text, cancel=cancel)
+
+
+def metadata_remote(*, path=None, text=None, cancel=None):
+    return _SERVICE.render(path=path, text=text, cancel=cancel, metadata_only=True)
 
 
 atexit.register(shutdown)

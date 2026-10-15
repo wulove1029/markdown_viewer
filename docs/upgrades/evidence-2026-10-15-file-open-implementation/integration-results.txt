@@ -1,0 +1,16 @@
+﻿Integration checkpoint: 206 passed, 2 failed in 333.19s.
+Failures: test_body_tags_update_when_markdown_is_opened_and_saved and test_inline_edit_commit_refreshes_the_tag_index expected tags immediately from a fake renderer. Updated them to populate converter metadata and emit content_ready before asserting tags. Retest pending.
+Fixed normal source editor and parked Office return to preview: reload the now-visible Markdown renderer; cancel split preview on ordinary leave.
+Properties panel refresh is deferred to the next UI turn, not fully moved to a worker. Do not claim full background properties parsing.
+Final default regression: 1864 passed, 89 skipped in 86.55s; exit 0.
+Command: py -3.13 -B -X pycache_prefix=C:/Windows/Temp/mdv-final-no-pyc -X utf8 -u -m pytest tests -q -p no:cacheprovider --basetemp TEMP/mdv-all-final --junitxml=C:/Windows/Temp/mdv-all-final.xml
+Focused integration and partial PDF geometry fixes: 19 passed in 14.62s; exit 0.
+Ruff: check --no-cache app tests tools => All checks passed, exit 0.
+Mypy configured five files: Success: no issues found in 5 source files, exit 0.
+Git diff --check: exit 0.
+PDF 3000 pages final: 90 warm switches, p50 54.90 ms / p95 60.36 ms; max UI gap p95 55.85 ms. This stress-case gap still exceeds the proposed 50 ms target. Real target raster in standalone offscreen PdfView; not MainWindow or display latency.
+The stopped intermediate regression blocked inside Windows file replacement (atomic_io._replace_file); it is not counted as a passed run. Final run above completed cleanly.
+Combined real Chromium suite: 123 passed, 2 failed in 278.57s. Failures were the first two WysiwygView ready() waits; remaining 25 Office cases passed. No product exception or data mismatch. Running Office group separately to distinguish startup/resource timing from a regression; do not count combined suite as passing.
+Real renderer context menu: 1 passed in 0.41s, exit 0.
+Office isolated rerun: 27 passed in 45.60s, exit 0. Both initial readiness timeouts passed in a fresh process; exact environmental cause is not proven. Combined suite retained 98 passing non-Office cases, with all 27 Office cases passing isolated; renderer context menu adds 1 passing case. Do not represent the initial combined process as green.
+Final source checks are complete. No rebuilt EXE, locked dependency packaging, physical-display timing or process-tree RSS claim is made.

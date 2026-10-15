@@ -139,6 +139,7 @@ from .tab_state import TabState
 from .tag_colors import TagColorStore
 from .tag_flow import merged_tag_rows as merged_tag_rows
 from .tag_index import TagIndex
+from .text_loading import ASYNC_TEXT_BYTES, TextLoader
 from .text_positions import py_to_qt_position, qt_to_py_position
 from .theme import (
     HIT_TARGET,
@@ -379,6 +380,12 @@ class MainWindow(QMainWindow):
 
         self._current_front_tags: list[str] = []
         self._current_body_tags: list[str] = []
+        self._front_tags_pending = False
+        self._document_load_generation = 0
+        self._text_loader = TextLoader(self)
+        self._text_loader.ready.connect(self._on_text_document_ready)
+        self._text_loader.failed.connect(self._on_text_document_failed)
+        self._text_loading_label = None
 
         self._panel = LeftPanel(
             on_file_selected=self._open_file,
@@ -429,6 +436,8 @@ class MainWindow(QMainWindow):
         self._renderer = RendererView(
             on_headings_ready=self._panel.toc.update_headings
         )
+        self._renderer.content_ready.connect(self._on_preview_content_ready)
+        self._renderer.render_failed.connect(self._on_preview_render_failed)
         self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
         self._renderer.home_action_requested.connect(self._home_action)
         self._content_zoom, self._pdf_zoom = (
@@ -2603,6 +2612,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         document = state.get("editor_document")
         if not isinstance(document, QTextDocument):
             return False
+        self._renderer.deactivate()
         # Any real entry into the editor (Ctrl+E, double-click resume, tab
         # restore, backend toggle) resumes live editing, so the tab is no
         # longer merely "parked" behind a preview.
@@ -3063,12 +3073,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # task-checkbox write-back, the dirty-title marker -- keys off this
         # flag instead of state["view_mode"] or self._view_mode alone.
         state["wysiwyg_parked"] = True
+        if self._current_file and self._current_kind == "markdown":
+            self._renderer.load_file(self._current_file, scroll_y=state.get("scroll"))
+            tag_flow.request_metadata(self, render_pending=True)
         self._editor.release_buffer_document()
         self._editor.set_markdown_services_suspended(False)
         self._view_mode = view_mode.PREVIEW
         self._renderer.set_inline_edit_enabled(True)
         self._renderer.set_preview_double_click_mode(self._preview_double_click)
         self._preview_timer.stop()
+        if self._edit_preview is not None:
+            self._edit_preview.deactivate()
         self._editor_status_timer.stop()
         self._recovery_timer.stop()
         self._editor_search_bar.hide()
@@ -3692,6 +3707,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # off, which destroys any open inline editor along with it.
         if not self._confirm_discard_preview_edit():
             return False
+        if plain_text and self._current_file is not None:
+            try:
+                large_text = self._current_file.stat().st_size >= ASYNC_TEXT_BYTES
+            except OSError:
+                large_text = False
+            if large_text:
+                self._start_text_document_load()
+                return True
         try:
             result = read_text_detailed(self._current_file)
         except OSError as exc:
@@ -3726,6 +3749,32 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._tab_state[self._active_path] = state
         return self._activate_editor_state(state, mode)
 
+    def _start_text_document_load(self):
+        if self._text_loading_label is None:
+            self._text_loading_label = QLabel(self)
+            self._text_loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._stack.addWidget(self._text_loading_label)
+        self._text_loading_label.setText(f"正在載入純文字：{self._current_file.name}")
+        self._stack.setCurrentWidget(self._text_loading_label)
+        self._text_loader.start(self._current_file, self._editor.font())
+
+    def _on_text_document_ready(self, path, document, encoding, newline, signature):
+        if (path != self._current_file or self._current_kind != "text"
+                or signature != self._file_signature(path)):
+            document.deleteLater()
+            return
+        state = self._tab_state.setdefault(str(path), {})
+        state.update({"kind": "text", "view_mode": view_mode.EDIT,
+                      "editor_document": document, "cursor": 0, "anchor": 0,
+                      "editor_scroll": 0, "editing_encoding": encoding,
+                      "editing_newline": newline, "source_signature": signature,
+                      "preview_scroll_ratio": 0.0})
+        self._activate_editor_state(state, view_mode.EDIT)
+
+    def _on_text_document_failed(self, path, error):
+        if path == self._current_file and self._text_loading_label is not None:
+            self._text_loading_label.setText(f"無法載入 {path.name}：{error}")
+
     def _exit_edit_mode(self):
         self._request_live_wysiwyg_snapshot(
             self._exit_edit_mode_after_snapshot,
@@ -3749,6 +3798,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # Office zoom synchronizes hidden views on idle. A direct transition
         # must commit first so the newly-visible preview starts at that scale.
         self._flush_pdf_zoom_pipeline()
+        preview_state = self._tab_state.get(self._active_path) if self._active_path else None
+        preview_scroll = preview_state.get("scroll") if preview_state is not None else None
         if persist_state and self._active_path:
             self._discard_tab_buffer(self._active_path)
         # The editor widget is shared by every tab.  Even while hidden it
@@ -3761,6 +3812,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._renderer.set_inline_edit_enabled(True)
         self._renderer.set_preview_double_click_mode(self._preview_double_click)
         self._preview_timer.stop()
+        if self._edit_preview is not None:
+            self._edit_preview.deactivate()
+        if persist_state and self._current_file and self._current_kind == "markdown":
+            self._renderer.load_file(self._current_file, scroll_y=preview_scroll)
+            tag_flow.request_metadata(self, render_pending=True)
         self._editor_status_timer.stop()
         self._recovery_timer.stop()
         self._editor_search_bar.hide()
@@ -4465,6 +4521,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         session_state.save_active_view_state(self)
 
     def _show_empty_state(self):
+        self._text_loader.cancel()
+        tag_flow.cancel_metadata(self)
+        self._document_load_generation += 1
         self._flush_pdf_zoom_pipeline()
         self._editor.release_buffer_document()
         self._editor.set_document_path(None)
@@ -4574,9 +4633,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _load_document(self, path: Path, kind: str):
         """Load *path* into the shared viewer, restoring its saved view state."""
+        self._document_load_generation += 1
+        tag_flow.cancel_metadata(self)
+        self._text_loader.cancel()
+        self._renderer.deactivate()
         self._flush_pdf_zoom_pipeline()
         self._current_file = path
-        self._refresh_properties_panel()
         self._current_kind = kind
         self._prepare_recovery_state(path, kind)
         tab_state = self._tab_state.get(str(path)) or {}
@@ -4608,17 +4670,18 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._set_pdf_panel_document(None)
             self._panel.show_pdf_notes(False)
             self._panel.set_annotations_enabled(True)
-            if path.exists():
-                self._update_front_tags()
             scroll = (self._tab_state.get(str(path)) or {}).get("scroll")
             # A fresh page boots with no inline editor, whatever the last one
             # was doing when it was replaced.
             self._preview_editing = False
-            if path.exists():
+            if path.exists() and not restore_editor:
                 self._renderer.load_file(path, scroll_y=scroll)
-            else:
+            elif not restore_editor:
                 self._renderer.show_empty()
-            self._stack.setCurrentWidget(self._renderer)
+            if not restore_editor:
+                self._stack.setCurrentWidget(self._renderer)
+            if path.exists():
+                tag_flow.request_metadata(self, render_pending=not restore_editor)
         elif kind == "text":
             self._doc_annotations = DocumentAnnotations()
             self._renderer.set_annotations([])
@@ -4664,6 +4727,35 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 str(tab_state.get("view_mode") or view_mode.EDIT),
             )
         self._refresh_icons()
+        generation = self._document_load_generation
+        QTimer.singleShot(0, self, lambda: self._refresh_properties_after_open(generation))
+
+    def _refresh_properties_after_open(self, generation):
+        if generation == self._document_load_generation:
+            self._refresh_properties_panel()
+
+    def _on_preview_content_ready(self, _generation, path, partial):
+        if (partial or not self._current_file or Path(path) != self._current_file
+                or self._current_kind != "markdown" or self._edit_mode):
+            return
+        from .document_metadata import cached_metadata
+        result = cached_metadata(self._current_file)
+        if result is not None:
+            self._on_document_metadata_ready(
+                self._metadata_generation, self._current_file, result
+            )
+
+    def _on_preview_render_failed(self, _generation, path):
+        if self._current_file and Path(path) == self._current_file:
+            self._on_document_metadata_failed(
+                self._metadata_generation, self._current_file, "render failed"
+            )
+
+    def _on_document_metadata_ready(self, generation, path, result):
+        return tag_flow.apply_metadata(self, generation, path, result)
+
+    def _on_document_metadata_failed(self, generation, path, error):
+        return tag_flow.metadata_failed(self, generation, path, error)
 
     def _open_pdf(self, path: Path):
         return pdf_flow.open_pdf(self, path)
@@ -5855,12 +5947,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # tagged PDFs still enter the shared index.
         if is_markdown(self._current_file):
             AnnotationStore.save(self._current_file, self._doc_annotations)
-            self._tag_index.update(
-                self._current_file,
-                self._doc_annotations,
-                front_tags=self._current_front_tags,
-                body_tags=self._current_body_tags,
-            )
+            if self._front_tags_pending:
+                self._tag_index.update_annotation_tags(self._current_file, self._doc_annotations)
+            else:
+                self._tag_index.update(
+                    self._current_file,
+                    self._doc_annotations,
+                    front_tags=self._current_front_tags,
+                    body_tags=self._current_body_tags,
+                )
             self._panel.annotations.set_document(self._doc_annotations)
             self._sync_renderer_annotations()
         elif is_pdf(self._current_file):
@@ -6385,4 +6480,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if update_flow.defer_close_until_updates_finish(self, event):
                 self._deferred_update_close_approved = True
                 return
+            tag_flow.cancel_metadata(self)
+            self._text_loader.cancel()
+            self._renderer.deactivate()
             super().closeEvent(event)
