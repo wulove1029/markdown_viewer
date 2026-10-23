@@ -42,6 +42,39 @@ def now():
     return datetime(2026, 8, 25, 14, 30).astimezone()
 
 
+@pytest.mark.parametrize("paths,times", [
+    (["筆記.md"], {"筆記.md": 123}),
+    (["b.md", "a.md"], {"b.md": 456, "a.md": 123}),
+    ([], {}),
+])
+def test_history_persists_both_keys_for_another_process(tmp_path, monkeypatch, paths, times):
+    import json
+    import subprocess
+    import sys
+
+    filename = str(tmp_path / "history.ini")
+    monkeypatch.setattr(
+        recent_mod, "QSettings",
+        lambda *_args: QtQSettings(filename, QtQSettings.Format.IniFormat),
+    )
+    RecentFilesView._save_history(["old.md"], {"old.md": 1})
+    RecentFilesView._save_history(paths, times)
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c",
+         "import json,sys; from PySide6.QtCore import QSettings; "
+         "s=QSettings(sys.argv[1],QSettings.Format.IniFormat); "
+         "print(json.dumps([s.value('recent_files', []), "
+         "json.loads(s.value('recent_file_opened_at', '{}'))]))", filename],
+        check=True, capture_output=True, text=True, encoding="utf-8",
+    )
+    stored_paths, stored_times = json.loads(result.stdout)
+    # INI deserialization returns a scalar for one path and None for no paths;
+    # RecentFilesView._load normalizes these documented storage representations.
+    restored_paths = [stored_paths] if isinstance(stored_paths, str) else (stored_paths or [])
+    assert restored_paths == paths
+    assert stored_times == times
+
+
 def _items(view: RecentFilesView, kind: str):
     return [
         view.item(index)

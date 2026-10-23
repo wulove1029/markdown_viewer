@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pymupdf
-from PySide6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QContextMenuEvent, QFontDatabase, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -29,18 +29,19 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mdv-pdf-tools-") as folder:
         root = Path(folder)
-        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
-        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, folder)
+        from tools.isolated_runtime import configure_webengine, install
+
+        runtime = install(root, application="MDVPdfToolsPreview")
+        from PySide6.QtCore import QSettings
+
         settings = QSettings("markdown-viewer", "MarkdownViewer")
+        runtime.assert_settings(settings)
         settings.setValue("update_check_enabled", False)
         settings.sync()
-        import app.recovery
-        import app.tag_index
-        app.tag_index._default_index_path = lambda: root / "tags.json"
-        app.recovery._default_recovery_dir = lambda: root / "recovery"
         from app.window import MainWindow
 
         app = QApplication([])
+        configure_webengine(runtime)
         app.setApplicationName("MarkdownViewerPdfToolsSmoke")
         for name in ("msjh.ttc", "msjhbd.ttc", "segoeui.ttf"):
             QFontDatabase.addApplicationFont(str(Path("C:/Windows/Fonts") / name))

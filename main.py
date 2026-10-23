@@ -8,13 +8,21 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QStandardPaths, Qt, QTimer
-from PySide6.QtGui import QIcon
-from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--packaged-benchmark":
+    # Establish isolated settings before application modules capture QSettings.
+    from tools.benchmark_file_switching import main as _benchmark_main
 
-from app.settings_store import APP, DISPLAY_NAME, ORG, legacy_data_path
-from app.version import VERSION
+    del sys.argv[1]
+    _benchmark_main()
+    raise SystemExit(0)
+else:
+    from PySide6.QtCore import QStandardPaths, Qt, QTimer
+    from PySide6.QtGui import QIcon
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+    from PySide6.QtWidgets import QApplication
+
+    from app.settings_store import APP, DISPLAY_NAME, ORG, legacy_data_path
+    from app.version import VERSION
 
 if TYPE_CHECKING:
     from app.window import MainWindow

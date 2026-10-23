@@ -23,6 +23,21 @@ def percentile(values, fraction):
     return ordered[min(len(ordered) - 1, round((len(ordered) - 1) * fraction))]
 
 
+def process_tree_rss():
+    try:
+        import psutil
+    except ImportError:
+        return None
+    process = psutil.Process()
+    total = process.memory_info().rss
+    for child in process.children(recursive=True):
+        try:
+            total += child.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -122,7 +137,10 @@ def main():
             return {"readable_ms": elapsed, "load_ms": load_ms, "max_gap_ms": max(gaps),
                     "reused": target in getattr(view, "_reused_preview_pages", set()),
                     "cache_bytes": view._cache.bytes_used + (
-                        previews.bytes_used if previews else 0)}
+                        previews.bytes_used if previews else 0),
+                    "process_tree_rss_bytes": process_tree_rss(),
+                    "source_native_documents": len(getattr(view, "_document_sessions", {})),
+                    "render_native_documents": len(view._render_scheduler._sessions_by_renderer)}
 
         pdf_metadata_cache._SIZES.clear()
         cold = switch(paths[0])
@@ -142,10 +160,21 @@ def main():
                         "max_gap_p95_ms": percentile([m["max_gap_ms"] for m in measurements], .95),
                         "reused_count": sum(m["reused"] for m in measurements)},
                "measurements": measurements}
+        rss_values = [m["process_tree_rss_bytes"] for m in measurements
+                      if m["process_tree_rss_bytes"] is not None]
+        if len(rss_values) >= 20:
+            early, late = statistics.median(rss_values[:10]), statistics.median(rss_values[-10:])
+            row["memory"] = {
+                "early_10_median_rss_bytes": early, "late_10_median_rss_bytes": late,
+                "growth_fraction": (late - early) / early,
+                "max_source_documents": max(m["source_native_documents"] for m in measurements),
+                "max_render_documents": max(m["render_native_documents"] for m in measurements),
+            }
         report["results"].append(row)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        print(json.dumps({"pages": count, "cold": cold, "warm": row["warm"]}), flush=True)
+        print(json.dumps({"pages": count, "cold": cold, "warm": row["warm"],
+                          "memory": row.get("memory")}), flush=True)
         timer.stop()
         view._outline_submit_timer.stop()
         view._embedded_annotations_submit_timer.stop()

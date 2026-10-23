@@ -9,6 +9,7 @@ queue and lifetime details.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Hashable
@@ -20,6 +21,8 @@ from PySide6.QtPdf import (
     QPdfDocumentRenderOptions,
     QPdfPageRenderer,
 )
+
+from . import pdf_metadata_cache
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,9 @@ class _RenderSession:
     renderer: QPdfPageRenderer
     requests: dict[int, list[PdfRenderSpec]] = field(default_factory=dict)
     keys: set[Hashable] = field(default_factory=set)
+    cache_key: tuple | None = None
+    cache_cost: int = 0
+    reusable: bool = True
 
 
 class PdfRenderScheduler(QObject):
@@ -50,12 +56,19 @@ class PdfRenderScheduler(QObject):
     rendered = Signal(object, object)  # PdfRenderSpec, QImage
     capacity_available = Signal()
 
-    def __init__(self, parent=None, max_inflight: int = 2):
+    def __init__(
+        self, parent=None, max_inflight: int = 2, *, reuse_documents: int = 0,
+        reuse_budget_bytes: int = 32 * 1024 * 1024,
+    ):
         super().__init__(parent)
         self.max_inflight = max(1, int(max_inflight))
         self._current_generation = -1
         self._sessions_by_generation: dict[int, _RenderSession] = {}
         self._sessions_by_renderer: dict[int, _RenderSession] = {}
+        self._reuse_documents = max(0, int(reuse_documents))
+        self._reuse_budget_bytes = max(0, int(reuse_budget_bytes))
+        self._idle_sessions: OrderedDict[tuple, _RenderSession] = OrderedDict()
+        self._shutting_down = False
 
     def begin_document(
         self,
@@ -64,8 +77,20 @@ class PdfRenderScheduler(QObject):
         password: str = "",
     ) -> bool:
         """Open an immutable render snapshot for *generation*."""
+        self._shutting_down = False
         self._current_generation = int(generation)
+        signature = pdf_metadata_cache.signature(path)
+        key = (signature, password or "") if signature is not None else None
+        cached = self._idle_sessions.pop(key, None) if key is not None else None
         self._retire_idle_old_sessions()
+
+        if cached is not None and cached.document.status() == QPdfDocument.Status.Ready:
+            cached.generation = int(generation)
+            self._sessions_by_generation[generation] = cached
+            self._trim_idle_sessions()
+            return True
+        if cached is not None:
+            self._retire_session(cached)
 
         document = QPdfDocument(self)
         document.setPassword(password or "")
@@ -78,15 +103,38 @@ class PdfRenderScheduler(QObject):
         renderer.setDocument(document)
         renderer.setRenderMode(QPdfPageRenderer.RenderMode.MultiThreaded)
         renderer.pageRendered.connect(self._on_page_rendered)
-        session = _RenderSession(generation, document, renderer)
+        cost = (int(signature[2]) + document.pageCount() * 2048) if signature else 0
+        session = _RenderSession(generation, document, renderer, cache_key=key, cache_cost=cost)
         self._sessions_by_generation[generation] = session
         self._sessions_by_renderer[id(renderer)] = session
+        self._trim_idle_sessions()
         return True
 
     def invalidate(self) -> None:
         """Stop accepting work for the current generation; in-flight work drains."""
         self._current_generation = -1
         self._retire_idle_old_sessions()
+
+    def invalidate_document(self, path: Path) -> None:
+        """Prevent same-path reload/write/watcher invalidations from reusing stale PDFs."""
+        normalized = pdf_metadata_cache.path_key(Path(path))
+        for session in list(self._sessions_by_renderer.values()):
+            if session.cache_key and session.cache_key[0][0] == normalized:
+                session.reusable = False
+                if session.generation != self._current_generation and not session.requests:
+                    if session.cache_key in self._idle_sessions:
+                        self._idle_sessions.pop(session.cache_key)
+                    self._retire_session(session)
+
+    def shutdown(self) -> None:
+        """Release idle native documents; outstanding renderer requests drain safely."""
+        self._shutting_down = True
+        self._current_generation = -1
+        for session in list(self._sessions_by_renderer.values()):
+            session.reusable = False
+            if not session.requests:
+                self._retire_session(session)
+        self._idle_sessions.clear()
 
     def pending_count(self, generation: int | None = None) -> int:
         generation = (
@@ -107,7 +155,8 @@ class PdfRenderScheduler(QObject):
         return (
             session is not None
             and generation == self._current_generation
-            and len(session.requests) < self.max_inflight
+            and sum(len(item.requests) for item in self._sessions_by_generation.values())
+            < self.max_inflight
         )
 
     def request(self, spec: PdfRenderSpec) -> bool:
@@ -116,7 +165,8 @@ class PdfRenderScheduler(QObject):
             session is None
             or spec.generation != self._current_generation
             or spec.key in session.keys
-            or len(session.requests) >= self.max_inflight
+            or sum(len(item.requests) for item in self._sessions_by_generation.values())
+            >= self.max_inflight
         ):
             return False
 
@@ -171,17 +221,46 @@ class PdfRenderScheduler(QObject):
             if spec.generation == self._current_generation:
                 self.rendered.emit(spec, image)
         if session.generation != self._current_generation and not session.requests:
-            self._retire_session(session)
+            self._park_or_retire_session(session)
         self.capacity_available.emit()
 
     def _retire_idle_old_sessions(self) -> None:
         for session in list(self._sessions_by_generation.values()):
             if session.generation != self._current_generation and not session.requests:
-                self._retire_session(session)
+                self._park_or_retire_session(session)
+
+    def _park_or_retire_session(self, session: _RenderSession) -> None:
+        if (
+            not self._shutting_down and self._reuse_documents
+            and session.reusable and session.cache_key is not None
+            and 0 < session.cache_cost <= self._reuse_budget_bytes
+        ):
+            self._sessions_by_generation.pop(session.generation, None)
+            old = self._idle_sessions.pop(session.cache_key, None)
+            if old is not None and old is not session:
+                self._retire_session(old)
+            self._idle_sessions[session.cache_key] = session
+            self._trim_idle_sessions()
+        else:
+            self._retire_session(session)
+
+    def _trim_idle_sessions(self) -> None:
+        active = self._sessions_by_generation.get(self._current_generation)
+        max_idle = max(0, self._reuse_documents - int(active is not None))
+        active_cost = active.cache_cost if active is not None else 0
+        while self._idle_sessions and (
+            len(self._idle_sessions) > max_idle
+            or active_cost + sum(item.cache_cost for item in self._idle_sessions.values())
+            > self._reuse_budget_bytes
+        ):
+            _, session = self._idle_sessions.popitem(last=False)
+            self._retire_session(session)
 
     def _retire_session(self, session: _RenderSession) -> None:
         self._sessions_by_generation.pop(session.generation, None)
         self._sessions_by_renderer.pop(id(session.renderer), None)
+        if self._idle_sessions.get(session.cache_key) is session:
+            self._idle_sessions.pop(session.cache_key)
         session.renderer.pageRendered.disconnect(self._on_page_rendered)
         session.renderer.setDocument(None)
         session.document.close()

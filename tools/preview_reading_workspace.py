@@ -6,10 +6,11 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 import argparse
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, QSettings, Qt, QTimer, QUrl
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -22,20 +23,31 @@ def main():
     parser.add_argument("--width", type=int, default=1360)
     parser.add_argument("--empty", action="store_true")
     parser.add_argument("--popup", action="store_true")
+    parser.add_argument("--mode", choices=("reading", "source", "split", "office", "focus", "tools"), default="reading")
     args = parser.parse_args()
+    def timed_out():
+        import faulthandler
+        faulthandler.dump_traceback(all_threads=True)
+        os._exit(124)
+    watchdog = threading.Timer(30, timed_out)
+    watchdog.daemon = True
+    watchdog.start()
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mdv-ui-") as folder:
-        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
-        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, folder)
+        from tools.isolated_runtime import configure_webengine, install
+
+        runtime = install(folder, application="MDVWorkspacePreview")
+        from PySide6.QtCore import QSettings
+
         settings = QSettings("markdown-viewer", "MarkdownViewer")
+        runtime.assert_settings(settings)
         settings.setValue("theme", args.theme)
         settings.setValue("update_check_enabled", False)
         settings.sync()
-        import app.tag_index
-        app.tag_index._default_index_path = lambda: Path(folder) / "tags.json"
         from app.md_converter import convert
         from app.window import MainWindow
         app = QApplication([])
+        configure_webengine(runtime)
         for font in ("msjh.ttc", "msjhbd.ttc", "segoeui.ttf"):
             font_path = Path("C:/Windows/Fonts") / font
             if font_path.exists():
@@ -76,19 +88,32 @@ def read_document(path):
 ```
 """, encoding="utf-8")
         window.show()
+        def report_modal():
+            modal = QApplication.activeModalWidget()
+            if modal is not None:
+                print(f"Capture blocked by {type(modal).__name__}: {modal.windowTitle()}", flush=True)
+        QTimer.singleShot(7000, report_modal)
         if not args.empty:
             window.open_path(str(path))
+            if args.mode in {"source", "split"}:
+                window._open_source_editor("edit" if args.mode == "source" else "split")
+            elif args.mode == "office":
+                window._open_office_editor()
+            elif args.mode == "focus":
+                window._workspace_controls.toggle_focus()
+            elif args.mode == "tools":
+                window._reading_tools.dock.show()
         def capture():
             target = args.output / f"workspace-{args.theme}.png"
-            assert window._reading_mode_combo.isVisible()
+            assert window._workspace_controls.mode.isVisible() or args.mode == "focus"
             assert window._tab_bar.count() == (0 if args.empty else 1)
-            assert window._reading_mode_combo.geometry().right() < window._toolbar.width()
+            assert window._workspace_controls.mode.geometry().right() < window._toolbar.width()
             assert window.grab().save(str(target))
             if args.popup:
-                popup = window._reading_mode_combo.view().window()
+                popup = window._workspace_controls.mode.view().window()
                 assert popup.isVisible()
                 assert popup.grab().save(str(args.output / f"mode-popup-{args.theme}.png"))
-                window._reading_mode_combo.hidePopup()
+                window._workspace_controls.mode.hidePopup()
             html, _ = convert(path, args.theme)
             (args.output / f"reading-{args.theme}.html").write_text(html, encoding="utf-8")
             print(target.resolve())
@@ -108,9 +133,17 @@ def read_document(path):
                     app.quit()
                 QTimer.singleShot(300, verify_home)
             else:
+                if args.mode == "office":
+                    # Capture is not a close/save lifecycle test. Office may
+                    # normalize the disposable fixture and ask to save on
+                    # app.quit(); native offscreen destruction can also crash.
+                    # Leave only this isolated temporary directory behind.
+                    sys.stdout.flush()
+                    watchdog.cancel()
+                    os._exit(0)
                 app.quit()
         if args.popup:
-            QTimer.singleShot(3000, window._reading_mode_combo.showPopup)
+            QTimer.singleShot(3000, window._workspace_controls.mode.showPopup)
         QTimer.singleShot(3500, capture)
         app.exec()
         window._renderer.setHtml("")
@@ -119,6 +152,7 @@ def read_document(path):
     # WebEngine offscreen teardown can wait for Chromium indefinitely on Windows.
     # Artifacts and temporary settings are already flushed/removed above.
     sys.stdout.flush()
+    watchdog.cancel()
     os._exit(0)
 
 

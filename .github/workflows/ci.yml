@@ -39,8 +39,25 @@ jobs:
           path: test-results.xml
 
   webengine:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: renderer
+            files: >-
+              tests/test_annotation_bridge.py tests/test_renderer_source_navigation.py
+              tests/test_translate_menus.py tests/test_inline_edit_webengine.py
+              tests/test_table_edit_webengine.py tests/test_pdf_export_webengine.py
+              tests/test_reading_style_webengine.py tests/test_renderer_switching.py
+              tests/test_release_validation.py tests/test_html_loading.py
+              tests/test_diagram_loading_webengine.py tests/test_renderer_page_rotation.py
+              tests/test_code_loading_webengine.py
+          - suite: office
+            files: tests/test_wysiwyg_webengine.py
+          - suite: office-commands
+            files: tests/test_office_commands_webengine.py tests/test_paste_preview_webengine.py
     env:
       QT_QPA_PLATFORM: offscreen
       RUN_WEBENGINE_TESTS: "1"
@@ -55,15 +72,12 @@ jobs:
           py -3 -X utf8 -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 13)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           py -3 -X utf8 -m pip install -r requirements.lock
-      - name: Run WebEngine integration tests
+      - name: Run ${{ matrix.suite }} WebEngine integration tests
         run: >-
           py -3 -X utf8 -m pytest
-          tests/test_annotation_bridge.py tests/test_renderer_source_navigation.py
-          tests/test_translate_menus.py tests/test_inline_edit_webengine.py
-          tests/test_table_edit_webengine.py tests/test_pdf_export_webengine.py
-          tests/test_wysiwyg_webengine.py --junitxml=webengine-results.xml
+          ${{ matrix.files }} --junitxml=webengine-${{ matrix.suite }}-results.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: webengine-results
-          path: webengine-results.xml
+          name: webengine-${{ matrix.suite }}-results
+          path: webengine-${{ matrix.suite }}-results.xml

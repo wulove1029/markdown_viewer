@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QFileSystemWatcher,
+    QObject,
     QPoint,
     QSettings,
     QSize,
@@ -55,6 +56,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
+    drafts,
     edit_backend,
     export_actions,
     pdf_annotation_writer,
@@ -72,6 +74,7 @@ from .content_zoom import clamp_zoom_factor, step_zoom_factor
 from .document_libraries import DocumentLibraryStore
 from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
 from .editor import EditorView
+from .editor_commands import supports_office
 from .editor_status import EditorStatus
 from .file_types import (
     document_kind,
@@ -121,6 +124,7 @@ from .pdf_highlights import PdfHighlight
 from .pdf_notes import PdfNote
 from .pdf_view import PdfView
 from .quick_open import QuickOpenDialog
+from .reading_tools import ReadingTools
 from .recent_resources import (
     RecentResource,
     decode_recent_resources,
@@ -160,6 +164,7 @@ from .translate_dialog import TranslationDialog
 from .updater import is_newer_version
 from .version import RELEASE_NOTES, VERSION
 from .wikilink_completion import completion_candidates
+from .workspace_controls import WorkspaceControls
 from .wysiwyg_view import WysiwygView
 
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
@@ -440,6 +445,7 @@ class MainWindow(QMainWindow):
         self._renderer.render_failed.connect(self._on_preview_render_failed)
         self._renderer.set_annotation_side_notes_visible(self._side_notes_visible)
         self._renderer.home_action_requested.connect(self._home_action)
+        self._renderer.open_document_requested.connect(self._panel_open_file)
         self._content_zoom, self._pdf_zoom = (
             session_state.load_zoom_preferences(settings)
         )
@@ -526,6 +532,11 @@ class MainWindow(QMainWindow):
         editor_pane_layout.setSpacing(0)
         editor_pane_layout.addWidget(self._editor_search_bar)
         editor_pane_layout.addWidget(self._format_toolbar)
+        self._large_source_notice = QLabel()
+        self._large_source_notice.setWordWrap(True)
+        self._large_source_notice.setContentsMargins(12, 8, 12, 8)
+        self._large_source_notice.hide()
+        editor_pane_layout.addWidget(self._large_source_notice)
         editor_pane_layout.addWidget(self._editor)
         self._editor_status = EditorStatus(self._theme)
         editor_pane_layout.addWidget(self._editor_status)
@@ -549,6 +560,8 @@ class MainWindow(QMainWindow):
         self._scroll_guard = view_mode.ScrollSyncGuard()
         self._preview_scroll_ratio = 0.0
         self._editor.textChanged.connect(self._on_editor_text_changed)
+        self._editor.textChanged.connect(self._update_editor_selection_status)
+        self._editor.selectionChanged.connect(self._update_editor_selection_status)
         self._editor.cursorPositionChanged.connect(self._on_editor_cursor_changed)
         self._editor.verticalScrollBar().valueChanged.connect(
             self._sync_preview_scroll
@@ -654,6 +667,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self._toolbar)
         root_layout.addWidget(self._splitter, stretch=1)
         self.setCentralWidget(root)
+        self._sidebar_width_state = session_state.SidebarWidthState(self)
         self.setAcceptDrops(True)
 
         from PySide6.QtWidgets import QDockWidget
@@ -672,6 +686,16 @@ class MainWindow(QMainWindow):
         self._install_shortcuts()
 
         self._build_menu_bar()
+        self._reading_tools = ReadingTools(self, settings)
+        self._workspace_controls = WorkspaceControls(self, settings)
+        search = getattr(self._panel, "search", None)
+        if search is not None:
+            search.set_overlays_provider(self._search_buffer_overlays)
+        self._pending_source_target = None
+        target_signal = getattr(self._renderer, "local_doc_target_clicked", None)
+        if hasattr(target_signal, "connect"):
+            target_signal.connect(self._open_document_target)
+        self._renderer.content_ready.connect(self._apply_source_target)
         self._load_user_css()
         self._apply_theme()
         self._refresh_tags_panel()
@@ -794,12 +818,12 @@ class MainWindow(QMainWindow):
         )
         self._edit_menu.addAction(self._office_edit_action)
         self._edit_menu.addSeparator()
-        self._undo_action = act("復原\tCtrl+Z", self._editor.undo)
-        self._redo_action = act("重做\tCtrl+Y", self._editor.redo)
-        self._cut_action = act("剪下\tCtrl+X", self._editor.cut)
-        self._copy_action = act("複製\tCtrl+C", self._editor.copy)
-        self._paste_action = act("貼上\tCtrl+V", self._editor.paste)
-        self._select_all_action = act("全選\tCtrl+A", self._editor.selectAll)
+        self._undo_action = act("復原\tCtrl+Z", lambda: self._run_native_editor_command("undo"))
+        self._redo_action = act("重做\tCtrl+Y", lambda: self._run_native_editor_command("redo"))
+        self._cut_action = act("剪下\tCtrl+X", lambda: self._run_native_editor_command("cut"))
+        self._copy_action = act("複製\tCtrl+C", lambda: self._run_native_editor_command("copy"))
+        self._paste_action = act("貼上\tCtrl+V", lambda: self._run_native_editor_command("paste"))
+        self._select_all_action = act("全選\tCtrl+A", lambda: self._run_native_editor_command("select_all"))
         self._edit_menu.addActions((self._undo_action, self._redo_action))
         self._edit_menu.addSeparator()
         self._edit_menu.addActions(
@@ -818,6 +842,7 @@ class MainWindow(QMainWindow):
         self._build_format_menu(bar, act)
 
         view_menu = bar.addMenu("檢視(&V)")
+        self._view_menu = view_menu
         view_menu.addAction(act("切換側邊欄", self._toggle_sidebar))
         view_menu.addAction(self._properties_dock.toggleViewAction())
         view_menu.addAction(command_act("view.graph", "筆記關聯圖"))
@@ -849,6 +874,8 @@ class MainWindow(QMainWindow):
 
         help_menu = bar.addMenu("說明(&H)")
         help_menu.addAction(act("鍵盤快捷鍵…", self._show_shortcuts))
+        from . import diagnostics
+        help_menu.addAction(act("匯出效能診斷…", lambda: diagnostics.export_dialog(self)))
         self._update_action = act("檢查更新…", self._on_update_button_clicked)
         self._update_action.setEnabled(
             self._toolbar_utilities.update_state != UPDATE_CHECKING
@@ -858,6 +885,7 @@ class MainWindow(QMainWindow):
 
     def _build_file_menu(self, bar, act, command_act):
         file_menu = bar.addMenu("檔案(&F)")
+        file_menu.addAction("未命名草稿", lambda: self._new_draft())
         file_menu.addAction(command_act("file.new", "新增筆記…"))
         file_menu.addAction(command_act("file.open", "開啟…"))
         file_menu.addAction(command_act("file.quick_open", "快速開啟…"))
@@ -1031,19 +1059,9 @@ class MainWindow(QMainWindow):
             editing
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
         ):
-            # These QAction callbacks target the hidden QPlainTextEdit. The
-            # visible Office Viewer surface owns its own undo/cut/copy/paste
-            # shortcuts and right-click menu, so enabling them here would
-            # edit an invisible competing buffer.
-            for action in (
-                self._undo_action,
-                self._redo_action,
-                self._cut_action,
-                self._copy_action,
-                self._paste_action,
-                self._select_all_action,
-            ):
-                action.setEnabled(False)
+            for action in (self._undo_action, self._redo_action, self._cut_action,
+                           self._copy_action, self._paste_action, self._select_all_action):
+                action.setEnabled(self._wysiwyg_view is not None)
             return
         document = self._editor.document()
         self._undo_action.setEnabled(editing and document.isUndoAvailable())
@@ -1054,15 +1072,33 @@ class MainWindow(QMainWindow):
         self._paste_action.setEnabled(editing and self._editor.canPaste())
         self._select_all_action.setEnabled(editing and not document.isEmpty())
 
+    def _run_native_editor_command(self, command):
+        if not self._edit_mode:
+            return
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            view = self._wysiwyg_view
+            if view is None:
+                return
+            if command in {"undo", "redo"}:
+                view.run_command(command)
+            else:
+                action = {"cut": QWebEnginePage.WebAction.Cut,
+                          "copy": QWebEnginePage.WebAction.Copy,
+                          "paste": QWebEnginePage.WebAction.Paste,
+                          "select_all": QWebEnginePage.WebAction.SelectAll}[command]
+                view.page().triggerAction(action)
+            return
+        method = "selectAll" if command == "select_all" else command
+        getattr(self._editor, method)()
+
     def _update_format_menu_actions(self) -> None:
-        enabled = (
-            self._edit_mode
-            and self._current_kind == "markdown"
-            and self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
-        )
+        enabled = self._edit_mode and self._current_kind == "markdown"
+        office = self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
         self._format_menu.setEnabled(enabled)
-        for action in self._format_menu_actions.values():
-            action.setEnabled(enabled)
+        for command, action in self._format_menu_actions.items():
+            supported = not office or supports_office(command)
+            action.setEnabled(enabled and supported)
+            action.setToolTip("" if supported else "請切換至 Markdown 編輯使用此命令")
 
     def _on_format_context_changed(self, action_ids) -> None:
         active = set(action_ids)
@@ -1103,6 +1139,25 @@ class MainWindow(QMainWindow):
 
     def _show_shortcuts(self):
         ShortcutDialog(self._theme, self).exec()
+
+    def _toggle_focus_workspace(self):
+        self._workspace_controls.toggle_focus()
+
+    def _show_writing_outline(self):
+        if not self._edit_mode or self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            self.statusBar().showMessage("請切換到 Markdown 寫作後使用大綱編輯。", 4000)
+            return
+        from .writing_outline import WritingOutlineDialog
+        dialog = getattr(self, "_writing_outline", None)
+        if dialog is None:
+            dialog = WritingOutlineDialog(self._editor, parent=self)
+            self._writing_outline = dialog
+            dialog.destroyed.connect(lambda: setattr(self, "_writing_outline", None))
+        dialog.show()
+        dialog.raise_()
+
+    def _show_command_palette(self):
+        self._workspace_controls.show_palette()
 
     def keyPressEvent(self, event):
         """Close search on an otherwise-unhandled Escape key.
@@ -1241,6 +1296,8 @@ QLabel#editorModeBadge {{
         apply_combo_popup_theme(self._reading_mode_combo, self._theme)
         self._search_bar.setStyleSheet(self._search_style())
         self._panel.apply_theme(self._theme)
+        if getattr(self, "_reading_tools", None) is not None:
+            self._reading_tools.apply_theme(self._theme)
         self._splitter.setStyleSheet(
             f"""
 QSplitter::handle {{
@@ -1400,6 +1457,8 @@ QSplitter::handle:hover {{
         self._search_close_btn.setIcon(svg_icon("x", icon_color, 18))
         if hasattr(self, "_format_menu"):
             self._update_format_menu_actions()
+        if hasattr(self, "_workspace_controls"):
+            self._workspace_controls.sync()
 
     def _toggle_theme(self):
         session_state.toggle_theme(self)
@@ -1860,6 +1919,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         ):
             return
         self._panel.toc.update_outline(entries)
+        self._apply_source_target()
 
     def _on_pdf_embedded_annotations_ready(self, generation: int, path, entries):
         if (
@@ -1939,7 +1999,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
         if self._sidebar_open:
             self._panel.show()
-            self._splitter.setSizes([PANEL_WIDTH, max(width - PANEL_WIDTH, 1)])
+            self._sidebar_width_state.apply()
             self._sidebar_btn.setToolTip("收合側邊欄")
             self._sidebar_btn.setAccessibleName("收合側邊欄")
         else:
@@ -2094,6 +2154,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return False
         if not self._active_path:
             return False
+        from .large_source import requires_source
+        if requires_source(self._current_file):
+            return self._open_source_editor(view_mode.EDIT)
         if (
             self._edit_mode
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
@@ -2193,6 +2256,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             preview.wikilink_clicked.connect(self._on_wikilink_clicked)
             preview.local_doc_clicked.connect(self._on_local_doc_clicked)
             preview.translate_requested.connect(self._translate_selection)
+            source_signal = getattr(preview, "source_position_changed", None)
+            if hasattr(source_signal, "connect"):
+                source_signal.connect(self._sync_source_scroll)
+            target_signal = getattr(preview, "local_doc_target_clicked", None)
+            if hasattr(target_signal, "connect"):
+                target_signal.connect(self._open_document_target)
             preview.bridge.unhandledEscape.connect(self._on_preview_unhandled_escape)
             preview.set_search_escape_generation(self._active_search_escape_generation)
             self._editor_split.addWidget(preview)
@@ -2224,11 +2293,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         if self._editor._plain_text_mode:
             return
-        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
-            # These commands mutate the hidden QPlainTextEdit directly; Vditor
-            # has its own toolbar/shortcuts for the same formatting and would
-            # never see this edit, silently diverging from what is saved.
-            return
         if action == "image":
             self._insert_image_via_dialog()
             return
@@ -2241,11 +2305,39 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if action == "recent_resource":
             self._insert_recent_resource()
             return
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            if self._wysiwyg_view is not None and supports_office(action):
+                self._wysiwyg_view.run_command(action)
+            else:
+                self.statusBar().showMessage("此操作請切換至 Markdown 編輯", 4000)
+            return
         apply_format_action(self._editor, action)
         self._editor.setFocus()
 
+    def _insert_at_active_caret(self, text: str) -> None:
+        """Route insertions to the visible editor, never its hidden shadow."""
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            if self._wysiwyg_view is not None:
+                self._wysiwyg_view.insert_value(text)
+                self._wysiwyg_view.setFocus()
+            return
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        cursor.insertText(text)
+        cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _resources_available(self):
+        if drafts.is_draft(self, self._current_file):
+            self.statusBar().showMessage("請先儲存草稿，再加入圖片或附件。", 5000)
+            return False
+        return True
+
     def _insert_image_via_dialog(self):
         """Toolbar 圖片 button: pick an image file, import it, insert a link."""
+        if not self._resources_available():
+            return
         doc_path = self._editor.document_path()
         if not doc_path:
             self.statusBar().showMessage("請先儲存文件才能貼入圖片", 4000)
@@ -2264,13 +2356,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             QMessageBox.warning(self, "插入圖片", f"無法匯入圖片：\n{exc}")
             return
         link = markdown_image_link(rel)
-        cursor = self._editor.textCursor()
-        cursor.beginEditBlock()
-        cursor.insertText(link)
-        cursor.endEditBlock()
-        self._editor.setTextCursor(cursor)
+        self._insert_at_active_caret(link)
         self._record_recent_resource(link)
-        self._editor.setFocus()
 
     @staticmethod
     def _settings_json_list(key: str) -> list[str]:
@@ -2314,6 +2401,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
 
     def _insert_attachment_via_dialog(self, _checked=False) -> None:
+        if not self._resources_available():
+            return
         if not (
             self._edit_mode
             and self._current_kind == "markdown"
@@ -2337,15 +2426,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "加入附件", f"無法加入附件：\n{exc}")
             return
-        cursor = self._editor.textCursor()
-        cursor.beginEditBlock()
-        cursor.insertText(link)
-        cursor.endEditBlock()
-        self._editor.setTextCursor(cursor)
+        self._insert_at_active_caret(link)
         self._record_recent_resource(link)
-        self._editor.setFocus()
 
     def _insert_recent_resource(self, _checked=False) -> None:
+        if not self._resources_available():
+            return
         if not (self._edit_mode and self._current_kind == "markdown"):
             return
         resources = self._recent_resource_entries()
@@ -2396,18 +2482,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                     self, "插入資源失敗", f"無法匯入資源：\n{exc}"
                 )
                 return
-        cursor = self._editor.textCursor()
-        cursor.beginEditBlock()
-        cursor.insertText(link)
-        cursor.endEditBlock()
-        self._editor.setTextCursor(cursor)
+        self._insert_at_active_caret(link)
         # Keep the selected record's canonical source instead of recording the
         # freshly copied per-note asset as a second history entry.
         resources = remember_recent_resource(resources, resource, 10)
         QSettings(_ORG, _APP).setValue(
             _RECENT_RESOURCES_KEY, encode_recent_resources(resources)
         )
-        self._editor.setFocus()
 
     def _open_mermaid_workspace(self):
         dialog = MermaidWorkspaceDialog(theme_name=self._theme_name, parent=self)
@@ -2554,6 +2635,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     ) -> bool:
         if not self._edit_mode or not self._active_path:
             return True
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._editor.commit_input_composition()
         document = self._editor.document()
         if (
             document is self._editor._parking_document
@@ -2618,7 +2701,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # longer merely "parked" behind a preview.
         state.pop("wysiwyg_parked", None)
         plain_text = self._current_kind == "text"
-        if plain_text:
+        from .large_source import NOTICE, requires_source
+        limited_source = bool(state.get("limited_source") or requires_source(self._current_file))
+        state["limited_source"] = limited_source
+        self._large_source_notice.setText(NOTICE if limited_source else "")
+        self._large_source_notice.setVisible(limited_source)
+        if limited_source:
+            state["edit_backend"] = edit_backend.SOURCE_BACKEND
+            self._editor.set_markdown_services_suspended(True)
+        if plain_text or limited_source:
             mode = view_mode.EDIT
         self._editing_encoding = str(
             state.get("editing_encoding") or "utf-8"
@@ -2659,7 +2750,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         document.setModified(was_modified)
         self._editor.set_markdown_services_suspended(
-            backend == edit_backend.WYSIWYG_BACKEND
+            backend == edit_backend.WYSIWYG_BACKEND or limited_source
         )
         document.setModified(was_modified)
 
@@ -2671,7 +2762,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._close_search()
         self._search_btn.setEnabled(plain_text)
         self._reload_btn.setEnabled(plain_text)
-        self._export_btn.setEnabled(False)
+        self._export_btn.setEnabled(not plain_text and not self._exporting)
 
         if backend == edit_backend.WYSIWYG_BACKEND:
             self._format_toolbar.hide()
@@ -2746,10 +2837,117 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._wysiwyg_view.context_menu_requested.connect(
                 self._on_wysiwyg_context_menu
             )
+            paste_preview = getattr(self._wysiwyg_view, "paste_preview_requested", None)
+            if paste_preview is not None:
+                paste_preview.connect(self._on_wysiwyg_paste_preview)
+            resource_preview = getattr(self._wysiwyg_view, "resource_paste_requested", None)
+            if resource_preview is not None:
+                resource_preview.connect(self._on_wysiwyg_resource_paste)
             self._wysiwyg_view.apply_theme(self._theme)
             self._wysiwyg_view.page().setZoomFactor(self._content_zoom)
             self._stack.addWidget(self._wysiwyg_view)
         return self._wysiwyg_view
+
+    def _on_wysiwyg_paste_preview(self, text, token, generation):
+        from shiboken6 import isValid
+
+        from .paste_preview import PasteChoice, choose_table_paste
+
+        view, path = self._wysiwyg_view, self._active_path
+        if view is None:
+            return
+        active = self._edit_mode and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+        choice = choose_table_paste(text, self) if active else PasteChoice("cancel", "")
+        if not isValid(self) or (isinstance(view, QObject) and not isValid(view)):
+            return
+        if choice is None:
+            choice = PasteChoice("plain", text)
+        if (self._wysiwyg_view is not view or self._active_path != path
+                or not self._edit_mode
+                or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND):
+            choice = PasteChoice("cancel", "")
+
+        def applied(ok):
+            if not ok and choice.mode != "cancel" and isValid(self):
+                self.statusBar().showMessage("貼上位置已變更，請重新貼上。", 5000)
+
+        view.resolve_paste_preview(token, generation, choice.mode, choice.text, applied)
+
+    def _on_wysiwyg_resource_paste(self, names_json, token, generation):
+        from shiboken6 import isValid
+
+        from .image_paste import is_image_file
+        from .paste_preview import confirm_resource_paste, resource_clipboard_snapshot
+
+        view, path = self._wysiwyg_view, self._current_file
+        active_path = self._active_path
+
+        def current():
+            return (isValid(self) and view is not None
+                    and (not isinstance(view, QObject) or isValid(view))
+                    and self._wysiwyg_view is view and self._current_file == path
+                    and self._active_path == active_path and self._edit_mode
+                    and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+                    and getattr(view, "_generation", generation) == generation)
+
+        def cancel():
+            if view is not None and (not isinstance(view, QObject) or isValid(view)):
+                view.resolve_paste_preview(token, generation, "cancel")
+
+        if not current() or not path or not self._resources_available():
+            cancel()
+            return
+        try:
+            names = json.loads(names_json)
+            snapshot = resource_clipboard_snapshot(QGuiApplication.clipboard().mimeData(), names)
+        except (OSError, ValueError, TypeError) as exc:
+            cancel()
+            self.statusBar().showMessage(str(exc), 5000)
+            return
+        paths = [item[0] for item in snapshot]
+        accepted = confirm_resource_paste(paths, path, self)
+        if not current() or not accepted:
+            cancel()
+            return
+
+        def import_reviewed(valid):
+            if not current() or not valid:
+                cancel()
+                if current():
+                    self.statusBar().showMessage("貼上位置已變更，請重新貼上。", 5000)
+                return
+            links = []
+
+            try:
+                if resource_clipboard_snapshot(QGuiApplication.clipboard().mimeData(), names) != snapshot:
+                    raise ValueError("剪貼簿或附件已變更，請重新貼上。")
+                for source in paths:
+                    if is_image_file(source):
+                        relative = import_image_file(source, path)
+                        links.append(markdown_image_link(relative))
+                    else:
+                        relative = import_attachment_file(source, path)
+                        links.append(markdown_attachment_link(relative))
+            except (OSError, ValueError) as exc:
+                cancel()
+                if isValid(self):
+                    self.statusBar().showMessage(f"附件匯入失敗：{exc}", 5000)
+                return
+
+            def inserted(ok):
+                # A delayed/failed acknowledgment cannot prove that Chromium
+                # did not commit the links. Never remove approved file copies:
+                # the original document may already have been saved or closed.
+                if not ok or not current():
+                    return
+                for link in links:
+                    self._record_recent_resource(link)
+
+            if not current():
+                return
+            view.resolve_paste_preview(token, generation, "markdown", "\n".join(links), inserted)
+
+        view.validate_paste_preview(token, generation, import_reviewed)
 
     # ── v4: custom Vditor toolbar buttons + right-click menu ────────────
 
@@ -2928,6 +3126,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         menu.exec(view.mapToGlobal(local_pos))
 
     def _wysiwyg_insert_image(self, _checked=False) -> None:
+        if not self._resources_available():
+            return
         if (
             self._wysiwyg_view is None
             or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
@@ -2955,6 +3155,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._record_recent_resource(link)
 
     def _wysiwyg_insert_attachment(self, _checked=False) -> None:
+        if not self._resources_available():
+            return
         if (
             self._wysiwyg_view is None
             or self._active_edit_backend != edit_backend.WYSIWYG_BACKEND
@@ -3203,6 +3405,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 cancel(snapshot_token)
             _unlock()
             self.statusBar().showMessage(message, 5000)
+            if purpose == "儲存" and hasattr(self, "_workspace_controls"):
+                self._workspace_controls.set_save_state("failed")
             if callable(on_failure):
                 on_failure()
 
@@ -3707,6 +3911,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # off, which destroys any open inline editor along with it.
         if not self._confirm_discard_preview_edit():
             return False
+        from .large_source import requires_source
+        if requires_source(self._current_file):
+            state = self._tab_state.setdefault(str(self._current_file), {})
+            state["limited_source"] = True
+            state["edit_backend"] = edit_backend.SOURCE_BACKEND
+            self._start_text_document_load()
+            return True
         if plain_text and self._current_file is not None:
             try:
                 large_text = self._current_file.stat().st_size >= ASYNC_TEXT_BYTES
@@ -3754,22 +3965,30 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._text_loading_label = QLabel(self)
             self._text_loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._stack.addWidget(self._text_loading_label)
-        self._text_loading_label.setText(f"正在載入純文字：{self._current_file.name}")
+        self._text_loading_label.setText(
+            f"正在背景載入完整來源：{self._current_file.name}\n"
+            "載入完成後才會開放編輯與儲存；可隨時切換其他文件。"
+        )
         self._stack.setCurrentWidget(self._text_loading_label)
         self._text_loader.start(self._current_file, self._editor.font())
 
     def _on_text_document_ready(self, path, document, encoding, newline, signature):
-        if (path != self._current_file or self._current_kind != "text"
+        if (path != self._current_file or self._current_kind not in {"text", "markdown"}
                 or signature != self._file_signature(path)):
             document.deleteLater()
             return
         state = self._tab_state.setdefault(str(path), {})
-        state.update({"kind": "text", "view_mode": view_mode.EDIT,
+        state.update({"kind": self._current_kind, "view_mode": view_mode.EDIT,
                       "editor_document": document, "cursor": 0, "anchor": 0,
                       "editor_scroll": 0, "editing_encoding": encoding,
                       "editing_newline": newline, "source_signature": signature,
                       "preview_scroll_ratio": 0.0})
         self._activate_editor_state(state, view_mode.EDIT)
+        from .text_loading import text_document_needs_no_wrap
+        if text_document_needs_no_wrap(document):
+            self.statusBar().showMessage(
+                "偵測到超長行，已改用水平捲動；全文仍可編輯與儲存。", 10000
+            )
 
     def _on_text_document_failed(self, path, error):
         if path == self._current_file and self._text_loading_label is not None:
@@ -3783,6 +4002,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _exit_edit_mode_after_snapshot(self):
         if not self._confirm_discard_edits(_snapshot_ready=True):
+            self._pending_source_target = None
             return
         self._leave_edit_ui()
 
@@ -3865,6 +4085,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         document = state.get("editor_document")
         if not isinstance(document, QTextDocument):
             return False
+        if drafts.is_draft(self, key):
+            return drafts.save_draft(self, key, state, document)
         path = Path(key)
         source_signature = state.get("source_signature")
         current_signature = self._file_signature(path)
@@ -3956,13 +4178,21 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not (self._edit_mode and self._current_file):
             return False
         result: list[bool] = []
+        controls = getattr(self, "_workspace_controls", None)
+        if controls:
+            controls.set_save_state("saving")
 
         def _continue() -> None:
-            result.append(self._save_edits_after_snapshot())
+            saved = self._save_edits_after_snapshot()
+            result.append(saved)
+            if controls:
+                controls.set_save_state("saved" if saved else "failed")
 
         started = self._request_live_wysiwyg_snapshot(
-            _continue, purpose="儲存"
+            _continue, purpose="儲存",
         )
+        if not started and controls:
+            controls.set_save_state("failed")
         return result[0] if result else started
 
     def _save_edits_after_snapshot(self) -> bool:
@@ -4026,7 +4256,16 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             column=column,
         )
 
+    def _update_editor_selection_status(self) -> None:
+        if (not self._edit_mode or self._current_kind not in {"markdown", "text"}
+                or self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
+                or self._editor.is_composing()):
+            self._editor_status.clear_selection()
+            return
+        self._editor_status.set_selection(self._editor.textCursor())
+
     def _update_editor_status_document(self) -> None:
+        self._update_editor_selection_status()
         if not self._edit_mode or self._current_kind not in {"markdown", "text"}:
             return
         cursor = self._editor.textCursor()
@@ -4036,7 +4275,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._editor_status.set_document_state(
             line=cursor.blockNumber() + 1,
             column=column,
-            text=self._editor.toPlainText(),
+            document=self._editor.document(),
             document_kind=self._current_kind,
             encoding=self._editing_encoding,
             newline=self._editing_newline,
@@ -4065,12 +4304,34 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         bar = self._editor.verticalScrollBar()
         ratio = view_mode.editor_scroll_ratio(bar.value(), bar.maximum())
         self._preview_scroll_ratio = ratio
-        self._ensure_edit_preview().scroll_to_ratio(ratio)
+        preview = self._ensure_edit_preview()
+        sync = getattr(preview, "scroll_to_source_position", None)
+        if callable(sync):
+            block = self._editor.firstVisibleBlock()
+            rect = self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset())
+            fraction = max(0.0, min(1.0, -rect.top() / max(1.0, rect.height())))
+            sync(block.blockNumber() + 1, fraction)
+        else:
+            preview.scroll_to_ratio(ratio)
+
+    def _sync_source_scroll(self, line, fraction):
+        if self._view_mode != view_mode.SPLIT or not self._scroll_guard.try_acquire("preview"):
+            return
+        block = self._editor.document().findBlockByNumber(max(0, line - 1))
+        if not block.isValid():
+            return
+        # QPlainTextEdit's scrollbar counts laid-out text lines, not pixels.
+        layout = block.layout()
+        value = block.firstLineNumber() + round(float(fraction) * max(1, layout.lineCount()))
+        self._editor.verticalScrollBar().setValue(value)
 
     def _update_dirty_ui(self):
+        resource_setter = getattr(self._editor, "set_resource_import_enabled", None)
+        if callable(resource_setter):
+            resource_setter(not drafts.is_draft(self, self._current_file))
         if not self._current_file:
             return
-        name = self._current_file.name
+        name = "未命名草稿" if drafts.is_draft(self, self._current_file) else self._current_file.name
         dirty = (
             self._edit_mode and self._editor.is_modified()
         ) or self._active_tab_parked_dirty()
@@ -4081,9 +4342,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             "未儲存變更" if dirty else str(self._current_file.parent)
         )
         self._refresh_tab_labels()
+        if hasattr(self, "_workspace_controls"):
+            self._workspace_controls.sync()
 
     def _open_file(self, filepath: str):
         path = Path(filepath)
+        pending = getattr(self, "_pending_source_target", None)
+        if pending and pending[0] != str(path):
+            self._pending_source_target = None
         kind = document_kind(path)
         if not kind:
             QMessageBox.warning(
@@ -4136,8 +4402,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if self._edit_mode and self._active_path and self._editor.is_modified():
             dirty_paths.add(self._active_path)
         for index, (path, label) in enumerate(zip(paths, labels)):
+            if drafts.is_draft(self, path):
+                label = "未命名草稿"
             marker = "● " if path and path in dirty_paths else ""
             state = self._tab_state.get(path) or {}
+            if state.get("pinned"):
+                label = "固定 · " + label
+            self._tab_bar.set_tab_pinned(path, bool(state.get("pinned")))
             tab_mode = None
             if path and is_markdown(path):
                 backend = edit_backend.normalize_backend(
@@ -4192,7 +4463,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._tab_bar.setTabData(idx, key)
         self._tab_bar.setTabToolTip(idx, key)
         self._tab_guard = False
+        pinned = QSettings(_ORG, _APP).value("pinned_tabs", []) or []
+        if isinstance(pinned, str):
+            pinned = [pinned]
+        if not isinstance(pinned, (list, tuple)):
+            pinned = []
         state: TabState = {
+            "pinned": key in pinned,
             "kind": kind,
             "scroll": None,
             "view_mode": view_mode.PREVIEW,
@@ -4219,6 +4496,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if idx < 0 or idx >= self._tab_bar.count():
             return False
         key = self._tab_bar.tabData(idx)
+        if self._tab_state.get(key, {}).get("pinned"):
+            self.statusBar().showMessage("請先從分頁選單取消固定，再關閉此分頁。", 4000)
+            return False
         closing_active = key == self._active_path
         if (
             closing_active
@@ -4265,6 +4545,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 return False
         if not self._confirm_tab_buffer(key):
             return False
+        # First save of an unnamed draft can migrate its identity while the
+        # confirmation dialog is open. Release the tab's current state.
+        key = self._tab_bar.tabData(idx)
         if closing_active and not self._confirm_discard_preview_edit():
             return False
         if closing_active and self._edit_mode:
@@ -4303,7 +4586,11 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return menu
         key = str(self._tab_bar.tabData(idx) or "")
 
+        pinned = bool(self._tab_state.get(key, {}).get("pinned"))
+        pin_action = menu.addAction("取消固定分頁" if pinned else "固定分頁")
+        pin_action.triggered.connect(lambda _checked=False, path=key: self._toggle_tab_pin(path))
         close_action = menu.addAction("關閉分頁")
+        close_action.setEnabled(not pinned)
         close_action.triggered.connect(
             lambda _checked=False, path=key: self._close_tab_by_path(path)
         )
@@ -4328,6 +4615,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
         return menu
 
+    def _toggle_tab_pin(self, key):
+        state = self._tab_state.get(key)
+        if state is None:
+            return
+        state["pinned"] = not state.get("pinned", False)
+        self._refresh_tab_labels()
+        self._schedule_session_save()
+
     def _close_tab_by_path(
         self, key: str, *, _snapshot_ready: bool = False
     ) -> bool:
@@ -4339,7 +4634,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         )
 
     def _close_tab_paths(self, paths, *, _snapshot_ready: bool = False) -> None:
-        pending = list(dict.fromkeys(str(path) for path in paths if path))
+        pending = list(dict.fromkeys(
+            str(path) for path in paths if path and not self._tab_state.get(str(path), {}).get("pinned")))
         if (
             not _snapshot_ready
             and self._active_path in pending
@@ -4472,6 +4768,9 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if idx < 0 or idx >= self._tab_bar.count():
             return
         key = self._tab_bar.tabData(idx)
+        pending = getattr(self, "_pending_source_target", None)
+        if pending and pending[0] != key:
+            self._pending_source_target = None
         if not key or key == self._active_path:
             return
         if (
@@ -4762,7 +5061,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     # --- PDF page notes ---
     def _refresh_pdf_notes_panel(self):
-        return pdf_flow.refresh_pdf_notes_panel(self)
+        result = pdf_flow.refresh_pdf_notes_panel(self)
+        if hasattr(self, "_reading_tools"):
+            self._reading_tools.refresh()
+        return result
 
     def _save_pdf_notes(self):
         return pdf_flow.save_pdf_notes(self)
@@ -4796,7 +5098,10 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         return pdf_flow.toggle_pen_mode(self)
 
     def _refresh_pdf_highlights_panel(self):
-        return pdf_flow.refresh_pdf_highlights_panel(self)
+        result = pdf_flow.refresh_pdf_highlights_panel(self)
+        if hasattr(self, "_reading_tools"):
+            self._reading_tools.refresh()
+        return result
 
     def _save_pdf_highlights(self):
         return pdf_flow.save_pdf_highlights(self)
@@ -4950,6 +5255,52 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         else:
             self._panel.backlinks.clear()
 
+    def _search_buffer_overlays(self):
+        return {path: state["editor_document"].toPlainText()
+                for path, state in self._tab_state.items()
+                if isinstance(state.get("editor_document"), QTextDocument)
+                and state["editor_document"].isModified()}
+
+    def _open_document_target(self, path: str, fragment: str):
+        if not Path(path).is_file():
+            self.statusBar().showMessage("來源文件不存在，請確認它是否已搬移。", 6000)
+            return
+        self._pending_source_target = (str(Path(path)), fragment)
+        self._open_file(path)
+        self._apply_source_target()
+
+    def _apply_source_target(self, *_args):
+        pending = getattr(self, "_pending_source_target", None)
+        if not pending or str(self._current_file) != pending[0]:
+            return
+        fragment = pending[1]
+        if self._edit_mode:
+            self._request_view_mode(view_mode.PREVIEW)
+            return
+        if self._current_kind == "markdown" and getattr(
+                self._renderer, "_loaded_markdown_generation", None) != getattr(
+                    self._renderer, "_render_generation", None):
+            return
+        self._pending_source_target = None
+        try:
+            if self._current_kind == "pdf" and fragment.startswith("page="):
+                self._pdf_view.restore_page(max(0, int(fragment[5:]) - 1))
+            elif fragment.startswith("annotation="):
+                from urllib.parse import unquote
+                identity = unquote(fragment.partition("=")[2])
+                if self._find_annotation(identity) is None:
+                    self.statusBar().showMessage("來源註記已不存在；已開啟原文件。", 6000)
+                else:
+                    self._annot_activated(identity)
+            elif fragment.startswith("scroll="):
+                self._renderer.page().runJavaScript(f"window.scrollTo(0,{max(0, int(fragment[7:]))});")
+            elif fragment.startswith("line="):
+                self._renderer.reveal_source_line_after_load(max(1, int(fragment[5:])))
+            elif fragment:
+                self._renderer.scroll_to(fragment)
+        except ValueError:
+            self.statusBar().showMessage("來源位置無效；已開啟原文件。", 5000)
+
     def _on_local_doc_clicked(self, path: str):
         if path and Path(path).exists():
             self._open_file(path)
@@ -5041,6 +5392,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         QSettings(_ORG, _APP).setValue(
             self._LAST_NEW_NOTE_FOLDER_KEY, str(folder)
         )
+
+    def _new_draft(self, text="", *, _snapshot_ready=False):
+        if not _snapshot_ready and self._edit_mode and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            self._request_live_wysiwyg_snapshot(
+                lambda: self._new_draft(text, _snapshot_ready=True), purpose="建立草稿")
+            return
+        drafts.create_draft(self, text if isinstance(text, str) else "")
 
     def _new_note(self, requested_folder=None):
         """Ctrl+N (also the home page, menu, and file-tree entry points):
@@ -5217,39 +5575,28 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 )
             ]
             recent = [path for path in recent if path in templates][:5]
-            ordered = recent + [path for path in templates if path not in recent]
-            labels = []
-            for path in ordered:
-                relative = path.relative_to(folder).as_posix()
-                labels.append(
-                    f"最近｜{relative}" if path in recent else relative
-                )
-            choice, ok = QInputDialog.getItem(
-                self,
-                "插入範本",
-                "選擇範本：",
-                labels,
-                0,
-                False,
-            )
-            if not ok:
+            from .template_picker import TemplatePickerDialog
+            picker = TemplatePickerDialog(
+                templates, title=self._current_file.stem, recent=recent,
+                folder=folder, now=now, theme=self._theme, parent=self)
+            if picker.exec() != QDialog.DialogCode.Accepted:
                 return
-            template_path = ordered[labels.index(choice)]
+            template_path = picker.selected_template()
+            rendered = picker.rendered_text()
+            if template_path is None or rendered is None:
+                return
+        else:
+            try:
+                rendered = render_template_file(template_path, self._current_file.stem, now)
+            except (OSError, UnicodeError) as exc:
+                QMessageBox.warning(self, "插入範本", f"無法讀取範本：\n{exc}")
+                return
 
-        try:
-            rendered = render_template_file(
-                template_path,
-                self._current_file.stem,
-                now,
-            )
-        except (OSError, UnicodeError) as exc:
-            QMessageBox.warning(
-                self,
-                "插入範本",
-                f"無法讀取範本：\n{exc}",
-            )
+        if self._active_edit_backend == edit_backend.WYSIWYG_BACKEND:
+            self._insert_at_active_caret("\n" + rendered.strip() + "\n")
+            self._remember_setting_value(_RECENT_TEMPLATES_KEY, str(Path(template_path)), 5)
+            self.statusBar().showMessage(f"已插入範本：{Path(template_path).name}", 3000)
             return
-
         cursor = self._editor.textCursor()
         editor_text = self._editor.toPlainText()
         start = qt_to_py_position(editor_text, cursor.selectionStart())
@@ -5961,6 +6308,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         elif is_pdf(self._current_file):
             self._index_doc_tags(self._current_file)
         self._refresh_tags_panel()
+        if hasattr(self, "_reading_tools"):
+            self._reading_tools.refresh()
 
     def _update_front_tags(self):
         return tag_flow.update_front_tags(self)
@@ -5999,6 +6348,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         # tag must never hide files in the other views.
 
     def _sync_renderer_annotations(self):
+        if hasattr(self, "_reading_tools"):
+            self._reading_tools.refresh()
         self._renderer.set_annotations(
             [a.to_dict() for a in self._doc_annotations.annotations]
         )
@@ -6038,8 +6389,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._panel.annotations.select(ann_id)
 
     def _on_bridge_orphans(self, ids):
-        # Orphans remain listed in the panel; no document marks to show.
-        pass
+        path = self._current_file
+        if self._current_kind != "markdown" or not path:
+            return
+
+        def current_orphans(found):
+            if self._current_file != path:
+                return
+            known = {a.id for a in self._doc_annotations.annotations}
+            self._annotation_orphans = set(found) & known
+            self._annotation_orphans_path = path
+            self._panel.annotations.set_orphans(self._annotation_orphans)
+            self._reading_tools.refresh()
+
+        self._renderer.annotation_orphans(current_orphans)
 
     def _on_task_toggled(self, line_no: int, checked: bool):
         """Persist a preview checkbox toggle back to the source ``- [ ]`` line."""
@@ -6366,9 +6729,24 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._renderer.select_annotation(ann_id)
 
     def _annot_activated(self, ann_id):
-        self._renderer.scroll_to_annotation(ann_id)
+        path = self._current_file
+
+        def located(found):
+            if self._current_file != path:
+                return
+            if found is False:
+                self.statusBar().showMessage(
+                    "找不到這則註記的原文；原文可能已修改。摘錄與筆記仍保留，可由註記面板查看。",
+                    7000,
+                )
+            elif found is None:
+                self.statusBar().showMessage("文件仍在載入，請稍後再定位註記。", 4000)
+
+        self._renderer.scroll_to_annotation(ann_id, located)
 
     def _export_pdf(self):
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._editor.commit_input_composition()
         if (
             self._edit_mode
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
@@ -6381,6 +6759,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         export_actions.export_pdf(self)
 
     def _export_pptx(self):
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._editor.commit_input_composition()
         if (
             self._edit_mode
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
@@ -6393,6 +6773,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         export_actions.export_pptx(self)
 
     def _export_docx(self):
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._editor.commit_input_composition()
         if (
             self._edit_mode
             and self._active_edit_backend == edit_backend.WYSIWYG_BACKEND
@@ -6405,6 +6787,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         export_actions.export_docx(self)
 
     def _export_html(self):
+        if self._active_edit_backend != edit_backend.WYSIWYG_BACKEND:
+            self._editor.commit_input_composition()
         export_actions.export_html(self)
 
     def _export_single_page(self, dims):

@@ -3,7 +3,7 @@
 
 import pytest
 
-from app import tag_flow, view_mode
+from app import md_converter, tag_flow, view_mode
 from app.document_metadata import DocumentMetadata, signature
 from app.tag_index import TagIndex
 from tests.test_editor_workspace_integration import (  # noqa: F401
@@ -38,8 +38,8 @@ def test_open_preview_does_not_synchronously_scan_tags(
 ):
     path = tmp_path / "large.md"
     path.write_text("# Document\n" + "text " * 60_000, encoding="utf-8")
-    monkeypatch.setattr(tag_flow, "read_text", lambda *_: pytest.fail("UI read"))
-    monkeypatch.setattr(tag_flow, "body_hashtags", lambda *_: pytest.fail("UI scan"))
+    monkeypatch.setattr(md_converter, "read_text", lambda *_: pytest.fail("UI read"))
+    monkeypatch.setattr(md_converter, "body_hashtags", lambda *_: pytest.fail("UI scan"))
     monkeypatch.setattr(tag_flow, "read_metadata", lambda *_a, **_k: pytest.fail("duplicate scan"))
     window = make_workspace_window()
     window.open_path(str(path))

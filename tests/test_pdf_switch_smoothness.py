@@ -75,19 +75,20 @@ def test_rapid_return_preserves_partial_geometry_without_reopening_known_pages(
     assert view.load(first, restore_page=100)
     pending = set(view._geometry_pending)
     key = view._geometry_signature
+    first_document = view._doc
     assert pending and 100 not in pending
     assert view.load(other)
     assert pdf_metadata_cache.get_sizes(key, 200) is None
     cached = pdf_metadata_cache.get_partial_sizes(key, 200)
     assert cached[100] is not None and cached[50] is None
-    original = view._doc.pagePointSize
+    original = first_document.pagePointSize
     calls = []
 
     def measure(page):
         calls.append(page)
         return original(page)
 
-    monkeypatch.setattr(view._doc, "pagePointSize", measure)
+    monkeypatch.setattr(first_document, "pagePointSize", measure)
     assert view.load(first, restore_page=100)
     assert calls == []
     assert view._geometry_pending == pending
@@ -209,7 +210,7 @@ def test_write_probe_coalesces_and_rejects_stale_file_and_document(qapp, tmp_pat
     tasks = []
 
     class Pool:
-        def start(self, task):
+        def start(self, task, priority=0):
             tasks.append(task)
 
     monkeypatch.setattr(pdf_flow.QThreadPool, "globalInstance", lambda: Pool())

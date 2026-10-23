@@ -446,13 +446,11 @@ QListWidget#recentFilesList::item:disabled {{
         paths.insert(0, fp)
         paths = paths[:_MAX]
         times[fp] = _timestamp_ms(opened_at or self._now())
-        self._save(paths)
-        self._save_times({path: times[path] for path in paths if path in times})
+        self._save_history(paths, {path: times[path] for path in paths if path in times})
         self._refresh(select_path=fp)
 
     def clear_all(self):
-        self._save([])
-        self._save_times({})
+        self._save_history([], {})
         self._refresh()
 
     def migrate_paths(self, mapping: dict):
@@ -475,8 +473,7 @@ QListWidget#recentFilesList::item:disabled {{
             timestamp = times.get(old_path, times.get(new_path))
             if timestamp is not None and new_path not in updated_times:
                 updated_times[new_path] = timestamp
-        self._save(deduped)
-        self._save_times(updated_times)
+        self._save_history(deduped, updated_times)
         self._refresh()
 
     def remove_paths(self, targets):
@@ -484,9 +481,9 @@ QListWidget#recentFilesList::item:disabled {{
         paths = self._load()
         remaining = [path for path in paths if path not in keys]
         if remaining != paths:
-            self._save(remaining)
             times = self._load_times()
-            self._save_times(
+            self._save_history(
+                remaining,
                 {path: times[path] for path in remaining if path in times}
             )
         self._refresh()
@@ -671,6 +668,17 @@ QListWidget#recentFilesList::item:disabled {{
             return [str(path) for path in raw if path]
         except TypeError:
             return []
+
+    @staticmethod
+    def _save_history(paths: list[str], times: dict[str, int]):
+        # Keep one settings instance alive for both writes. Destroying separate
+        # temporary instances can flush the same INI file twice on each open.
+        settings = QSettings(_ORG, _APP)
+        settings.setValue(_PATHS_KEY, paths)
+        settings.setValue(
+            _OPENED_AT_KEY,
+            json.dumps(times, ensure_ascii=False, separators=(",", ":")),
+        )
 
     @staticmethod
     def _save(paths: list[str]):

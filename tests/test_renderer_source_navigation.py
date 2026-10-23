@@ -32,6 +32,7 @@ def renderer_stub():
     )
     stub._apply_source_line_reveal = lambda request: RendererView._apply_source_line_reveal(stub, request)
     stub._cancel_source_line_reveal = lambda: RendererView._cancel_source_line_reveal(stub)
+    stub._find_with_stable_code = lambda *args: RendererView._find_with_stable_code(stub, *args)
     return stub, scripts, find_callbacks
 
 
@@ -96,6 +97,28 @@ def wait_until(qapp, condition):
         time.sleep(0.01)
     qapp.processEvents()
     assert condition()
+
+
+@_real_webengine
+def test_live_preview_syncs_source_block_after_tall_media(qapp, tmp_path):
+    view = RendererView()
+    view.resize(800, 600)
+    view.show()
+    text = "\n\n".join(f"## Chapter {index}\n\n" + ("word " * 90) for index in range(40))
+    view.render_markdown_text(text, "light", scroll_ratio=0)
+    wait_until(qapp, lambda: view._loaded_markdown_generation == view._render_generation)
+    view.scroll_to_source_position(81)
+    wait_until(qapp, lambda: evaluate(view, """(function(){
+        var block=document.querySelector('[data-src-start="80"]');
+        return block && Math.abs(block.getBoundingClientRect().top) < 3;
+    })()"""))
+    observed = []
+    view.source_position_changed.connect(lambda line, fraction: observed.append((line, fraction)))
+    evaluate(view, "window.__mdSyncScrollUntil=0; window.scrollBy(0,250);")
+    wait_until(qapp, lambda: bool(observed))
+    assert observed[-1][0] >= 81
+    assert 0 <= observed[-1][1] <= 1
+    view.close()
 
 
 @_real_webengine

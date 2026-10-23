@@ -157,10 +157,12 @@ def test_restore_does_not_checkpoint_half_a_session_during_nested_events(
         observed.append(json.loads(settings().value("open_tabs")))
         return index
 
-    monkeypatch.setattr(window, "_add_tab", slow_add)
-    session_state.restore_startup(window)
-    assert observed == [[str(p) for p in documents]] * len(documents)
-    assert window._current_file == documents[2]
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(window, "_add_tab", slow_add)
+        session_state.restore_startup(window)
+        assert observed == [[str(p) for p in documents]] * len(documents)
+        assert window._current_file == documents[2]
 
 
 def test_cancel_close_keeps_autosaving_and_unsaved_buffer(

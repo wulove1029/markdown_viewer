@@ -29,6 +29,7 @@ from pygments.lexers import TextLexer, get_lexer_by_name
 
 _CSS_PATH = Path(__file__).parent.parent / "assets" / "obsidian-light.css"
 _MERMAID_JS = _CSS_PATH.parent / "mermaid.min.js"
+_DIAGRAM_LOADING_JS = (_CSS_PATH.parent / "diagram_loading.js").read_text(encoding="utf-8")
 _KATEX_DIR = _CSS_PATH.parent / "katex"
 _KATEX_JS = _KATEX_DIR / "katex.min.js"
 _KATEX_CSS = _KATEX_DIR / "katex.min.css"
@@ -156,27 +157,15 @@ def _highlight_code(code: str, lang: str, _attrs: str) -> str:
         return rendered
 
 
-def _mermaid_script(theme: str) -> str:
-    """Inline loader for the bundled mermaid.js (no-op if the asset is absent)."""
-    if not _MERMAID_JS.exists():
-        return ""
-    src = _MERMAID_JS.resolve().as_uri()
+def _mermaid_script(theme: str, *, eager: bool = False) -> str:
+    """Load controlled diagrams, preserving readable source if the engine is absent."""
+    library = (f'<script src="{_MERMAID_JS.resolve().as_uri()}"></script>\n'
+               if _MERMAID_JS.exists() else "")
     mtheme = "dark" if theme == "dark" else "default"
     return (
-        f'<script src="{src}"></script>\n'
-        "<script>\n"
-        "(function() {\n"
-        "  function render() {\n"
-        "    if (!window.mermaid) { return; }\n"
-        f"    window.mermaid.initialize({{ startOnLoad: false, theme: {json.dumps(mtheme)} }});\n"
-        '    try { window.mermaid.run({ querySelector: ".mermaid" }); }\n'
-        "    catch (e) { console.error(e); }\n"
-        "  }\n"
-        '  if (document.readyState === "loading") {\n'
-        '    document.addEventListener("DOMContentLoaded", render);\n'
-        "  } else { render(); }\n"
-        "})();\n"
-        "</script>"
+        library + "<script>\n"
+        f"window.__mdDiagramOptions = {json.dumps({'theme': mtheme, 'eager': eager})};\n"
+        + _DIAGRAM_LOADING_JS + "\n</script>"
     )
 
 
@@ -483,8 +472,8 @@ def _source_line_plugin(md: MarkdownIt) -> None:
 def _wikilink_plugin(md: MarkdownIt) -> None:
     """Parse ``[[target]]`` / ``[[target|alias]]`` into wiki-link anchors.
 
-    Rendered as ``<a class="wikilink" href="wikilink:<target>">label</a>`` so
-    the renderer can intercept the click and open/create the target note.
+    Use the renderer's reserved HTTPS route. Chromium can block custom-scheme
+    links before acceptNavigationRequest, even when their scheme is registered.
     """
 
     def rule(state, silent):
@@ -508,7 +497,7 @@ def _wikilink_plugin(md: MarkdownIt) -> None:
         target, _, alias = inner.partition("|")
         target = target.strip()
         label = alias.strip() or target
-        href = "wikilink:" + urllib.parse.quote(target, safe="")
+        href = "https://markdown-viewer.invalid/wikilink/" + urllib.parse.quote(target, safe="")
         return f'<a class="wikilink" href="{href}">{escape(label)}</a>'
 
     md.inline.ruler.before("link", "wikilink", rule)
@@ -1052,9 +1041,8 @@ def _body_bytes(rendered):
 
 
 def _body_signature(path):
-    stat = path.stat()
-    return (str(path.resolve()), stat.st_mtime_ns, stat.st_size,
-            stat.st_ctime_ns, stat.st_ino)
+    from .library_content import source_signature
+    return source_signature(path)
 
 
 def has_cached_body(path: Path) -> bool:
@@ -1126,10 +1114,17 @@ def _cached_body(path: Path, *, cancel=None) -> tuple[RenderedBody | None, str |
             return None, error
     if rendered is None:
         # Small document, or the child process was unavailable: parse here.
-        result = read_text(path)
-        if result is None:
+        from .library_content import read_source, version_from_signature
+        from .search_index import SearchCancelled
+        try:
+            text = read_source(
+                path, version=version_from_signature(cache_key),
+                should_cancel=lambda: cancel is not None and cancel.is_set(),
+            )
+        except SearchCancelled:
+            raise RenderCancelled() from None
+        if text is None:
             return None, f"無法讀取檔案編碼，請使用 UTF-8、Big5 或 GBK：{path.name}"
-        text, _ = result
         rendered = render_body(text, cancel=cancel)
     try:
         if _body_signature(path) != cache_key:

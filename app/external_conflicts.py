@@ -7,9 +7,13 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QLabel,
     QMessageBox,
     QPlainTextEdit,
+    QSplitter,
+    QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from .md_converter import read_text_detailed
@@ -59,7 +63,20 @@ def show_diff(window, path: Path, local: str) -> None:
     text = QPlainTextEdit(dialog)
     text.setReadOnly(True)
     text.setPlainText(diff or "兩個版本的文字內容相同。")
-    layout.addWidget(text)
+    tabs = QTabWidget()
+    sides = QSplitter()
+    for label, content in (("外部磁碟版本", disk[0]), ("本機未儲存版本", local)):
+        pane = QWidget()
+        column = QVBoxLayout(pane)
+        column.addWidget(QLabel(label))
+        source = QPlainTextEdit()
+        source.setReadOnly(True)
+        source.setPlainText(content)
+        column.addWidget(source)
+        sides.addWidget(pane)
+    tabs.addTab(sides, "並列內容")
+    tabs.addTab(text, "逐行差異")
+    layout.addWidget(tabs)
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)

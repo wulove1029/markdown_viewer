@@ -102,3 +102,66 @@ def test_tall_image_document_exports_as_exactly_one_page(qapp, tmp_path, monkeyp
         assert page.rect.height == pytest.approx((dims[1] + 4) * 72 / 96, abs=1)
 
     view.close()
+
+
+@_skip_webengine
+@pytest.mark.parametrize("size", ["A4", "single", "html"])
+def test_source_exports_use_unsaved_snapshot_and_local_image(qapp, tmp_path, monkeypatch, size):
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QPushButton, QWidget
+
+    from app import edit_backend
+
+    image = QImage(240, 120, QImage.Format.Format_RGB32)
+    image.fill(QColor("#377bb5"))
+    assert image.save(str(tmp_path / "local.png"))
+    source = tmp_path / "draft.md"
+    source.write_text("# SAVED DISK VERSION", encoding="utf-8")
+    owner = QWidget()
+    owner.current_file = source
+    owner.edit_mode = True
+    owner.exporting = False
+    owner.pdf_progress = None
+    owner._active_edit_backend = edit_backend.SPLIT_BACKEND
+    owner.wysiwyg_view = None
+    owner._export_btn = QPushButton(owner)
+    owner.renderer = SimpleNamespace(width=lambda: 900)
+    owner.statusBar = lambda: SimpleNamespace(showMessage=lambda *args: None)
+    owner._refresh_icons = lambda: None
+    owner._editor = SimpleNamespace(toPlainText=lambda:
+        "# UNSAVED SNAPSHOT\n\n![Local image](local.png)\n\n" +
+        "\n\n".join(f"SNAPSHOT SECTION {n}" for n in range(80)))
+    output = tmp_path / (f"snapshot-{size}.pdf" if size != "html" else "snapshot.html")
+    finished = []
+    monkeypatch.setattr(export_actions, "show_pdf_progress", lambda *args: None)
+    monkeypatch.setattr(export_actions, "on_pdf_exported", lambda *args: finished.append(args))
+    monkeypatch.setattr(export_actions, "show_export_complete",
+                        lambda window, path: finished.append((window, path, True)))
+    monkeypatch.setattr(export_actions, "ask_page_setup",
+                        lambda *args: {"size": size, "orientation": "portrait"})
+    monkeypatch.setattr(export_actions.QFileDialog, "getSaveFileName",
+                        lambda *args: (str(output), ""))
+    if size == "html":
+        export_actions.export_html(owner)
+    else:
+        export_actions.export_pdf(owner)
+    owner._editor.toPlainText = lambda: "# LATER EDIT MUST NOT LEAK"
+    for _ in range(200):
+        if finished:
+            break
+        _wait(100)
+    assert finished == [(owner, str(output), True)]
+    assert owner._source_export_job is None and not owner.exporting
+    if size == "html":
+        text = output.read_text("utf-8")
+        assert '<base href="file:' in text and 'src="local.png"' in text
+    else:
+        with fitz.open(output) as document:
+            text = "\n".join(page.get_text() for page in document)
+            assert any(page.get_images() for page in document)
+            assert document.page_count == 1 if size == "single" else document.page_count > 1
+    assert "UNSAVED SNAPSHOT" in text and "SNAPSHOT SECTION 79" in text
+    assert "SAVED DISK" not in text and "LATER EDIT" not in text
+    assert source.read_text("utf-8") == "# SAVED DISK VERSION"
+    owner.close()

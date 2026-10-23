@@ -314,7 +314,10 @@
     setActive(id);
     if (scroll) {
       var m = document.querySelector('mark.annot[data-id="' + id + '"]');
-      if (m) m.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (m) m.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center"
+      });
     }
     if (notify && bridge) bridge.clickedAnnotation(id);
   }
@@ -592,6 +595,11 @@
     },
     scrollTo: function (id) {
       activateAnnotation(id, false, true);
+      return !!renderedIds[id];
+    },
+    orphanIds: function () {
+      return annotations.filter(function (ann) { return !renderedIds[ann.id]; })
+        .map(function (ann) { return ann.id; });
     },
     select: function (id) {
       activateAnnotation(id, false, false);

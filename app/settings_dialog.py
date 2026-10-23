@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -53,7 +55,15 @@ from .edit_backend import (
     SETTINGS_KEY as EDIT_BACKEND_KEY,
 )
 from .note_templates import default_subfolder
-from .reading_style import SPACING_KEY, WIDTH_KEY
+from .reading_style import (
+    FONTS,
+    WARM_DARK,
+    WARM_LIGHT,
+    ReadingPreferences,
+    load_reading_preferences,
+    normalize_reading_preferences,
+    preset_preferences,
+)
 from .settings_store import APP as _APP
 
 # ── constants (must match window.py originals) ──────────────────────────
@@ -115,6 +125,7 @@ class SettingsDialog(QDialog):
 
         self._current_theme = current_theme
         self._current_zoom = current_zoom
+        self._updating_reading = False
 
         settings = QSettings(_ORG, _APP)
 
@@ -123,6 +134,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget(self)
         for page, title in (
             (self._build_appearance_tab(settings), "外觀"),
+            (self._build_reading_tab(settings), "閱讀"),
             (self._build_export_tab(settings), "匯出"),
             (self._build_behavior_tab(settings), "行為"),
             (self._build_translate_tab(settings), "翻譯"),
@@ -183,20 +195,189 @@ class SettingsDialog(QDialog):
         self._zoom_combo.setCurrentIndex(zoom_idx)
         form.addRow("內容縮放", self._zoom_combo)
 
+        hint = QLabel("閱讀字級、行寬與紙張色彩可在「閱讀」頁調整。")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        self._theme_combo.currentIndexChanged.connect(self._update_reading_preview)
+        return page
+
+    def _build_reading_tab(self, settings: QSettings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        form.setContentsMargins(16, 16, 16, 16)
+        form.setVerticalSpacing(12)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        preferences = load_reading_preferences(settings)
+
+        self._reading_preset_combo = QComboBox()
+        for label, value in (("舒適｜長文與日常閱讀", "comfortable"),
+                             ("緊湊｜較多內容同時呈現", "compact"),
+                             ("寬版｜表格與參考文件", "wide"), ("自訂", "custom")):
+            self._reading_preset_combo.addItem(label, value)
+        form.addRow("閱讀預設", self._reading_preset_combo)
+
+        self._reading_font_combo = QComboBox()
+        for label, value in (("繁中黑體", "sans"), ("繁中明體", "serif"), ("系統字體", "system")):
+            self._reading_font_combo.addItem(label, value)
+        form.addRow("內文字體", self._reading_font_combo)
+
+        self._reading_font_size_spin = QSpinBox()
+        self._reading_font_size_spin.setRange(14, 28)
+        self._reading_font_size_spin.setSuffix(" px")
+        form.addRow("內文字級", self._reading_font_size_spin)
+
         self._reading_width_combo = QComboBox()
-        for label, value in (("舒適閱讀", "comfortable"), ("寬版文件", "wide"), ("填滿視窗", "full")):
+        for label, value in (("舒適（860 px）", "comfortable"), ("寬版（1200 px）", "wide"),
+                             ("填滿視窗", "full"), ("緊湊（760 px）", "compact"), ("自訂", "custom")):
             self._reading_width_combo.addItem(label, value)
-        self._reading_width_combo.setCurrentIndex(max(0, self._reading_width_combo.findData(
-            settings.value(WIDTH_KEY, "comfortable"))))
-        form.addRow("預覽行寬", self._reading_width_combo)
+        self._reading_width_spin = QSpinBox()
+        self._reading_width_spin.setRange(400, 1800)
+        self._reading_width_spin.setSingleStep(20)
+        self._reading_width_spin.setSuffix(" px")
+        form.addRow("內容寬度", self._reading_control_row(
+            self._reading_width_combo, self._reading_width_spin))
+
         self._reading_spacing_combo = QComboBox()
-        for label, value in (("緊湊", "compact"), ("舒適", "comfortable"), ("寬鬆", "relaxed")):
+        for label, value in (("緊湊（1.60 倍）", "compact"), ("舒適（1.85 倍）", "comfortable"),
+                             ("寬鬆（2.10 倍）", "relaxed"), ("自訂", "custom")):
             self._reading_spacing_combo.addItem(label, value)
-        spacing_index = self._reading_spacing_combo.findData(settings.value(SPACING_KEY, "comfortable"))
-        self._reading_spacing_combo.setCurrentIndex(spacing_index if spacing_index >= 0 else 1)
-        form.addRow("預覽行距", self._reading_spacing_combo)
+        self._reading_line_height_spin = QDoubleSpinBox()
+        self._reading_line_height_spin.setRange(1.35, 2.4)
+        self._reading_line_height_spin.setSingleStep(0.05)
+        self._reading_line_height_spin.setDecimals(2)
+        self._reading_line_height_spin.setSuffix(" 倍")
+        form.addRow("行高", self._reading_control_row(
+            self._reading_spacing_combo, self._reading_line_height_spin))
+
+        self._reading_paragraph_spin = QDoubleSpinBox()
+        self._reading_paragraph_spin.setRange(0.4, 1.6)
+        self._reading_paragraph_spin.setSingleStep(0.05)
+        self._reading_paragraph_spin.setDecimals(2)
+        self._reading_paragraph_spin.setSuffix(" 倍字級")
+        form.addRow("段落間距", self._reading_paragraph_spin)
+
+        self._reading_paper_combo = QComboBox()
+        self._reading_paper_combo.addItem("跟隨介面主題", "follow")
+        self._reading_paper_combo.addItem("暖色紙張（日間／夜間自動配色）", "warm")
+        form.addRow("紙張色彩", self._reading_paper_combo)
+
+        self._reading_sample = QLabel()
+        self._reading_sample.setObjectName("readingSample")
+        self._reading_sample.setWordWrap(True)
+        self._reading_sample.setTextFormat(Qt.TextFormat.RichText)
+        self._reading_sample.setMinimumHeight(124)
+        self._reading_sample.setMargin(16)
+        self._reading_sample.setAccessibleName("閱讀字體與紙張色彩預覽")
+        form.addRow(self._reading_sample)
+        hint = QLabel("樣文預覽字體與配色；按「確定」後套用完整排版。寬度包含左右留白，窄視窗會自動縮小。僅調整螢幕閱讀，不改變文件內容或匯出排版。")
+        hint.setWordWrap(True)
+        form.addRow(hint)
+
+        for widget, name in (
+            (self._reading_preset_combo, "閱讀預設"), (self._reading_font_combo, "內文字體"),
+            (self._reading_font_size_spin, "內文字級"), (self._reading_width_combo, "內容寬度"),
+            (self._reading_width_spin, "自訂內容寬度"), (self._reading_spacing_combo, "行高"),
+            (self._reading_line_height_spin, "自訂行高"),
+            (self._reading_paragraph_spin, "段落間距"), (self._reading_paper_combo, "紙張色彩"),
+        ):
+            widget.setAccessibleName(name)
+            widget.setToolTip(name)
+            if isinstance(widget, QComboBox):
+                widget.setSizeAdjustPolicy(
+                    QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+                widget.setMinimumContentsLength(10)
+        self._set_reading_controls(preferences)
+        self._reading_preset_combo.currentIndexChanged.connect(self._select_reading_preset)
+        for combo in (self._reading_font_combo, self._reading_width_combo, self._reading_spacing_combo):
+            combo.currentIndexChanged.connect(self._reading_detail_changed)
+        for spin in (self._reading_font_size_spin, self._reading_width_spin,
+                     self._reading_line_height_spin, self._reading_paragraph_spin):
+            spin.valueChanged.connect(self._reading_detail_changed)
+        self._reading_paper_combo.currentIndexChanged.connect(self._update_reading_preview)
+        self._update_reading_preview()
 
         return page
+
+    @staticmethod
+    def _reading_control_row(combo, spin) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(combo, 1)
+        layout.addWidget(spin)
+        return row
+
+    def _reading_preferences(self) -> ReadingPreferences:
+        return normalize_reading_preferences(ReadingPreferences(
+            preset=self._reading_preset_combo.currentData(),
+            font=self._reading_font_combo.currentData(),
+            font_size=self._reading_font_size_spin.value(),
+            width=self._reading_width_combo.currentData(),
+            spacing=self._reading_spacing_combo.currentData(),
+            custom_width=self._reading_width_spin.value(),
+            custom_line_height=self._reading_line_height_spin.value(),
+            paragraph_spacing=self._reading_paragraph_spin.value(),
+            paper=self._reading_paper_combo.currentData(),
+        ))
+
+    def _set_reading_controls(self, preferences: ReadingPreferences):
+        self._updating_reading = True
+        try:
+            for combo, value in (
+                (self._reading_preset_combo, preferences.preset),
+                (self._reading_font_combo, preferences.font),
+                (self._reading_width_combo, preferences.width),
+                (self._reading_spacing_combo, preferences.spacing),
+                (self._reading_paper_combo, preferences.paper),
+            ):
+                combo.setCurrentIndex(combo.findData(value))
+            self._reading_font_size_spin.setValue(preferences.font_size)
+            self._reading_width_spin.setValue(preferences.custom_width)
+            self._reading_line_height_spin.setValue(preferences.custom_line_height)
+            self._reading_paragraph_spin.setValue(preferences.paragraph_spacing)
+        finally:
+            self._updating_reading = False
+
+    def _select_reading_preset(self):
+        if self._updating_reading:
+            return
+        name = self._reading_preset_combo.currentData()
+        if name != "custom":
+            self._set_reading_controls(preset_preferences(
+                name, paper=self._reading_paper_combo.currentData()))
+        self._update_reading_preview()
+
+    def _reading_detail_changed(self):
+        if self._updating_reading:
+            return
+        self._reading_preset_combo.setCurrentIndex(self._reading_preset_combo.findData("custom"))
+        self._update_reading_preview()
+
+    def _update_reading_preview(self):
+        if self._updating_reading or not hasattr(self, "_reading_sample"):
+            return
+        from .theme import get_theme
+
+        preferences = self._reading_preferences()
+        self._reading_width_spin.setEnabled(preferences.width == "custom")
+        self._reading_line_height_spin.setEnabled(preferences.spacing == "custom")
+        theme = get_theme(self._theme_combo.currentData())
+        if preferences.paper == "warm":
+            palette = WARM_DARK if theme.name == "dark" else WARM_LIGHT
+            background, foreground = palette["page-bg"], palette["text"]
+            border = palette["border"]
+        else:
+            background, foreground, border = theme.window, theme.text, theme.border
+        self._reading_sample.setStyleSheet(
+            f"QLabel#readingSample {{ background: {background}; color: {foreground}; "
+            f"border: 1px solid {border}; border-radius: 8px; "
+            f"font-family: {FONTS[preferences.font]}; font-size: {preferences.font_size}px; }}"
+        )
+        self._reading_sample.setText(
+            "<b>留一點空間，讓思緒慢慢展開。</b><br>"
+            "舒適的閱讀，從清楚的文字與適當的留白開始。<br>"
+            "Read, reflect, and write your next idea."
+        )
 
     def _build_export_tab(self, settings: QSettings) -> QWidget:
         page = QWidget()
@@ -514,9 +695,9 @@ class SettingsDialog(QDialog):
         self.results["content_zoom"] = zoom
         settings.setValue("theme", theme)
         settings.setValue("content_zoom", zoom)
-        for key, combo in ((WIDTH_KEY, self._reading_width_combo), (SPACING_KEY, self._reading_spacing_combo)):
-            settings.setValue(key, combo.currentData())
-            self.results[key] = combo.currentData()
+        for key, value in self._reading_preferences().to_settings().items():
+            settings.setValue(key, value)
+            self.results[key] = value
 
         # Export
         pdf_size = self._pdf_size_combo.currentData()

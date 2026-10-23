@@ -84,7 +84,7 @@ class TestSettingsDialogConstruction:
                 break
         assert tab_widget is not None
         labels = [tab_widget.tabText(i) for i in range(tab_widget.count())]
-        assert labels == ["外觀", "匯出", "行為", "翻譯", "關於"]
+        assert labels == ["外觀", "閱讀", "匯出", "行為", "翻譯", "關於"]
 
     def test_theme_dark_selected(self, qapp):
         dlg = SettingsDialog(None, current_theme="dark", current_zoom=1.0)
@@ -202,6 +202,58 @@ class TestSettingsDialogAccept:
     def test_results_empty_before_accept(self, qapp):
         dlg = SettingsDialog(None, current_theme="light", current_zoom=1.0)
         assert dlg.results == {}
+
+
+class TestReadingPreferences:
+    def test_old_width_and_spacing_survive_open_and_save(self, qapp):
+        settings = settings_dialog_mod.QSettings(_ORG, _APP)
+        settings.setValue("reading_width", "full")
+        settings.setValue("reading_spacing", "relaxed")
+        dlg = SettingsDialog(None)
+        assert dlg._reading_preset_combo.currentData() == "custom"
+        assert dlg._reading_width_combo.currentData() == "full"
+        assert dlg._reading_spacing_combo.currentData() == "relaxed"
+        dlg.accept()
+        assert settings.value("reading_width") == "full"
+        assert settings.value("reading_spacing") == "relaxed"
+
+    def test_preset_updates_typography_and_retains_paper_choice(self, qapp):
+        dlg = SettingsDialog(None)
+        dlg._reading_paper_combo.setCurrentIndex(dlg._reading_paper_combo.findData("warm"))
+        dlg._reading_preset_combo.setCurrentIndex(dlg._reading_preset_combo.findData("compact"))
+        assert dlg._reading_font_size_spin.value() == 16
+        assert dlg._reading_width_combo.currentData() == "compact"
+        assert dlg._reading_spacing_combo.currentData() == "compact"
+        assert dlg._reading_paper_combo.currentData() == "warm"
+        assert not dlg._reading_width_spin.isEnabled()
+        assert not dlg._reading_line_height_spin.isEnabled()
+        dlg.accept()
+        reopened = SettingsDialog(None)
+        assert reopened._reading_preset_combo.currentData() == "compact"
+        assert reopened._reading_paper_combo.currentData() == "warm"
+
+    def test_custom_dimensions_and_font_persist_and_reopen(self, qapp):
+        dlg = SettingsDialog(None)
+        dlg._reading_font_size_spin.setValue(23)
+        dlg._reading_font_combo.setCurrentIndex(dlg._reading_font_combo.findData("serif"))
+        dlg._reading_width_combo.setCurrentIndex(dlg._reading_width_combo.findData("custom"))
+        dlg._reading_spacing_combo.setCurrentIndex(dlg._reading_spacing_combo.findData("custom"))
+        dlg._reading_width_spin.setValue(980)
+        dlg._reading_line_height_spin.setValue(1.95)
+        dlg._reading_paragraph_spin.setValue(1.2)
+        assert dlg._reading_width_spin.isEnabled()
+        assert dlg._reading_line_height_spin.isEnabled()
+        assert dlg._reading_preset_combo.currentData() == "custom"
+        expected = dlg._reading_preferences()
+        dlg.accept()
+        assert SettingsDialog(None)._reading_preferences() == expected
+
+    def test_cancel_does_not_save_reading_changes(self, qapp):
+        dlg = SettingsDialog(None)
+        dlg._reading_font_size_spin.setValue(28)
+        dlg.reject()
+        assert dlg.results == {}
+        assert SettingsDialog(None)._reading_font_size_spin.value() == 18
 
 
 class TestSettingsDialogPdfOrientation:

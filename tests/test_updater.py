@@ -2,6 +2,7 @@
 
 import builtins
 import hashlib
+import json
 import threading
 import time
 
@@ -22,6 +23,18 @@ from app.updater import (
 )
 
 # --- version comparison -------------------------------------------------
+
+
+@pytest.mark.parametrize("flag", ["draft", "prerelease"])
+def test_stable_channel_ignores_unpublished_or_preview_release(monkeypatch, flag):
+    payload = json.dumps({
+        "tag_name": "v99.0.0", flag: True,
+        "assets": [{"name": "Setup.exe", "browser_download_url": "https://github.com/x"}],
+    }).encode()
+    _install_response(monkeypatch, _FakeResponse([payload], url=updater.LATEST_RELEASE_API))
+    result = updater.check_for_update("1.36.0")
+    assert result.has_update is False
+    assert result.asset_url is None
 
 def test_version_tuple_strips_v_prefix():
     assert _version_tuple("v1.5.0") == (1, 5, 0)

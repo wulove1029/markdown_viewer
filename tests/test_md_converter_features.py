@@ -54,7 +54,7 @@ def test_task_checkboxes_interactive_with_source_line():
 def test_wikilink_renders_anchor():
     html, _ = convert_text("See [[My Note]] and [[a/b|alias]].")
     assert 'class="wikilink"' in html
-    assert "wikilink:My%20Note" in html
+    assert "https://markdown-viewer.invalid/wikilink/My%20Note" in html
     assert ">alias<" in html
 
 

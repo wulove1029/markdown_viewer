@@ -264,7 +264,7 @@ def test_plain_to_encrypted_does_not_consume_first_paint_during_prompt(
     started = []
 
     class _Pool:
-        def start(self, task):
+        def start(self, task, priority=0):
             started.append(task)
 
     view._outline_pool = _Pool()

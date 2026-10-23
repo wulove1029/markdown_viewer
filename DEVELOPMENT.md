@@ -154,7 +154,7 @@ git push origin v1.2.3
 
 tag 推上去後，GitHub Actions 會在 `windows-latest` 上自動執行：
 
-1. 安裝 Python 3.13 與 `requirements.lock`，先執行測試、Ruff、mypy，失敗停止
+1. 安裝 Python 3.13 與 `requirements.lock`，先執行一般測試、三組真實 Chromium、Ruff、mypy，失敗停止
 2. 安裝 Inno Setup，從 tag 名稱同步版號（本機仍須先同步 CHANGELOG／RELEASE_NOTES）
 3. 重建圖示 → PyInstaller 打包 → Inno Setup 編譯安裝檔
 4. 從當版 `RELEASE_NOTES` 產生發布說明，將 `installer_output/*.exe` 上傳為 GitHub Release
@@ -204,3 +204,24 @@ ie4uinit.exe -show
 ```
 
 或重新登出/登入 Windows。
+
+
+## 1.36 升級的隔離驗收
+
+使用鎖版虛擬環境，避免全域 PySide6 與建置版本不同。每個診斷程序必須先呼叫 `tools.isolated_runtime.install`，再匯入 app／建立視窗；它將所有 QSettings overload 指向自己的 INI，並隔離文件庫、草稿、標籤、搬移 journal 與 WebEngine storage。
+
+Windows 上 `QSettings(org, app)` 不受 `setDefaultFormat(IniFormat)` 保證，僅呼叫 `setPath` 不構成隔離。報告必須記錄 INI 的實際路徑；修改診斷工具後，以 native registry 與持久資料摘要前後一致作獨立驗收。既有較早 benchmark 的隔離聲稱已在 2026-10-22 審查中撤回。
+
+`benchmark_file_switching.py` 的 `--root` 可指向基準來源快照；工具與相依版本保持一致。下列均是離線／暖 OS cache 代理，不能宣稱為實體首幀或冷啟動。
+
+```powershell
+.\tmp\upgrade-venv\Scripts\python.exe -X utf8 tools/benchmark_file_switching.py --working-set 10 --repeats 10 --output tmp/switching.json
+.\tmp\upgrade-venv\Scripts\python.exe -X utf8 tools/benchmark_library_search.py --files 10000 --repeats 30 --output tmp/library-search.json
+.\tmp\upgrade-venv\Scripts\python.exe -X utf8 tools/benchmark_editor_writing.py --repeats 100 --output tmp/editor-writing.json
+.\tmp\upgrade-venv\Scripts\python.exe -X utf8 -m PyInstaller --noconfirm --distpath dist/upgrade-20261022 --workpath build/upgrade-20261022 markdown_viewer.spec
+.\tmp\upgrade-venv\Scripts\python.exe -X utf8 tools/benchmark_packaged.py --exe dist/upgrade-20261022/MarkdownViewer/MarkdownViewer.exe --working-set 10 --repeats 10 --output tmp/packaged.json
+```
+
+`passed` 代表內容、樣本完整性與操作完成；P95／RSS 是否達產品目標須另外檢查。搜尋報告分開列 debounce、worker dispatch 後首筆、端到端首筆與全部結果，不能只取其中最小值。記憶體包含子程序與關閉分頁後數值。
+
+安裝包以 Inno Setup 的 `/DMySourceDir=<絕對路徑>` 指向這一份候選資料夾，使用 `/O<獨立輸出路徑>`；編譯不會驗證系統檔案關聯或覆蓋升級。安裝流程由使用者驗收，實體 IME、DPI、雙螢幕與代表使用者流程依[本輪驗收紀錄](docs/upgrades/2026-10-23-1.36.0-release.md)補驗。

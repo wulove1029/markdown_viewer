@@ -89,7 +89,11 @@ python_version = "3.13"
 ignore_missing_imports = true
 follow_imports = "skip"
 check_untyped_defs = true
-files = ["app/atomic_io.py", "app/file_types.py", "app/edit_backend.py", "app/tab_state.py", "app/window.py"]
+files = [
+    "app/atomic_io.py", "app/file_types.py", "app/edit_backend.py", "app/tab_state.py",
+    "app/window.py", "app/background_jobs.py", "app/diagnostics.py", "app/large_source.py",
+    "app/library_content.py", "app/search_index.py",
+]
 
 [[tool.mypy.overrides]]
 module = "app.window"

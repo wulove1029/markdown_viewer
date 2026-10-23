@@ -9,6 +9,8 @@ if TYPE_CHECKING:
 
 
 class TabState(TypedDict, total=False):
+    pinned: bool
+    limited_source: bool
     kind: str
     view_mode: str
     edit_backend: str

@@ -227,17 +227,64 @@ def test_real_loading_shield_delays_hint_and_cancels_without_old_callback(
     view = RendererView()
     view.resize(700, 400)
     view.show()
-    monkeypatch.setattr(view, "_finish_load_file", lambda *_args: None)
+    monkeypatch.setattr(RendererView, "_finish_load_file", lambda *_args: None)
     view.load_file(path)
     assert view._loading_shield.isVisible()
     assert not view._loading_shield._label.isVisible()
     assert view._loading_timer.interval() == 140
+    assert view._loading_details_timer.interval() == 1000
     _wait_until(qapp, lambda: view._loading_shield._label.isVisible())
+    assert not view._loading_shield._details.isVisible()
+    assert not view._loading_shield._open_button.isVisible()
+    _wait_until(qapp, lambda: view._loading_shield._open_button.isVisible())
+    assert view._loading_shield._details.isVisible()
+    assert path.name in view._loading_shield._label.text()
+    actions = []
+    view.open_document_requested.connect(lambda: actions.append("open"))
+    view._loading_shield._open_button.click()
+    assert actions == ["open"]
+    assert view._current_path == path
     old_generation = view._render_generation
     view.deactivate()
     assert not view._loading_shield.isVisible()
+    assert not view._loading_details_timer.isActive()
+    view._reveal_loading_details()
+    assert not view._loading_shield.isVisible()
     view._on_file_render_ready(old_generation, path, "<h1>Stale</h1>", [])
     assert view._current_path is None
+
+
+@_real
+def test_real_loading_details_reset_on_switch_and_stay_suppressed_for_silent_reload(
+    qapp, tmp_path, monkeypatch
+):
+    first, second = tmp_path / "first.md", tmp_path / "second.md"
+    first.write_text("# First", encoding="utf-8")
+    second.write_text("# Second", encoding="utf-8")
+    view = RendererView()
+    view.resize(700, 400)
+    view.show()
+    monkeypatch.setattr(RendererView, "_finish_load_file", lambda *_args: None)
+    view.load_file(first)
+    view._reveal_loading_details()
+    assert view._loading_shield._open_button.isVisible()
+    first_cancel = view._render_cancel
+    view.load_file(second)
+    assert first_cancel.is_set()
+    assert second.name in view._loading_shield._label.text()
+    assert not view._loading_shield._details.isVisible()
+    assert not view._loading_shield._open_button.isVisible()
+    assert view._loading_details_timer.isActive()
+    view._finish_loading()
+    assert not view._loading_details_timer.isActive()
+    view._reveal_loading_details()
+    assert not view._loading_shield.isVisible()
+    view.load_file(second, show_loading=False)
+    assert not view._loading_timer.isActive()
+    assert not view._loading_details_timer.isActive()
+    assert not view._loading_shield._details.isVisible()
+    assert not view._loading_shield._open_button.isVisible()
+    view.deactivate()
 
 
 @_real
@@ -384,7 +431,7 @@ def test_real_partial_export_waits_for_file_backed_full_page_and_temp_cleanup(
     view = RendererView()
     view.resize(800, 500)
     view.show()
-    monkeypatch.setattr(view, "_finish_load_file", lambda *_args: None)
+    monkeypatch.setattr(RendererView, "_finish_load_file", lambda *_args: None)
     ready, exported = [], []
     view.content_ready.connect(lambda *args: ready.append(args))
     view.load_file(path)

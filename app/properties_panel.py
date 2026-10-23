@@ -1,9 +1,11 @@
 """Conservative, explicit-save front matter property editor."""
 
+import threading
+import time
 from pathlib import Path
 
 import yaml
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QRunnable, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -16,7 +18,50 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import background_jobs
 from .frontmatter_properties import PropertiesDocument
+
+
+class _PropertiesSignals(QObject):
+    done = Signal(int, object, object, str)
+
+
+class _ReadProperties(QRunnable):
+    def __init__(self, generation, path, cancel):
+        super().__init__()
+        self.generation, self.path, self.cancel = generation, path, cancel
+        self.signals = _PropertiesSignals()
+
+    def run(self):
+        payload, error = None, ""
+        try:
+            if self.cancel.is_set():
+                return
+            before = self.path.stat()
+            chunks = []
+            with self.path.open("rb") as source:
+                while not self.cancel.is_set():
+                    chunk = source.read(256 * 1024)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            if self.cancel.is_set():
+                return
+            document = PropertiesDocument.parse(b"".join(chunks))
+            rows = []
+            for key, value in document.values.items():
+                if self.cancel.is_set():
+                    return
+                rendered = yaml.safe_dump(value, allow_unicode=True, default_flow_style=True)
+                rows.append((key, rendered.removesuffix("...\n").strip()))
+            after = self.path.stat()
+            if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+                raise OSError("文件在讀取時已變更，請重新載入屬性。")
+            payload = document, rows
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
+            error = f"無法載入屬性：{exc}"
+        if not self.cancel.is_set():
+            self.signals.done.emit(self.generation, self.path, payload, error)
 
 
 class PropertiesPanel(QWidget):
@@ -26,6 +71,14 @@ class PropertiesPanel(QWidget):
         self._path = None
         self._document = None
         self._original_values = {}
+        self._generation = 0
+        self._cancel = threading.Event()
+        self._pending_document = None
+        self._pending_rows = []
+        self._row_offset = 0
+        self._row_timer = QTimer(self)
+        self._row_timer.setSingleShot(True)
+        self._row_timer.timeout.connect(self._append_rows)
         layout = QVBoxLayout(self)
         self._message = QLabel("開啟 Markdown 文件後可編輯屬性。")
         self._message.setWordWrap(True)
@@ -45,23 +98,53 @@ class PropertiesPanel(QWidget):
         self.set_document(None)
 
     def set_document(self, path: Path | None):
+        self._generation += 1
+        self._cancel.set()
+        self._cancel = threading.Event()
+        self._row_timer.stop()
+        self._pending_document, self._pending_rows = None, []
         self._path, self._document = path, None
         self._table.setRowCount(0)
         self._original_values = {}
+        self._set_enabled(False)
         if path is None or path.suffix.lower() not in {".md", ".markdown"}:
             self._message.setText("開啟 Markdown 文件後可編輯屬性。")
         else:
-            try:
-                self._document = PropertiesDocument.parse(path.read_bytes())
-                for key, value in self._document.values.items():
-                    rendered = yaml.safe_dump(value, allow_unicode=True, default_flow_style=True)
-                    rendered = rendered.removesuffix("...\n").strip()
-                    self._original_values[key] = rendered
-                    self._add_row(key, rendered)
-                self._message.setText("修改後按「儲存屬性」；本文及未修改的屬性保持原樣。")
-            except (OSError, UnicodeError, ValueError) as exc:
-                self._message.setText(str(exc))
-        enabled = self._document is not None
+            self._message.setText(f"正在載入 {path.name} 的屬性…")
+            worker = _ReadProperties(self._generation, path, self._cancel)
+            worker.signals.done.connect(self._read_done)
+            background_jobs.submit(
+                worker, key=(id(self), "properties"), should_cancel=worker.cancel.is_set,
+            )
+
+    def _read_done(self, generation, path, payload, error):
+        if generation != self._generation or path != self._path or self._cancel.is_set():
+            return
+        if error:
+            self._message.setText(error)
+            return
+        self._pending_document, self._pending_rows = payload
+        self._row_offset = 0
+        self._row_timer.start(0)
+
+    def _append_rows(self):
+        if self._pending_document is None or self._cancel.is_set():
+            return
+        deadline = time.perf_counter() + 0.008
+        while self._row_offset < len(self._pending_rows):
+            key, rendered = self._pending_rows[self._row_offset]
+            self._original_values[key] = rendered
+            self._add_row(key, rendered)
+            self._row_offset += 1
+            if time.perf_counter() >= deadline:
+                self._row_timer.start(0)
+                return
+        self._document, self._pending_document = self._pending_document, None
+        self._pending_rows = []
+        self._message.setText("修改後按「儲存屬性」；本文及未修改的屬性保持原樣。")
+        self._set_enabled(True)
+
+    def _set_enabled(self, enabled):
         self._add.setEnabled(enabled)
         self._save.setEnabled(enabled)
         self._table.setEnabled(enabled)

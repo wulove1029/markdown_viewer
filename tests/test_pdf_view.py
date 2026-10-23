@@ -103,7 +103,7 @@ def test_outline_starts_once_after_first_page_paints(qapp, sample_pdf):
     started = []
 
     class _Pool:
-        def start(self, task):
+        def start(self, task, priority=0):
             started.append((task, bool(view._cache)))
 
     view._outline_pool = _Pool()
@@ -155,7 +155,7 @@ def test_ctrl_wheel_zooms_around_cursor_without_losing_page_point(
     view = PdfView()
 
     class _Pool:
-        def start(self, _task):
+        def start(self, _task, priority=0):
             pass
 
     view._outline_pool = _Pool()
@@ -208,7 +208,7 @@ def test_ctrl_pixel_wheel_zooms_and_limits_never_fall_through_to_scroll(
     view = PdfView()
 
     class _Pool:
-        def start(self, _task):
+        def start(self, _task, priority=0):
             pass
 
     view._outline_pool = _Pool()
@@ -259,7 +259,7 @@ def test_ctrl_wheel_burst_coalesces_into_one_layout(qapp, sample_pdf):
     view = PdfView()
 
     class _Pool:
-        def start(self, _task):
+        def start(self, _task, priority=0):
             pass
 
     view._outline_pool = _Pool()
@@ -336,7 +336,7 @@ def test_loading_another_pdf_flushes_the_last_wheel_frame(
     view = PdfView()
 
     class _Pool:
-        def start(self, _task):
+        def start(self, _task, priority=0):
             pass
 
     view._outline_pool = _Pool()
@@ -376,7 +376,7 @@ def test_wheel_without_ctrl_keeps_zoom_and_scrolls_normally(qapp, sample_pdf):
     view = PdfView()
 
     class _Pool:
-        def start(self, _task):
+        def start(self, _task, priority=0):
             pass
 
     view._outline_pool = _Pool()

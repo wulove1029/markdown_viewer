@@ -1,9 +1,10 @@
 """Export action handlers delegated from MainWindow."""
 
+import html
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QMarginsF, QSettings, QSizeF, Qt, QUrl
+from PySide6.QtCore import QMarginsF, QObject, QSettings, QSizeF, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QPageLayout, QPageSize
 from PySide6.QtWidgets import (
     QApplication,
@@ -39,14 +40,7 @@ _PT_PER_PX = 72.0 / 96.0
 
 
 def _wysiwyg_active(window) -> bool:
-    """True when the active editor backend is WYSIWYG (Vditor).
-
-    Export actions relax their usual "no export while editing" guard only
-    for this backend. PDF/HTML use the live WysiwygView page; source-based
-    Word/PowerPoint exports are entered through MainWindow's acknowledged
-    snapshot gate. Split/source-code editing still blocks exports because its
-    on-screen renderer can lag the source buffer.
-    """
+    """Identify the live Office surface, whose snapshot gate belongs to MainWindow."""
     return (
         getattr(window, "_active_edit_backend", None) == edit_backend.WYSIWYG_BACKEND
         and window.wysiwyg_view is not None
@@ -54,12 +48,12 @@ def _wysiwyg_active(window) -> bool:
 
 
 def _export_blocked(window) -> bool:
-    return window.edit_mode and not _wysiwyg_active(window)
+    return bool(getattr(window, "exporting", False))
 
 
 def _export_source_text(window) -> str | None:
-    """Markdown text to feed docx/pptx export: live buffer in WYSIWYG, disk otherwise."""
-    if _wysiwyg_active(window):
+    """Read the complete live editor snapshot when editing, or the saved source."""
+    if window.edit_mode:
         return window._editor.toPlainText()
     result = read_text(window.current_file)
     if result is None:
@@ -87,6 +81,9 @@ def export_pdf(window):
     window._export_btn.setEnabled(False)
     if _wysiwyg_active(window):
         _export_wysiwyg_pdf(window, path, setup)
+        return
+    if window.edit_mode:
+        _start_source_snapshot_export(window, path, setup)
         return
     if setup["size"] == "single":
         window._pending_pdf_path = path
@@ -214,26 +211,21 @@ def export_docx(window):
 
 
 def export_html(window):
-    """Export Vditor's own rendered HTML (``getHTML()``) -- WYSIWYG only.
-
-    Unlike PDF/Word/PPT, this has no Python-side rendering pipeline of its
-    own: it is only reachable from the WYSIWYG toolbar/context menu and
-    reads whatever Vditor currently renders, buffer included.
-    """
+    """Export the live Office HTML or a freshly rendered Markdown snapshot."""
     if (
         not window.current_file
         or not is_markdown(window.current_file)
-        or not _wysiwyg_active(window)
+        or _export_blocked(window)
     ):
-        window.statusBar().showMessage(
-            "請先在所見即所得編輯模式下匯出 HTML", 4000
-        )
         return
     default = str(window.current_file.with_suffix(".html"))
     path, _ = QFileDialog.getSaveFileName(
         window, "匯出 HTML", default, "HTML 檔案 (*.html)"
     )
     if not path:
+        return
+    if not _wysiwyg_active(window):
+        _start_source_snapshot_export(window, path, None)
         return
 
     def _on_html(html_value, path=path, window=window):
@@ -249,6 +241,157 @@ def export_html(window):
         show_export_complete(window, path)
 
     window.wysiwyg_view.get_html(_on_html)
+
+
+def _start_source_snapshot_export(window, path: str, setup: dict | None) -> None:
+    """Own an isolated renderer so delayed split previews cannot leak into exports."""
+    text = _export_source_text(window)
+    if text is None:
+        window._export_btn.setEnabled(bool(window.current_file))
+        QMessageBox.warning(window, "匯出文件", "無法讀取檔案內容。")
+        return
+    job = _SourceSnapshotExport(window, path, setup)
+    window._source_export_job = job
+    window.exporting = True
+    window._export_btn.setEnabled(False)
+    show_pdf_progress(window)
+    if setup is None and window.pdf_progress is not None:
+        window.pdf_progress.setLabelText("正在匯出 HTML…")
+        window.pdf_progress.setWindowTitle("匯出 HTML")
+    job.start(text, Path(window.current_file))
+
+
+class _SourceSnapshotExport(QObject):
+    """Print one immutable source snapshot and release every owned Qt resource."""
+
+    def __init__(self, window, path: str, setup: dict | None):
+        super().__init__(window)
+        from .renderer import RendererView
+
+        self.window = window
+        self.path = path
+        self.setup = setup
+        self.phase = "preparing"
+        self.view = RendererView(parent=window)
+        self.view.hide()
+        self.view.resize(max(800, window.renderer.width()), 700)
+        self.poll = QTimer(self)
+        self.poll.setInterval(50)
+        self.poll.timeout.connect(self._poll_ready)
+        self.timeout = QTimer(self)
+        self.timeout.setSingleShot(True)
+        self.timeout.timeout.connect(lambda: self._finish(False))
+        self._checking = False
+        self.base_url = QUrl()
+        self._cancel_on_destroy = None
+
+    def start(self, text: str, source: Path) -> None:
+        self.base_url = QUrl.fromLocalFile(str(source.resolve().parent) + "/")
+        self.view.render_markdown_text(
+            text, theme="light", title=source.stem, base_url=self.base_url,
+            defer_code=False,
+        )
+        # A closing window must cancel conversion even if its event loop is leaving.
+        self._cancel_on_destroy = self.view._render_cancel.set
+        self.window.destroyed.connect(self._cancel_on_destroy)
+        self.timeout.start(60000)
+        self.poll.start()
+
+    def _poll_ready(self) -> None:
+        if self.phase != "preparing" or self._checking:
+            return
+        self._checking = True
+        generation = self.view._render_generation
+        self.view.page().runJavaScript("""(function() {
+            const marker = document.querySelector('meta[name="markdown-viewer-render-generation"]');
+            if (!marker || Number(marker.content) !== GENERATION) return 0;
+            if (document.querySelector('meta[name="markdown-viewer-render-error"]')) return -1;
+            if (document.readyState !== 'complete' || document.fonts.status === 'loading') return 0;
+            if (Array.from(document.images).some(image => !image.complete)) return 0;
+            if (window.mdDiagrams) {
+                window.mdDiagrams.ensureAll();
+                if (!window.mdDiagrams.status().complete) return 0;
+            } else if (Array.from(document.querySelectorAll('.mermaid')).some(
+                diagram => !diagram.querySelector('svg'))) return 0;
+            return 1;
+        })()""".replace("GENERATION", str(generation)), self._on_ready)
+
+    def _on_ready(self, value) -> None:
+        self._checking = False
+        if self.phase != "preparing":
+            return
+        if value == -1 or self.view._render_failed_generation is not None:
+            self._finish(False)
+            return
+        if value != 1:
+            return
+        self.poll.stop()
+        self.phase = "exporting"
+        if self.setup is None:
+            self.view.page().toHtml(self._write_html)
+        elif self.setup["size"] == "single":
+            self.view.content_size(self._print_single)
+        else:
+            self._print(pdf_layout(self.setup["size"], self.setup["orientation"]))
+
+    def _print_single(self, dimensions) -> None:
+        if self.phase != "exporting":
+            return
+        layout = _single_page_layout(dimensions, self.view.width())
+        if layout is None:
+            self._finish(False)
+        else:
+            self._print(layout)
+
+    def _print(self, layout) -> None:
+        try:
+            self.view.export_pdf(self.path, lambda _path, ok: self._finish(bool(ok)), layout)
+        except (RuntimeError, TypeError):
+            self._finish(False)
+
+    def _write_html(self, value) -> None:
+        if self.phase != "exporting":
+            return
+        if not isinstance(value, str) or not value:
+            self._finish(False)
+            return
+        # Keep relative local assets valid when the destination is another folder.
+        if "<base " not in value:
+            base = html.escape(self.base_url.toString(), quote=True)
+            value = value.replace("<head>", f'<head><base href="{base}">', 1)
+        try:
+            Path(self.path).write_text(value, encoding="utf-8")
+        except OSError:
+            self._finish(False)
+            return
+        self._finish(True)
+
+    def _finish(self, ok: bool) -> None:
+        if self.phase == "done":
+            return
+        self.phase = "done"
+        self.poll.stop()
+        self.timeout.stop()
+        if self._cancel_on_destroy is not None:
+            self.window.destroyed.disconnect(self._cancel_on_destroy)
+            self._cancel_on_destroy = None
+        self.view.deactivate()
+        self.view.deleteLater()
+        window = self.window
+        window._source_export_job = None
+        window.exporting = False
+        self.deleteLater()
+        if self.setup is not None:
+            on_pdf_exported(window, self.path, ok)
+            return
+        close_pdf_progress(window)
+        window._export_btn.setEnabled(bool(window.current_file))
+        window._refresh_icons()
+        if ok:
+            window.statusBar().showMessage(f"已匯出 HTML 至 {Path(self.path).name}", 5000)
+            show_export_complete(window, self.path)
+        else:
+            QMessageBox.warning(window, "匯出 HTML", "匯出失敗，請重試。")
 
 
 def ask_page_setup(window):
@@ -450,7 +593,7 @@ def export_single_page(window, dims):
     if layout is None:
         window._pending_pdf_path = None
         window._export_btn.setEnabled(
-            bool(window.current_file) and not window.edit_mode
+            bool(window.current_file) and is_markdown(window.current_file)
         )
         window._refresh_icons()
         QMessageBox.warning(
@@ -487,7 +630,7 @@ def on_pdf_exported(window, path: str, ok: bool):
     close_pdf_progress(window)
     window._export_btn.setEnabled(
         bool(window.current_file)
-        and (not window.edit_mode or _wysiwyg_active(window))
+        and is_markdown(window.current_file)
     )
     window._refresh_icons()
     if not ok:

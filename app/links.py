@@ -15,14 +15,11 @@ from urllib.parse import unquote, urlsplit
 from markdown_it import MarkdownIt
 
 from .document_libraries import load_excluded_folders, should_skip_directory
+from .document_metadata import extract_metadata
 from .file_types import MARKDOWN_EXTENSIONS
-from .md_converter import (
-    body_hashtags,
-    front_matter_tags,
-    mask_markdown_code,
-    parse_front_matter,
-    read_text,
-)
+from .library_content import content_key, derived_index, read_source
+from .md_converter import mask_markdown_code
+from .search_index import SearchCancelled, default_index, file_version
 
 WIKILINK_RE = re.compile(
     r"\[\[[^\S\r\n]*([^\[\]|\r\n]+?)[^\S\r\n]*"
@@ -133,19 +130,23 @@ def collect_markdown_files(roots, *, strict=False) -> list[Path]:
     return files
 
 
-def read_docs(files) -> list[tuple[Path, str]]:
+def read_docs(files, *, should_cancel=lambda: False) -> list[tuple[Path, str]]:
     """Read each file to (path, text), skipping oversized/unreadable ones."""
     docs: list[tuple[Path, str]] = []
     for path in files:
+        if should_cancel():
+            raise SearchCancelled()
         path = Path(path)
         try:
-            if path.stat().st_size > _MAX_BYTES:
+            version = file_version(path)
+            if version.size > _MAX_BYTES:
                 docs.append((path, ""))
                 continue
+            text = read_source(path, version=version, should_cancel=should_cancel)
         except OSError:
+            default_index.invalidate(path)
             continue
-        result = read_text(path)
-        docs.append((path, result[0] if result else ""))
+        docs.append((path, text if text is not None else ""))
     return docs
 
 
@@ -163,7 +164,7 @@ class LinkIndex:
         self.tags: dict[str, set[str]] = {}
         self.completion_candidates: list[str] = []
 
-    def build(self, docs) -> None:
+    def build(self, docs, *, should_cancel=lambda: False) -> None:
         """Build the index from an iterable of (path, text)."""
         docs = [(Path(p), t) for p, t in docs]
         self._by_name = {}
@@ -178,14 +179,23 @@ class LinkIndex:
         self.tags = {}
         parser = _link_parser()
         for path, text in docs:
-            front, body = parse_front_matter(text)
-            self.tags[str(path)] = set(front_matter_tags(front)) | set(body_hashtags(body))
+            if should_cancel():
+                raise SearchCancelled()
+            fingerprint = content_key(text)
+            parsed = derived_index.get("links", fingerprint)
+            if parsed is None:
+                metadata = extract_metadata(text)
+                raw_targets = tuple(target for target, _alias in extract_wikilinks(text))
+                typed = tuple((target, "wiki") for target in raw_targets) + tuple(
+                    (target, "markdown") for target in extract_markdown_links(text, _parser=parser)
+                )
+                parsed = (metadata.front_tags + metadata.body_tags, raw_targets, typed)
+                derived_index.remember("links", fingerprint, parsed)
+            tags, raw_targets, typed = parsed
+            self.tags[str(path)] = set(tags)
             targets: set[str] = set()
-            raw_targets = [target for target, _alias in extract_wikilinks(text)]
-            self.raw_targets[str(path)] = tuple(raw_targets)
-            typed = [(target, "wiki") for target in raw_targets]
-            typed.extend((target, "markdown") for target in extract_markdown_links(text, _parser=parser))
-            self.typed_targets[str(path)] = tuple(typed)
+            self.raw_targets[str(path)] = raw_targets
+            self.typed_targets[str(path)] = typed
             for target, kind in typed:
                 resolved = (self.resolve_markdown(target, path) if kind == "markdown"
                             else self.resolve(target, path))

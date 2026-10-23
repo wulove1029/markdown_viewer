@@ -162,6 +162,11 @@ def check_for_update(
     if cancel is not None and cancel.is_set():
         raise UpdateCancelled("Update check cancelled.")
 
+    # Stable clients must not offer draft or prerelease metadata, even if a
+    # proxy or a changed endpoint supplies it instead of the latest release.
+    if release.get("draft") or release.get("prerelease"):
+        return UpdateInfo(False, current_version, current_version, "")
+
     latest_version = str(release.get("tag_name") or "").lstrip("vV")
     if not latest_version:
         raise UpdateError("Latest release does not include a version tag.")

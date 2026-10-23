@@ -2,6 +2,24 @@
 
 Windows desktop Markdown viewer and editor (with PDF reading) built with PySide6.
 
+## Reading and writing workspace
+
+Use **閱讀／寫作／並排** to change workspace, with Markdown or Office as the writing backend.
+The compact toolbar is the default; **檢視 → 精簡工具列** restores the expanded layout.
+**Ctrl+Alt+F** focuses the document and **Ctrl+Alt+P** searches commands.
+Reading preferences include comfort, compact and wide presets, Traditional Chinese font
+fallbacks, adjustable typography and warm paper. Open **檢視 → 閱讀工具** for chapter
+navigation, filtered annotations and Markdown excerpts linked to their source.
+
+**新增** creates a recoverable unnamed draft; the first save chooses its permanent path.
+Save the draft before importing attachments. Source writing includes an editable outline,
+selection counts, optional typewriter scrolling and source-aware split preview.
+Template previews and reviewed table/file pastes help preserve the intended insertion.
+PDF, HTML, Word and PowerPoint exports use the current unsaved writing content.
+HTML references local assets; it is not a portable resource bundle.
+
+See [upgrade evidence and known limits](docs/upgrades/2026-10-23-1.36.0-release.md).
+
 ## Markdown Support
 
 CommonMark plus tables, strikethrough, task lists, footnotes, definition
@@ -37,7 +55,7 @@ See [[Project Plan]] and [[Meeting Notes|last week's notes]].
 ```
 
 Open **檢視 → 筆記關聯圖** to browse the library graph. Its indexed scope is:
-**已索引 [[wikilink]] 與 Markdown 相對連結 [text](path.md)；外部 URL 與非 Markdown 檔案不入圖。**
+**已索引 [[wikilink]] 與 Markdown 相對連結 `[text](path.md)`；外部 URL 與非 Markdown 檔案不入圖。**
 Relative paths such as `../notes/README.md`, percent-encoded spaces and heading
 anchors resolve to the target note. Links inside code and image references do
 not create edges. Duplicate names include their parent folders; hover shows
@@ -67,7 +85,8 @@ plain-text `.md` file:
 - Click the layers button or press **Ctrl+Shift+W** for the visual **Office
   editor**. Press it again to return to preview.
 
-New Markdown notes show the same choice. The safe default is the original
+**檔案 → 新增筆記…** shows the same choice; the toolbar's **新增** opens an unnamed
+source draft. The safe default is the original
 source editor, and preview double-click keeps the original inline-selection
 behaviour unless Office editing is explicitly enabled in Preferences.
 

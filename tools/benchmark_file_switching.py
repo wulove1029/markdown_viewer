@@ -31,16 +31,19 @@ def markdown_ready_script(generation, marker, *, require_full=False):
     return """(() => {
       const m=document.querySelector('meta[name="markdown-viewer-render-generation"]');
       const g=%d;
+      const requireFull=%s;
+      // Avoid repeatedly forcing text/layout work while the parser is active.
+      if(requireFull && document.readyState!=='complete') return false;
       if(!m || Number(m.content)!==g || document.querySelector('.state-page') ||
          document.querySelector('meta[name="markdown-viewer-render-error"]') ||
-         !document.body.innerText.includes(%s)) return false;
-      if(%s && document.querySelector('.partial-preview-notice')) return false;
+         !document.body || !document.body.innerText.includes(%s)) return false;
+      if(requireFull && document.querySelector('.partial-preview-notice')) return false;
       const partial=!!document.querySelector('.partial-preview-notice');
-      const token=String(g)+':'+String(partial);
+      const token=String(g)+':'+String(partial)+':'+String(requireFull);
       if(window.__mdvBenchmarkFrame===token) return true;
       requestAnimationFrame(()=>requestAnimationFrame(()=>window.__mdvBenchmarkFrame=token));
       return false;
-    })()""" % (generation, json.dumps(marker), "true" if require_full else "false")
+    })()""" % (generation, "true" if require_full else "false", json.dumps(marker))
 
 
 def process_tree_rss():
@@ -63,11 +66,26 @@ def matching_raster(paints, path, generation, page, started):
                for p, g, drawn_page, t in paints)
 
 
+def process_memory_breakdown():
+    import psutil
+
+    process = psutil.Process()
+    result = []
+    for member in [process, *process.children(recursive=True)]:
+        try:
+            memory = member.memory_info()
+            result.append({"pid": member.pid, "name": member.name(), "rss": memory.rss})
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--working-set", type=int, default=2)
     parser.add_argument("--size", type=int, default=100_000)
     parser.add_argument("--kind", choices=("markdown", "text", "pdf"), default="markdown")
     parser.add_argument("--timeout", type=float, default=45)
@@ -77,13 +95,15 @@ def main():
     parser.add_argument("--category", choices=("long_prose", "code_heavy"), default="long_prose")
     parser.add_argument("--visible", action="store_true")
     args = parser.parse_args()
-    if args.repeats < 1 or args.size < 1 or args.timeout <= 0:
+    if args.repeats < 1 or args.size < 1 or args.timeout <= 0 or args.working_set < 2:
         parser.error("repeats and size must be positive")
     args.output = args.output.resolve()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     report = {"root": str(args.root.resolve()), "label": args.label,
               "python": sys.version, "kind": args.kind, "size": args.size,
-              "category": args.category, "status": "initializing", "samples": []}
+              "category": args.category, "working_set": args.working_set,
+              "frozen": bool(getattr(sys, "frozen", False)),
+              "status": "initializing", "samples": []}
 
     def save_report():
         args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -115,35 +135,23 @@ def main():
     # The source-only baseline has app/main but deliberately shares the same
     # benchmark generators/assets. Resolve app from --root, tools from here.
     sys.path.insert(1, str(Path(__file__).resolve().parents[1]))
+    from tools.isolated_runtime import configure_webengine, install
+
+    # Retain the owned directory while Qt may still hold Windows file handles.
+    folder = Path(tempfile.mkdtemp(prefix="mdv-switch-benchmark-"))
+    runtime = install(folder, application="MDVSwitchBenchmark")
+    report["temp"] = str(folder)
     from PySide6 import __version__ as pyside_version
-    from PySide6.QtCore import QSettings, QStandardPaths, QThreadPool, QTimer
-    from PySide6.QtWebEngineCore import QWebEngineProfile
+    from PySide6.QtCore import QSettings, QThreadPool, QTimer
     from PySide6.QtWidgets import QApplication
 
-    # Retain the isolated directory if Qt still holds a file handle on Windows.
-    # No personal settings, library or recovery records are read or written.
-    folder = Path(tempfile.mkdtemp(prefix="mdv-switch-benchmark-"))
-    report["temp"] = str(folder)
-    QStandardPaths.setTestModeEnabled(True)
-    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
-    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(folder))
-    QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.SystemScope,
-                      str(folder / "system"))
     qt_app = QApplication([])
-    qt_app.setApplicationName("MDVSwitchBenchmark")
-    qt_app.setOrganizationName("MDVBenchmark")
-    profile = QWebEngineProfile.defaultProfile()
-    profile.setPersistentStoragePath(str(folder / "web-storage"))
-    profile.setCachePath(str(folder / "web-cache"))
+    configure_webengine(runtime)
     settings = QSettings("markdown-viewer", "MarkdownViewer")
+    runtime.assert_settings(settings)
     settings.setValue("update_check_enabled", False)
     settings.setFallbacksEnabled(False)
     settings.sync()
-    from app import document_libraries, recovery, tag_colors, tag_index
-    document_libraries._default_store_path = lambda: folder / "libraries.json"
-    recovery._default_recovery_dir = lambda: folder / "recovery"
-    tag_colors._default_colors_path = lambda: folder / "colors.json"
-    tag_index._default_index_path = lambda: folder / "tags.json"
     from app import window as window_module
 
     report.update({"pyside": pyside_version, "mode": "visible" if args.visible else "offscreen",
@@ -154,7 +162,8 @@ def main():
                               "not native paint timing",
                               "No remote images or external network dependencies"]})
     paths = []
-    for name in ("A", "B"):
+    for document_index in range(args.working_set):
+        name = chr(65 + document_index) if document_index < 26 else f"Doc{document_index}"
         suffix = {"markdown": ".md", "text": ".txt", "pdf": ".pdf"}[args.kind]
         path = folder / (name + suffix)
         if args.kind == "pdf":
@@ -188,6 +197,7 @@ def main():
     report["dpr"] = window.devicePixelRatioF()
     report["screen_dpi"] = window.screen().logicalDotsPerInch()
     report["rss_start_bytes"] = process_tree_rss()
+    report["window_ready_wall_time"] = time.time()
     report["status"] = "running"
     save_report()
     sections = []
@@ -276,8 +286,8 @@ def main():
 
     try:
         # Cold-within-session opens are retained separately, then A/B returns.
-        for index in range(2 + 2 * args.repeats):
-            path = paths[index % 2]
+        for index in range(args.working_set * (1 + args.repeats)):
+            path = paths[index % args.working_set]
             gaps.clear()
             sections.clear()
             from app import md_converter
@@ -290,7 +300,7 @@ def main():
             readable_gaps = list(gaps)
             full_ready = (wait_ready(path, started, require_full=True)
                           if ready is not None and args.kind == "markdown" else ready)
-            item = {"path": path.name, "warm": index >= 2,
+            item = {"path": path.name, "warm": index >= args.working_set,
                     "body_cache_hit": cache_hit,
                     "sync_ms": (returned - started) * 1000,
                     "ready_ms": None if ready is None else (ready - started) * 1000,
@@ -301,6 +311,9 @@ def main():
                     "sync_sections": list(sections),
                     "success": ready is not None and full_ready is not None}
             report["samples"].append(item)
+            if index % args.working_set == 0:
+                item["process_memory"] = process_memory_breakdown()
+                item["navigation_history_entries"] = window._renderer.history().count()
             save_report()
             if not item["success"]:
                 break
@@ -311,9 +324,21 @@ def main():
             [dict(section, path=sample["path"], warm=sample["warm"])
              for sample in report["samples"] for section in sample["sync_sections"]],
             key=lambda section: section["ms"], reverse=True)[:10]
-        report["passed"] = len(report["samples"]) == 2 + 2 * args.repeats and all(
+        report["passed"] = len(report["samples"]) == args.working_set * (1 + args.repeats) and all(
             r["success"] for r in report["samples"])
         window.grab().save(str(args.output.with_suffix(".png")))
+        # Closing all ten clean tabs is measured after switching, not folded
+        # into the document-readable latency or mistaken for cache eviction.
+        report["rss_before_close_bytes"] = process_tree_rss()
+        closed = [window._close_tab_by_path(str(path)) for path in paths]
+        close_deadline = time.perf_counter() + 0.5
+        while time.perf_counter() < close_deadline:
+            qt_app.processEvents()
+            time.sleep(0.002)
+        report["tabs_closed"] = all(closed) and window._tab_bar.count() == 0
+        report["rss_after_close_bytes"] = process_tree_rss()
+        report["process_memory_after_close"] = process_memory_breakdown()
+        report["passed"] = report["passed"] and report["tabs_closed"]
         report["status"] = "completed" if report["passed"] else "readiness_timeout"
     finally:
         heartbeat.stop()
@@ -328,7 +353,8 @@ def main():
         save_report()
     watchdog.cancel()
     print(json.dumps(report.get("summary", {}), indent=2))
-    sys.stdout.flush()
+    if sys.stdout is not None:
+        sys.stdout.flush()
     # Native WebEngine teardown can hang in headless Windows after validation.
     os._exit(0 if report.get("passed") else 1)
 

@@ -24,8 +24,11 @@ hit rectangles ourselves.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
+from collections import Counter, OrderedDict
 from math import ceil, floor
 from pathlib import Path
+from threading import Event
 from time import perf_counter
 
 from PySide6.QtCore import (
@@ -40,7 +43,6 @@ from PySide6.QtCore import (
     QSize,
     QSizeF,
     Qt,
-    QThreadPool,
     QTimer,
     Signal,
 )
@@ -136,9 +138,10 @@ class _PdfOutlineTask(QRunnable):
         self.path = path
         self.password = password
         self.signals = _PdfOutlineSignals()
+        self.cancel = Event()
 
     def run(self):
-        entries = extract_outline(self.path, self.password)
+        entries = [] if self.cancel.is_set() else extract_outline(self.path, self.password)
         self.signals.finished.emit(self.generation, self.path, entries)
 
 
@@ -165,9 +168,11 @@ class _PdfEmbeddedAnnotationsTask(QRunnable):
         self.path = path
         self.password = password
         self.signals = _PdfEmbeddedAnnotationsSignals()
+        self.cancel = Event()
 
     def run(self):
-        entries = extract_embedded_annotations(self.path, self.password)
+        entries = ([] if self.cancel.is_set()
+                   else extract_embedded_annotations(self.path, self.password))
         self.signals.finished.emit(self.generation, self.path, entries)
 
 
@@ -208,11 +213,16 @@ class PdfView(QAbstractScrollArea):
     _WHEEL_MIN_ZOOM = 0.5
     _WHEEL_MAX_ZOOM = 3.0
     _WHEEL_FRAME_MS = 16
+    _REUSABLE_DOCUMENTS = 2
+    # Admission accounting uses source bytes + 2 KiB/page; native PDFium RSS
+    # is opaque. The count cap remains a hard bound on retained documents.
+    _DOCUMENT_REUSE_BUDGET_BYTES = 32 * 1024 * 1024
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._doc = QPdfDocument(self)
         self._doc.statusChanged.connect(self._on_status)
+        self._document_sessions: OrderedDict[tuple, tuple[QPdfDocument, str, int]] = OrderedDict()
 
         self._search = QPdfSearchModel(self)
         self._search.setDocument(self._doc)
@@ -236,7 +246,9 @@ class PdfView(QAbstractScrollArea):
         self._first_painted_generation = -1
         self._outline_requested_generation = -1
         self._outline_tasks: dict[int, _PdfOutlineTask] = {}
-        self._outline_pool = QThreadPool.globalInstance()
+        from . import background_jobs
+
+        self._outline_pool = background_jobs.pool()
         self._outline_submit_generation = -1
         self._outline_submit_timer = QTimer(self)
         self._outline_submit_timer.setSingleShot(True)
@@ -249,7 +261,7 @@ class PdfView(QAbstractScrollArea):
         # stalling window close. Stale results are discarded by the
         # generation/path guard instead. Kept as a separate attribute so tests
         # can swap it independently of ``_outline_pool``.
-        self._embedded_annotations_pool = QThreadPool.globalInstance()
+        self._embedded_annotations_pool = background_jobs.pool()
         # One extra deferral beyond the outline's own ``_outline_submit_timer``
         # tick: starting a second real background thread in the very same
         # call as the outline's dispatch was observed, under real (unmocked)
@@ -282,15 +294,24 @@ class PdfView(QAbstractScrollArea):
         self._page_pix: list[tuple[int, int]] = []
         self._content_w = 0
         self._content_h = 0
+        self._layout_viewport_width = 0
         self._zoom_factor = 1.0
         self._scale = 1.0
         self._pending_page: int | None = None
         self._current_page = 0
         self._geometry_pending: set[int] = set()
+        self._geometry_dirty: set[int] = set()
+        self._layout_point_sizes: list[tuple[float, float]] = []
+        self._layout_width_counts: Counter[float] = Counter()
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
         self._geometry_timer.timeout.connect(self._complete_geometry_batch)
         self._geometry_scale_width: float | None = None
+        self._resize_layout_timer = QTimer(self)
+        self._resize_layout_timer.setSingleShot(True)
+        self._resize_layout_timer.setInterval(16)
+        self._resize_layout_timer.timeout.connect(self._finish_resize_layout)
+        self._resize_anchor: tuple[int, float, float] | None = None
         self._readable_page = 0
         self._readable_generation = -1
         self._reused_preview_pages: set[int] = set()
@@ -366,7 +387,10 @@ class PdfView(QAbstractScrollArea):
         # handles instead of QPixmaps when the compositor moves to RHI.
         self._cache = PdfRenderCache(self._CACHE_BUDGET_BYTES - self._PREVIEW_BUDGET_BYTES)
         self._document_previews = PdfRenderCache(self._PREVIEW_BUDGET_BYTES)
-        self._render_scheduler = PdfRenderScheduler(self, max_inflight=2)
+        self._render_scheduler = PdfRenderScheduler(
+            self, max_inflight=2, reuse_documents=self._REUSABLE_DOCUMENTS,
+            reuse_budget_bytes=self._DOCUMENT_REUSE_BUDGET_BYTES,
+        )
         self._render_scheduler.rendered.connect(self._on_rendered_image)
         self._render_scheduler.capacity_available.connect(
             self._pump_render_queue
@@ -393,6 +417,9 @@ class PdfView(QAbstractScrollArea):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.verticalScrollBar().setSingleStep(40)
         self.horizontalScrollBar().setSingleStep(40)
+        application = QApplication.instance()
+        if application is not None:
+            application.aboutToQuit.connect(self.shutdown_document_sessions)
 
     # ================= loading =================
     def load(self, path, *, restore_page: int = 0, force_reload: bool = False) -> bool:
@@ -402,6 +429,8 @@ class PdfView(QAbstractScrollArea):
         the user cancelled the prompt or the file could not be read.
         """
         path = Path(path)
+        self._resize_layout_timer.stop()
+        self._resize_anchor = None
         if self._geometry_pending and self._geometry_signature is not None:
             # Rapid tab switches may happen before the idle geometry batches.
             # Retain known sizes so revisiting does not reopen the same PDFium
@@ -413,15 +442,20 @@ class PdfView(QAbstractScrollArea):
             self.invalidate_cached_document(path)
         self._geometry_timer.stop()
         self._geometry_pending.clear()
+        self._geometry_dirty.clear()
         self._geometry_scale_width = None
         self._readable_page = max(0, int(restore_page))
         self._reused_preview_pages.clear()
         # Preserve the final wheel delta when a reload or tab switch happens
         # before the short frame timer has fired.
         self.flush_pending_wheel_zoom()
+        self._resize_layout_timer.stop()
+        self._resize_anchor = None
         self._cancel_pointer_gesture()
         self._reset_render_pipeline(clear_cache=True)
         self._load_generation += 1
+        for task in (*self._outline_tasks.values(), *self._embedded_annotations_tasks.values()):
+            task.cancel.set()
         self._outline_submit_timer.stop()
         self._outline_submit_generation = -1
         self._embedded_annotations_submit_timer.stop()
@@ -449,8 +483,15 @@ class PdfView(QAbstractScrollArea):
         # previous (e.g. cancelled-encrypted) file's pending page leak into this
         # one and scroll it to the wrong page.
         self._pending_page = self._readable_page
-        err = self._authenticate_and_load(candidate)
+        reused, cached_password = self._activate_document_session(self._geometry_signature)
+        if reused:
+            self._password = cached_password
+            self._on_status(QPdfDocument.Status.Ready)
+            err = QPdfDocument.Error.None_
+        else:
+            err = self._authenticate_and_load(candidate)
         if err == QPdfDocument.Error.None_:
+            self._remember_document_session()
             self._render_backend_ready = self._render_scheduler.begin_document(
                 self._load_generation,
                 path,
@@ -472,8 +513,96 @@ class PdfView(QAbstractScrollArea):
     def invalidate_cached_document(self, path) -> None:
         """Explicit reload/watcher/write invalidation, including same-stat files."""
         path = Path(path)
+        normalized = pdf_metadata_cache.path_key(path)
+        for key in list(self._document_sessions):
+            if key[0] == normalized:
+                document, _, _ = self._document_sessions.pop(key)
+                if document is not self._doc:
+                    document.close()
+                    document.deleteLater()
+        invalidate = getattr(self._render_scheduler, "invalidate_document", None)
+        if invalidate is not None:
+            invalidate(path)
         self._document_previews.invalidate_document(pdf_metadata_cache.path_key(path))
         pdf_metadata_cache.invalidate(path)
+
+    def _activate_document_session(self, signature) -> tuple[bool, str]:
+        """Switch GUI-thread documents instead of closing/reloading warm PDFs."""
+        previous = self._doc
+        previous.statusChanged.disconnect(self._on_status)
+        self._search.setDocument(None)
+        cached = self._document_sessions.pop(signature, None) if signature is not None else None
+        if cached is not None and cached[0].status() != QPdfDocument.Status.Ready:
+            if cached[0] is not previous:
+                cached[0].close()
+                cached[0].deleteLater()
+            cached = None
+        # Changed signatures for the same pathname must not retain a stale
+        # native document or keep its file handle alive unnecessarily.
+        if signature is not None:
+            for key in list(self._document_sessions):
+                if key[0] == signature[0]:
+                    document, _, _ = self._document_sessions.pop(key)
+                    if document is not previous:
+                        document.close()
+                        document.deleteLater()
+        if previous is not (cached[0] if cached else None) and not any(
+            item[0] is previous for item in self._document_sessions.values()
+        ):
+            previous.close()
+            previous.deleteLater()
+        while len(self._document_sessions) >= self._REUSABLE_DOCUMENTS:
+            _, (document, _, _) = self._document_sessions.popitem(last=False)
+            document.close()
+            document.deleteLater()
+        self._doc = cached[0] if cached else QPdfDocument(self)
+        self._doc.statusChanged.connect(self._on_status)
+        self._search.setDocument(self._doc)
+        return cached is not None, cached[1] if cached else ""
+
+    def _remember_document_session(self) -> None:
+        key = self._geometry_signature
+        if key is None:
+            return
+        cost = int(key[2]) + self._doc.pageCount() * 2048
+        if cost <= self._DOCUMENT_REUSE_BUDGET_BYTES:
+            self._document_sessions[key] = (self._doc, self._password, cost)
+        while self._document_sessions and (
+            cost > self._DOCUMENT_REUSE_BUDGET_BYTES
+            or sum(item[2] for item in self._document_sessions.values())
+            > self._DOCUMENT_REUSE_BUDGET_BYTES
+            or len(self._document_sessions) > self._REUSABLE_DOCUMENTS
+        ):
+            _, (document, _, _) = self._document_sessions.popitem(last=False)
+            if document is not self._doc:
+                document.close()
+                document.deleteLater()
+
+    def shutdown_document_sessions(self) -> None:
+        """Close native document caches without waiting on raster worker threads."""
+        for task in (*self._outline_tasks.values(), *self._embedded_annotations_tasks.values()):
+            task.cancel.set()
+        self._geometry_timer.stop()
+        self._resize_layout_timer.stop()
+        self._resize_anchor = None
+        self._render_dispatch_timer.stop()
+        self._render_idle_timer.stop()
+        self._outline_submit_timer.stop()
+        self._embedded_annotations_submit_timer.stop()
+        shutdown = getattr(self._render_scheduler, "shutdown", None)
+        if shutdown is not None:
+            shutdown()
+        for document, _, _ in self._document_sessions.values():
+            if document is not self._doc:
+                document.close()
+                document.deleteLater()
+        self._document_sessions.clear()
+        self._search.setDocument(None)
+        self._doc.close()
+
+    def closeEvent(self, event):
+        self.shutdown_document_sessions()
+        super().closeEvent(event)
 
     @staticmethod
     def _preview_options():
@@ -600,14 +729,18 @@ class PdfView(QAbstractScrollArea):
         changed = False
         for index in range(max(0, page - 2), min(len(self._page_sizes), page + 4)):
             if index in self._geometry_pending:
-                self._page_sizes[index] = self._doc.pagePointSize(index)
+                size = self._doc.pagePointSize(index)
+                if size != self._page_sizes[index]:
+                    self._geometry_dirty.add(index)
+                    changed = True
+                self._page_sizes[index] = size
                 self._geometry_pending.discard(index)
-                changed = True
         return changed
 
     def _complete_geometry_batch(self):
         if not self._geometry_pending or self._doc.status() != QPdfDocument.Status.Ready:
             return
+        self._finish_resize_layout()
         page = self.current_page()
         old_scale = self._scale
         y_point = (self.verticalScrollBar().value() - self._page_tops[page]) / old_scale
@@ -616,15 +749,20 @@ class PdfView(QAbstractScrollArea):
         deadline = perf_counter() + self._GEOMETRY_BATCH_MS / 1000
         while self._geometry_pending and perf_counter() < deadline:
             index = self._geometry_pending.pop()
-            self._page_sizes[index] = self._doc.pagePointSize(index)
+            size = self._doc.pagePointSize(index)
+            if size != self._page_sizes[index]:
+                self._geometry_dirty.add(index)
+            self._page_sizes[index] = size
         # Block transient scrollbar notifications while preserving page/point.
         vbar, hbar = self.verticalScrollBar(), self.horizontalScrollBar()
         old_v, old_h = vbar.blockSignals(True), hbar.blockSignals(True)
-        self._relayout()
+        self._apply_geometry_updates()
         vbar.setValue(round(self._page_tops[page] + y_point * self._scale))
         hbar.setValue(round(self._page_lefts[page] + x_point * self._scale))
         vbar.blockSignals(old_v)
         hbar.blockSignals(old_h)
+        self._sync_auto_cards()
+        self._reposition_annotation_card()
         self.viewport().update()
         self._schedule_render_dispatch()
         if self._geometry_pending:
@@ -634,11 +772,15 @@ class PdfView(QAbstractScrollArea):
 
     # ================= layout =================
     def _relayout(self) -> None:
+        self._layout_viewport_width = max(1, self.viewport().width())
         self._layout_epoch += 1
         self._wanted_render_specs.clear()
         self._wanted_render_keys.clear()
         self._failed_render_keys.clear()
+        self._geometry_dirty.clear()
         if not self._page_sizes:
+            self._layout_point_sizes = []
+            self._layout_width_counts.clear()
             self._page_tops = []
             self._page_lefts = []
             self._page_pix = []
@@ -646,7 +788,9 @@ class PdfView(QAbstractScrollArea):
             self._update_scrollbars()
             return
         vpw = max(1, self.viewport().width())
-        max_w = max((s.width() for s in self._page_sizes), default=1.0) or 1.0
+        self._layout_point_sizes = [(size.width(), size.height()) for size in self._page_sizes]
+        self._layout_width_counts = Counter(width for width, _ in self._layout_point_sizes)
+        max_w = max(self._layout_width_counts, default=1.0) or 1.0
         # Freezing fit width while progressively discovering wider pages avoids
         # repeated automatic zoom changes in mixed-paper-size documents.
         fit_width = self._geometry_scale_width or max_w
@@ -656,9 +800,9 @@ class PdfView(QAbstractScrollArea):
         content_w = max(vpw, int(max_w * scale) + 2 * self.PAGE_MARGIN)
         tops, lefts, pix = [], [], []
         y = self.PAGE_MARGIN
-        for s in self._page_sizes:
-            w = max(1, round(s.width() * scale))
-            h = max(1, round(s.height() * scale))
+        for width, height in self._layout_point_sizes:
+            w = max(1, round(width * scale))
+            h = max(1, round(height * scale))
             tops.append(y)
             lefts.append(max(self.PAGE_MARGIN, (content_w - w) // 2))
             pix.append((w, h))
@@ -673,6 +817,67 @@ class PdfView(QAbstractScrollArea):
         self._sync_auto_cards()
         self._reposition_annotation_card()
 
+    def _apply_geometry_updates(self) -> None:
+        """Update discovered pages without remeasuring every QSizeF per batch.
+
+        The large-document fit scale stays fixed to its reference page. Pixel
+        dimensions are recomputed only for changed pages; height deltas shift
+        the retained suffix. A width histogram makes mixed paper sizes exact
+        even when the widest provisional page is replaced by a smaller one.
+        """
+        if not self._geometry_dirty:
+            return
+        if (
+            not self._geometry_scale_width
+            or len(self._layout_point_sizes) != len(self._page_sizes)
+            or self.viewport().width() != self._layout_viewport_width
+        ):
+            # Scrollbar visibility can resize the viewport before Qt delivers
+            # its resize event. A frozen reference page does not freeze the
+            # viewport-dependent scale; old pixels cannot be updated in place.
+            self._relayout()
+            return
+        changed = sorted(self._geometry_dirty)
+        self._geometry_dirty.clear()
+        height_changes: dict[int, int] = {}
+        for page in changed:
+            previous_width, _ = self._layout_point_sizes[page]
+            size = self._page_sizes[page]
+            width, height = size.width(), size.height()
+            self._layout_point_sizes[page] = (width, height)
+            self._layout_width_counts[previous_width] -= 1
+            if not self._layout_width_counts[previous_width]:
+                del self._layout_width_counts[previous_width]
+            self._layout_width_counts[width] += 1
+            old_height = self._page_pix[page][1]
+            pixels = (max(1, round(width * self._scale)), max(1, round(height * self._scale)))
+            self._page_pix[page] = pixels
+            if pixels[1] != old_height:
+                height_changes[page] = pixels[1] - old_height
+        if height_changes:
+            delta = 0
+            for page in range(min(height_changes), len(self._page_tops)):
+                self._page_tops[page] += delta
+                delta += height_changes.get(page, 0)
+            self._content_h += delta
+        max_width = max(self._layout_width_counts, default=1.0) or 1.0
+        content_width = max(
+            self.viewport().width(), int(max_width * self._scale) + 2 * self.PAGE_MARGIN
+        )
+        recenter = range(len(self._page_pix)) if content_width != self._content_w else changed
+        self._content_w = content_width
+        for page in recenter:
+            self._page_lefts[page] = max(
+                self.PAGE_MARGIN, (content_width - self._page_pix[page][0]) // 2
+            )
+        self._layout_epoch += 1
+        self._wanted_render_specs.clear()
+        self._wanted_render_keys.clear()
+        self._failed_render_keys.clear()
+        self._update_scrollbars()
+        self._sync_auto_cards()
+        self._reposition_annotation_card()
+
     def _update_scrollbars(self) -> None:
         vp = self.viewport().size()
         vbar = self.verticalScrollBar()
@@ -684,10 +889,38 @@ class PdfView(QAbstractScrollArea):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        old_h = self._content_h
-        frac = (self.verticalScrollBar().value() / old_h) if old_h else 0.0
+        if self.viewport().width() == self._layout_viewport_width:
+            # A horizontal scrollbar appearing changes viewport height only;
+            # all page positions and fit scale remain valid.
+            self._update_scrollbars()
+            self._schedule_render_dispatch()
+            self.viewport().update()
+            return
+        if self._resize_anchor is None and self._page_tops:
+            page = self.current_page()
+            scale = self._scale or 1.0
+            self._resize_anchor = (
+                page,
+                (self.verticalScrollBar().value() - self._page_tops[page]) / scale,
+                (self.horizontalScrollBar().value() - self._page_lefts[page]) / scale,
+            )
+        if len(self._page_sizes) > self._GEOMETRY_EAGER_PAGES:
+            if not self._resize_layout_timer.isActive():
+                self._resize_layout_timer.start()
+            return
+        self._finish_resize_layout(force=True)
+
+    def _finish_resize_layout(self, *, force: bool = False) -> None:
+        if not force and self._resize_anchor is None and not self._resize_layout_timer.isActive():
+            return
+        self._resize_layout_timer.stop()
+        anchor = self._resize_anchor
+        self._resize_anchor = None
         self._relayout()
-        self.verticalScrollBar().setValue(int(frac * self._content_h))
+        if anchor is not None and anchor[0] < len(self._page_tops):
+            page, y_point, x_point = anchor
+            self.verticalScrollBar().setValue(round(self._page_tops[page] + y_point * self._scale))
+            self.horizontalScrollBar().setValue(round(self._page_lefts[page] + x_point * self._scale))
         if self._cache:
             self._defer_exact_render()
         else:
@@ -884,11 +1117,10 @@ class PdfView(QAbstractScrollArea):
             return []
         top = self.verticalScrollBar().value()
         bottom = top + self.viewport().height()
-        pages = [
-            page
-            for page, page_top in enumerate(self._page_tops)
-            if page_top + self._page_pix[page][1] > top and page_top < bottom
-        ]
+        start = max(0, bisect_right(self._page_tops, top) - 1)
+        stop = bisect_left(self._page_tops, bottom)
+        pages = [page for page in range(start, stop)
+                 if self._page_tops[page] + self._page_pix[page][1] > top]
         if not pages:
             page = self.current_page()
             if 0 <= page < len(self._page_tops):
@@ -1285,7 +1517,9 @@ class PdfView(QAbstractScrollArea):
         vp_h = self.viewport().height()
         content_page_seen = False
         readable_seen = False
-        for p in range(len(self._page_sizes)):
+        start = max(0, bisect_right(self._page_tops, oy) - 1)
+        stop = bisect_right(self._page_tops, oy + vp_h)
+        for p in range(start, stop):
             top = self._page_tops[p]
             w, h = self._page_pix[p]
             sy = top - oy
@@ -1410,7 +1644,8 @@ class PdfView(QAbstractScrollArea):
         """Return (page, QPointF) for a viewport pixel inside a page, else (None, None)."""
         oy = self.verticalScrollBar().value()
         cy = pos.y() + oy
-        for p in range(len(self._page_tops)):
+        p = bisect_right(self._page_tops, cy) - 1
+        if p >= 0:
             top = self._page_tops[p]
             h = self._page_pix[p][1]
             if top <= cy <= top + h:
@@ -2359,11 +2594,12 @@ class PdfView(QAbstractScrollArea):
 
     # ================= navigation =================
     def jump_to_page(self, page0: int) -> None:
+        self._finish_resize_layout()
         if not self._page_tops:
             return
         page0 = max(0, min(int(page0), len(self._page_tops) - 1))
         if self._ensure_page_geometry(page0):
-            self._relayout()
+            self._apply_geometry_updates()
         self._restore_document_previews(page0)
         self.verticalScrollBar().setValue(
             max(0, int(self._page_tops[page0]) - self.PAGE_MARGIN)
@@ -2371,6 +2607,7 @@ class PdfView(QAbstractScrollArea):
 
     def reveal(self, page: int, x: float, y: float, w: float, h: float) -> None:
         """Scroll so the page-point rect (x,y,w,h) is centered in the viewport."""
+        self._finish_resize_layout()
         if not self._page_tops or not (0 <= page < len(self._page_tops)):
             return
         s = self._scale
@@ -2383,13 +2620,16 @@ class PdfView(QAbstractScrollArea):
         if not self._page_tops:
             return 0
         center = self.verticalScrollBar().value() + self.viewport().height() // 2
-        for p in range(len(self._page_tops)):
+        p = bisect_right(self._page_tops, center) - 1
+        if p >= 0:
             top = self._page_tops[p]
             h = self._page_pix[p][1]
             if top <= center < top + h + self.PAGE_SPACING:
                 return p
+        insertion = bisect_left(self._page_tops, self.verticalScrollBar().value())
+        candidates = {max(0, insertion - 1), min(len(self._page_tops) - 1, insertion)}
         return min(
-            range(len(self._page_tops)),
+            sorted(candidates),
             key=lambda p: abs(self._page_tops[p] - self.verticalScrollBar().value()),
         )
 
@@ -2416,7 +2656,7 @@ class PdfView(QAbstractScrollArea):
         task = _PdfOutlineTask(generation, self._path, self._password)
         self._outline_tasks[generation] = task
         task.signals.finished.connect(self._on_outline_finished)
-        self._outline_pool.start(task)
+        self._outline_pool.start(task, -1)
         return True
 
     def _submit_painted_outline(self) -> None:
@@ -2449,7 +2689,7 @@ class PdfView(QAbstractScrollArea):
         task = _PdfEmbeddedAnnotationsTask(generation, self._path, self._password)
         self._embedded_annotations_tasks[generation] = task
         task.signals.finished.connect(self._on_embedded_annotations_finished)
-        self._embedded_annotations_pool.start(task)
+        self._embedded_annotations_pool.start(task, -1)
         return True
 
     def _on_embedded_annotations_finished(self, generation: int, path, entries) -> None:
@@ -2525,6 +2765,7 @@ class PdfView(QAbstractScrollArea):
         return self._zoom_factor
 
     def set_zoom_factor(self, factor: float, anchor=None) -> None:
+        self._finish_resize_layout()
         self._cancel_pending_wheel_zoom()
         factor = max(0.25, min(5.0, factor))
         if abs(factor - self._zoom_factor) < 1e-6:

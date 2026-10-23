@@ -19,32 +19,23 @@ sys.path.insert(0, str(ROOT))
 def child(workspace: Path, stage: str, output: Path):
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
-    from PySide6 import QtCore
+    from tools.isolated_runtime import configure_webengine, install
+
+    runtime = install(workspace, application="MDVSessionSmoke")
     from PySide6.QtCore import QEvent, QSettings, QThreadPool
     from PySide6.QtGui import QFontDatabase
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
-    class IsolatedSettings(QSettings):
-        def __init__(self, *_args, **_kwargs):
-            super().__init__(str(workspace / "settings.ini"), QSettings.Format.IniFormat)
-            self.setFallbacksEnabled(False)
-
-    # Patch before importing any application modules. The org/app constructor
-    # ignores setDefaultFormat on Windows and otherwise writes the real registry.
-    QtCore.QSettings = IsolatedSettings
-    settings = IsolatedSettings()
-    assert Path(settings.fileName()).resolve() == workspace / "settings.ini"
+    settings = QSettings("markdown-viewer", "MarkdownViewer")
+    runtime.assert_settings(settings)
     if stage == "save":
         assert not settings.allKeys()
     settings.setValue("update_check_enabled", False)
     settings.sync()
-    import app.recovery
-    import app.tag_index
     from app.url_schemes import register_document_schemes
-    app.tag_index._default_index_path = lambda: workspace / "tags.json"
-    app.recovery._default_recovery_dir = lambda: workspace / "recovery"
     register_document_schemes()
     app = QApplication([])
+    configure_webengine(runtime)
     app.setApplicationName("MarkdownViewerSessionSmoke")
     for name in ("msjh.ttc", "msjhbd.ttc", "segoeui.ttf"):
         QFontDatabase.addApplicationFont(str(Path("C:/Windows/Fonts") / name))

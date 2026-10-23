@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QEvent, QObject, QSettings, QTimer
 from PySide6.QtWidgets import QDialog
 
 from .content_zoom import ZOOM_FACTORS, clamp_zoom_factor
@@ -22,20 +22,85 @@ from .edit_backend import (
 )
 from .file_types import document_kind, is_markdown, is_supported_document
 from .md_converter import set_user_css
-from .reading_style import SPACING_KEY, WIDTH_KEY, reading_css
+from .reading_style import reading_css_from_settings
 from .settings_dialog import SettingsDialog
 from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
+from .theme import PANEL_WIDTH
 
 # Text content (Markdown / plain text / Office) and PDF zoom are remembered
 # separately: text zoom scales the font, PDF zoom scales the page, so a PDF
 # shrunk to fit the window must not shrink every Markdown file afterwards.
 CONTENT_ZOOM_KEY = "content_zoom"
 PDF_ZOOM_KEY = "pdf_zoom"
+SIDEBAR_WIDTH_KEY = "sidebar_width"
 
 DOCUMENT_EDIT_BACKENDS_KEY = "document_edit_backends_v1"
 _DOCUMENT_EDIT_BACKENDS_LIMIT = 300
 _DOCUMENT_EDIT_BACKEND_VALUES = {SPLIT_BACKEND, WYSIWYG_BACKEND}
+
+
+class SidebarWidthState(QObject):
+    """Keep a user's expanded width independently of temporary layout limits."""
+
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+        raw = QSettings(_ORG, _APP).value(SIDEBAR_WIDTH_KEY, PANEL_WIDTH)
+        try:
+            preferred = (int(raw) if isinstance(raw, (int, float, str))
+                         and not isinstance(raw, bool) else PANEL_WIDTH)
+        except (TypeError, ValueError, OverflowError):
+            preferred = PANEL_WIDTH
+        self.preferred = preferred if 0 < preferred <= 4096 else PANEL_WIDTH
+        self._applying = False
+        self._layout_timer = QTimer(self)
+        self._layout_timer.setSingleShot(True)
+        self._layout_timer.timeout.connect(self.apply)
+        window._splitter.installEventFilter(self)
+        window._panel.installEventFilter(self)
+        window._splitter.splitterMoved.connect(self._moved)
+        self._layout_timer.start(0)
+
+    def eventFilter(self, watched, event):
+        if (event.type() == QEvent.Type.Show
+                or (watched is self.window._splitter and event.type() == QEvent.Type.Resize)):
+            self._layout_timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def apply(self):
+        window = self.window
+        if window._panel.isHidden():
+            return
+        splitter = window._splitter
+        available = max(0, splitter.width() - splitter.handleWidth())
+        if available <= 0:
+            return
+        panel_minimum = max(0, window._panel.minimumWidth())
+        panel_maximum = window._panel.maximumWidth()
+        reader = splitter.widget(1)
+        reader_minimum = max(320, reader.minimumWidth(), reader.minimumSizeHint().width())
+        maximum = min(panel_maximum, max(panel_minimum, available - reader_minimum))
+        width = max(panel_minimum, min(self.preferred, maximum))
+        self._applying = True
+        try:
+            splitter.setSizes([width, max(1, available - width)])
+        finally:
+            self._applying = False
+
+    def _moved(self, _position, _index):
+        window = self.window
+        if self._applying or window._panel.isHidden():
+            return
+        width = window._splitter.sizes()[0]
+        if width > 0:
+            self.preferred = width
+            if not window._is_detached:
+                self.save()
+
+    def save(self, settings=None):
+        settings = settings if settings is not None else QSettings(_ORG, _APP)
+        settings.setValue(SIDEBAR_WIDTH_KEY, self.preferred)
 
 
 def _document_backend_path_key(path) -> str | None:
@@ -197,6 +262,7 @@ def _restore_session_documents(window, file_arg: str):
             paths = json.loads(raw)
         except (ValueError, TypeError):
             paths = None
+    paths, recovered_mapping = _recover_relocations(window, settings, paths, file_arg)
     recovery_store = getattr(window, "_recovery_store", None)
 
     def available(path) -> bool:
@@ -222,6 +288,8 @@ def _restore_session_documents(window, file_arg: str):
         active = 0
     active = max(0, min(active, len(paths) - 1))
     preferred = settings.value("active_tab_path")
+    preferred = recovered_mapping.get(preferred, preferred)
+    file_arg = recovered_mapping.get(file_arg, file_arg)
     if not isinstance(preferred, str) or preferred not in paths:
         preferred = paths[active] if paths else None
     # Resolve identity before filtering missing files, so deleting an earlier
@@ -253,6 +321,57 @@ def _restore_session_documents(window, file_arg: str):
         window._activate_tab(active)
 
 
+def _recover_relocations(window, settings, paths, file_arg):
+    """Replay durable file transactions before filtering session paths."""
+    from .relocation_journal import recover_pending_relocations
+
+    browser = window._panel.file_browser
+    roots = list(browser.library_roots() or [])
+    known = list(paths) if isinstance(paths, list) else []
+    known.extend([settings.value("last_file"), file_arg])
+    roots.extend(Path(path).parent for path in known if isinstance(path, str) and path)
+    mapping = {}
+    problems = []
+    for result in recover_pending_relocations(roots):
+        if result.status == "committed":
+            mapping[str(result.source)] = str(result.target)
+        elif result.status == "needs_attention":
+            problems.append(f"{result.manifest}\n" + "\n".join(result.issues))
+    store = getattr(window, "_recovery_store", None)
+    for old, new in mapping.items():
+        if store is None:
+            continue
+        snapshot = store.load(old)
+        if snapshot is None:
+            continue
+        if store.load(new) is not None:
+            problems.append(f"搬移前後都有復原草稿，已保留雙方：\n{old}\n{new}")
+            continue
+        try:
+            store.save(new, snapshot.draft, encoding=snapshot.encoding, newline=snapshot.newline,
+                       cursor=snapshot.cursor, anchor=snapshot.anchor, scroll=snapshot.scroll,
+                       source_signature=snapshot.signature_pair, updated_at=snapshot.updated_at)
+            store.discard(old)
+        except OSError as exc:
+            problems.append(f"原路徑草稿已保留：{old}\n{exc}")
+    if mapping:
+        migrate_document_edit_backends(mapping)
+        window._panel.recent.migrate_paths(mapping)
+        pinned = settings.value("pinned_tabs", []) or []
+        if isinstance(pinned, str):
+            pinned = [pinned]
+        if isinstance(pinned, (list, tuple)):
+            settings.setValue("pinned_tabs", [mapping.get(path, path) for path in pinned])
+        if isinstance(paths, list):
+            paths = [mapping.get(path, path) for path in paths]
+        settings.setValue("last_file", mapping.get(settings.value("last_file"), settings.value("last_file", "")))
+    if problems:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.warning(window, "有搬移交易需要檢查",
+                            "已保留可復原資料，請檢查下列位置：\n\n" + "\n\n".join(problems))
+    return paths, mapping
+
+
 def restore_startup(window, file_arg: str = ""):
     """A CLI file takes focus without replacing the previous workspace."""
     restore_last_session(window, file_arg)
@@ -275,6 +394,7 @@ def save_open_tabs(window, settings=None) -> None:
         "open_tabs": json.dumps(paths, ensure_ascii=False),
         "active_tab": active,
         "active_tab_path": active_path or "",
+        "pinned_tabs": [path for path in paths if getattr(window, "_tab_state", {}).get(path, {}).get("pinned")],
     }
     for key, value in values.items():
         if settings.value(key) != value:
@@ -356,8 +476,7 @@ def load_user_css(window, reload: bool = False):
         except OSError:
             css = ""
     settings = QSettings(_ORG, _APP)
-    set_user_css(reading_css(settings.value(WIDTH_KEY, "comfortable"),
-                             settings.value(SPACING_KEY, "comfortable")) + "\n" + css)
+    set_user_css(reading_css_from_settings(settings) + "\n" + css)
     if (
         reload
         and window.current_file
@@ -487,6 +606,9 @@ def close_event(window, event) -> bool:
     if not window._is_detached:
         settings = QSettings(_ORG, _APP)
         settings.setValue("geometry", window.saveGeometry())
+        sidebar = getattr(window, "_sidebar_width_state", None)
+        if sidebar is not None:
+            sidebar.save(settings)
         tree_state = window._panel.file_browser.tree_state()
         if isinstance(tree_state, dict):
             settings.setValue("file_tree_state", json.dumps(tree_state))

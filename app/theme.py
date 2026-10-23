@@ -15,6 +15,11 @@ ThemeName = Literal["light", "dark"]
 TOOLBAR_HEIGHT = 56
 HIT_TARGET = 44
 PANEL_WIDTH = 280
+UI_FONT_FAMILY = '"Segoe UI", "Microsoft JhengHei UI", "Noto Sans TC", sans-serif'
+UI_FONT_SIZE = 14
+CONTROL_RADIUS = 6
+FOCUS_BORDER = 2
+SPACING_UNIT = 4
 
 # Static chevron assets used for the QComboBox drop-down arrow. Qt 6.11 QSS does
 # not render ``data:`` URIs for the ``image`` property, so we reference bundled
@@ -317,17 +322,18 @@ QMenu::separator {{
 
 def app_stylesheet(theme: Theme) -> str:
     combo_arrow = _combo_arrow_url(theme)
+    spin_up_arrow = (_ASSETS_DIR / f"chevron-up-{theme.name}.svg").as_posix()
     return f"""
 QMainWindow {{
     background: {theme.window};
     color: {theme.text};
-    font-family: "Segoe UI", "Microsoft JhengHei UI", sans-serif;
-    font-size: 13px;
+    font-family: {UI_FONT_FAMILY};
+    font-size: {UI_FONT_SIZE}px;
 }}
 QWidget {{
     color: {theme.text};
-    font-family: "Segoe UI", "Microsoft JhengHei UI", sans-serif;
-    font-size: 13px;
+    font-family: {UI_FONT_FAMILY};
+    font-size: {UI_FONT_SIZE}px;
 }}
 QWidget:disabled {{
     color: {theme.text_subtle};
@@ -422,16 +428,58 @@ QDialog QGroupBox::title {{
     padding: 0 4px;
     color: {theme.text_muted};
 }}
-QComboBox {{
+QComboBox, QSpinBox, QDoubleSpinBox {{
     background: {theme.surface};
     border: 1px solid {theme.border};
-    border-radius: 6px;
+    border-radius: {CONTROL_RADIUS}px;
     color: {theme.text};
-    min-height: 30px;
+    min-height: 32px;
     padding: 2px 10px;
 }}
-QComboBox:hover {{
+QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{
     border-color: {theme.accent};
+}}
+QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+    border: {FOCUS_BORDER}px solid {theme.accent};
+}}
+QSpinBox:disabled, QDoubleSpinBox:disabled {{
+    background: {theme.surface_alt};
+    color: {theme.text_subtle};
+}}
+QSpinBox, QDoubleSpinBox {{
+    padding-right: 26px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border: none;
+    border-left: 1px solid {theme.border};
+    border-top-right-radius: {CONTROL_RADIUS}px;
+    background: transparent;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 22px;
+    border: none;
+    border-left: 1px solid {theme.border};
+    border-bottom-right-radius: {CONTROL_RADIUS}px;
+    background: transparent;
+}}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {theme.surface_hover};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url('{spin_up_arrow}');
+    width: 10px;
+    height: 10px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url('{combo_arrow}');
+    width: 10px;
+    height: 10px;
 }}
 QComboBox::drop-down {{
     border: none;
@@ -492,7 +540,7 @@ QPushButton:hover {{
     color: {theme.text};
 }}
 QPushButton:focus {{
-    border: 1px solid {theme.accent};
+    border: {FOCUS_BORDER}px solid {theme.accent};
 }}
 QPushButton:pressed, QPushButton:checked {{
     background: {theme.surface_active};

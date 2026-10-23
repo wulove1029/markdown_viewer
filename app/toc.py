@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -191,6 +191,8 @@ class _TocDelegate(QStyledItemDelegate):
 
 
 class TocView(QWidget):
+    entries_changed = Signal(object)
+
     def __init__(self, on_anchor_clicked, parent=None):
         super().__init__(parent)
         self._on_anchor_clicked = on_anchor_clicked
@@ -261,6 +263,8 @@ QListWidget#tocList::item:disabled {{
 """
 
     def _populate(self, entries, empty_text: str) -> None:
+        self._entries = list(entries)
+        self.entries_changed.emit(self._entries)
         self._list.clear()
         self._anchors = []
 
@@ -311,3 +315,14 @@ QListWidget#tocList::item:disabled {{
         target = item.data(_TARGET_ROLE)
         if target is not None:
             self._on_anchor_clicked(target)
+
+    def entries(self):
+        return list(getattr(self, "_entries", []))
+
+    def step(self, direction: int):
+        if not self._anchors:
+            return
+        row = self._list.currentRow()
+        row = min(len(self._anchors) - 1, max(0, row + direction))
+        self._list.setCurrentRow(row)
+        self._on_anchor_clicked(self._anchors[row])

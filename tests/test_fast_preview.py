@@ -212,6 +212,7 @@ class _StubRenderer:
     is_partial_preview = _R.is_partial_preview
     export_pdf = _R.export_pdf
     find_text = _R.find_text
+    _find_with_stable_code = _R._find_with_stable_code
     _notify_partial_search_miss = _R._notify_partial_search_miss
     del _R
 
@@ -241,6 +242,10 @@ class _StubRenderer:
 
     def page(self):
         return self._page
+
+    def _navigate_page(self, kind, payload, base_url=None):
+        assert kind == "html"
+        self._page.setHtml(payload, base_url)
 
     def _cancel_source_line_reveal(self):
         self._source_line_reveal = None

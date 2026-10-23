@@ -299,7 +299,7 @@ def test_request_embedded_annotations_is_at_most_one_per_generation(qapp, annota
     started = []
 
     class _Pool:
-        def start(self, task):
+        def start(self, task, priority=0):
             started.append(task)
 
     view._embedded_annotations_pool = _Pool()

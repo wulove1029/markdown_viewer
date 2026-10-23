@@ -15,6 +15,16 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+from .library_content import (
+    content_key,
+    derived_index,
+    peek_source,
+    read_source,
+    source_signature,
+    version_from_signature,
+)
+from .search_index import SearchCancelled
+
 log = logging.getLogger(__name__)
 _CACHE_MAX = 64
 _CACHE_BYTES = 4 * 1024 * 1024
@@ -31,8 +41,7 @@ class DocumentMetadata:
 
 
 def signature(path: Path) -> tuple:
-    from .md_converter import _body_signature
-    return _body_signature(Path(path))
+    return source_signature(Path(path))
 
 
 def _bytes(key: tuple, metadata: DocumentMetadata) -> int:
@@ -100,15 +109,23 @@ def extract_metadata(text: str, *, cancel=None) -> DocumentMetadata:
     )
     if cancel is not None and cancel.is_set():
         raise RenderCancelled()
+    fingerprint = content_key(text)
+    cached = derived_index.get("metadata", fingerprint)
+    if cached is not None:
+        return cached
     front, body = parse_front_matter(text)
-    return DocumentMetadata(tuple(front_matter_tags(front)),
-                            tuple(body_hashtags(body, cancel=cancel)))
+    result = DocumentMetadata(tuple(front_matter_tags(front)),
+                              tuple(body_hashtags(body, cancel=cancel)))
+    derived_index.remember("metadata", fingerprint, result)
+    return result
 
 
-def _read_uncached(path: Path, *, text: str | None, size: int, cancel):
+def _read_uncached(path: Path, *, text: str | None, size: int, cancel, version=None):
     from . import md_converter, render_service
     if cancel is not None and cancel.is_set():
         raise md_converter.RenderCancelled()
+    if text is None and version is not None:
+        text = peek_source(path, version)
     if size >= md_converter.SUBPROCESS_MIN_BYTES and render_service.service().enabled():
         try:
             metadata, error = render_service.metadata_remote(
@@ -125,10 +142,15 @@ def _read_uncached(path: Path, *, text: str | None, size: int, cancel):
             # cancellable even when the optional child is unavailable.
             log.warning("Metadata worker failed; falling back to line scan", exc_info=True)
     if text is None:
-        result = md_converter.read_text(path)
-        if result is None:
+        try:
+            text = read_source(
+                path, version=version,
+                should_cancel=lambda: cancel is not None and cancel.is_set(),
+            )
+        except SearchCancelled:
+            raise md_converter.RenderCancelled() from None
+        if text is None:
             raise OSError(f"Unable to decode Markdown: {path.name}")
-        text = result[0]
     return extract_metadata(text, cancel=cancel)
 
 
@@ -162,7 +184,13 @@ def read_metadata(path: Path, *, text: str | None = None, cancel=None) -> Docume
         if cancel is not None and cancel.is_set():
             raise RenderCancelled()
     try:
-        result = _read_uncached(path, text=None, size=key[2], cancel=cancel)
+        try:
+            result = _read_uncached(path, text=None, size=key[2], cancel=cancel,
+                                    version=version_from_signature(key))
+        except OSError:
+            if signature(path) != key:
+                raise OSError(f"Markdown changed while reading metadata: {path.name}") from None
+            raise
         if cancel is not None and cancel.is_set():
             raise RenderCancelled()
         if signature(path) != key:

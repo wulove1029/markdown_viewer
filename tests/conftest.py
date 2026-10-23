@@ -47,3 +47,10 @@ def webengine_gui_thread_lifetime(request, monkeypatch):
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     views.clear()
     gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def isolated_relocation_journals(tmp_path, monkeypatch):
+    from app import relocation_journal
+    monkeypatch.setattr(relocation_journal, "default_journal_dir",
+                        lambda: tmp_path.parent / (tmp_path.name + "-journals"))

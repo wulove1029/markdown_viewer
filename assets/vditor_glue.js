@@ -82,6 +82,7 @@
       // event(s) it causes must not be pushed back as a user edit.
       echoGuard: false,
       ready: false,
+      composing: false,
       generation: 0,
       pendingMarkdown: null,
       lastPushedMarkdown: "",
@@ -101,6 +102,9 @@
       themePopupObserver: null,
       printShell: null,
       printLiveScroll: null,
+      pasteToken: 0,
+      pasteEditSerial: 0,
+      pendingPaste: null,
     };
 
     function applyHostTheme(config) {
@@ -487,6 +491,7 @@
     }
 
     function onInput(markdown) {
+      state.pasteEditSerial += 1;
       if (state.echoGuard) {
         // Consume exactly the one echo this guard was raised for; a real
         // keystroke landing right after must debounce normally again.
@@ -707,6 +712,7 @@
     }
 
     function onKeydown(event) {
+      if (state.composing || event.isComposing || event.keyCode === 229) return;
       var ctrl = event.ctrlKey || event.metaKey;
       if (ctrl) {
         var key = String(event.key || "").toLowerCase();
@@ -1134,8 +1140,11 @@
         },
       });
       doc.addEventListener("keydown", onKeydown, true);
+      doc.addEventListener("compositionstart", function () { state.composing = true; }, true);
+      doc.addEventListener("compositionend", function () { state.composing = false; }, true);
       doc.addEventListener("wheel", onWheel, { capture: true, passive: false });
       doc.addEventListener("contextmenu", onContextMenu, true);
+      doc.addEventListener("paste", onPaste, true);
       if (win && typeof win.addEventListener === "function") {
         win.addEventListener("blur", persistDocumentSession);
         win.addEventListener("pagehide", persistDocumentSession);
@@ -1558,6 +1567,8 @@
 
     function setValue(text, generation, documentBaseUrl, documentSessionId) {
       if (!state.vditor) return;
+      state.pendingPaste = null;
+      state.pasteEditSerial += 1;
       if (state.debounceTimer) {
         win.clearTimeout(state.debounceTimer);
         state.debounceTimer = null;
@@ -1652,7 +1663,7 @@
       }
     }
 
-    function ensureInsertionCaret() {
+    function ensureInsertionCaret(allowCreateParagraph) {
       var inner = state.vditor && state.vditor.vditor;
       var mode = inner && inner.currentMode;
       var surface = mode && inner[mode] && inner[mode].element;
@@ -1674,20 +1685,28 @@
         range = inner[mode].range;
       }
       if (!isUsable(range)) {
-        // A programmatic setValue() leaves the fork's cached range on its
-        // leading zero-width boundary sentinel. Inserting there renders the
-        // image visually, but DOM -> Markdown intentionally ignores it. Give
-        // host-driven inserts a real paragraph at the document end instead.
-        var paragraph = doc.createElement("p");
-        paragraph.setAttribute("data-block", "0");
-        paragraph.appendChild(doc.createElement("br"));
-        var trailingBoundary = surface.querySelector(
-          ":scope > .vditor-editor-boundary:last-child"
-        );
-        surface.insertBefore(paragraph, trailingBoundary || null);
-        range = doc.createRange();
-        range.setStart(paragraph, 0);
-        range.collapse(true);
+        if (allowCreateParagraph === false) {
+          // Undo/redo needs a DOM Range even when host controls own focus,
+          // but seeding that range must never create a new history change.
+          range = doc.createRange();
+          range.selectNodeContents(surface);
+          range.collapse(false);
+        } else {
+          // A programmatic setValue() leaves the fork's cached range on its
+          // leading zero-width boundary sentinel. Inserting there renders the
+          // image visually, but DOM -> Markdown intentionally ignores it. Give
+          // host-driven inserts a real paragraph at the document end instead.
+          var paragraph = doc.createElement("p");
+          paragraph.setAttribute("data-block", "0");
+          paragraph.appendChild(doc.createElement("br"));
+          var trailingBoundary = surface.querySelector(
+            ":scope > .vditor-editor-boundary:last-child"
+          );
+          surface.insertBefore(paragraph, trailingBoundary || null);
+          range = doc.createRange();
+          range.setStart(paragraph, 0);
+          range.collapse(true);
+        }
       }
       if (selection) {
         selection.removeAllRanges();
@@ -1699,7 +1718,7 @@
     // v4: insert a Markdown snippet (image/attachment link) at the caret,
     // used by window.py after a file picker + image_paste.py import.
     function insertValue(text) {
-      if (!state.vditor) return;
+      if (!state.vditor || state.composing) return false;
       var value = text == null ? "" : text;
       if (typeof state.vditor.insertMarkdown === "function") {
         ensureInsertionCaret();
@@ -1707,6 +1726,135 @@
       } else if (typeof state.vditor.insertValue === "function") {
         state.vditor.insertValue(value);
       }
+      return true;
+    }
+
+    function onPaste(event) {
+      if (!state.ready || state.composing || (event && event.isComposing) || !state.bridge) return;
+      var clipboard = event && event.clipboardData;
+      if (!clipboard || typeof clipboard.getData !== "function") return;
+      // Keep HTML tables and raster clipboard images on the fork's native path.
+      // File URLs never cross Chromium; the host validates its own clipboard
+      // paths against these filenames before reviewing/copying attachments.
+      if (clipboard.getData("text/html")) return;
+      var files = clipboard.files ? Array.from(clipboard.files) : [];
+      var resources = files.length && files.some(function (file) {
+        return !/^image\//.test(file.type || "");
+      });
+      if (files.length && !resources) return;
+      if (resources && typeof state.bridge.resourcePasteRequested !== "function") return;
+      var text = clipboard.getData("text/plain");
+      if (!resources && (typeof state.bridge.pastePreviewRequested !== "function" ||
+          !text || text.indexOf("\t") < 0 || !/[\r\n]/.test(text))) return;
+      var inner = state.vditor && state.vditor.vditor;
+      var mode = inner && inner.currentMode;
+      var surface = mode === "wysiwyg" && inner[mode] && inner[mode].element;
+      var target = event.target && (event.target.nodeType === 1
+        ? event.target : event.target.parentElement);
+      if (!surface || !target || !surface.contains(target) ||
+          (target.closest && target.closest(
+            ".cm-editor,pre:not(.vditor-reset),code,[data-type='code-block']"))) return;
+      var selection = win.getSelection && win.getSelection();
+      var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+      if (!range || !surface.contains(range.startContainer) ||
+          !surface.contains(range.endContainer) || !range.cloneRange) return;
+      state.pasteToken += 1;
+      state.sessionRestoreToken += 1;
+      state.pendingPaste = {
+        token: state.pasteToken, generation: state.generation,
+        sessionId: state.documentSessionId, editSerial: state.pasteEditSerial,
+        surface: surface, range: range.cloneRange(), text: text, resources: !!resources,
+        startTextOffset: textOffsetForPoint(surface, range.startContainer, range.startOffset),
+        endTextOffset: textOffsetForPoint(surface, range.endContainer, range.endOffset)
+      };
+      event.preventDefault();
+      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      else if (typeof event.stopPropagation === "function") event.stopPropagation();
+      if (resources) {
+        state.bridge.resourcePasteRequested(JSON.stringify(files.map(function (file) {
+          return file.name;
+        })), state.pasteToken, state.generation);
+      } else {
+        state.bridge.pastePreviewRequested(text, state.pasteToken, state.generation);
+      }
+    }
+
+    function canResolvePastePreview(token, generation) {
+      var pending = state.pendingPaste;
+      if (!pending || token !== pending.token || generation !== pending.generation) return false;
+      return !(state.composing || state.generation !== pending.generation ||
+          state.documentSessionId !== pending.sessionId ||
+          state.pasteEditSerial !== pending.editSerial ||
+          pending.surface.isConnected === false ||
+          !pending.surface.contains(pending.range.startContainer) ||
+          !pending.surface.contains(pending.range.endContainer));
+    }
+
+    function resolvePastePreview(token, generation, mode, text) {
+      var pending = state.pendingPaste;
+      if (!pending || token !== pending.token || generation !== pending.generation) return false;
+      var valid = canResolvePastePreview(token, generation);
+      state.pendingPaste = null;
+      if (!valid) return false;
+      if (mode !== "cancel" && mode !== "plain" && mode !== "table" && mode !== "markdown") {
+        return false;
+      }
+      if (pending.resources && mode === "plain") return false;
+      try {
+        pending.surface.focus({ preventScroll: true });
+        var inner = state.vditor.vditor;
+        if (mode !== "cancel" && inner.undo && inner.undo.addToUndoStack) {
+          // setValue can clear the fork's initial undo snapshot. Seed the
+          // unchanged document before one native browser editing transaction.
+          inner.undo.addToUndoStack(inner);
+        }
+        var start = pointAtTextOffset(pending.surface, pending.startTextOffset);
+        var end = pointAtTextOffset(pending.surface, pending.endTextOffset);
+        if (!start || !end) return false;
+        var range = doc.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        var selection = win.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        inner.wysiwyg.range = range.cloneRange();
+      } catch (_error) {
+        return false;
+      }
+      if (mode === "cancel") return true;
+      var inserted = mode === "plain"
+        ? doc.execCommand("insertText", false, pending.text)
+        : doc.execCommand("insertHTML", false,
+          inner.lute.Md2VditorDOM(typeof text === "string" ? text : ""));
+      if (inserted) {
+        // Native insertHTML preserves paragraph order around a table. Unlike
+        // the fork's insertMarkdown helper, it does not always commit the
+        // fork-owned history/input pipeline, so finish that transaction here.
+        if (inner.undo && inner.undo.addToUndoStack) inner.undo.addToUndoStack(inner);
+        if (inner.outline && inner.outline.render) inner.outline.render(inner);
+        onInput(state.vditor.getValue());
+      }
+      return inserted;
+    }
+
+    function runCommand(command) {
+      if (!state.ready || !state.vditor || state.composing) return false;
+      var types = {
+        bold: "bold", italic: "italic", strikethrough: "strike", link: "link",
+        bullet_list: "list", ordered_list: "ordered-list", task_list: "check",
+        table: "table", quote: "quote", code_block: "code", undo: "undo", redo: "redo"
+      };
+      if (!Object.prototype.hasOwnProperty.call(types, command)) return false;
+      var button = doc.querySelector(
+        ".vditor-toolbar button[data-type='" + types[command] + "']"
+      );
+      if (!button || button.disabled || button.getAttribute("aria-disabled") === "true" ||
+          (button.classList && button.classList.contains("vditor-menu--disabled"))) {
+        return false;
+      }
+      ensureInsertionCaret(command !== "undo" && command !== "redo");
+      button.click();
+      return true;
     }
 
     function finishPrint() {
@@ -1822,6 +1970,9 @@
       setDocumentBase: setDocumentBase,
       getValue: getValue,
       insertValue: insertValue,
+      runCommand: runCommand,
+      resolvePastePreview: resolvePastePreview,
+      canResolvePastePreview: canResolvePastePreview,
       flushPending: flushPending,
       takeSnapshot: takeSnapshot,
       takeSnapshotEnvelope: takeSnapshotEnvelope,

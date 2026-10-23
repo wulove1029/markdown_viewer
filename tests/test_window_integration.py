@@ -68,6 +68,7 @@ class _FakeRenderer(QWidget):
     content_ready = Signal(int, str, bool)
     render_failed = Signal(int, str)
     home_action_requested = Signal(str)
+    open_document_requested = Signal()
     active_anchor_changed = Signal(str)
     wikilink_clicked = Signal(str)
     local_doc_clicked = Signal(str)
@@ -164,7 +165,7 @@ class _FakeRenderer(QWidget):
     def select_annotation(self, _ann_id):
         pass
 
-    def scroll_to_annotation(self, _ann_id):
+    def scroll_to_annotation(self, _ann_id, on_done=None):
         pass
 
     def render_markdown_text(
@@ -267,6 +268,9 @@ class _FakePdfView(QWidget):
 
     def current_page(self):
         return 0
+
+    def page_count(self):
+        return 1 if self.loaded else 0
 
     def set_zoom_factor(self, factor, anchor=None):
         # Match PdfView: an explicit programmatic zoom supersedes a queued
@@ -534,7 +538,7 @@ def test_fixture_disposes_window_and_pending_timer_when_close_is_cancelled(
 ):
     window = make_window()
     window.open_path(str(md_files[0]))
-    monkeypatch.setattr(window, "_confirm_close_all_edits", lambda: False)
+    monkeypatch.setattr(type(window), "_confirm_close_all_edits", lambda self: False)
     callbacks = []
     window._session_save_timer.timeout.connect(lambda: callbacks.append(True))
     assert window._session_save_timer.isActive()
@@ -1119,16 +1123,18 @@ def test_save_refreshes_an_open_graph_view(make_window, tmp_path, monkeypatch):
         index.build([(note, note.read_text(encoding="utf-8"))])
         win._on_link_index_ready(index)
 
-    monkeypatch.setattr(win, "_refresh_link_index", rebuild)
-    win._toggle_edit_mode()
-    win._editor.selectAll()
-    win._editor.insertPlainText("[[After]]")
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(win, "_refresh_link_index", rebuild)
+        win._toggle_edit_mode()
+        win._editor.selectAll()
+        win._editor.insertPlainText("[[After]]")
 
-    assert win._save_edits() is True
-    assert {node.label for node in win._graph_window.graph.nodes if node.ghost} == {
-        "After"
-    }
-    win._graph_window.close()
+        assert win._save_edits() is True
+        assert {node.label for node in win._graph_window.graph.nodes if node.ghost} == {
+            "After"
+        }
+        win._graph_window.close()
 
 
 def test_tag_selection_is_scoped_to_tags_tab_only(make_window):
@@ -1190,6 +1196,12 @@ def test_body_tags_update_when_markdown_is_opened_and_saved(make_window, tmp_pat
     win._editor.selectAll()
     win._editor.insertPlainText("saved #updated")
     assert win._save_edits() is True
+    assert win._front_tags_pending
+    for _ in range(200):
+        if not win._front_tags_pending:
+            break
+        QTest.qWait(10)
+    assert not win._front_tags_pending
     assert win._tag_index.updates[-1][1]["body_tags"] == ["updated"]
 
 
@@ -1529,7 +1541,7 @@ def test_session_persists_and_restores_tabs(make_window, md_files):
     assert restored._renderer.loaded_paths[-1] == second
 
 
-def test_export_guards_do_not_open_dialogs(make_window, md_files, monkeypatch):
+def test_export_guards_block_busy_exports_and_non_markdown(make_window, md_files, monkeypatch):
     first, _second = md_files
     pdf = first.with_suffix(".pdf")
     pdf.write_bytes(b"%PDF-1.4\n")
@@ -1542,12 +1554,12 @@ def test_export_guards_do_not_open_dialogs(make_window, md_files, monkeypatch):
 
     win = make_window()
     win.open_path(str(first))
-    win._edit_mode = True
+    win._exporting = True
     win._export_pdf()
     win._export_pptx()
     win._export_docx()
 
-    win._edit_mode = False
+    win._exporting = False
     win.open_path(str(pdf))
     win._export_pdf()
     win._export_pptx()
@@ -1709,10 +1721,16 @@ def test_insert_template_from_configured_folder_at_cursor(
         encoding="utf-8",
     )
     window_mod.QSettings(_ORG, _APP).setValue("templates_folder", str(templates))
+    from app.template_picker import TemplatePickerDialog
+
+    def accept_preview(dialog):
+        assert dialog.selected_template() == template
+        assert dialog.rendered_text() == "first @ 2026-07-11 16:04"
+        dialog.accept()
+        return dialog.result()
+
     monkeypatch.setattr(
-        window_mod.QInputDialog,
-        "getItem",
-        staticmethod(lambda *args, **kwargs: ("Meeting.md", True)),
+        TemplatePickerDialog, "exec", accept_preview,
     )
     win = make_window()
     win.open_path(str(first))
@@ -1929,26 +1947,28 @@ def test_update_utility_invokes_one_manual_check_after_theme_refreshes(
 ):
     win = make_window()
     calls = []
-    monkeypatch.setattr(
-        win, "_check_for_updates", lambda manual: calls.append(manual)
-    )
-    win.show()
-    qapp.processEvents()
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            win, "_check_for_updates", lambda manual: calls.append(manual)
+        )
+        win.show()
+        qapp.processEvents()
 
-    assert win._update_btn.property("updateState") == "idle"
-    assert win._update_btn.property("iconName") == "circle-arrow-up"
-    assert window_mod.VERSION in win._update_btn.toolTip()
+        assert win._update_btn.property("updateState") == "idle"
+        assert win._update_btn.property("iconName") == "circle-arrow-up"
+        assert window_mod.VERSION in win._update_btn.toolTip()
 
-    win._apply_theme()
-    win._refresh_icons()
-    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
-    assert calls == [True]
+        win._apply_theme()
+        win._refresh_icons()
+        QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+        assert calls == [True]
 
-    win._theme_btn.setFocus()
-    QTest.keyClick(win._theme_btn, Qt.Key.Key_Tab)
-    assert win._update_btn.hasFocus() is True
-    QTest.keyClick(win._update_btn, Qt.Key.Key_Space)
-    assert calls == [True, True]
+        win._theme_btn.setFocus()
+        QTest.keyClick(win._theme_btn, Qt.Key.Key_Tab)
+        assert win._update_btn.hasFocus() is True
+        QTest.keyClick(win._update_btn, Qt.Key.Key_Space)
+        assert calls == [True, True]
 
 
 def test_cached_update_badge_rechecks_or_opens_live_update(
@@ -1961,31 +1981,33 @@ def test_cached_update_badge_rechecks_or_opens_live_update(
     win = make_window()
     checks = []
     prompts = []
-    monkeypatch.setattr(
-        win, "_check_for_updates", lambda manual: checks.append(manual)
-    )
-    monkeypatch.setattr(
-        window_mod.update_flow,
-        "prompt_for_update",
-        lambda window, update: prompts.append((window, update)),
-    )
-    win.show()
-    qapp.processEvents()
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            win, "_check_for_updates", lambda manual: checks.append(manual)
+        )
+        patch.setattr(
+            window_mod.update_flow,
+            "prompt_for_update",
+            lambda window, update: prompts.append((window, update)),
+        )
+        win.show()
+        qapp.processEvents()
 
-    assert win._toolbar_utilities.update_state == "available"
-    assert win._update_btn.property("badgeVisible") is True
-    assert f"v{available_version}" in win._update_btn.toolTip()
+        assert win._toolbar_utilities.update_state == "available"
+        assert win._update_btn.property("badgeVisible") is True
+        assert f"v{available_version}" in win._update_btn.toolTip()
 
-    # A cached version label has no installer metadata, so clicking refreshes it.
-    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
-    assert checks == [True]
-    assert prompts == []
+        # A cached version label has no installer metadata, so clicking refreshes it.
+        QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+        assert checks == [True]
+        assert prompts == []
 
-    live_update = object()
-    win._available_update = live_update
-    QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
-    assert checks == [True]
-    assert prompts == [(win, live_update)]
+        live_update = object()
+        win._available_update = live_update
+        QTest.mouseClick(win._update_btn, Qt.MouseButton.LeftButton)
+        assert checks == [True]
+        assert prompts == [(win, live_update)]
 
 
 def test_update_entry_point_is_inert_while_checking_and_shows_progress_downloading(
@@ -2535,6 +2557,11 @@ def test_inline_edit_commit_refreshes_the_tag_index(make_window, tmp_path):
 
     _inline_handlers(win)["commit"](2, 2, "text #before", "text #after")
 
+    for _ in range(200):
+        if not win._front_tags_pending:
+            break
+        QTest.qWait(10)
+    assert not win._front_tags_pending
     assert win._tag_index.updates[-1][1]["body_tags"] == ["after"]
 
 
@@ -3127,11 +3154,13 @@ def test_home_action_new_opens_new_note_dialog_on_real_home(
     win = make_window()
     assert win._current_file is None
     calls = []
-    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(win, "_new_note", lambda: calls.append(True))
 
-    win._home_action("new")
+        win._home_action("new")
 
-    assert calls == [True]
+        assert calls == [True]
 
 
 def test_home_action_new_ignored_while_a_document_is_open(
@@ -3141,11 +3170,13 @@ def test_home_action_new_ignored_while_a_document_is_open(
     win.open_path(str(md_files[0]))
     assert win._current_file is not None
     calls = []
-    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(win, "_new_note", lambda: calls.append(True))
 
-    win._home_action("new")
+        win._home_action("new")
 
-    assert calls == []
+        assert calls == []
 
 
 def test_home_action_new_ignored_during_pending_recovery(
@@ -3162,11 +3193,13 @@ def test_home_action_new_ignored_during_pending_recovery(
     win._activate_tab(0)
     assert win._current_file is not None
     calls = []
-    monkeypatch.setattr(win, "_new_note", lambda: calls.append(True))
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(win, "_new_note", lambda: calls.append(True))
 
-    win._home_action("new")
+        win._home_action("new")
 
-    assert calls == []
+        assert calls == []
 
 
 def test_home_actions_html_lists_new_note_first_with_ctrl_n_hint():

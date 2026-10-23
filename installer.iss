@@ -1,5 +1,5 @@
 #define MyAppName "Markdown Viewer"
-#define MyAppVersion "1.35.0"
+#define MyAppVersion "1.36.0"
 #define MyAppPublisher "Jerry"
 #define MyAppExeName "MarkdownViewer.exe"
 #ifndef MySourceDir
@@ -39,15 +39,13 @@ Name: "{group}\解除安裝 {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\ICON\icon.ico"; Tasks: desktopicon
 
 [Registry]
-; 註冊 .md 檔案關聯
-Root: HKCR; Subkey: ".md"; ValueType: string; ValueName: ""; ValueData: "MarkdownViewer.mdfile"; Flags: uninsdeletevalue
-Root: HKCR; Subkey: ".md"; ValueType: string; ValueName: "Content Type"; ValueData: "text/markdown"; Flags: uninsdeletevalue
+; Register an Open With choice without replacing the user's default handler.
+Root: HKCR; Subkey: ".md\OpenWithProgids"; ValueType: none; ValueName: "MarkdownViewer.mdfile"; Flags: uninsdeletevalue
 Root: HKCR; Subkey: "MarkdownViewer.mdfile"; ValueType: string; ValueName: ""; ValueData: "Markdown 文件"; Flags: uninsdeletekey
 Root: HKCR; Subkey: "MarkdownViewer.mdfile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\ICON\icon.ico"
 Root: HKCR; Subkey: "MarkdownViewer.mdfile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
-; 也處理 .markdown 副檔名
-Root: HKCR; Subkey: ".markdown"; ValueType: string; ValueName: ""; ValueData: "MarkdownViewer.mdfile"; Flags: uninsdeletevalue
+Root: HKCR; Subkey: ".markdown\OpenWithProgids"; ValueType: none; ValueName: "MarkdownViewer.mdfile"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即啟動 {#MyAppName}"; Flags: nowait postinstall skipifsilent

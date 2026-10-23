@@ -3,15 +3,15 @@
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Signal
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
+from . import background_jobs
 from . import doc_tags as doc_tags_facade
 from .annotations import AnnotationStore, DocumentAnnotations
 from .document_metadata import cached_metadata, read_metadata, signature
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .manage_tags_dialog import ManageTagsDialog
-from .md_converter import body_hashtags, front_matter_tags, parse_front_matter, read_text
 
 
 class _MetadataSignals(QObject):
@@ -65,7 +65,7 @@ def request_metadata(self, *, render_pending=False):
     worker = _MetadataWorker(generation, path, self._metadata_cancel)
     worker.signals.ready.connect(self._on_document_metadata_ready)
     worker.signals.failed.connect(self._on_document_metadata_failed)
-    QThreadPool.globalInstance().start(worker)
+    background_jobs.submit(worker, key=(id(self), "metadata"), should_cancel=worker.cancel.is_set)
 
 
 def apply_metadata(self, generation, path, result):
@@ -125,23 +125,12 @@ def index_doc_tags(self, path):
     self._tag_index.update(path, doc, front_tags=[], body_tags=[])
 
 def update_front_tags(self):
-    """Read front-matter/body tags from the current Markdown file."""
-    self._current_front_tags = []
-    self._current_body_tags = []
+    """Refresh source tags asynchronously, preserving the known index until ready."""
     if not self._current_file:
         return
     if is_markdown(self._current_file):
-        result = read_text(self._current_file)
-        if result:
-            front, body = parse_front_matter(result[0])
-            self._current_front_tags = front_matter_tags(front)
-            self._current_body_tags = body_hashtags(body)
-        self._tag_index.update(
-            self._current_file,
-            self._doc_annotations,
-            front_tags=self._current_front_tags,
-            body_tags=self._current_body_tags,
-        )
+        request_metadata(self)
+        return
     elif is_pdf(self._current_file):
         self._index_doc_tags(self._current_file)
     self._refresh_tags_panel()

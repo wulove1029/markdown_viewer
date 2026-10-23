@@ -40,6 +40,7 @@ class AnnotationsPanel(QWidget):
         self._theme = LIGHT
         self._doc = None
         self._selected_id = None
+        self._orphans = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -91,6 +92,8 @@ class AnnotationsPanel(QWidget):
 
     def set_document(self, doc):
         previous_id = self._selected_id
+        if doc is not self._doc:
+            self._orphans = set()
         self._doc = doc
         self._doc_tags.setText(", ".join(doc.doc_tags) if doc else "")
         self._refresh_list()
@@ -99,6 +102,12 @@ class AnnotationsPanel(QWidget):
         else:
             self._selected_id = None
             self._set_editor_enabled(False)
+
+    def set_orphans(self, ids):
+        self._orphans = set(ids)
+        self._refresh_list()
+        if self._selected_id:
+            self.select(self._selected_id)
 
     def select(self, ann_id: str):
         self._selected_id = ann_id
@@ -121,7 +130,10 @@ class AnnotationsPanel(QWidget):
             label = (a.exact[:40] + "…") if len(a.exact) > 40 else a.exact
             if a.tags:
                 label += "  #" + " #".join(a.tags)
-            item = QListWidgetItem("● " + label)
+            missing = a.id in self._orphans
+            item = QListWidgetItem(("找不到原文 · " if missing else "● ") + label)
+            if missing:
+                item.setToolTip("原文可能已修改；此摘錄與筆記仍保留。")
             item.setForeground(QColor(a.color))
             item.setData(Qt.ItemDataRole.UserRole, a.id)
             self._list.addItem(item)

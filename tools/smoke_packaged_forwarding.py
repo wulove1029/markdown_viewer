@@ -1,4 +1,5 @@
 """Exercise the packaged second-instance path without opening a user session."""
+import argparse
 import json
 import os
 import subprocess
@@ -11,6 +12,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, QProcess, QTimer
 from PySide6.QtNetwork import QLocalServer
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("exe", type=Path)
+parser.add_argument("--output", type=Path, default=Path("tmp/packaged-smoke.json"))
+args = parser.parse_args()
+args.output.parent.mkdir(parents=True, exist_ok=True)
+
 app = QCoreApplication([])
 # Windows named pipes permit multiple listening instances of one name. A
 # successful listen alone does NOT prove that the user's application is absent.
@@ -20,7 +27,7 @@ if sys.platform == "win32":
     if b"markdownviewer.exe" in running.lower():
         result = {"status": "skipped", "reason": "existing MarkdownViewer process; left running",
                   "scope": "packaged forwarding not verified"}
-        Path("docs/benchmarks/packaged-smoke.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(json.dumps(result))
         sys.exit(2)
 server = QLocalServer()
@@ -59,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="mdv-exe-smoke-") as folder:
         app.quit()
     timer.timeout.connect(timeout)
     timer.start(15000)
-    process.start(str(Path(sys.argv[1]).resolve()), [str(path)])
+    process.start(str(args.exe.resolve()), [str(path)])
     app.exec()
     timer.stop()
     server.close()
@@ -67,6 +74,6 @@ with tempfile.TemporaryDirectory(prefix="mdv-exe-smoke-") as folder:
     result["received"] = received.decode("utf-8")
     result["expected"] = str(path.resolve())
     result["scope"] = "packaged second-instance forwarding; no MainWindow or cold first paint"
-    Path("docs/benchmarks/packaged-smoke.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
     assert result.get("exit_code") == 0 and result["path_matches"] and not result.get("timeout")

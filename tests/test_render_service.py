@@ -371,3 +371,133 @@ def test_repeated_large_opens_recycle_worker_processes(tmp_path, monkeypatch):
     assert 3 <= svc.spawned - spawned_before <= 8
     render_service.shutdown()
     assert svc._live == set()
+
+
+def _wait_for(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert predicate()
+
+
+def test_busy_workers_and_prewarm_share_one_capacity_limit():
+    svc = render_service.RenderService(max_workers=2)
+    held = []
+    results, failures = [], []
+    try:
+        held.extend((svc._take(), svc._take()))
+        svc.prewarm()
+        assert svc.spawned == 2
+        assert len(svc._live) == 2
+        assert not svc._prewarming
+
+        def render_waiting():
+            try:
+                results.append(svc.render(text="# waiting"))
+            except Exception as exc:
+                failures.append(exc)
+
+        pending = threading.Thread(target=render_waiting)
+        pending.start()
+        _wait_for(lambda: svc._waiting_foreground == 1)
+        assert svc.spawned == 2
+        assert not results
+        svc._release(held.pop())
+        pending.join(5)
+        assert not pending.is_alive()
+        assert not failures
+        assert results[0][1] is None
+        assert svc.spawned == 2
+        assert len(svc._live) <= 2
+    finally:
+        for worker in held:
+            svc._release(worker)
+        svc.shutdown()
+
+
+def test_waiting_request_cancels_without_starting_another_child():
+    svc = render_service.RenderService(max_workers=1)
+    cancel = threading.Event()
+    caught = []
+    try:
+        held = svc._take()
+
+        def request():
+            try:
+                svc.render(text="# stale", cancel=cancel)
+            except render_service.RenderWorkerCancelled:
+                caught.append("cancelled")
+
+        thread = threading.Thread(target=request)
+        thread.start()
+        _wait_for(lambda: svc._waiting_foreground == 1)
+        cancel.set()
+        thread.join(2)
+        assert not thread.is_alive()
+        assert caught == ["cancelled"]
+        assert svc.spawned == 1
+        assert svc.remote_renders == 0
+        assert svc.fallbacks == 0
+        svc._release(held)
+    finally:
+        svc.shutdown()
+
+
+def test_visible_request_takes_capacity_before_waiting_metadata():
+    svc = render_service.RenderService(max_workers=1)
+    order, failures = [], []
+    try:
+        held = svc._take()
+
+        def request(label, metadata_only):
+            try:
+                worker = svc._take(metadata_only=metadata_only)
+                order.append(label)
+                svc._release(worker)
+            except Exception as exc:
+                failures.append(exc)
+
+        metadata = threading.Thread(target=request, args=("metadata", True))
+        visible = threading.Thread(target=request, args=("visible", False))
+        metadata.start()
+        visible.start()
+        _wait_for(lambda: svc._waiting_foreground == 1)
+        svc._release(held)
+        visible.join(5)
+        metadata.join(5)
+        assert not failures
+        assert order == ["visible", "metadata"]
+    finally:
+        svc.shutdown()
+
+
+def test_shutdown_cancels_in_progress_prewarm_without_resurrecting_child(monkeypatch):
+    svc = render_service.RenderService(max_workers=1)
+    processes = []
+    original_popen = subprocess.Popen
+
+    def track_process(*args, **kwargs):
+        process = original_popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(render_service.subprocess, "Popen", track_process)
+    monkeypatch.setattr(render_service, "_worker_command", lambda _port: (
+        [sys.executable, "-c", "import sys,time;sys.stdin.buffer.read(32);time.sleep(30)"],
+        dict(os.environ),
+    ))
+    try:
+        svc.prewarm()
+        _wait_for(lambda: bool(processes))
+        svc.shutdown()
+        _wait_for(lambda: not svc._prewarming)
+        assert processes[0].poll() is not None
+        assert svc._live == set()
+        assert svc._idle is None
+        assert svc._spawning == 0
+    finally:
+        svc.shutdown()
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)

@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, QStringListModel, Qt, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, QStringListModel, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
     QFontMetricsF,
+    QGuiApplication,
     QImage,
     QPainter,
     QTextCursor,
@@ -69,6 +70,7 @@ class EditorView(QPlainTextEdit):
     format_action_requested = Signal(str)  # actions needing MainWindow UI
     format_context_changed = Signal(object)  # set[str] for toolbar active state
     resource_inserted = Signal(str)  # Markdown link stored for recent resources
+    buffer_document_changed = Signal(object)  # active QTextDocument identity
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -93,8 +95,13 @@ class EditorView(QPlainTextEdit):
         self._theme: Theme = LIGHT
         self._plain_text_mode = False
         self._markdown_services_suspended = False
+        self._ime_composing = False
+        self._ime_selection_revision: int | None = None
+        self._typewriter_scroll = False
+        self._focus_paragraph = False
         self._wikilink_candidates: list[str] = []
         self._document_path: str | None = None
+        self._resource_import_enabled = True
         self._completion_model = QStringListModel(self)
         self._completer = QCompleter(self._completion_model, self)
         self._completer.setWidget(self)
@@ -114,6 +121,7 @@ class EditorView(QPlainTextEdit):
         self.updateRequest.connect(self._update_line_number_area)
         self.cursorPositionChanged.connect(self._line_number_area.update)
         self.cursorPositionChanged.connect(self._editor_context_changed)
+        self.cursorPositionChanged.connect(self.viewport().update)
         self.textChanged.connect(self._editor_context_changed)
         self.verticalScrollBar().valueChanged.connect(self._hide_editor_overlays)
         self._update_line_number_area_width()
@@ -170,6 +178,7 @@ class EditorView(QPlainTextEdit):
         document_path: str | Path | None,
     ) -> None:
         """Swap to a per-tab QTextDocument while keeping editor services wired."""
+        self.commit_input_composition()
         self._completer.popup().hide()
         self._hide_editor_overlays()
         self._slash_dismissed_start = None
@@ -180,7 +189,19 @@ class EditorView(QPlainTextEdit):
             except (RuntimeError, TypeError):
                 pass
             self._highlighter.setDocument(None)
+            from .text_loading import text_document_needs_no_wrap
+
+            wrap = (self.LineWrapMode.NoWrap
+                    if text_document_needs_no_wrap(document)
+                    else self.LineWrapMode.WidgetWidth)
+            if self.lineWrapMode() != wrap:
+                # Change the wrap policy on the empty parking buffer; changing
+                # it on the outgoing very long line would force another layout.
+                self.setDocument(self._parking_document)
+                self.setLineWrapMode(wrap)
             self.setDocument(document)
+            self._ime_composing = False
+            self._ime_selection_revision = None
             document.modificationChanged.connect(self.modified_changed)
         self._plain_text_mode = bool(plain_text_mode)
         if self._plain_text_mode or self._markdown_services_suspended:
@@ -191,6 +212,88 @@ class EditorView(QPlainTextEdit):
         self.set_document_path(document_path)
         self._update_line_number_area_width()
         self._emit_format_context()
+        if old_document is not document:
+            self.buffer_document_changed.emit(document)
+
+    def is_composing(self) -> bool:
+        """Whether the platform input method owns an unfinished preedit."""
+        return self._ime_composing
+
+    def commit_input_composition(self) -> None:
+        """Commit pending platform input before snapshotting or swapping buffers."""
+        if self._ime_composing:
+            QGuiApplication.inputMethod().commit()
+
+    def set_typewriter_scroll(self, enabled: bool) -> None:
+        """Center the caret after typing, leaving selection/navigation untouched."""
+        self._typewriter_scroll = bool(enabled)
+        self.setCenterOnScroll(self._typewriter_scroll)
+
+    def set_focus_paragraph(self, enabled: bool) -> None:
+        """Dim surrounding blocks without touching document formatting or Undo."""
+        self._focus_paragraph = bool(enabled)
+        self.viewport().update()
+
+    def paintEvent(self, event):  # noqa: N802 (Qt override)
+        super().paintEvent(event)
+        if not getattr(self, "_focus_paragraph", False) or self.textCursor().hasSelection():
+            return
+        block = self.textCursor().block()
+        rect = self.blockBoundingGeometry(block).translated(self.contentOffset())
+        viewport = self.viewport().rect()
+        shade = QColor(self._theme.window)
+        shade.setAlpha(150)
+        painter = QPainter(self.viewport())
+        painter.fillRect(
+            QRect(0, 0, viewport.width(), max(0, int(rect.top()))), shade
+        )
+        bottom = max(0, int(rect.bottom()) + 1)
+        painter.fillRect(
+            QRect(0, bottom, viewport.width(), max(0, viewport.height() - bottom)),
+            shade,
+        )
+        painter.end()
+
+    def event(self, event):
+        if (
+            event.type() == QEvent.Type.ShortcutOverride
+            and getattr(self, "_ime_composing", False)
+        ):
+            # Candidate navigation and cancellation belong to the input method,
+            # not window-level shortcuts such as Escape or formatting commands.
+            event.accept()
+            return True
+        return super().event(event)
+
+    def inputMethodEvent(self, event):  # noqa: N802 (Qt override)
+        previous_revision = self.document().revision()
+        starts_selection = not self._ime_composing and self.textCursor().hasSelection()
+        join_selection = (
+            bool(event.commitString())
+            and self._ime_selection_revision == previous_revision
+        )
+        undo_cursor = self.textCursor()
+        if join_selection:
+            # Qt removes the selection at preedit start and inserts the commit
+            # later. Keep that one replacement in one Undo step, provided no
+            # unrelated edit was made while the input method was active.
+            undo_cursor.joinPreviousEditBlock()
+        self._ime_composing = True
+        self._completer.popup().hide()
+        self._hide_editor_overlays()
+        try:
+            super().inputMethodEvent(event)
+        finally:
+            if join_selection:
+                undo_cursor.endEditBlock()
+            self._ime_composing = bool(event.preeditString())
+        if starts_selection and event.preeditString() and not event.commitString():
+            self._ime_selection_revision = self.document().revision()
+        if not self._ime_composing:
+            self._ime_selection_revision = None
+            self._editor_context_changed()
+            if self._typewriter_scroll and self.document().revision() != previous_revision:
+                self.centerCursor()
 
     def release_buffer_document(self) -> None:
         """Detach the active tab document before its final Python reference drops."""
@@ -212,6 +315,10 @@ class EditorView(QPlainTextEdit):
     def document_path(self) -> str | None:
         """Path of the file being edited, or None for an unsaved buffer."""
         return self._document_path
+
+    def set_resource_import_enabled(self, enabled: bool) -> None:
+        """Require a durable location before creating draft-relative assets."""
+        self._resource_import_enabled = bool(enabled)
 
     def set_plain_text_mode(self, enabled: bool) -> None:
         """Plain .txt editing: no Markdown highlight, wikilinks, image links."""
@@ -329,6 +436,9 @@ class EditorView(QPlainTextEdit):
         return False
 
     def _insert_image_mime(self, mime) -> None:
+        if not self._resource_import_enabled:
+            self.image_status.emit("請先儲存草稿，再加入圖片或附件")
+            return
         if not self._document_path:
             self.image_status.emit("請先儲存文件才能貼入圖片")
             return
@@ -376,6 +486,9 @@ class EditorView(QPlainTextEdit):
         return paths if all(Path(path).is_file() for path in paths) else []
 
     def _insert_resource_files(self, paths: list[str]) -> None:
+        if not self._resource_import_enabled:
+            self.image_status.emit("請先儲存草稿，再加入圖片或附件")
+            return
         if not self._document_path:
             self.image_status.emit("請先儲存文件才能加入附件")
             return
@@ -412,14 +525,85 @@ class EditorView(QPlainTextEdit):
         return super().canInsertFromMimeData(source)
 
     def insertFromMimeData(self, source) -> None:  # noqa: N802 (Qt override)
+        if self.is_composing():
+            # Let Qt and the platform IME own paste during preedit. Opening a
+            # dialog or turning text into Markdown here can consume candidates.
+            super().insertFromMimeData(source)
+            return
+        from shiboken6 import isValid
+
+        from . import paste_preview
+
+        document = self.document()
+        document_path = self._document_path
+        revision = document.revision()
+        cursor = QTextCursor(self.textCursor())
+
+        def restore_selection():
+            if not isValid(self):
+                return False
+            if (not isValid(document) or self.document() is not document
+                    or document.revision() != revision or self._document_path != document_path):
+                self.image_status.emit("文件已變更，請重新貼上。")
+                return False
+            if not isValid(source):
+                self.image_status.emit("剪貼簿已變更，請重新貼上。")
+                return False
+            self.setTextCursor(cursor)
+            return True
+
+        resource_files = self._local_resource_files(source)
+        if resource_files and self._resource_import_enabled and self._document_path:
+            names = [Path(path).name for path in resource_files]
+            try:
+                snapshot = paste_preview.resource_clipboard_snapshot(source, names)
+            except (OSError, ValueError, RuntimeError) as exc:
+                self.image_status.emit(str(exc))
+                return
+            accepted = paste_preview.confirm_resource_paste(
+                resource_files, self._document_path, self,
+            )
+            if not restore_selection() or not accepted:
+                return
+            try:
+                if paste_preview.resource_clipboard_snapshot(source, names) != snapshot:
+                    raise ValueError("剪貼簿或附件已變更，請重新貼上。")
+            except (OSError, ValueError, RuntimeError) as exc:
+                self.image_status.emit(str(exc))
+                return
         if self._mime_has_image(source):
             self._insert_image_mime(source)
             return
-        resource_files = self._local_resource_files(source)
         if resource_files:
             self._insert_resource_files(resource_files)
             return
         if not self._plain_text_mode and source.hasText():
+            choice = (paste_preview.choose_table_paste(source.text(), self)
+                      if cursor.block().userState() <= 0 else None)
+            if choice is not None:
+                if not restore_selection() or choice.mode == "cancel":
+                    return
+                text = choice.text
+                if choice.mode == "table":
+                    before, after = QTextCursor(cursor), QTextCursor(cursor)
+                    before.setPosition(cursor.selectionStart())
+                    before.movePosition(
+                        QTextCursor.MoveOperation.PreviousCharacter,
+                        QTextCursor.MoveMode.KeepAnchor, 2,
+                    )
+                    after.setPosition(cursor.selectionEnd())
+                    after.movePosition(
+                        QTextCursor.MoveOperation.NextCharacter,
+                        QTextCursor.MoveMode.KeepAnchor, 2,
+                    )
+                    left = before.selectedText().replace("\u2029", "\n")
+                    right = after.selectedText().replace("\u2029", "\n")
+                    if left and not left.endswith("\n\n"):
+                        text = ("\n" if left.endswith("\n") else "\n\n") + text
+                    if right and not right.startswith("\n\n"):
+                        text += "\n" if right.startswith("\n") else "\n\n"
+                self.insertPlainText(text)
+                return
             cursor = self.textCursor()
             text = self.toPlainText()
             edit = linkify_paste_edit(
@@ -476,7 +660,7 @@ class EditorView(QPlainTextEdit):
         return active_query(cursor.selectedText())
 
     def _show_wikilink_completions(self) -> None:
-        if self._plain_text_mode:
+        if self._plain_text_mode or self._ime_composing:
             return
         query = self._query_before_cursor()
         matches = (
@@ -498,6 +682,8 @@ class EditorView(QPlainTextEdit):
         self._completer.complete(rect)
 
     def _insert_wikilink_completion(self, completion: str) -> None:
+        if self._ime_composing:
+            return
         query = self._query_before_cursor()
         if query is None:
             return
@@ -549,7 +735,7 @@ class EditorView(QPlainTextEdit):
         )
 
     def _editor_context_changed(self, *_args) -> None:
-        if self._markdown_services_suspended:
+        if self._markdown_services_suspended or self._ime_composing:
             return
         self._emit_format_context()
         if not self._selection_toolbar_from_mouse:
@@ -598,7 +784,7 @@ class EditorView(QPlainTextEdit):
         self.setTextCursor(cursor)
 
     def _refresh_slash_commands(self) -> None:
-        if self._plain_text_mode or self._completer.popup().isVisible():
+        if self._ime_composing or self._plain_text_mode or self._completer.popup().isVisible():
             self._slash_popup.hide()
             return
         slash = self._slash_context()
@@ -617,6 +803,8 @@ class EditorView(QPlainTextEdit):
         self._slash_popup.show_near(self.cursorRect())
 
     def _accept_slash_command(self, action: str) -> None:
+        if self._ime_composing:
+            return
         slash = self._slash_context()
         if slash is None:
             self._slash_popup.hide()
@@ -651,6 +839,8 @@ class EditorView(QPlainTextEdit):
         self._refresh_slash_commands()
 
     def _apply_selection_format(self, action: str) -> None:
+        if self._ime_composing:
+            return
         self._selection_toolbar_from_mouse = False
         self._selection_format_bar.hide()
         apply_format_action(self, action)
@@ -664,7 +854,11 @@ class EditorView(QPlainTextEdit):
 
     def mouseReleaseEvent(self, event):  # noqa: N802 (Qt override)
         super().mouseReleaseEvent(event)
-        if event.button() != Qt.MouseButton.LeftButton or self._plain_text_mode:
+        if (
+            event.button() != Qt.MouseButton.LeftButton
+            or self._plain_text_mode
+            or self._ime_composing
+        ):
             return
         cursor = self.textCursor()
         selected = cursor.selectedText()
@@ -689,6 +883,20 @@ class EditorView(QPlainTextEdit):
         super().focusOutEvent(event)
 
     def keyPressEvent(self, event):
+        if self._ime_composing:
+            super().keyPressEvent(event)
+            event.accept()
+            return
+        previous_revision = self.document().revision()
+        self._handle_key_press(event)
+        if (
+            self._typewriter_scroll
+            and not self.textCursor().hasSelection()
+            and self.document().revision() != previous_revision
+        ):
+            self.centerCursor()
+
+    def _handle_key_press(self, event):
         popup = self._completer.popup()
         key = event.key()
         modifiers = event.modifiers()

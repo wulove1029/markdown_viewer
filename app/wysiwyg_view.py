@@ -133,6 +133,8 @@ class _WysiwygBridge(QObject):
     toolbarActionSig = Signal(str)
     zoomRequestedSig = Signal(int)
     contextMenuRequestedSig = Signal(int, int)
+    pastePreviewRequestedSig = Signal(str, int, int)
+    resourcePasteRequestedSig = Signal(str, int, int)
 
     def __init__(self, view: "WysiwygView") -> None:
         super().__init__(view)
@@ -241,6 +243,14 @@ class _WysiwygBridge(QObject):
     def contextMenuRequested(self, x: int, y: int) -> None:
         self.contextMenuRequestedSig.emit(x, y)
 
+    @Slot(str, int, int)
+    def pastePreviewRequested(self, text: str, token: int, generation: int) -> None:
+        self.pastePreviewRequestedSig.emit(text, token, generation)
+
+    @Slot(str, int, int)
+    def resourcePasteRequested(self, names: str, token: int, generation: int) -> None:
+        self.resourcePasteRequestedSig.emit(names, token, generation)
+
 
 class WysiwygView(QWebEngineView):
     """Embeds Vditor in WYSIWYG mode and bridges it to Python via QWebChannel."""
@@ -266,6 +276,8 @@ class WysiwygView(QWebEngineView):
     # widget's local coordinates (no scroll offset -- Vditor's own toolbar
     # is pinned, not the page).
     context_menu_requested = Signal(int, int)
+    paste_preview_requested = Signal(str, int, int)
+    resource_paste_requested = Signal(str, int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -286,6 +298,8 @@ class WysiwygView(QWebEngineView):
         self._bridge.toolbarActionSig.connect(self.toolbar_action)
         self._bridge.zoomRequestedSig.connect(self.zoom_requested)
         self._bridge.contextMenuRequestedSig.connect(self.context_menu_requested)
+        self._bridge.pastePreviewRequestedSig.connect(self.paste_preview_requested)
+        self._bridge.resourcePasteRequestedSig.connect(self.resource_paste_requested)
 
         self._channel = QWebChannel(self)
         self._channel.registerObject("wysiwygBridge", self._bridge)
@@ -785,6 +799,40 @@ class WysiwygView(QWebEngineView):
             % json.dumps(text)
         )
         self.page().runJavaScript(js)
+
+    def run_command(self, command: str, callback=None) -> None:
+        """Use the live editor's own toolbar, preserving its undo semantics."""
+        js = (
+            "Boolean(window.__wysiwygGlue && window.__wysiwygGlue.runCommand(%s));"
+            % json.dumps(command)
+        )
+        self.page().runJavaScript(js, callback or (lambda _result: None))
+
+    def resolve_paste_preview(
+        self, token: int, generation: int, mode: str, text: str = "", callback=None,
+    ) -> None:
+        """Resolve one clipboard review at its original live DOM selection."""
+        if generation != self._generation or mode not in {"table", "plain", "cancel", "markdown"}:
+            if callback is not None:
+                callback(False)
+            return
+        arguments = ",".join(json.dumps(value) for value in (token, generation, mode, text))
+        script = (
+            "Boolean(window.__wysiwygGlue && "
+            f"window.__wysiwygGlue.resolvePastePreview({arguments}));"
+        )
+        self.page().runJavaScript(script, callback or (lambda _result: None))
+
+    def validate_paste_preview(self, token: int, generation: int, callback) -> None:
+        """Check the saved live selection before copying reviewed attachments."""
+        if generation != self._generation:
+            callback(False)
+            return
+        script = (
+            "Boolean(window.__wysiwygGlue && window.__wysiwygGlue.canResolvePastePreview("
+            f"{int(token)},{int(generation)}));"
+        )
+        self.page().runJavaScript(script, callback)
 
     def get_html(self, callback) -> None:
         """Fetch Vditor's rendered HTML (``getHTML()``) asynchronously.

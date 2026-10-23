@@ -246,3 +246,46 @@ def test_scheduler_tile_options_reassemble_to_the_exact_full_page_render(
         assert _image_bytes(tiled) == _image_bytes(full)
     finally:
         _finish_requests_and_invalidate(scheduler, renderer)
+
+
+def test_reuse_waits_for_inflight_and_enforces_global_capacity(
+    qapp, quadrant_pdf, fake_page_renderer
+):
+    scheduler = PdfRenderScheduler(max_inflight=1, reuse_documents=2)
+    delivered = []
+    scheduler.rendered.connect(lambda spec, _image: delivered.append(spec))
+    assert scheduler.begin_document(1, quadrant_pdf)
+    old_renderer = fake_page_renderer.instances[-1]
+    assert scheduler.request(_page_spec(generation=1))
+    scheduler.invalidate()
+    assert scheduler.begin_document(2, quadrant_pdf)
+    new_renderer = fake_page_renderer.instances[-1]
+    assert new_renderer is not old_renderer
+    assert not scheduler.has_capacity()
+    assert not scheduler.request(_page_spec(generation=2))
+    old_renderer.complete(old_renderer.requests[0])
+    assert delivered == []
+    assert scheduler.has_capacity()
+    assert scheduler.request(_page_spec(generation=2))
+    scheduler.shutdown()
+    assert not scheduler._idle_sessions
+    new_renderer.complete(new_renderer.requests[0])
+    assert delivered == []
+    assert not scheduler._sessions_by_renderer
+
+
+def test_idle_reuse_rebinds_generation_and_explicit_invalidation_closes_snapshot(
+    qapp, quadrant_pdf, fake_page_renderer
+):
+    scheduler = PdfRenderScheduler(reuse_documents=2)
+    assert scheduler.begin_document(1, quadrant_pdf)
+    original = scheduler._sessions_by_generation[1]
+    scheduler.invalidate()
+    assert scheduler.begin_document(2, quadrant_pdf)
+    assert scheduler._sessions_by_generation[2] is original
+    assert 1 not in scheduler._sessions_by_generation
+    scheduler.invalidate_document(quadrant_pdf)
+    scheduler.invalidate()
+    assert scheduler.begin_document(3, quadrant_pdf)
+    assert scheduler._sessions_by_generation[3] is not original
+    scheduler.shutdown()

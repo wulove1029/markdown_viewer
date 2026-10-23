@@ -58,6 +58,7 @@ _POLL_S = 0.02
 # child's peak RSS without bound (a fresh child costs ~0.5 s, paid in the
 # background right after the previous request finished).
 _MAX_REQUESTS_PER_WORKER = 12
+_MAX_LIVE_WORKERS = 2
 
 
 class RenderWorkerError(RuntimeError):
@@ -153,10 +154,15 @@ def _worker_command(port: int) -> tuple[list[str], dict]:
 
 
 class RenderService:
-    """Pool of at most one idle child process, plus any currently busy ones."""
+    """Bounded child pool with cancellable waits and visible-work priority."""
 
-    def __init__(self):
+    def __init__(self, max_workers: int = _MAX_LIVE_WORKERS):
         self._lock = threading.Lock()
+        self._available = threading.Condition(self._lock)
+        self._max_workers = max(1, int(max_workers))
+        self._spawning = 0
+        self._epoch = 0
+        self._waiting_foreground = 0
         self._idle: _Worker | None = None
         self._live: set[_Worker] = set()
         self._prewarming = False
@@ -174,44 +180,62 @@ class RenderService:
         """Start a spare child in the background (never blocks the caller)."""
         if not self.enabled():
             return
-        with self._lock:
-            if self._idle is not None or self._prewarming:
+        with self._available:
+            if (self._idle is not None or self._prewarming
+                    or len(self._live) + self._spawning >= self._max_workers):
                 return
             self._prewarming = True
-        threading.Thread(target=self._prewarm_run, name="render-prewarm",
+            self._spawning += 1
+            epoch = self._epoch
+        threading.Thread(target=self._prewarm_run, args=(epoch,), name="render-prewarm",
                          daemon=True).start()
 
-    def _prewarm_run(self) -> None:
+    def _prewarm_run(self, epoch: int) -> None:
         worker = None
         try:
-            worker = self._spawn()
+            worker = self._spawn(epoch=epoch)
+        except RenderWorkerCancelled:
+            pass
         except Exception as exc:  # pragma: no cover - environment dependent
             log.warning("render worker prewarm failed: %s", exc)
-        with self._lock:
+        with self._available:
             self._prewarming = False
+            self._spawning -= 1
+            self._available.notify_all()
             if worker is None:
                 return
-            if self._idle is None:
+            if epoch == self._epoch and self._idle is None:
                 self._idle = worker
                 worker = None
         if worker is not None:
             self._retire(worker)
 
     def shutdown(self) -> None:
-        with self._lock:
+        with self._available:
+            self._epoch += 1
             workers = list(self._live)
             self._live.clear()
             self._idle = None
+            self._available.notify_all()
         for worker in workers:
             worker.kill()
 
-    def _spawn(self) -> _Worker:
+    def _spawn(self, cancel=None, epoch=None) -> _Worker:
+        if epoch is None:
+            with self._lock:
+                epoch = self._epoch
+
+        def cancelled():
+            return self._epoch != epoch or (cancel is not None and cancel.is_set())
+
+        if cancelled():
+            raise RenderWorkerCancelled()
         token = secrets.token_bytes(_TOKEN_BYTES)
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             server.bind(("127.0.0.1", 0))
             server.listen(1)
-            server.settimeout(_HANDSHAKE_TIMEOUT_S)
+            server.settimeout(_POLL_S)
             port = server.getsockname()[1]
             cmd, env = _worker_command(port)
             creationflags = 0
@@ -234,20 +258,47 @@ class RenderService:
             except OSError as exc:
                 proc.kill()
                 raise RenderWorkerError(f"render worker stdin failed: {exc}") from exc
-            try:
-                sock, _addr = server.accept()
-            except (socket.timeout, OSError) as exc:
-                proc.kill()
-                raise RenderWorkerError(f"render worker did not connect: {exc}") from exc
+            deadline = time.monotonic() + _HANDSHAKE_TIMEOUT_S
+            while True:
+                if cancelled():
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise RenderWorkerCancelled()
+                try:
+                    sock, _addr = server.accept()
+                    break
+                except socket.timeout:
+                    if time.monotonic() < deadline:
+                        continue
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise RenderWorkerError(
+                        "render worker did not connect before timeout"
+                    ) from None
+                except OSError as exc:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise RenderWorkerError(f"render worker did not connect: {exc}") from exc
         finally:
             server.close()
         sock.settimeout(_POLL_S)
         try:
             deadline = time.monotonic() + _HANDSHAKE_TIMEOUT_S
-            greeting = _recv_exactly(sock, _TOKEN_BYTES, None, deadline)
+            class SpawnCancellation:
+                @staticmethod
+                def is_set():
+                    return cancelled()
+
+            greeting = _recv_exactly(sock, _TOKEN_BYTES, SpawnCancellation(), deadline)
+        except RenderWorkerCancelled:
+            sock.close()
+            proc.kill()
+            proc.wait(timeout=5)
+            raise
         except Exception as exc:
             sock.close()
             proc.kill()
+            proc.wait(timeout=5)
             raise RenderWorkerError(f"render worker handshake failed: {exc}") from exc
         if not hmac.compare_digest(greeting, token):
             # Reject before a single byte is unpickled.
@@ -260,19 +311,51 @@ class RenderService:
             raise RenderWorkerError("render worker handshake token mismatch")
         worker = _Worker(proc, sock)
         with self._lock:
-            self._live.add(worker)
-            self.spawned += 1
+            stale = cancelled()
+            if not stale:
+                self._live.add(worker)
+                self.spawned += 1
+        if stale:
+            worker.kill()
+            raise RenderWorkerCancelled()
         return worker
 
-    def _take(self) -> _Worker:
-        with self._lock:
-            worker = self._idle
-            self._idle = None
-        if worker is not None and worker.proc.poll() is None:
-            return worker
-        if worker is not None:
-            self._retire(worker)
-        return self._spawn()
+    def _take(self, cancel=None, *, metadata_only=False) -> _Worker:
+        with self._available:
+            epoch = self._epoch
+            if not metadata_only:
+                self._waiting_foreground += 1
+        try:
+            while True:
+                with self._available:
+                    if self._epoch != epoch or (cancel is not None and cancel.is_set()):
+                        raise RenderWorkerCancelled()
+                    if metadata_only and self._waiting_foreground:
+                        self._available.wait(_POLL_S)
+                        continue
+                    worker = self._idle
+                    self._idle = None
+                    if worker is None:
+                        if len(self._live) + self._spawning >= self._max_workers:
+                            self._available.wait(_POLL_S)
+                            continue
+                        self._spawning += 1
+                if worker is not None:
+                    if worker.proc.poll() is None:
+                        return worker
+                    self._retire(worker)
+                    continue
+                try:
+                    return self._spawn(cancel=cancel, epoch=epoch)
+                finally:
+                    with self._available:
+                        self._spawning -= 1
+                        self._available.notify_all()
+        finally:
+            if not metadata_only:
+                with self._available:
+                    self._waiting_foreground -= 1
+                    self._available.notify_all()
 
     def _release(self, worker: _Worker) -> None:
         """Put a healthy worker back, or retire it and warm a replacement."""
@@ -280,21 +363,50 @@ class RenderService:
             self._retire(worker)
             self.prewarm()
             return
-        with self._lock:
+        with self._available:
+            if worker not in self._live:
+                return
             if self._idle is None:
                 self._idle = worker
+                self._available.notify_all()
                 return
         self._retire(worker)
 
     def _retire(self, worker: _Worker) -> None:
-        with self._lock:
+        worker.kill()
+        with self._available:
             self._live.discard(worker)
             self.killed += 1
-        worker.kill()
+            self._available.notify_all()
 
     # -- rendering ---------------------------------------------------------
 
     def render(self, *, path=None, text=None, cancel=None, metadata_only=False):
+        from . import diagnostics
+
+        started = time.monotonic()
+        cancelled = failed = fallback_requested = False
+        try:
+            result = self._render(path=path, text=text, cancel=cancel, metadata_only=metadata_only)
+            failed = result[1] is not None
+            return result
+        except RenderWorkerCancelled:
+            cancelled = True
+            raise
+        except RenderWorkerError:
+            failed = fallback_requested = True
+            raise
+        except Exception:
+            failed = True
+            raise
+        finally:
+            diagnostics.record(
+                "markdown_metadata" if metadata_only else "markdown_render",
+                duration_ms=(time.monotonic() - started) * 1000, cancelled=cancelled,
+                failed=failed, fallback_requested=fallback_requested,
+            )
+
+    def _render(self, *, path=None, text=None, cancel=None, metadata_only=False):
         """Render in a child process.
 
         Returns ``(rendered_body, error_message)`` exactly like
@@ -305,7 +417,7 @@ class RenderService:
         """
         if cancel is not None and cancel.is_set():
             raise RenderWorkerCancelled()
-        worker = self._take()
+        worker = self._take(cancel, metadata_only=metadata_only)
         if cancel is not None and cancel.is_set():
             self._release(worker)
             raise RenderWorkerCancelled()

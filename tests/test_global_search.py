@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.global_search import GlobalSearchView, search_markdown_files
+from app.global_search import GlobalSearchView, _highlighted_snippet, search_markdown_files
 
 
 @pytest.fixture(autouse=True)
@@ -110,8 +110,8 @@ def test_search_view_renders_highlights_and_opens_selected_result(qapp, tmp_path
     assert view._status.text() == "共 1 筆，1 個檔案"
     assert view._list.count() == 2
     hit_item = view._list.item(1)
-    label = view._list.itemWidget(hit_item)
-    assert "background-color" in label.text()
+    assert view._list.itemWidget(hit_item) is None
+    assert "background-color" in _highlighted_snippet("Needle", "needle", view._theme)
 
     view._on_item_clicked(hit_item)
     assert selected == [(str(note), "needle", 1)]

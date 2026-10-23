@@ -90,6 +90,7 @@ class DocumentTabBar(QTabBar):
     def __init__(self, theme: Theme = LIGHT, parent=None):
         super().__init__(parent)
         self._mode_badges: list[str | None] = []
+        self._pinned_paths: set[str] = set()
         self._mode_badge_icons: dict[str, QIcon] = {}
         self.setObjectName("documentTabs")
         self.setAccessibleName("開啟的文件分頁")
@@ -305,12 +306,19 @@ class DocumentTabBar(QTabBar):
                 return button
         return None
 
+    def set_tab_pinned(self, path: str, pinned: bool) -> None:
+        if pinned:
+            self._pinned_paths.add(path)
+        else:
+            self._pinned_paths.discard(path)
+
     def _sync_close_buttons(self, *_args) -> None:
         current = self.currentIndex()
         for index in range(self.count()):
             button = self._close_button(index)
             if button is not None:
-                button.setVisible(index in (current, self._hovered_index))
+                button.setVisible(index in (current, self._hovered_index)
+                                  and self.tabData(index) not in self._pinned_paths)
 
 
 class DocumentTabStrip(QWidget):

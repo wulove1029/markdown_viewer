@@ -165,6 +165,15 @@ def test_stored_annotation_renders_mark(qapp, tmp_path):
     _wait(4000)
     count = _eval(view, "document.querySelectorAll('mark.annot').length")
     assert count == 1
+    located = []
+    view.scroll_to_annotation(ann.id, located.append)
+    _wait(100)
+    assert located == [True]
+    _eval(view, "window.matchMedia=()=>({matches:true});"
+          "Element.prototype.scrollIntoView=function(options){window.__scrollBehavior=options.behavior;}")
+    view.scroll_to_annotation(ann.id)
+    _wait(100)
+    assert _eval(view, "window.__scrollBehavior") == "auto"
 
 
 @_skip_webengine
@@ -179,6 +188,12 @@ def test_orphan_annotation_not_rendered(qapp, tmp_path):
     _wait(4000)
     count = _eval(view, "document.querySelectorAll('mark.annot').length")
     assert count == 0
+    reported, located = [], []
+    view.annotation_orphans(reported.append)
+    view.scroll_to_annotation(ann.id, located.append)
+    _wait(100)
+    assert reported == [[ann.id]]
+    assert located == [False]
 
 
 @_skip_webengine

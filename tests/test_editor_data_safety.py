@@ -26,6 +26,7 @@ from app import edit_backend, export_actions, session_state, view_mode
 from app import window as window_mod
 from app.recovery import RecoveryStore
 from tests.test_window_integration import (
+    _dispose_window,
     _FakePanel,
     _FakePdfView,
     _FakeRenderer,
@@ -242,13 +243,15 @@ def make_data_safety_window(qapp):
     yield _make
 
     for window in reversed(windows):
+        if not shiboken6.isValid(window):
+            continue
         window._preview_editing = False
         for state in window._tab_state.values():
             document = state.get("editor_document")
             if isinstance(document, QTextDocument):
                 document.setModified(False)
         window._editor.document().setModified(False)
-        window.close()
+        _dispose_window(window)
     qapp.processEvents()
 
 
@@ -784,12 +787,14 @@ def test_wysiwyg_context_menu_scales_js_client_coordinates_by_page_zoom(
         zoomFactor=lambda: 1.75,
         action=lambda _web_action: QAction(window),
     )
-    monkeypatch.setattr(view, "page", lambda: page)
-    positions = _capture_menu_exec(monkeypatch, window)
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(view, "page", lambda: page)
+        positions = _capture_menu_exec(patch, window)
 
-    window._on_wysiwyg_context_menu(20, 24)
+        window._on_wysiwyg_context_menu(20, 24)
 
-    assert positions == [view.mapToGlobal(window_mod.QPoint(35, 42))]
+        assert positions == [view.mapToGlobal(window_mod.QPoint(35, 42))]
 
 
 def test_wysiwyg_wheel_zoom_applies_one_final_factor_and_defers_persistence(
@@ -959,15 +964,17 @@ def test_wysiwyg_export_menu_anchors_to_scaled_toolbar_button_rect(
         zoomFactor=lambda: 1.5,
         runJavaScript=run_javascript,
     )
-    monkeypatch.setattr(view, "page", lambda: page)
-    positions = _capture_menu_exec(monkeypatch, window)
+    # Restore instance methods before fixture-owned Qt objects are deleted.
+    with monkeypatch.context() as patch:
+        patch.setattr(view, "page", lambda: page)
+        positions = _capture_menu_exec(patch, window)
 
-    window._show_wysiwyg_export_menu()
+        window._show_wysiwyg_export_menu()
 
-    assert len(scripts) == 1
-    assert '[data-type="export"]' in scripts[0]
-    assert "getBoundingClientRect" in scripts[0]
-    assert positions == [view.mapToGlobal(window_mod.QPoint(120, 48))]
+        assert len(scripts) == 1
+        assert '[data-type="export"]' in scripts[0]
+        assert "getBoundingClientRect" in scripts[0]
+        assert positions == [view.mapToGlobal(window_mod.QPoint(120, 48))]
 
 
 def test_wysiwyg_push_marks_the_tab_document_modified(
@@ -1617,10 +1624,10 @@ def test_wysiwyg_html_export_writes_vditor_get_html_output(
     assert out_path.read_text(encoding="utf-8") == "<h1>edited</h1>"
 
 
-def test_export_blocked_in_split_backend_edit_mode(
+def test_export_available_in_split_backend_edit_mode(
     make_data_safety_window, tmp_path, monkeypatch
 ):
-    """The split/source-code editing guard is unchanged: exports stay blocked."""
+    """Source exports reach the destination dialog without requiring a save."""
     note = tmp_path / "split-export.md"
     note.write_text("# content\n", encoding="utf-8")
     window = make_data_safety_window()
@@ -1637,7 +1644,7 @@ def test_export_blocked_in_split_backend_edit_mode(
 
     export_actions.export_docx(window)
     export_actions.export_html(window)
-    assert called == []  # never even reached the save dialog
+    assert called == [True, True]
 
 
 def test_txt_files_always_force_the_split_backend(

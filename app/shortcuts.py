@@ -36,6 +36,14 @@ class ShortcutSpec:
 # their menu hints, and their rows in the keyboard-shortcut dialog.
 WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(
+        "view.focus", "檢視與工具", "專注閱讀／寫作", ("Ctrl+Alt+F",),
+        "主視窗", "_toggle_focus_workspace",
+    ),
+    ShortcutSpec(
+        "tools.command_palette", "檢視與工具", "命令搜尋", ("Ctrl+Alt+P",),
+        "主視窗", "_show_command_palette",
+    ),
+    ShortcutSpec(
         "file.new",
         "文件",
         "新增筆記（Markdown 或純文字）",

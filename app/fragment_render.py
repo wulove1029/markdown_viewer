@@ -166,7 +166,7 @@ class FragmentRenderer:
         esc = escape(source, quote=True)
         if kind == "mermaid":
             frag = f'<pre class="mermaid" data-diagram="{esc}">{esc}</pre>'
-            loader = _mermaid_script("light")
+            loader = _mermaid_script("light", eager=True)
             sel = ".mermaid svg"
         else:
             frag = f'<span class="math block">{esc}</span>'
@@ -233,6 +233,8 @@ class FragmentRenderer:
     def _arm_ready(self, sel, finish, add_teardown):
         probe = (
             "(function(){var n=document.querySelector(%s);"
+            "if(window.mdDiagrams && window.mdDiagrams.status().complete && "
+            "window.mdDiagrams.status().failed)return -1;"
             "if(!n)return false;return window.__renderDone===true;})()"
             % _js_str(sel)
         )
@@ -240,7 +242,9 @@ class FragmentRenderer:
         timer.setInterval(60)
 
         def tick():
-            self._page.runJavaScript(probe, lambda v: finish(True) if v else None)
+            self._page.runJavaScript(
+                probe, lambda v: finish(False) if v == -1 else finish(True) if v else None
+            )
 
         timer.timeout.connect(tick)
         add_teardown(timer.stop)
@@ -250,9 +254,23 @@ class FragmentRenderer:
         js = (
             "(function(){var n=document.querySelector(%s);if(!n)return null;"
             "var r=n.getBoundingClientRect();"
-            "return [r.width,r.height,r.left,r.top];})()" % _js_str(sel)
+            "return JSON.stringify([r.width,r.height,r.left,r.top]);})()" % _js_str(sel)
         )
-        self._page.runJavaScript(js, lambda v: finish(v))
+
+        def measured(value):
+            try:
+                values = json.loads(value) if isinstance(value, str) else value
+                if not isinstance(values, (list, tuple)) or len(values) != 4:
+                    raise ValueError("Invalid fragment bounds")
+                values = [float(number) for number in values]
+                if not all(math.isfinite(number) for number in values):
+                    raise ValueError("Non-finite fragment bounds")
+            except (TypeError, ValueError):
+                finish(None)
+            else:
+                finish(values)
+
+        self._page.runJavaScript(js, measured)
 
     def _arm_print(self, layout, finish, add_teardown):
         self._page.printToPdf(

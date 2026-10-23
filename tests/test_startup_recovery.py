@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QSettings, Qt
@@ -27,6 +28,10 @@ class StartupWindow(QMainWindow):
     def __init__(self, store):
         super().__init__()
         self._recovery_store = store
+        self._panel = SimpleNamespace(
+            file_browser=SimpleNamespace(library_roots=lambda: []),
+            recent=SimpleNamespace(migrate_paths=lambda mapping: None),
+        )
         self._tab_state = {}
         self._tab_bar = QTabBar(self)
         self.opened = []
