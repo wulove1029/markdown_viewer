@@ -22,7 +22,7 @@
 |---|---|---|---|---|
 | Claude | ✅ | session（由使用者 /model 控制） | session | session |
 | Codex | ✅ | gpt-5.6-sol | high | default |
-| Gemini | ✅ | Gemini 3.5 Flash (Medium) | 內含於模型 | — |
+| Gemini | ✅ | Gemini 3.8 Flash (Medium) | 內含於模型 | — |
 | 自動接棒 | ✅ | —（全域開關，規則見下） | — | — |
 
 > 上表是**本專案**的檔位。設定的**規則文字**（強制檔位、升降檔需使用者同意、
@@ -119,6 +119,34 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 ---
 
 ## 進度紀錄
+
+### 2026-10-23｜1.36.0 正式發布
+
+作者：Codex｜狀態：已發布，線上獨立驗收通過
+
+- 使用者要求發布更新；使用已驗收安裝包，C槽獨立發布副本核對619來源雜湊後提交141檔，main commit `e597865aa0117ff9939b0e8ab812f1c37d1648a9` 已推送。
+- `gh release edit v1.36.0 --draft=false --prerelease=false --latest` exit0；latest API=1.36.0，`check_for_update('1.35.0')` has_update=true。Fresh reviewer核對live tag/commit與asset SHA/size一致，發布PASS。
+- 發布頁：https://github.com/wulove1029/markdown_viewer/releases/tag/v1.36.0 。安裝流程由使用者驗收；500ms、實際IME/DPI與native AV唯一根因限制保留。
+- D槽I/O延遲，本機Git add仍執行中；已從C槽發布副本fetch新commit到FETCH_HEAD，尚未移動D槽main。後續同步時保留制度、PROGRESS與本機證據，不做hard reset。
+
+### 2026-10-23｜共用高亮行表與更新候選驗證
+
+作者：Codex｜狀態：候選封裝與獨立驗收通過，待使用者安裝驗收
+
+- 使用者直接要求繼續準備更新版，並接手安裝、升級、解除安裝驗收；不再要求額外 Windows VM。
+- `app/code_loading.py:_encode_blocks`、`assets/code_loading.js` 共用重複高亮行，保留逐字還原與原陣列回退。獨立reviewer核對1,004組roundtrip與相關功能邊界通過。
+- `tmp/validate_shared_lines.py` 同C槽鎖版環境各30暖樣本：首屏P95 1429.63→973.30ms、完整文字1740.29→1072.99ms；兩guard exit0、設定與資料不變。500ms目標仍未達。
+- `pytest tests/ -vv --tb=short -p tests.qt_lifetime_probe`：2175 passed、150 skipped、2預期warnings，exit0；真Chromium選定整合119 passed，exit0；ruff及mypy通過。
+- 詳見 `docs/upgrades/2026-10-23-shared-lines-release.md`；新安裝包獨立目錄，保留舊候選，未commit/push/正式發布。封裝smoke exit0、4樣本passed/tabs_closed true且guard資料不變；fresh reviewer獨立重算619來源與2產物SHA/bytes吻合，候選驗收PASS。
+
+### 2026-10-23 [CX] 大型程式碼預覽：本輪改善與本機候選驗收通過
+
+- 使用者直接要求持續直到改善，本輪繼續執行；未對外發布、未修改使用者原始文件或設定。
+- `app/code_loading.py::defer_code_highlighting` 保留完整原文、將大型Pygments span延後至畫面附近；64MiB內容雜湊快取避免反覆轉換。`assets/code_loading.js` 保護選取、註記與編輯節點，`app/renderer.py::_find_with_stable_code` 搜尋期間暫停替換並檢查文件世代與page epoch。
+- 同一新版完整探針30暖樣本：full文字P95 9303.96→1492.70ms、首屏1777.14→1233.83ms、同步57.14→40.45ms；guard設定/資料不變。並非全部離屏高亮完成或500ms目標達成。
+- 最終一般回歸2173passed150skipped2warnings，相關Chromium117passed且lifetime probe無錯誤；HTML/PDF獨立snapshot匯出關閉延後高亮，完整語法與原稿保留。
+- fresh獨立驗收：另跑22passed8.26s，核對報告數字與限制通過；重算619來源和EXE/installer SHA與大小全部相符。本機候選`upgrade-20261023-code-preview`建置前後來源一致，包內EXE隔離smoke4樣本passed，三個最終guard設定/資料不變。正式發布、實機安裝升級、IME/DPI未驗證。
+- 證據與未驗事項：`docs/upgrades/2026-10-23-code-preview-performance.md`。進度接續以根目錄`PROGRESS.md`為準。
 
 ### 2026-08-18 — v1.23.0：啟動慢（第一次開啟等很久才出現內容）根因定案＋修正〔已實作＋已驗證＋已發布〕
 

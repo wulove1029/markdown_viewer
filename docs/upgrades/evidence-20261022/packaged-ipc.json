@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "status": "ExitStatus.NormalExit",
+  "elapsed_ms": 308.3922000005259,
+  "path_matches": true,
+  "received": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-exe-smoke-rujl326x\\sample.md",
+  "expected": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-exe-smoke-rujl326x\\sample.md",
+  "scope": "packaged second-instance forwarding; no MainWindow or cold first paint"
+}

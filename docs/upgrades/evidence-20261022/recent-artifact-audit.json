@@ -1,0 +1,22 @@
+{
+  "reviewer": "recent_history_review",
+  "checked_utc": "2026-10-22T18:05:36.447199+00:00",
+  "manifest": "docs\\upgrades\\evidence-20261022\\recent-build-manifest.json",
+  "source_count": 617,
+  "source_mismatches": [],
+  "artifacts": [
+    {
+      "path": "dist/upgrade-20261023/MarkdownViewer/MarkdownViewer.exe",
+      "bytes": 9754959,
+      "sha256": "08fd57249dcc25e81936e4165c9ff71dcfe9d0e1ecb7845832a7f79f7a750717",
+      "matches_manifest": true
+    },
+    {
+      "path": "installer_output/upgrade-20261023/MarkdownViewer_Setup_v1.36.0.exe",
+      "bytes": 166136173,
+      "sha256": "9fdafd56fc36f03addb4aa0ab4a5f5233d60f548f3afbdf78f86e21b8e1bdf11",
+      "matches_manifest": true
+    }
+  ],
+  "passed": true
+}

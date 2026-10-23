@@ -1,0 +1,272 @@
+<div id="mw-workspace-concept" class="viz-carousel" aria-label="Markdown Viewer 介面方向" data-previous-label="上一個方向" data-next-label="下一個方向">
+  <section data-variant="精簡工具列" aria-label="精簡工具列工作區">
+    <div class="mw-app" data-design="compact" data-mode="read" aria-label="精簡工具列設計">
+      <header class="mw-titlebar"><span class="mw-brand"><i data-lucide="notebook-pen" aria-hidden="true"></i> Markdown Viewer</span><span class="mw-concept">介面概念</span></header>
+      <div class="mw-toolbar">
+        <button type="button" class="mw-button cursor-interaction" data-action="library" aria-pressed="true"><i data-lucide="panel-left" aria-hidden="true"></i><span>文件庫</span></button>
+        <div class="mw-mode-switch" aria-label="工作模式">
+          <button type="button" class="mw-button cursor-interaction" data-mode-choice="read" aria-pressed="true">閱讀</button>
+          <button type="button" class="mw-button cursor-interaction" data-mode-choice="write" aria-pressed="false">寫作</button>
+          <button type="button" class="mw-button cursor-interaction" data-mode-choice="split" aria-pressed="false">並排</button>
+        </div>
+        <div class="mw-toolbar-end">
+          <button type="button" class="mw-button cursor-interaction" data-action="outline" aria-pressed="true"><i data-lucide="list-tree" aria-hidden="true"></i><span>大綱</span></button>
+          <button type="button" class="mw-button cursor-interaction" data-action="focus" aria-pressed="false"><i data-lucide="focus" aria-hidden="true"></i><span data-focus-label>專注</span></button>
+        </div>
+      </div>
+      <div class="mw-document-tab"><i data-lucide="file-text" aria-hidden="true"></i><span>閱讀與寫作計畫.md</span><span class="mw-document-state" data-save-status>已儲存 · 本機文件</span></div>
+      <div class="mw-workspace">
+        <aside class="mw-library" aria-label="文件庫">
+          <div class="mw-panel-heading">文件庫</div>
+          <div class="mw-folder"><i data-lucide="folder-open" aria-hidden="true"></i> 我的工作區</div>
+          <div class="mw-file is-current"><i data-lucide="file-text" aria-hidden="true"></i> 閱讀與寫作計畫</div>
+          <div class="mw-file"><i data-lucide="file-text" aria-hidden="true"></i> 閱讀筆記</div>
+          <div class="mw-file"><i data-lucide="file-text" aria-hidden="true"></i> 改版待辦</div>
+          <div class="mw-library-section">最近使用</div>
+          <div class="mw-file"><i data-lucide="file" aria-hidden="true"></i> 研究資料.pdf</div>
+          <div class="mw-tag"><i data-lucide="tag" aria-hidden="true"></i> #寫作　#產品筆記</div>
+        </aside>
+        <main class="mw-main">
+          <div class="mw-writing-toolbar" hidden>
+            <label>編輯方式 <select class="mw-select" data-editor-backend aria-label="編輯方式"><option value="source">Markdown 原始碼</option><option value="office">Office 視覺編輯</option></select></label>
+            <span class="mw-writing-hint">草稿即時預覽</span>
+          </div>
+          <div class="mw-reading-toolbar"><span>文件閱讀</span><label>字級 <select class="mw-select" data-reading-size aria-label="閱讀字級"><option value="17">標準</option><option value="19">舒適</option><option value="21">放大</option></select></label></div>
+          <div class="mw-pages">
+            <section class="mw-editor-pane" aria-label="Markdown 編輯區" hidden>
+              <div class="mw-pane-heading">原始碼</div>
+              <textarea class="mw-source" aria-label="編輯 Markdown 內容" spellcheck="false"></textarea>
+              <div class="mw-rich-editor" contenteditable="true" role="textbox" aria-label="Office 視覺編輯示意" aria-multiline="true" hidden></div>
+            </section>
+            <section class="mw-preview-pane" aria-label="閱讀區"><div class="mw-pane-heading mw-preview-heading" hidden>即時預覽</div><article class="mw-article"></article></section>
+          </div>
+        </main>
+        <aside class="mw-outline" aria-label="文件大綱">
+          <div class="mw-panel-heading">大綱</div>
+          <div class="mw-outline-title">閱讀與寫作計畫</div>
+          <button type="button" class="mw-outline-link cursor-interaction" data-section="0">留一點空間給文字</button>
+          <button type="button" class="mw-outline-link cursor-interaction" data-section="1">從閱讀自然進入寫作</button>
+          <button type="button" class="mw-outline-link cursor-interaction" data-section="2">今天的下一步</button>
+          <div class="mw-outline-note"><i data-lucide="bookmark" aria-hidden="true"></i> 回到上次閱讀位置</div>
+        </aside>
+      </div>
+      <footer class="mw-statusbar"><span data-current-mode>閱讀模式</span><span data-word-count></span><span>UTF-8</span><span class="mw-preview-only">概念預覽 · 不寫入檔案</span></footer>
+      <span class="mw-sr-only" role="status" aria-live="polite" data-announcement></span>
+    </div>
+  </section>
+  <section data-variant="保留功能區" aria-label="保留功能區工作區" hidden>
+    <div class="mw-app" data-design="ribbon" data-mode="read" aria-label="保留功能區設計">
+      <header class="mw-titlebar"><span class="mw-brand"><i data-lucide="notebook-pen" aria-hidden="true"></i> Markdown Viewer</span><span class="mw-concept">介面概念</span></header>
+      <div class="mw-ribbon-tabs" aria-label="功能區群組"><span class="mw-ribbon-selected">常用</span><span>插入</span><span>檢視</span><span>工具</span></div>
+      <div class="mw-toolbar mw-ribbon-toolbar">
+        <div class="mw-ribbon-group"><button type="button" class="mw-button cursor-interaction" data-action="library" aria-pressed="true"><i data-lucide="panel-left" aria-hidden="true"></i><span>文件庫</span></button><button type="button" class="mw-button cursor-interaction" data-action="outline" aria-pressed="true"><i data-lucide="list-tree" aria-hidden="true"></i><span>大綱</span></button><span class="mw-ribbon-caption">側邊面板</span></div>
+        <div class="mw-ribbon-group"><div class="mw-mode-switch" aria-label="工作模式"><button type="button" class="mw-button cursor-interaction" data-mode-choice="read" aria-pressed="true">閱讀</button><button type="button" class="mw-button cursor-interaction" data-mode-choice="write" aria-pressed="false">寫作</button><button type="button" class="mw-button cursor-interaction" data-mode-choice="split" aria-pressed="false">並排</button></div><span class="mw-ribbon-caption">文件工作方式</span></div>
+        <div class="mw-ribbon-group"><button type="button" class="mw-button cursor-interaction" data-action="focus" aria-pressed="false"><i data-lucide="focus" aria-hidden="true"></i><span data-focus-label>專注</span></button><span class="mw-ribbon-caption">專注閱讀與寫作</span></div>
+      </div>
+      <div class="mw-document-tab"><i data-lucide="file-text" aria-hidden="true"></i><span>閱讀與寫作計畫.md</span><span class="mw-document-state" data-save-status>已儲存 · 本機文件</span></div>
+      <div class="mw-workspace">
+        <aside class="mw-library" aria-label="文件庫">
+          <div class="mw-panel-heading">文件庫</div><div class="mw-folder"><i data-lucide="folder-open" aria-hidden="true"></i> 我的工作區</div>
+          <div class="mw-file is-current"><i data-lucide="file-text" aria-hidden="true"></i> 閱讀與寫作計畫</div><div class="mw-file"><i data-lucide="file-text" aria-hidden="true"></i> 閱讀筆記</div><div class="mw-file"><i data-lucide="file-text" aria-hidden="true"></i> 改版待辦</div>
+          <div class="mw-library-section">最近使用</div><div class="mw-file"><i data-lucide="file" aria-hidden="true"></i> 研究資料.pdf</div><div class="mw-tag"><i data-lucide="tag" aria-hidden="true"></i> #寫作　#產品筆記</div>
+        </aside>
+        <main class="mw-main">
+          <div class="mw-writing-toolbar" hidden><label>編輯方式 <select class="mw-select" data-editor-backend aria-label="編輯方式"><option value="source">Markdown 原始碼</option><option value="office">Office 視覺編輯</option></select></label><span class="mw-writing-hint">草稿即時預覽</span></div>
+          <div class="mw-reading-toolbar"><span>文件閱讀</span><label>字級 <select class="mw-select" data-reading-size aria-label="閱讀字級"><option value="17">標準</option><option value="19">舒適</option><option value="21">放大</option></select></label></div>
+          <div class="mw-pages"><section class="mw-editor-pane" aria-label="Markdown 編輯區" hidden><div class="mw-pane-heading">原始碼</div><textarea class="mw-source" aria-label="編輯 Markdown 內容" spellcheck="false"></textarea><div class="mw-rich-editor" contenteditable="true" role="textbox" aria-label="Office 視覺編輯示意" aria-multiline="true" hidden></div></section><section class="mw-preview-pane" aria-label="閱讀區"><div class="mw-pane-heading mw-preview-heading" hidden>即時預覽</div><article class="mw-article"></article></section></div>
+        </main>
+        <aside class="mw-outline" aria-label="文件大綱"><div class="mw-panel-heading">大綱</div><div class="mw-outline-title">閱讀與寫作計畫</div><button type="button" class="mw-outline-link cursor-interaction" data-section="0">留一點空間給文字</button><button type="button" class="mw-outline-link cursor-interaction" data-section="1">從閱讀自然進入寫作</button><button type="button" class="mw-outline-link cursor-interaction" data-section="2">今天的下一步</button><div class="mw-outline-note"><i data-lucide="bookmark" aria-hidden="true"></i> 回到上次閱讀位置</div></aside>
+      </div>
+      <footer class="mw-statusbar"><span data-current-mode>閱讀模式</span><span data-word-count></span><span>UTF-8</span><span class="mw-preview-only">概念預覽 · 不寫入檔案</span></footer><span class="mw-sr-only" role="status" aria-live="polite" data-announcement></span>
+    </div>
+  </section>
+</div>
+<style>
+#mw-workspace-concept .mw-app{--mw-bg:light-dark(#f7f8fa,#1e2228);--mw-page:light-dark(#ffffff,#252a31);--mw-text:light-dark(#242c36,#e3e7ed);--mw-secondary:light-dark(#626d7a,#a9b3c0);--mw-line:light-dark(#e1e5eb,#3b434f);--mw-hover:light-dark(#e9edf3,#343d49);--mw-selected:light-dark(#293e58,#c5d6ea);--mw-selected-text:light-dark(#ffffff,#1d2c40);--mw-soft:light-dark(#e8edf4,#354253);--mw-reader-size:17px;--mw-line-height:1.9;--mw-reader-width:680px;color:var(--mw-text);background:var(--mw-bg);font:14px/1.5 "Segoe UI","Microsoft JhengHei",sans-serif;border:1px solid var(--mw-line);border-radius:10px;min-width:0;min-height:940px;overflow-wrap:anywhere;display:flex;flex-direction:column}
+#mw-workspace-concept .mw-app *{box-sizing:border-box}
+#mw-workspace-concept .mw-app [hidden]{display:none!important}
+#mw-workspace-concept .mw-app button,#mw-workspace-concept .mw-app select,#mw-workspace-concept .mw-app textarea{font:inherit}
+#mw-workspace-concept .mw-app button{color:inherit}
+#mw-workspace-concept .mw-titlebar{display:flex;align-items:center;gap:12px;min-height:51px;padding:12px 112px 12px 17px;border-bottom:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-brand{display:inline-flex;gap:9px;align-items:center;font-weight:500}
+#mw-workspace-concept .mw-concept{font-size:12px;color:var(--mw-secondary);white-space:nowrap}
+#mw-workspace-concept .mw-app svg{width:17px;height:17px;flex-shrink:0}
+#mw-workspace-concept .mw-toolbar{display:flex;align-items:center;gap:12px;padding:10px 12px;flex-wrap:wrap;background:var(--mw-page);border-bottom:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-button{background:transparent;border:1px solid transparent;border-radius:6px;padding:7px 9px;min-height:35px;display:inline-flex;gap:7px;justify-content:center;align-items:center;white-space:nowrap}
+#mw-workspace-concept .mw-button:hover,#mw-workspace-concept .mw-outline-link:hover{background:var(--mw-hover)}
+#mw-workspace-concept .mw-button[aria-pressed="true"]{background:var(--mw-soft)}
+#mw-workspace-concept .mw-mode-switch{display:inline-flex;background:var(--mw-bg);padding:3px;gap:2px;border-radius:8px}
+#mw-workspace-concept .mw-mode-switch .mw-button[aria-pressed="true"]{background:var(--mw-selected);color:var(--mw-selected-text)}
+#mw-workspace-concept .mw-toolbar-end{display:flex;gap:5px;flex-wrap:wrap;margin-left:auto}
+#mw-workspace-concept .mw-document-tab{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:43px;padding:10px 18px;border-bottom:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-document-state{color:var(--mw-secondary);font-size:12px;margin-left:auto}
+#mw-workspace-concept .mw-workspace{display:flex;align-items:stretch;flex:1;min-width:0}
+#mw-workspace-concept .mw-library{flex:0 0 176px;padding:19px 10px;border-right:1px solid var(--mw-line);min-width:0}
+#mw-workspace-concept .mw-panel-heading{font-size:12px;font-weight:500;color:var(--mw-secondary);padding:0 9px 15px}
+#mw-workspace-concept .mw-folder,#mw-workspace-concept .mw-file{display:flex;align-items:center;gap:7px;padding:8px 8px;font-size:12px}
+#mw-workspace-concept .mw-folder{font-weight:500}
+#mw-workspace-concept .mw-file{margin-left:9px;border-radius:5px;color:var(--mw-secondary)}
+#mw-workspace-concept .mw-file.is-current{background:var(--mw-soft);color:var(--mw-text)}
+#mw-workspace-concept .mw-library-section{padding:28px 8px 7px;font-size:12px;color:var(--mw-secondary)}
+#mw-workspace-concept .mw-tag{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mw-secondary);padding:32px 8px 0}
+#mw-workspace-concept .mw-main{min-width:0;flex:1;background:var(--mw-page)}
+#mw-workspace-concept .mw-reading-toolbar,#mw-workspace-concept .mw-writing-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 20px;color:var(--mw-secondary);font-size:12px;min-height:57px}
+#mw-workspace-concept .mw-writing-toolbar{border-bottom:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-select{color:var(--mw-text);background:var(--mw-page);border:1px solid var(--mw-line);border-radius:5px;padding:5px 7px;max-width:100%}
+#mw-workspace-concept .mw-reading-toolbar label,#mw-workspace-concept .mw-writing-toolbar label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#mw-workspace-concept .mw-pages{min-width:0}
+#mw-workspace-concept .mw-preview-pane{min-width:0}
+#mw-workspace-concept .mw-article{max-width:var(--mw-reader-width);margin:0 auto;padding:15px 36px 40px;font-size:var(--mw-reader-size);line-height:var(--mw-line-height)}
+#mw-workspace-concept .mw-article h1,#mw-workspace-concept .mw-rich-editor h1{font-size:1.7em;line-height:1.4;font-weight:500;margin:0 0 1em;letter-spacing:.02em}
+#mw-workspace-concept .mw-article h2,#mw-workspace-concept .mw-rich-editor h2{font-size:1.14em;font-weight:500;line-height:1.6;margin:1.3em 0 .6em}
+#mw-workspace-concept .mw-article p,#mw-workspace-concept .mw-rich-editor p{margin:.65em 0}
+#mw-workspace-concept .mw-article strong,#mw-workspace-concept .mw-rich-editor strong{font-weight:500}
+#mw-workspace-concept .mw-article ul,#mw-workspace-concept .mw-rich-editor ul{padding-left:1.4em;margin:.6em 0}
+#mw-workspace-concept .mw-article li,#mw-workspace-concept .mw-rich-editor li{padding:3px 0}
+#mw-workspace-concept .mw-outline{flex:0 0 176px;padding:20px 10px;border-left:1px solid var(--mw-line);min-width:0}
+#mw-workspace-concept .mw-outline-title{font-size:12px;font-weight:500;padding:2px 8px 11px}
+#mw-workspace-concept .mw-outline-link{display:block;text-align:left;width:100%;border:0;background:transparent;border-radius:5px;padding:9px 8px;color:var(--mw-secondary);font-size:12px;white-space:normal}
+#mw-workspace-concept .mw-outline-note{font-size:12px;color:var(--mw-secondary);margin:27px 8px;display:flex;gap:6px;align-items:flex-start}
+#mw-workspace-concept .mw-statusbar{display:flex;gap:15px;flex-wrap:wrap;font-size:11px;color:var(--mw-secondary);padding:8px 15px;border-top:1px solid var(--mw-line);min-height:33px}
+#mw-workspace-concept .mw-preview-only{margin-left:auto}
+#mw-workspace-concept .mw-editor-pane{min-width:0}
+#mw-workspace-concept .mw-pane-heading{font-size:12px;color:var(--mw-secondary);padding:12px 22px 8px}
+#mw-workspace-concept .mw-source{display:block;width:100%;min-height:535px;resize:vertical;background:var(--mw-page);color:var(--mw-text);border:0;border-radius:0;padding:12px 25px 30px;font:15px/1.9 Consolas,"Microsoft JhengHei",monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+#mw-workspace-concept .mw-rich-editor{font-size:var(--mw-reader-size);line-height:var(--mw-line-height);max-width:var(--mw-reader-width);min-height:535px;margin:auto;padding:12px 30px 30px}
+#mw-workspace-concept .mw-app[data-mode="split"] .mw-pages{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+#mw-workspace-concept .mw-app[data-mode="split"] .mw-editor-pane{border-right:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-app[data-mode="split"] .mw-article{padding:12px 22px 30px;font-size:15px}
+#mw-workspace-concept .mw-app[data-mode="split"] .mw-source{font-size:14px;padding:12px 18px 24px}
+#mw-workspace-concept .mw-app[data-focus="true"] .mw-document-tab{border-bottom:0;background:var(--mw-page)}
+#mw-workspace-concept .mw-app[data-focus="true"] .mw-concept{display:none}
+#mw-workspace-concept .mw-ribbon-tabs{display:flex;gap:24px;padding:9px 21px 0;font-size:12px;background:var(--mw-page);color:var(--mw-secondary)}
+#mw-workspace-concept .mw-ribbon-tabs span{padding-bottom:9px}
+#mw-workspace-concept .mw-ribbon-tabs .mw-ribbon-selected{border-bottom:2px solid var(--mw-selected);color:var(--mw-text)}
+#mw-workspace-concept .mw-ribbon-toolbar{align-items:stretch;gap:18px;padding:10px 15px}
+#mw-workspace-concept .mw-ribbon-group{display:flex;justify-content:center;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;padding-right:17px;border-right:1px solid var(--mw-line)}
+#mw-workspace-concept .mw-ribbon-group:last-child{border-right:0}
+#mw-workspace-concept .mw-ribbon-caption{display:block;flex-basis:100%;text-align:center;color:var(--mw-secondary);font-size:11px;padding-top:4px}
+#mw-workspace-concept .mw-app[data-focus="true"] .mw-ribbon-tabs,#mw-workspace-concept .mw-app[data-focus="true"] .mw-ribbon-caption{display:none}
+#mw-workspace-concept .mw-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(min-width:681px) and (max-width:850px){#mw-workspace-concept .mw-app{min-height:1120px}}
+@media(max-width:850px){#mw-workspace-concept .mw-library{flex-basis:156px}#mw-workspace-concept .mw-outline{flex-basis:156px}#mw-workspace-concept .mw-app[data-mode="split"] .mw-workspace{flex-wrap:wrap}#mw-workspace-concept .mw-app[data-mode="split"] .mw-library,#mw-workspace-concept .mw-app[data-mode="split"] .mw-outline{flex-basis:100%;border:0;border-bottom:1px solid var(--mw-line)}#mw-workspace-concept .mw-app[data-mode="split"] .mw-library{display:flex;flex-wrap:wrap;align-items:center;padding:10px}#mw-workspace-concept .mw-app[data-mode="split"] .mw-library .mw-library-section,#mw-workspace-concept .mw-app[data-mode="split"] .mw-library .mw-tag{display:none}#mw-workspace-concept .mw-app[data-mode="split"] .mw-outline{display:flex;flex-wrap:wrap;align-items:center;padding:10px}#mw-workspace-concept .mw-app[data-mode="split"] .mw-outline-link{width:auto}#mw-workspace-concept .mw-app[data-mode="split"] .mw-outline-note{display:none}}
+@media(max-width:680px){#mw-workspace-concept .mw-app{min-height:1320px}#mw-workspace-concept .mw-titlebar{padding-left:12px;padding-right:100px;flex-wrap:wrap;gap:4px}#mw-workspace-concept .mw-concept{display:none}#mw-workspace-concept .mw-toolbar{gap:8px}#mw-workspace-concept .mw-toolbar-end{margin-left:0}#mw-workspace-concept .mw-workspace{flex-direction:column}#mw-workspace-concept .mw-library{display:flex;flex-wrap:wrap;align-items:center;gap:2px;flex-basis:auto;border-right:0;border-bottom:1px solid var(--mw-line);padding:8px}#mw-workspace-concept .mw-panel-heading{padding:7px 8px}#mw-workspace-concept .mw-library .mw-file:not(.is-current),#mw-workspace-concept .mw-library-section,#mw-workspace-concept .mw-tag{display:none}#mw-workspace-concept .mw-library .mw-file.is-current{margin-left:0}#mw-workspace-concept .mw-outline{display:flex;flex-wrap:wrap;align-items:center;flex-basis:auto;border-left:0;border-top:1px solid var(--mw-line);padding:8px}#mw-workspace-concept .mw-outline-title,#mw-workspace-concept .mw-outline-note{display:none}#mw-workspace-concept .mw-outline-link{width:auto}#mw-workspace-concept .mw-document-state{margin-left:0;width:100%;padding-left:25px}#mw-workspace-concept .mw-article{padding:10px 23px 32px}#mw-workspace-concept .mw-app[data-mode="split"] .mw-pages{grid-template-columns:minmax(0,1fr)}#mw-workspace-concept .mw-app[data-mode="split"] .mw-editor-pane{border-right:0;border-bottom:1px solid var(--mw-line)}#mw-workspace-concept .mw-source{min-height:440px}#mw-workspace-concept .mw-preview-only{margin-left:0}#mw-workspace-concept .mw-ribbon-toolbar{gap:10px}#mw-workspace-concept .mw-ribbon-group{border:0;padding-right:0}#mw-workspace-concept .mw-writing-hint{display:none}}
+@media(pointer:coarse){#mw-workspace-concept .mw-button,#mw-workspace-concept .mw-outline-link,#mw-workspace-concept .mw-select{min-height:44px}#mw-workspace-concept .mw-source,#mw-workspace-concept .mw-select{font-size:16px}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('mw-workspace-concept');
+  if (!root) return;
+  const initialMarkdown = `# 閱讀與寫作計畫
+
+## 留一點空間給文字
+
+閱讀時，最重要的是讓注意力停留在內容。舒服的字級、安定的版面，以及不擁擠的行距，都能讓長篇文件更容易讀下去。
+
+工具安靜地待在需要的位置，文字則擁有足夠的空間。
+
+## 從閱讀自然進入寫作
+
+看到值得記下的想法，就切換到**寫作**。需要核對格式時打開並排預覽；想把段落寫完，就收起面板，專心把話說清楚。
+
+## 今天的下一步
+
+- 把想法寫成一個完整的段落
+- 讀一遍，刪掉不必要的詞
+- 留下明天可以接續的線索`;
+  const apps = Array.from(root.querySelectorAll('.mw-app'));
+  const records = [];
+  const escapeHTML = value => value.replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+  function markdownHTML(value) {
+    let inList = false;
+    const output = [];
+    for (const rawLine of value.split(/\r?\n/)) {
+      const line = escapeHTML(rawLine).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      const listItem = line.startsWith('- ');
+      if (inList && !listItem) { output.push('</ul>'); inList = false; }
+      if (listItem) { if (!inList) { output.push('<ul>'); inList = true; } output.push('<li>' + line.slice(2) + '</li>'); }
+      else if (line.startsWith('## ')) output.push('<h2>' + line.slice(3) + '</h2>');
+      else if (line.startsWith('# ')) output.push('<h1>' + line.slice(2) + '</h1>');
+      else if (line.trim()) output.push('<p>' + line + '</p>');
+    }
+    if (inList) output.push('</ul>');
+    return output.join('');
+  }
+  function saveState() {
+    const snapshot = {};
+    records.forEach(record => { snapshot[record.id] = { ...record.state, markdown: record.state.markdown.slice(0,1000), rich: record.state.rich.slice(0,1000) }; });
+    if (window.openai && typeof window.openai.setWidgetState === 'function') window.openai.setWidgetState({modelContent:{interfaceChoices:records.map(record => ({direction:record.id === 'compact'?'精簡工具列':'保留功能區', mode:record.state.mode, focus:record.state.focus, editor:record.state.backend}))},privateContent:{workspaceConcept:snapshot}}).catch(() => {});
+  }
+  function applySaved(record, saved) {
+    if (!saved || typeof saved !== 'object') return;
+    if (['read','write','split'].includes(saved.mode)) record.state.mode = saved.mode;
+    if (['source','office'].includes(saved.backend)) record.state.backend = saved.backend;
+    ['library','outline','focus','dirty','generous'].forEach(key => { if (typeof saved[key] === 'boolean') record.state[key] = saved[key]; });
+    if ([17,19,21].includes(Number(saved.size))) record.state.size = Number(saved.size);
+    if (Number.isFinite(saved.width) && saved.width >= 480 && saved.width <= 800) record.state.width = saved.width;
+    if (typeof saved.markdown === 'string') record.state.markdown = saved.markdown.slice(0,3500);
+    if (typeof saved.rich === 'string') record.state.rich = saved.rich.slice(0,3500);
+  }
+  apps.forEach(app => {
+    const state = { mode:'read', backend:'source', library:true, outline:true, focus:false, dirty:false, size:17, width:680, generous:true, markdown:initialMarkdown, rich:'' };
+    const record = { app, id:app.dataset.design, state };
+    records.push(record);
+    const source = app.querySelector('.mw-source');
+    const rich = app.querySelector('.mw-rich-editor');
+    const article = app.querySelector('.mw-article');
+    const announcement = app.querySelector('[data-announcement]');
+    function updateArticle() {
+      article.innerHTML = state.backend === 'office' && state.rich ? markdownHTML(state.rich) : markdownHTML(state.markdown);
+      const content = state.backend === 'office' && state.rich ? state.rich : state.markdown;
+      app.querySelector('[data-word-count]').textContent = content.replace(/\s|[#*\-]/g,'').length + ' 字';
+      app.querySelector('[data-save-status]').textContent = state.dirty ? '草稿已更新 · 僅預覽' : '已儲存 · 本機文件';
+    }
+    function render() {
+      app.dataset.mode = state.mode;
+      app.dataset.focus = String(state.focus);
+      app.style.setProperty('--mw-reader-size', state.size + 'px');
+      app.style.setProperty('--mw-reader-width', state.width + 'px');
+      app.style.setProperty('--mw-line-height', state.generous ? '1.9' : '1.65');
+      app.querySelector('.mw-library').hidden = !state.library || state.focus;
+      app.querySelector('.mw-outline').hidden = !state.outline || state.focus;
+      app.querySelector('.mw-editor-pane').hidden = state.mode === 'read';
+      app.querySelector('.mw-preview-pane').hidden = state.mode === 'write';
+      app.querySelector('.mw-writing-toolbar').hidden = state.mode === 'read';
+      app.querySelector('.mw-reading-toolbar').hidden = state.mode !== 'read';
+      app.querySelector('.mw-preview-heading').hidden = state.mode !== 'split';
+      app.querySelector('.mw-pane-heading').textContent = state.backend === 'source' ? '原始碼' : '視覺編輯';
+      source.hidden = state.backend !== 'source';
+      rich.hidden = state.backend !== 'office';
+      if (source.value !== state.markdown) source.value = state.markdown;
+      if (document.activeElement !== rich) rich.innerHTML = markdownHTML(state.rich || state.markdown);
+      app.querySelectorAll('[data-mode-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.modeChoice === state.mode)));
+      app.querySelectorAll('[data-action]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.action === 'focus' ? state.focus : state[button.dataset.action] && !state.focus)));
+      app.querySelector('[data-focus-label]').textContent = state.focus ? '離開專注' : '專注';
+      app.querySelector('[data-editor-backend]').value = state.backend;
+      app.querySelector('[data-reading-size]').value = String(state.size);
+      app.querySelector('[data-current-mode]').textContent = ({read:'閱讀',write:'寫作',split:'並排'})[state.mode] + '模式' + (state.focus ? ' · 專注' : '');
+      updateArticle();
+    }
+    record.render = render;
+    app.querySelectorAll('[data-mode-choice]').forEach(button => button.addEventListener('click', () => { state.mode = button.dataset.modeChoice; render(); announcement.textContent = app.querySelector('[data-current-mode]').textContent; saveState(); }));
+    app.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => { const action = button.dataset.action; if (state.focus && action !== 'focus') { state.focus = false; state[action] = true; } else state[action] = !state[action]; render(); announcement.textContent = action === 'focus' ? (state.focus ? '已收合左右面板，進入專注模式' : '已恢復面板配置') : (state[action] ? '已展開' : '已收合') + (action === 'library' ? '文件庫' : '大綱'); saveState(); }));
+    app.querySelector('[data-editor-backend]').addEventListener('change', event => { state.backend = event.target.value; render(); saveState(); });
+    app.querySelector('[data-reading-size]').addEventListener('change', event => { state.size = Number(event.target.value); render(); saveState(); });
+    source.addEventListener('input', () => { state.markdown = source.value; state.rich = ''; state.dirty = true; updateArticle(); saveState(); });
+    rich.addEventListener('input', () => { state.rich = rich.innerText; state.dirty = true; updateArticle(); saveState(); });
+    app.querySelectorAll('[data-section]').forEach(button => button.addEventListener('click', () => { if (state.mode === 'write') { state.mode = 'read'; render(); } const target = article.querySelectorAll('h2')[Number(button.dataset.section)]; if (target) target.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'nearest'}); }));
+    applySaved(record, window.openai?.widgetState?.privateContent?.workspaceConcept?.[record.id]);
+    render();
+    if (globalThis.Tweak) {
+      const tweak = new Tweak({container:app,onChange:render});
+      tweak.addSlider(state,'width',{label:'閱讀欄寬',min:480,max:800,step:40,unit:'px'});
+      tweak.addToggle(state,'generous',{label:'寬鬆行距'});
+    }
+  });
+  window.addEventListener('openai:set_globals', event => {
+    const saved = event.detail?.globals?.widgetState?.privateContent?.workspaceConcept;
+    if (!saved) return;
+    records.forEach(record => { applySaved(record,saved[record.id]); record.render(); });
+  });
+})();
+</script>

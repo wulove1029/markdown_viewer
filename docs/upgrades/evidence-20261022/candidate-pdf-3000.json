@@ -1,0 +1,1304 @@
+{
+  "root": "D:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "pdf",
+  "size": 3000,
+  "category": "long_prose",
+  "working_set": 2,
+  "frozen": false,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.pdf",
+      "warm": false,
+      "body_cache_hit": null,
+      "sync_ms": 254.14340000133961,
+      "ready_ms": 308.6026999990281,
+      "full_ready_ms": 308.6026999990281,
+      "max_ui_gap_ms": 259.87330000134534,
+      "full_max_ui_gap_ms": 259.87330000134534,
+      "rss_tree_bytes": 267427840,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 214.14359999835142
+        },
+        {
+          "method": "_load_document",
+          "ms": 249.30089999907068
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 249.36109999907785
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00549999822396785
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 210403328
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 57032704
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": false,
+      "body_cache_hit": null,
+      "sync_ms": 113.99249999885797,
+      "ready_ms": 143.20560000123805,
+      "full_ready_ms": 143.20560000123805,
+      "max_ui_gap_ms": 114.23890000151005,
+      "full_max_ui_gap_ms": 114.23890000151005,
+      "rss_tree_bytes": 286085120,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 78.42209999944316
+        },
+        {
+          "method": "_load_document",
+          "ms": 111.96679999920889
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 112.02839999896241
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 45.73119999986375,
+      "ready_ms": 58.26299999898765,
+      "full_ready_ms": 58.26299999898765,
+      "max_ui_gap_ms": 46.58449999988079,
+      "full_max_ui_gap_ms": 46.58449999988079,
+      "rss_tree_bytes": 300470272,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 10.713899999245768
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.341900000494206
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.40629999974044
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 242393088
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58077184
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 45.889200002420694,
+      "ready_ms": 54.81169999984559,
+      "full_ready_ms": 54.81169999984559,
+      "max_ui_gap_ms": 46.87969999940833,
+      "full_max_ui_gap_ms": 46.87969999940833,
+      "rss_tree_bytes": 300486656,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.02320000063628
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.3799999995681
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.45450000296114
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004099998477613553
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.204599999735365,
+      "ready_ms": 54.28290000054403,
+      "full_ready_ms": 54.28290000054403,
+      "max_ui_gap_ms": 48.96070000177133,
+      "full_max_ui_gap_ms": 48.96070000177133,
+      "rss_tree_bytes": 300728320,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 13.044100000115577
+        },
+        {
+          "method": "_load_document",
+          "ms": 47.80899999968824
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 47.87600000054226
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 242651136
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58077184
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.38739999831887,
+      "ready_ms": 54.08699999679811,
+      "full_ready_ms": 54.08699999679811,
+      "max_ui_gap_ms": 48.79040000014356,
+      "full_max_ui_gap_ms": 48.79040000014356,
+      "rss_tree_bytes": 300732416,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.890400000993395
+        },
+        {
+          "method": "_load_document",
+          "ms": 47.87880000003497
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 47.952699998859316
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036000019463244826
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.76409999997122,
+      "ready_ms": 55.620099999941885,
+      "full_ready_ms": 55.620099999941885,
+      "max_ui_gap_ms": 49.63259999931324,
+      "full_max_ui_gap_ms": 49.63259999931324,
+      "rss_tree_bytes": 300908544,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.558300000615418
+        },
+        {
+          "method": "_load_document",
+          "ms": 48.318099998141406
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 48.393099998065736
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009799998224480078
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 242831360
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58077184
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 52.62389999916195,
+      "ready_ms": 58.274799997889204,
+      "full_ready_ms": 58.274799997889204,
+      "max_ui_gap_ms": 53.442500000528526,
+      "full_max_ui_gap_ms": 53.442500000528526,
+      "rss_tree_bytes": 300994560,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 13.15930000055232
+        },
+        {
+          "method": "_load_document",
+          "ms": 52.09630000172183
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 52.18109999987064
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.896299998887116,
+      "ready_ms": 54.01559999882011,
+      "full_ready_ms": 54.01559999882011,
+      "max_ui_gap_ms": 49.688199997035554,
+      "full_max_ui_gap_ms": 49.688199997035554,
+      "rss_tree_bytes": 300998656,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 13.093699999444652
+        },
+        {
+          "method": "_load_document",
+          "ms": 48.45700000078068
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 48.52699999901233
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0035999983083456755
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 242905088
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 45.43230000126641,
+      "ready_ms": 49.64829999880749,
+      "full_ready_ms": 49.64829999880749,
+      "max_ui_gap_ms": 45.75560000012047,
+      "full_max_ui_gap_ms": 45.75560000012047,
+      "rss_tree_bytes": 300998656,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 10.954399996990105
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.00009999901522
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.07089999970049
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030999981390777975
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.87379999854602,
+      "ready_ms": 54.40939999971306,
+      "full_ready_ms": 54.40939999971306,
+      "max_ui_gap_ms": 49.62779999914346,
+      "full_max_ui_gap_ms": 49.62779999914346,
+      "rss_tree_bytes": 301027328,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.831600000732578
+        },
+        {
+          "method": "_load_document",
+          "ms": 48.492399997485336
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 48.56099999960861
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 242933760
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 55.46269999831566,
+      "ready_ms": 60.63899999935529,
+      "full_ready_ms": 60.63899999935529,
+      "max_ui_gap_ms": 56.41010000181268,
+      "full_max_ui_gap_ms": 56.41010000181268,
+      "rss_tree_bytes": 301039616,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.983000000327593
+        },
+        {
+          "method": "_load_document",
+          "ms": 55.05030000131228
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 55.13470000005327
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 49.86490000010235,
+      "ready_ms": 57.04460000197287,
+      "full_ready_ms": 57.04460000197287,
+      "max_ui_gap_ms": 50.83320000267122,
+      "full_max_ui_gap_ms": 50.83320000267122,
+      "rss_tree_bytes": 301191168,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.822400000004563
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.407200000132434
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.52920000141603
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007599999662488699
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243097600
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 50.00049999944167,
+      "ready_ms": 55.36500000016531,
+      "full_ready_ms": 55.36500000016531,
+      "max_ui_gap_ms": 50.88009999963106,
+      "full_max_ui_gap_ms": 50.88009999963106,
+      "rss_tree_bytes": 301195264,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.589299996761838
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.4953000015812
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.57989999820711
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 47.311599999375176,
+      "ready_ms": 53.47809999875608,
+      "full_ready_ms": 53.47809999875608,
+      "max_ui_gap_ms": 48.10440000073868,
+      "full_max_ui_gap_ms": 48.10440000073868,
+      "rss_tree_bytes": 301395968,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.314899998978944
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.77980000269599
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.85360000075889
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243302400
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 59.19290000019828,
+      "ready_ms": 64.69809999907739,
+      "full_ready_ms": 64.69809999907739,
+      "max_ui_gap_ms": 60.025700000551296,
+      "full_max_ui_gap_ms": 60.025700000551296,
+      "rss_tree_bytes": 301395968,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 20.538299999316223
+        },
+        {
+          "method": "_load_document",
+          "ms": 58.5215999999491
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 58.61000000004424
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0035000011848751456
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 51.95370000001276,
+      "ready_ms": 57.4360999999044,
+      "full_ready_ms": 57.4360999999044,
+      "max_ui_gap_ms": 52.74389999976847,
+      "full_max_ui_gap_ms": 52.74389999976847,
+      "rss_tree_bytes": 301412352,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.766400002670707
+        },
+        {
+          "method": "_load_document",
+          "ms": 51.44369999834453
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 51.526499999454245
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243318784
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 46.76829999880283,
+      "ready_ms": 51.36629999833531,
+      "full_ready_ms": 51.36629999833531,
+      "max_ui_gap_ms": 47.68649999823538,
+      "full_max_ui_gap_ms": 47.68649999823538,
+      "rss_tree_bytes": 301412352,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.343400001351256
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.140599999489496
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.251700001448626
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 48.071100001834566,
+      "ready_ms": 54.950100002315594,
+      "full_ready_ms": 54.950100002315594,
+      "max_ui_gap_ms": 49.07180000009248,
+      "full_max_ui_gap_ms": 49.07180000009248,
+      "rss_tree_bytes": 301424640,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.815300000307616
+        },
+        {
+          "method": "_load_document",
+          "ms": 47.52369999914663
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 47.60399999941001
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243331072
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 46.73659999752999,
+      "ready_ms": 51.70469999939087,
+      "full_ready_ms": 51.70469999939087,
+      "max_ui_gap_ms": 47.063199999684,
+      "full_max_ui_gap_ms": 47.063199999684,
+      "rss_tree_bytes": 301428736,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.015399999654619
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.36200000095414
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.42769999918528
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 49.934299997403286,
+      "ready_ms": 56.48989999826881,
+      "full_ready_ms": 56.48989999826881,
+      "max_ui_gap_ms": 50.71269999825745,
+      "full_max_ui_gap_ms": 50.71269999825745,
+      "rss_tree_bytes": 301494272,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.765700001182267
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.41369999869494
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.49309999938123
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243404800
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 86.61389999906532,
+      "ready_ms": 96.23899999860441,
+      "full_ready_ms": 96.23899999860441,
+      "max_ui_gap_ms": 88.0555000003369,
+      "full_max_ui_gap_ms": 88.0555000003369,
+      "rss_tree_bytes": 301502464,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 17.681199999060482
+        },
+        {
+          "method": "_load_document",
+          "ms": 85.93339999788441
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 86.05760000136797
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0092999980552122
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 52.87930000122287,
+      "ready_ms": 59.655900000507245,
+      "full_ready_ms": 59.655900000507245,
+      "max_ui_gap_ms": 53.97400000219932,
+      "full_max_ui_gap_ms": 53.97400000219932,
+      "rss_tree_bytes": 301854720,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 13.959500000055414
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.72780000025523
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.88680000315071
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006900001608300954
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243761152
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 56.68829999922309,
+      "ready_ms": 61.64310000167461,
+      "full_ready_ms": 61.64310000167461,
+      "max_ui_gap_ms": 57.69960000179708,
+      "full_max_ui_gap_ms": 57.69960000179708,
+      "rss_tree_bytes": 301854720,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 14.182200000504963
+        },
+        {
+          "method": "_load_document",
+          "ms": 55.98979999922449
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 56.22130000119796
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 46.35150000103749,
+      "ready_ms": 52.27200000081211,
+      "full_ready_ms": 52.27200000081211,
+      "max_ui_gap_ms": 47.125200002483325,
+      "full_max_ui_gap_ms": 47.125200002483325,
+      "rss_tree_bytes": 302075904,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.970600000495324
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.94429999997374
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.0203000002366
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 243982336
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 49.728800000593765,
+      "ready_ms": 54.98789999910514,
+      "full_ready_ms": 54.98789999910514,
+      "max_ui_gap_ms": 50.62819999875501,
+      "full_max_ui_gap_ms": 50.62819999875501,
+      "rss_tree_bytes": 302133248,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.296199998672819
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.225899998418754
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.303299998427974
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 47.47309999947902,
+      "ready_ms": 53.11240000082762,
+      "full_ready_ms": 53.11240000082762,
+      "max_ui_gap_ms": 48.1939000019338,
+      "full_max_ui_gap_ms": 48.1939000019338,
+      "rss_tree_bytes": 302702592,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.786800001573283
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.96750000221073
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 47.038000000611646
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037000027077738196
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 244609024
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 46.06039999998757,
+      "ready_ms": 50.58979999739677,
+      "full_ready_ms": 50.58979999739677,
+      "max_ui_gap_ms": 46.61869999836199,
+      "full_max_ui_gap_ms": 46.61869999836199,
+      "rss_tree_bytes": 302718976,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.22319999942556
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.66039999917848
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.7362999986799
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037000027077738196
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 47.028599998157006,
+      "ready_ms": 52.958899999794085,
+      "full_ready_ms": 52.958899999794085,
+      "max_ui_gap_ms": 47.6950999982364,
+      "full_max_ui_gap_ms": 47.6950999982364,
+      "rss_tree_bytes": 302788608,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.90350000251783
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.498600000631995
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.58170000038808
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037000027077738196
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 244695040
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58093568
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 50.20680000234279,
+      "ready_ms": 53.93700000058743,
+      "full_ready_ms": 53.93700000058743,
+      "max_ui_gap_ms": 50.919000001158565,
+      "full_max_ui_gap_ms": 50.919000001158565,
+      "rss_tree_bytes": 302796800,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.595399999350775
+        },
+        {
+          "method": "_load_document",
+          "ms": 49.65499999889289
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 49.738599998818245
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0030000010156072676
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 47.29330000191112,
+      "ready_ms": 52.82509999960894,
+      "full_ready_ms": 52.82509999960894,
+      "max_ui_gap_ms": 48.0533000009018,
+      "full_max_ui_gap_ms": 48.0533000009018,
+      "rss_tree_bytes": 302903296,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 11.561200000869576
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.91819999789004
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.9965999982378
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 16740,
+          "name": "python.exe",
+          "rss": 244805632
+        },
+        {
+          "pid": 38964,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 58097664
+        }
+      ],
+      "navigation_history_entries": 0
+    },
+    {
+      "path": "B.pdf",
+      "warm": true,
+      "body_cache_hit": null,
+      "sync_ms": 46.45810000147321,
+      "ready_ms": 50.63069999960135,
+      "full_ready_ms": 50.63069999960135,
+      "max_ui_gap_ms": 47.24509999869042,
+      "full_max_ui_gap_ms": 47.24509999869042,
+      "rss_tree_bytes": 302907392,
+      "sync_sections": [
+        {
+          "method": "_open_pdf",
+          "ms": 12.080199998308672
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.078100000158884
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.15700000067591
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-c7ma8hvk",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-c7ma8hvk/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": 1499,
+  "file_bytes": {
+    "A.pdf": 1049071,
+    "B.pdf": 1049071
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 219140096,
+  "window_ready_wall_time": 1792685530.5232992,
+  "summary": {
+    "sync_ms": {
+      "n": 30,
+      "p50_ms": 48.575749999145046,
+      "p95_ms": 59.19290000019828,
+      "max_ms": 86.61389999906532
+    },
+    "ready_ms": {
+      "n": 30,
+      "p50_ms": 54.61054999977932,
+      "p95_ms": 64.69809999907739,
+      "max_ms": 96.23899999860441
+    },
+    "full_ready_ms": {
+      "n": 30,
+      "p50_ms": 54.61054999977932,
+      "p95_ms": 64.69809999907739,
+      "max_ms": 96.23899999860441
+    },
+    "max_ui_gap_ms": {
+      "n": 30,
+      "p50_ms": 49.34979999961797,
+      "p95_ms": 60.025700000551296,
+      "max_ms": 88.0555000003369
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 249.36109999907785,
+      "path": "A.pdf",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 249.30089999907068,
+      "path": "A.pdf",
+      "warm": false
+    },
+    {
+      "method": "_open_pdf",
+      "ms": 214.14359999835142,
+      "path": "A.pdf",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 112.02839999896241,
+      "path": "B.pdf",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 111.96679999920889,
+      "path": "B.pdf",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 86.05760000136797,
+      "path": "B.pdf",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 85.93339999788441,
+      "path": "B.pdf",
+      "warm": true
+    },
+    {
+      "method": "_open_pdf",
+      "ms": 78.42209999944316,
+      "path": "B.pdf",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 58.61000000004424,
+      "path": "B.pdf",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 58.5215999999491,
+      "path": "B.pdf",
+      "warm": true
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 303235072,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 334356480,
+  "process_memory_after_close": [
+    {
+      "pid": 16740,
+      "name": "python.exe",
+      "rss": 255750144
+    },
+    {
+      "pid": 38964,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 78606336
+    }
+  ]
+}

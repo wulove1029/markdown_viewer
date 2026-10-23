@@ -1,0 +1,34 @@
+{
+  "exit_code": 0,
+  "exe_sha256": "9117fecfa993b25b0633e72c3857fcf968cf3e77d69b8d976c39c6915320f580",
+  "passed": true,
+  "tabs_closed": true,
+  "sample_count": 4,
+  "summary": {
+    "sync_ms": {
+      "n": 2,
+      "p50_ms": 41.37494999997671,
+      "p95_ms": 50.14759999994567,
+      "max_ms": 50.14759999994567
+    },
+    "ready_ms": {
+      "n": 2,
+      "p50_ms": 890.3025500000012,
+      "p95_ms": 902.5234999999157,
+      "max_ms": 902.5234999999157
+    },
+    "full_ready_ms": {
+      "n": 2,
+      "p50_ms": 953.5995499999785,
+      "p95_ms": 968.7481999999363,
+      "max_ms": 968.7481999999363
+    },
+    "max_ui_gap_ms": {
+      "n": 2,
+      "p50_ms": 42.0353000000091,
+      "p95_ms": 50.4703999999947,
+      "max_ms": 50.4703999999947
+    }
+  },
+  "scope": "Isolated packaged code-heavy functional smoke; not an installer run."
+}

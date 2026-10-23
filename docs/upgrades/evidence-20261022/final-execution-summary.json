@@ -1,0 +1,52 @@
+{
+  "provenance": "Recorded by the root agent from actual terminal tool results; this is a summary, not raw stdout or a second run.",
+  "build": {
+    "command": ".\\tmp\\upgrade-venv\\Scripts\\python.exe -X utf8 tmp/build_upgrade_delivery.py",
+    "terminal_session_id": 78918,
+    "exit_code": 0,
+    "stdout_markers": [
+      "pyinstaller.log: exit 0",
+      "installer.log: exit 0"
+    ],
+    "logs": [
+      "pyinstaller.log",
+      "installer.log"
+    ],
+    "manifest": "build-manifest.json"
+  },
+  "ordinary_tests": {
+    "command": ".\\tmp\\upgrade-venv\\Scripts\\python.exe -X utf8 -m pytest tests/ -x -q --tb=short",
+    "environment": {
+      "QT_QPA_PLATFORM": "offscreen",
+      "QTWEBENGINE_CHROMIUM_FLAGS": "--disable-gpu",
+      "RUN_WEBENGINE_TESTS": "unset"
+    },
+    "exit_code": 0,
+    "result": "2160 passed, 143 skipped, 2 warnings in 121.86s",
+    "log": "pytest.log",
+    "driver": "tmp/validate_upgrade_final.py; renderer stage starts only after ordinary exit 0"
+  },
+  "renderer_tests": {
+    "status": "passed",
+    "exit_code": 0,
+    "terminal_session_id": 19315,
+    "result": "131 passed in 259.77s",
+    "log": "renderer.log",
+    "scope": "12 renderer test files listed in implementation report; includes immediate navigation after rotation without prewarm"
+  },
+  "withdrawn_experiment": {
+    "scope": "Blank renderer spare-page prewarm removed after reproducible native access violation",
+    "full_suite_log": "prewarm-native-crash.log",
+    "minimal_log": "prewarm-native-crash-minimal.log",
+    "minimal_exit_code": 3221225477,
+    "renderer_restored_to_initial_manifest": true
+  },
+  "final_benchmarks": {
+    "terminal_session_id": 57748,
+    "driver_exit_code": 0,
+    "commands": "final-benchmark-commands.json",
+    "cases": 3,
+    "all_child_exit_codes": 0,
+    "native_settings_and_scoped_persistent_data_unchanged": true
+  }
+}

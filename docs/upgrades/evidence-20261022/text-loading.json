@@ -1,0 +1,51 @@
+{
+  "strategy": "hybrid",
+  "python": "3.13.5",
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-text-benchmark-i6y8bzwf",
+  "pyside": "6.11.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "unicode_line": true,
+  "rows": [
+    {
+      "case": "5mb",
+      "bytes": 5000000,
+      "characters": 3906250,
+      "no_wrap": false,
+      "ready_ms": 460.74310000039986,
+      "attach_ms": 57.80120000054012,
+      "load_and_attach_gap_max_ms": 66.46220000038738,
+      "first_repaint_ms": 2.914799999416573,
+      "ui_gap_max_ms": 66.46220000038738,
+      "total_ms": 528.8914000011573,
+      "exact_roundtrip_and_save": true
+    },
+    {
+      "case": "50mb",
+      "bytes": 50000000,
+      "characters": 39062500,
+      "no_wrap": false,
+      "ready_ms": 5609.09410000022,
+      "attach_ms": 596.9294999995327,
+      "load_and_attach_gap_max_ms": 658.2201000019268,
+      "first_repaint_ms": 4.951500002789544,
+      "ui_gap_max_ms": 658.2201000019268,
+      "total_ms": 6267.021700001351,
+      "exact_roundtrip_and_save": true
+    },
+    {
+      "case": "1m-line",
+      "bytes": 2750000,
+      "characters": 1000000,
+      "no_wrap": true,
+      "ready_ms": 928.7470999988727,
+      "attach_ms": 1859.1495000000577,
+      "load_and_attach_gap_max_ms": 3863.5377999999037,
+      "first_repaint_ms": 1180.2046000011615,
+      "ui_gap_max_ms": 3863.5377999999037,
+      "total_ms": 5972.909299998719,
+      "exact_roundtrip_and_save": true
+    }
+  ],
+  "source_editor": true,
+  "scope": "Offscreen TXT component; all Qt attach/paint stalls retained."
+}

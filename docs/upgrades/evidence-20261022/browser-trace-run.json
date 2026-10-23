@@ -1,0 +1,120 @@
+{
+  "root": "D:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 1000000,
+  "category": "code_heavy",
+  "working_set": 2,
+  "frozen": false,
+  "status": "running",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 29.21079999941867,
+      "ready_ms": 863.9681999993627,
+      "full_ready_ms": 9301.802599999064,
+      "max_ui_gap_ms": 60.863200000312645,
+      "full_max_ui_gap_ms": 60.863200000312645,
+      "rss_tree_bytes": 1010155520,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1266000001342036
+        },
+        {
+          "method": "_load_document",
+          "ms": 22.417899999709334
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 22.499899998365436
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004999998054699972
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 22820,
+          "name": "python.exe",
+          "rss": 201269248
+        },
+        {
+          "pid": 14724,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 746463232
+        },
+        {
+          "pid": 45064,
+          "name": "python.exe",
+          "rss": 4354048
+        },
+        {
+          "pid": 51812,
+          "name": "conhost.exe",
+          "rss": 8073216
+        },
+        {
+          "pid": 38508,
+          "name": "python.exe",
+          "rss": 50003968
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 39.44670000055339,
+      "ready_ms": 543.9063000012538,
+      "full_ready_ms": 8062.425000000076,
+      "max_ui_gap_ms": 39.600899999641115,
+      "full_max_ui_gap_ms": 39.600899999641115,
+      "rss_tree_bytes": 1618083840,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.6481000020576175
+        },
+        {
+          "method": "_load_document",
+          "ms": 36.731699998199474
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 36.81959999812534
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-ny7jrbgz",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-ny7jrbgz/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 1047495,
+    "B.md": 1047495
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 188755968,
+  "window_ready_wall_time": 1792693943.421416
+}

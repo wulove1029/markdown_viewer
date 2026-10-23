@@ -1,0 +1,38 @@
+{
+  "provenance": "Recorded by the root agent from actual terminal tool results; this is a summary, not raw stdout or a second run.",
+  "build": {
+    "command": ".\\tmp\\upgrade-venv\\Scripts\\python.exe -X utf8 tmp/build_upgrade_delivery.py",
+    "terminal_session_id": 52609,
+    "exit_code": 0,
+    "stdout_markers": [
+      "pyinstaller.log: exit 0",
+      "installer.log: exit 0"
+    ],
+    "logs": [
+      "pyinstaller.log",
+      "installer.log"
+    ],
+    "manifest": "build-manifest.json"
+  },
+  "ordinary_tests": {
+    "command": ".\\tmp\\upgrade-venv\\Scripts\\python.exe -X utf8 -m pytest tests/ -x -q --tb=short",
+    "environment": {
+      "QT_QPA_PLATFORM": "offscreen",
+      "QTWEBENGINE_CHROMIUM_FLAGS": "--disable-gpu",
+      "RUN_WEBENGINE_TESTS": "unset"
+    },
+    "exit_code": 0,
+    "result": "2160 passed, 154 skipped, 2 warnings in 121.85s",
+    "log": "pytest.log",
+    "driver": "tmp/validate_upgrade_final.py; renderer stage starts only after ordinary exit 0"
+  },
+  "renderer_tests": {
+    "status": "failed",
+    "driver_exit_code": 1,
+    "terminal_session_id": 63538,
+    "error": "Windows fatal exception: access violation",
+    "test": "test_unready_spare_never_delays_navigation",
+    "log": "prewarm-native-crash.log",
+    "candidate_delivery_blocked": true
+  }
+}

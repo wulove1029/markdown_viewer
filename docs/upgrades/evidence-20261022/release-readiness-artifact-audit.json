@@ -1,0 +1,29 @@
+{
+  "audited_utc": "2026-10-22T17:16:36.928941+00:00",
+  "reviewer": "release_gate_review",
+  "source_count": 617,
+  "source_mismatches": [],
+  "artifacts": [
+    {
+      "path": "dist/upgrade-20261022/MarkdownViewer/MarkdownViewer.exe",
+      "bytes": 9754633,
+      "sha256": "d7d39014b746badf0954b950d7012b3be239311d7ef890d6f51bf1fee4565512",
+      "matches_manifest": true
+    },
+    {
+      "path": "installer_output/upgrade-20261022/MarkdownViewer_Setup_v1.36.0.exe",
+      "bytes": 166128651,
+      "sha256": "ba5455a80b8ad98bf7799f05915fb542a3d88d85b74433bd62eea10c8766d840",
+      "matches_manifest": true
+    }
+  ],
+  "document_local_links": {
+    "evidence-20261022/release-readiness-pytest.log": true,
+    "evidence-20261022/release-readiness-first-failure.log": true,
+    "evidence-20261022/build-manifest.json": true,
+    "../../dist/upgrade-20261022/MarkdownViewer/MarkdownViewer.exe": true,
+    "../../installer_output/upgrade-20261022/MarkdownViewer_Setup_v1.36.0.exe": true
+  },
+  "scope": "Independent SHA256 and document readback only; no installation or execution. Native access violation root cause remains unresolved.",
+  "passed": true
+}

@@ -1,0 +1,926 @@
+{
+  "root": "D:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 1000000,
+  "category": "code_heavy",
+  "working_set": 2,
+  "frozen": false,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 36.36679999908665,
+      "ready_ms": 1082.5568000000203,
+      "full_ready_ms": 9737.209700000676,
+      "max_ui_gap_ms": 130.3157000002102,
+      "full_max_ui_gap_ms": 130.3157000002102,
+      "rss_tree_bytes": 956567552,
+      "sync_sections": [
+        {
+          "since_open_ms": 7.798599999659928,
+          "method": "_prepare_recovery_state",
+          "ms": 0.5090999984531663
+        },
+        {
+          "since_open_ms": 8.311999998113606,
+          "method": "_refresh_stale_clean_editor_state",
+          "ms": 0.0037999998312443495
+        },
+        {
+          "since_open_ms": 8.765300000959542,
+          "method": "_sync_renderer_annotations",
+          "ms": 0.41029999920283444
+        },
+        {
+          "since_open_ms": 9.468600001127925,
+          "method": "load_file",
+          "ms": 1.4787000000069384
+        },
+        {
+          "since_open_ms": 11.559300000953954,
+          "method": "_watch_current_file",
+          "ms": 0.6400999991456047
+        },
+        {
+          "since_open_ms": 12.239200001204154,
+          "method": "navigate_to",
+          "ms": 0.08649999654153362
+        },
+        {
+          "since_open_ms": 12.332800000876887,
+          "method": "select_path",
+          "ms": 0.03939999805879779
+        },
+        {
+          "since_open_ms": 12.379299998428905,
+          "method": "add",
+          "ms": 15.84050000019488
+        },
+        {
+          "since_open_ms": 28.252899999642977,
+          "method": "_refresh_link_index",
+          "ms": 0.7259000012709294
+        },
+        {
+          "since_open_ms": 28.981899999052985,
+          "method": "_refresh_icons",
+          "ms": 7.31400000222493
+        },
+        {
+          "since_open_ms": 7.21730000077514,
+          "method": "_load_document",
+          "ms": 29.08689999821945
+        },
+        {
+          "since_open_ms": 7.189600000856444,
+          "method": "_activate_tab",
+          "ms": 29.174600000260398
+        },
+        {
+          "since_open_ms": 43.98550000041723,
+          "method": "_refresh_properties_panel",
+          "ms": 0.00839999847812578
+        },
+        {
+          "since_open_ms": 527.1425999999337,
+          "method": "_set_document_html",
+          "ms": 4.3680999988282565
+        },
+        {
+          "since_open_ms": 623.0638999986695,
+          "method": "_navigate_page",
+          "ms": 1.476000001275679
+        },
+        {
+          "since_open_ms": 1086.1275999995996,
+          "method": "_schedule_content_frame",
+          "ms": 0.05020000025979243
+        },
+        {
+          "since_open_ms": 1084.839600000123,
+          "method": "_on_markdown_load_checked",
+          "ms": 1.3409999992290977
+        },
+        {
+          "since_open_ms": 3294.702799998049,
+          "method": "_set_document_html",
+          "ms": 0.1633000028959941
+        },
+        {
+          "since_open_ms": 3321.564199999557,
+          "method": "_navigate_page",
+          "ms": 1.1692000007315073
+        },
+        {
+          "since_open_ms": 9469.92599999794,
+          "method": "_schedule_content_frame",
+          "ms": 0.04230000195093453
+        },
+        {
+          "since_open_ms": 9469.489600000088,
+          "method": "_on_markdown_load_checked",
+          "ms": 0.48099999912665226
+        }
+      ],
+      "success": true,
+      "browser_metrics": {
+        "navigation": [
+          {
+            "name": "file:///C:/Users/woo75/AppData/Local/Temp/markdown-viewer-b0w9_rvw.html",
+            "entryType": "navigation",
+            "startTime": 0,
+            "duration": 5351.699999999255,
+            "initiatorType": "navigation",
+            "deliveryType": "",
+            "nextHopProtocol": "",
+            "renderBlockingStatus": "non-blocking",
+            "workerStart": 0,
+            "workerRouterEvaluationStart": 0,
+            "workerCacheLookupStart": 0,
+            "workerMatchedSourceType": "",
+            "workerFinalSourceType": "",
+            "redirectStart": 0,
+            "redirectEnd": 0,
+            "fetchStart": 3.400000002235174,
+            "domainLookupStart": 3.400000002235174,
+            "domainLookupEnd": 3.400000002235174,
+            "connectStart": 3.400000002235174,
+            "secureConnectionStart": 0,
+            "connectEnd": 3.400000002235174,
+            "requestStart": 3.400000002235174,
+            "responseStart": 3.400000002235174,
+            "firstInterimResponseStart": 0,
+            "finalResponseHeadersStart": 0,
+            "responseEnd": 589.4000000022352,
+            "transferSize": 7880806,
+            "encodedBodySize": 7880506,
+            "decodedBodySize": 7880506,
+            "responseStatus": 200,
+            "serverTiming": [],
+            "unloadEventStart": 121,
+            "unloadEventEnd": 121,
+            "domInteractive": 1339.300000000745,
+            "domContentLoadedEventStart": 1339.300000000745,
+            "domContentLoadedEventEnd": 1350.800000000745,
+            "domComplete": 5351.199999999255,
+            "loadEventStart": 5351.699999999255,
+            "loadEventEnd": 5351.699999999255,
+            "type": "navigate",
+            "redirectCount": 0,
+            "activationStart": 0,
+            "criticalCHRestart": 0,
+            "notRestoredReasons": null
+          }
+        ],
+        "paint": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 284,
+            "duration": 0
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 284,
+            "duration": 0
+          }
+        ],
+        "elements": 292514,
+        "spans": 288007,
+        "htmlBytes": 7912571
+      },
+      "process_memory": [
+        {
+          "pid": 47176,
+          "name": "python.exe",
+          "rss": 200376320
+        },
+        {
+          "pid": 50912,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 715825152
+        },
+        {
+          "pid": 51476,
+          "name": "python.exe",
+          "rss": 4354048
+        },
+        {
+          "pid": 53356,
+          "name": "conhost.exe",
+          "rss": 8077312
+        },
+        {
+          "pid": 34972,
+          "name": "python.exe",
+          "rss": 50458624
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 48.275699999067,
+      "ready_ms": 1233.2755999996152,
+      "full_ready_ms": 8409.367199998087,
+      "max_ui_gap_ms": 48.303600000508595,
+      "full_max_ui_gap_ms": 48.303600000508595,
+      "rss_tree_bytes": 1633312768,
+      "sync_sections": [
+        {
+          "since_open_ms": 3.124899998510955,
+          "method": "_prepare_recovery_state",
+          "ms": 0.36240000190446153
+        },
+        {
+          "since_open_ms": 3.4903000014310237,
+          "method": "_refresh_stale_clean_editor_state",
+          "ms": 0.0021999985619913787
+        },
+        {
+          "since_open_ms": 3.7918000016361475,
+          "method": "_sync_renderer_annotations",
+          "ms": 0.07519999780924991
+        },
+        {
+          "since_open_ms": 4.110599998966791,
+          "method": "load_file",
+          "ms": 1.497400000516791
+        },
+        {
+          "since_open_ms": 6.874200000311248,
+          "method": "_watch_current_file",
+          "ms": 2.3927000002004206
+        },
+        {
+          "since_open_ms": 9.294899999076733,
+          "method": "navigate_to",
+          "ms": 0.06760000178474002
+        },
+        {
+          "since_open_ms": 9.367300001031253,
+          "method": "select_path",
+          "ms": 0.026999998226528987
+        },
+        {
+          "since_open_ms": 9.398099999089027,
+          "method": "add",
+          "ms": 34.36530000180937
+        },
+        {
+          "since_open_ms": 43.77590000149212,
+          "method": "_refresh_link_index",
+          "ms": 0.1545999984955415
+        },
+        {
+          "since_open_ms": 43.93239999990328,
+          "method": "_refresh_icons",
+          "ms": 4.238500001520151
+        },
+        {
+          "since_open_ms": 2.891000000090571,
+          "method": "_load_document",
+          "ms": 45.293700000911485
+        },
+        {
+          "since_open_ms": 2.8688999991572928,
+          "method": "_activate_tab",
+          "ms": 45.40130000168574
+        },
+        {
+          "since_open_ms": 49.7572999993281,
+          "method": "_set_document_html",
+          "ms": 0.15519999942625873
+        },
+        {
+          "since_open_ms": 52.377700001670746,
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        },
+        {
+          "since_open_ms": 58.134099999733735,
+          "method": "_navigate_page",
+          "ms": 0.9699000002001412
+        },
+        {
+          "since_open_ms": 1233.0994000003557,
+          "method": "_schedule_content_frame",
+          "ms": 0.045500000851461664
+        },
+        {
+          "since_open_ms": 1232.179399998131,
+          "method": "_on_markdown_load_checked",
+          "ms": 0.9676000008767005
+        },
+        {
+          "since_open_ms": 2312.5313999989885,
+          "method": "_set_document_html",
+          "ms": 0.1326000019616913
+        },
+        {
+          "since_open_ms": 2332.357300001604,
+          "method": "_navigate_page",
+          "ms": 0.685199996951269
+        },
+        {
+          "since_open_ms": 8191.658100000495,
+          "method": "_schedule_content_frame",
+          "ms": 0.034199998481199145
+        },
+        {
+          "since_open_ms": 8191.2704999995185,
+          "method": "_on_markdown_load_checked",
+          "ms": 0.4234000007272698
+        }
+      ],
+      "success": true,
+      "browser_metrics": {
+        "navigation": [
+          {
+            "name": "file:///C:/Users/woo75/AppData/Local/Temp/markdown-viewer-uw1lrz3k.html",
+            "entryType": "navigation",
+            "startTime": 0,
+            "duration": 5152.400000002235,
+            "initiatorType": "navigation",
+            "deliveryType": "",
+            "nextHopProtocol": "",
+            "renderBlockingStatus": "non-blocking",
+            "workerStart": 0,
+            "workerRouterEvaluationStart": 0,
+            "workerCacheLookupStart": 0,
+            "workerMatchedSourceType": "",
+            "workerFinalSourceType": "",
+            "redirectStart": 0,
+            "redirectEnd": 0,
+            "fetchStart": 2.5,
+            "domainLookupStart": 2.5,
+            "domainLookupEnd": 2.5,
+            "connectStart": 2.5,
+            "secureConnectionStart": 0,
+            "connectEnd": 2.5,
+            "requestStart": 2.5,
+            "responseStart": 2.5,
+            "firstInterimResponseStart": 0,
+            "finalResponseHeadersStart": 0,
+            "responseEnd": 566,
+            "transferSize": 7880806,
+            "encodedBodySize": 7880506,
+            "decodedBodySize": 7880506,
+            "responseStatus": 200,
+            "serverTiming": [],
+            "unloadEventStart": 105.10000000149012,
+            "unloadEventEnd": 105.10000000149012,
+            "domInteractive": 1309.5,
+            "domContentLoadedEventStart": 1309.6000000014901,
+            "domContentLoadedEventEnd": 1320,
+            "domComplete": 5151.900000002235,
+            "loadEventStart": 5152.400000002235,
+            "loadEventEnd": 5152.400000002235,
+            "type": "navigate",
+            "redirectCount": 0,
+            "activationStart": 0,
+            "criticalCHRestart": 0,
+            "notRestoredReasons": null
+          }
+        ],
+        "paint": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 268,
+            "duration": 0
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 268,
+            "duration": 0
+          }
+        ],
+        "elements": 292514,
+        "spans": 288007,
+        "htmlBytes": 7912571
+      }
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 49.93090000061784,
+      "ready_ms": 780.2484999992885,
+      "full_ready_ms": 8921.649800002342,
+      "max_ui_gap_ms": 49.99080000197864,
+      "full_max_ui_gap_ms": 49.99080000197864,
+      "rss_tree_bytes": 2319519744,
+      "sync_sections": [
+        {
+          "since_open_ms": 0.8591000005253591,
+          "method": "_prepare_recovery_state",
+          "ms": 0.0289999989036005
+        },
+        {
+          "since_open_ms": 0.8921000007831026,
+          "method": "_refresh_stale_clean_editor_state",
+          "ms": 0.0036999990697950125
+        },
+        {
+          "since_open_ms": 1.3519999993150122,
+          "method": "_sync_renderer_annotations",
+          "ms": 0.109200002043508
+        },
+        {
+          "since_open_ms": 1.756100002239691,
+          "method": "load_file",
+          "ms": 1.742499996908009
+        },
+        {
+          "since_open_ms": 5.814200001623249,
+          "method": "_watch_current_file",
+          "ms": 2.0158000006631482
+        },
+        {
+          "since_open_ms": 7.845300002372824,
+          "method": "navigate_to",
+          "ms": 0.03979999746661633
+        },
+        {
+          "since_open_ms": 7.887800002208678,
+          "method": "select_path",
+          "ms": 0.017399997886968777
+        },
+        {
+          "since_open_ms": 7.907600000180537,
+          "method": "add",
+          "ms": 36.71480000048177
+        },
+        {
+          "since_open_ms": 44.65130000244244,
+          "method": "_refresh_link_index",
+          "ms": 0.3093999985139817
+        },
+        {
+          "since_open_ms": 44.96859999926528,
+          "method": "_refresh_icons",
+          "ms": 4.7354000016639475
+        },
+        {
+          "since_open_ms": 0.38700000004610047,
+          "method": "_load_document",
+          "ms": 49.32530000223778
+        },
+        {
+          "since_open_ms": 0.3577999996196013,
+          "method": "_activate_tab",
+          "ms": 49.378900002921
+        },
+        {
+          "since_open_ms": 72.00030000240076,
+          "method": "_set_document_html",
+          "ms": 0.18619999900693074
+        },
+        {
+          "since_open_ms": 88.90660000179196,
+          "method": "_refresh_properties_panel",
+          "ms": 0.009199997293762863
+        },
+        {
+          "since_open_ms": 102.72570000233827,
+          "method": "_navigate_page",
+          "ms": 1.519899997219909
+        },
+        {
+          "since_open_ms": 7778.2182000009925,
+          "method": "_schedule_content_frame",
+          "ms": 0.07790000017848797
+        },
+        {
+          "since_open_ms": 7777.247199999692,
+          "method": "_on_markdown_load_checked",
+          "ms": 1.0550000006332994
+        }
+      ],
+      "success": true,
+      "browser_metrics": {
+        "navigation": [
+          {
+            "name": "file:///C:/Users/woo75/AppData/Local/Temp/markdown-viewer-f21cmaj1.html",
+            "entryType": "navigation",
+            "startTime": 0,
+            "duration": 7462.89999999851,
+            "initiatorType": "navigation",
+            "deliveryType": "",
+            "nextHopProtocol": "",
+            "renderBlockingStatus": "non-blocking",
+            "workerStart": 0,
+            "workerRouterEvaluationStart": 0,
+            "workerCacheLookupStart": 0,
+            "workerMatchedSourceType": "",
+            "workerFinalSourceType": "",
+            "redirectStart": 0,
+            "redirectEnd": 0,
+            "fetchStart": 3.5,
+            "domainLookupStart": 3.5,
+            "domainLookupEnd": 3.5,
+            "connectStart": 3.5,
+            "secureConnectionStart": 0,
+            "connectEnd": 3.5,
+            "requestStart": 3.5,
+            "responseStart": 3.5,
+            "firstInterimResponseStart": 0,
+            "finalResponseHeadersStart": 0,
+            "responseEnd": 783.6000000014901,
+            "transferSize": 7880806,
+            "encodedBodySize": 7880506,
+            "decodedBodySize": 7880506,
+            "responseStatus": 200,
+            "serverTiming": [],
+            "unloadEventStart": 115.69999999925494,
+            "unloadEventEnd": 115.69999999925494,
+            "domInteractive": 5889.199999999255,
+            "domContentLoadedEventStart": 5889.300000000745,
+            "domContentLoadedEventEnd": 5903.699999999255,
+            "domComplete": 7462.5,
+            "loadEventStart": 7462.89999999851,
+            "loadEventEnd": 7462.89999999851,
+            "type": "navigate",
+            "redirectCount": 0,
+            "activationStart": 0,
+            "criticalCHRestart": 0,
+            "notRestoredReasons": null
+          }
+        ],
+        "paint": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 368,
+            "duration": 0
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 368,
+            "duration": 0
+          }
+        ],
+        "elements": 292514,
+        "spans": 288007,
+        "htmlBytes": 7912571
+      },
+      "process_memory": [
+        {
+          "pid": 47176,
+          "name": "python.exe",
+          "rss": 210530304
+        },
+        {
+          "pid": 50912,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 2118553600
+        },
+        {
+          "pid": 51476,
+          "name": "python.exe",
+          "rss": 4354048
+        },
+        {
+          "pid": 53356,
+          "name": "conhost.exe",
+          "rss": 8077312
+        },
+        {
+          "pid": 34972,
+          "name": "python.exe",
+          "rss": 51834880
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.77710000233492,
+      "ready_ms": 584.4443999994837,
+      "full_ready_ms": 6646.800800001074,
+      "max_ui_gap_ms": 38.84020000259625,
+      "full_max_ui_gap_ms": 38.84020000259625,
+      "rss_tree_bytes": 3013087232,
+      "sync_sections": [
+        {
+          "since_open_ms": 0.565500002267072,
+          "method": "_prepare_recovery_state",
+          "ms": 0.014799999917158857
+        },
+        {
+          "since_open_ms": 0.5832000024383888,
+          "method": "_refresh_stale_clean_editor_state",
+          "ms": 0.0028999966161791235
+        },
+        {
+          "since_open_ms": 0.8979000012914184,
+          "method": "_sync_renderer_annotations",
+          "ms": 0.0824999988253694
+        },
+        {
+          "since_open_ms": 1.2658000014198478,
+          "method": "load_file",
+          "ms": 1.1913999987882562
+        },
+        {
+          "since_open_ms": 4.992700000002515,
+          "method": "_watch_current_file",
+          "ms": 1.6687999996065628
+        },
+        {
+          "since_open_ms": 6.675900000118418,
+          "method": "navigate_to",
+          "ms": 0.0397000003431458
+        },
+        {
+          "since_open_ms": 6.719000000884989,
+          "method": "select_path",
+          "ms": 0.01790000169421546
+        },
+        {
+          "since_open_ms": 6.74050000088755,
+          "method": "add",
+          "ms": 26.86859999812441
+        },
+        {
+          "since_open_ms": 33.62340000239783,
+          "method": "_refresh_link_index",
+          "ms": 0.14430000010179356
+        },
+        {
+          "since_open_ms": 33.769600002415245,
+          "method": "_refresh_icons",
+          "ms": 4.604799996741349
+        },
+        {
+          "since_open_ms": 0.3180999992764555,
+          "method": "_load_document",
+          "ms": 38.076600001659244
+        },
+        {
+          "since_open_ms": 0.29569999969680794,
+          "method": "_activate_tab",
+          "ms": 38.18460000184132
+        },
+        {
+          "since_open_ms": 53.0179000015778,
+          "method": "_set_document_html",
+          "ms": 0.13519999993150122
+        },
+        {
+          "since_open_ms": 69.09799999993993,
+          "method": "_refresh_properties_panel",
+          "ms": 0.007700000423938036
+        },
+        {
+          "since_open_ms": 79.94740000140155,
+          "method": "_navigate_page",
+          "ms": 0.7259999983943999
+        },
+        {
+          "since_open_ms": 5548.379300002125,
+          "method": "_schedule_content_frame",
+          "ms": 0.03909999941242859
+        },
+        {
+          "since_open_ms": 5547.7035000003525,
+          "method": "_on_markdown_load_checked",
+          "ms": 0.7170999997470062
+        }
+      ],
+      "success": true,
+      "browser_metrics": {
+        "navigation": [
+          {
+            "name": "file:///C:/Users/woo75/AppData/Local/Temp/markdown-viewer-31ka8db5.html",
+            "entryType": "navigation",
+            "startTime": 0,
+            "duration": 5247.199999999255,
+            "initiatorType": "navigation",
+            "deliveryType": "",
+            "nextHopProtocol": "",
+            "renderBlockingStatus": "non-blocking",
+            "workerStart": 0,
+            "workerRouterEvaluationStart": 0,
+            "workerCacheLookupStart": 0,
+            "workerMatchedSourceType": "",
+            "workerFinalSourceType": "",
+            "redirectStart": 0,
+            "redirectEnd": 0,
+            "fetchStart": 2.699999999254942,
+            "domainLookupStart": 2.699999999254942,
+            "domainLookupEnd": 2.699999999254942,
+            "connectStart": 2.699999999254942,
+            "secureConnectionStart": 0,
+            "connectEnd": 2.699999999254942,
+            "requestStart": 2.699999999254942,
+            "responseStart": 2.699999999254942,
+            "firstInterimResponseStart": 0,
+            "finalResponseHeadersStart": 0,
+            "responseEnd": 633.8000000007451,
+            "transferSize": 7880807,
+            "encodedBodySize": 7880507,
+            "decodedBodySize": 7880507,
+            "responseStatus": 200,
+            "serverTiming": [],
+            "unloadEventStart": 105.5,
+            "unloadEventEnd": 105.5,
+            "domInteractive": 1353.699999999255,
+            "domContentLoadedEventStart": 1353.699999999255,
+            "domContentLoadedEventEnd": 1365.0999999977648,
+            "domComplete": 5246.599999997765,
+            "loadEventStart": 5247.199999999255,
+            "loadEventEnd": 5247.199999999255,
+            "type": "navigate",
+            "redirectCount": 0,
+            "activationStart": 0,
+            "criticalCHRestart": 0,
+            "notRestoredReasons": null
+          }
+        ],
+        "paint": [
+          {
+            "name": "first-paint",
+            "entryType": "paint",
+            "startTime": 328,
+            "duration": 0
+          },
+          {
+            "name": "first-contentful-paint",
+            "entryType": "paint",
+            "startTime": 328,
+            "duration": 0
+          }
+        ],
+        "elements": 292514,
+        "spans": 288007,
+        "htmlBytes": 7912572
+      }
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-6j0oqyl3",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-6j0oqyl3/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 1047495,
+    "B.md": 1047495
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 190717952,
+  "window_ready_wall_time": 1792693763.6499946,
+  "summary": {
+    "sync_ms": {
+      "n": 2,
+      "p50_ms": 44.35400000147638,
+      "p95_ms": 49.93090000061784,
+      "max_ms": 49.93090000061784
+    },
+    "ready_ms": {
+      "n": 2,
+      "p50_ms": 682.3464499993861,
+      "p95_ms": 780.2484999992885,
+      "max_ms": 780.2484999992885
+    },
+    "full_ready_ms": {
+      "n": 2,
+      "p50_ms": 7784.225300001708,
+      "p95_ms": 8921.649800002342,
+      "max_ms": 8921.649800002342
+    },
+    "max_ui_gap_ms": {
+      "n": 2,
+      "p50_ms": 44.415500002287445,
+      "p95_ms": 49.99080000197864,
+      "max_ms": 49.99080000197864
+    }
+  },
+  "top_sync_sections": [
+    {
+      "since_open_ms": 0.3577999996196013,
+      "method": "_activate_tab",
+      "ms": 49.378900002921,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "since_open_ms": 0.38700000004610047,
+      "method": "_load_document",
+      "ms": 49.32530000223778,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "since_open_ms": 2.8688999991572928,
+      "method": "_activate_tab",
+      "ms": 45.40130000168574,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "since_open_ms": 2.891000000090571,
+      "method": "_load_document",
+      "ms": 45.293700000911485,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "since_open_ms": 0.29569999969680794,
+      "method": "_activate_tab",
+      "ms": 38.18460000184132,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "since_open_ms": 0.3180999992764555,
+      "method": "_load_document",
+      "ms": 38.076600001659244,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "since_open_ms": 7.907600000180537,
+      "method": "add",
+      "ms": 36.71480000048177,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "since_open_ms": 9.398099999089027,
+      "method": "add",
+      "ms": 34.36530000180937,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "since_open_ms": 7.189600000856444,
+      "method": "_activate_tab",
+      "ms": 29.174600000260398,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "since_open_ms": 7.21730000077514,
+      "method": "_load_document",
+      "ms": 29.08689999821945,
+      "path": "A.md",
+      "warm": false
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 3058544640,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 1192701952,
+  "process_memory_after_close": [
+    {
+      "pid": 47176,
+      "name": "python.exe",
+      "rss": 208375808
+    },
+    {
+      "pid": 50912,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 379756544
+    },
+    {
+      "pid": 51476,
+      "name": "python.exe",
+      "rss": 4341760
+    },
+    {
+      "pid": 46532,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 73146368
+    },
+    {
+      "pid": 53356,
+      "name": "conhost.exe",
+      "rss": 8056832
+    },
+    {
+      "pid": 34972,
+      "name": "python.exe",
+      "rss": 51834880
+    }
+  ]
+}

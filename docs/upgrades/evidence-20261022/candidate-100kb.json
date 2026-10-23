@@ -1,0 +1,2399 @@
+{
+  "root": "D:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 100000,
+  "category": "long_prose",
+  "working_set": 2,
+  "frozen": false,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 80.61300000190386,
+      "ready_ms": 340.7413999993878,
+      "full_ready_ms": 343.482899999799,
+      "max_ui_gap_ms": 86.29389999987325,
+      "full_max_ui_gap_ms": 86.29389999987325,
+      "rss_tree_bytes": 282849280,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0314000028301962
+        },
+        {
+          "method": "_load_document",
+          "ms": 75.29579999754787
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 75.36199999958626
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006500002200482413
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 181051392
+        },
+        {
+          "pid": 17448,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 102789120
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 92.95259999998962,
+      "ready_ms": 214.6969999994326,
+      "full_ready_ms": 218.5721999994712,
+      "max_ui_gap_ms": 93.8908000025549,
+      "full_max_ui_gap_ms": 93.8908000025549,
+      "rss_tree_bytes": 293830656,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0929999989457428
+        },
+        {
+          "method": "_load_document",
+          "ms": 90.18060000016703
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 90.25470000051428
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006099999154685065
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.630100000067614,
+      "ready_ms": 126.78560000131256,
+      "full_ready_ms": 134.70910000251024,
+      "max_ui_gap_ms": 40.386900000157766,
+      "full_max_ui_gap_ms": 40.386900000157766,
+      "rss_tree_bytes": 304095232,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.096500000130618
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.16670000035083
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.24150000239024
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005599998985417187
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 186449920
+        },
+        {
+          "pid": 17448,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 118054912
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.5642999978445,
+      "ready_ms": 162.64919999957783,
+      "full_ready_ms": 166.13739999957033,
+      "max_ui_gap_ms": 42.11639999994077,
+      "full_max_ui_gap_ms": 42.11639999994077,
+      "rss_tree_bytes": 314372096,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0852999985218048
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.75669999999809
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.21769999983371
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006099999154685065
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 37.86259999833419,
+      "ready_ms": 129.17299999753595,
+      "full_ready_ms": 138.53559999915888,
+      "max_ui_gap_ms": 38.788399997429224,
+      "full_max_ui_gap_ms": 38.788399997429224,
+      "rss_tree_bytes": 324648960,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0674000004655682
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.36190000199713
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.44100000039907
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00540000110049732
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 187097088
+        },
+        {
+          "pid": 17448,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 137551872
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.8729000009771,
+      "ready_ms": 132.91910000043572,
+      "full_ready_ms": 147.5003999985347,
+      "max_ui_gap_ms": 41.132700000162004,
+      "full_max_ui_gap_ms": 41.132700000162004,
+      "rss_tree_bytes": 334213120,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2569000027724542
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.35680000015418
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.46060000109719
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005900001269765198
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 49.2091000014625,
+      "ready_ms": 141.29229999889503,
+      "full_ready_ms": 147.09560000119382,
+      "max_ui_gap_ms": 49.74930000025779,
+      "full_max_ui_gap_ms": 49.74930000025779,
+      "rss_tree_bytes": 343986176,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.240099998540245
+        },
+        {
+          "method": "_load_document",
+          "ms": 48.6782999978459
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 48.87020000023767
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005599998985417187
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 188801024
+        },
+        {
+          "pid": 17448,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 155193344
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.0182000012137,
+      "ready_ms": 139.44439999977476,
+      "full_ready_ms": 145.15460000257008,
+      "max_ui_gap_ms": 40.51940000135801,
+      "full_max_ui_gap_ms": 40.51940000135801,
+      "rss_tree_bytes": 352817152,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0407000008854084
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.64099999939208
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.71289999753935
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006000002031214535
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.47580000042217,
+      "ready_ms": 253.15409999893745,
+      "full_ready_ms": 256.4889999994193,
+      "max_ui_gap_ms": 40.834499999618856,
+      "full_max_ui_gap_ms": 40.834499999618856,
+      "rss_tree_bytes": 275505152,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0985000008076895
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.10969999944791
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.18550000182586
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006900001608300954
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 186269696
+        },
+        {
+          "pid": 47848,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 89235456
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.34469999896828,
+      "ready_ms": 171.37039999943227,
+      "full_ready_ms": 174.6787999982189,
+      "max_ui_gap_ms": 42.00900000068941,
+      "full_max_ui_gap_ms": 42.00900000068941,
+      "rss_tree_bytes": 288403456,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.5096000024641398
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.79500000059488
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.881200002128026
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006599999323952943
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.196499998273794,
+      "ready_ms": 160.23549999954412,
+      "full_ready_ms": 163.48220000145375,
+      "max_ui_gap_ms": 40.893000001233304,
+      "full_max_ui_gap_ms": 40.893000001233304,
+      "rss_tree_bytes": 302555136,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2328999982855748
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.68510000049719
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.7594999994908
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005399997462518513
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 187797504
+        },
+        {
+          "pid": 47848,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 114765824
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.0761000016937,
+      "ready_ms": 167.67910000271513,
+      "full_ready_ms": 170.7211000029929,
+      "max_ui_gap_ms": 39.66150000269408,
+      "full_max_ui_gap_ms": 39.66150000269408,
+      "rss_tree_bytes": 310099968,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1588999986997806
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.48000000289176
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.565200000448385
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00540000110049732
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 44.49920000115526,
+      "ready_ms": 161.34020000026794,
+      "full_ready_ms": 165.32530000040424,
+      "max_ui_gap_ms": 45.24519999904442,
+      "full_max_ui_gap_ms": 45.24519999904442,
+      "rss_tree_bytes": 320471040,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1462000002211425
+        },
+        {
+          "method": "_load_document",
+          "ms": 44.09320000195294
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 44.1675000001851
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006400001439033076
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 189370368
+        },
+        {
+          "pid": 47848,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 131108864
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.15199999755714,
+      "ready_ms": 150.9109999969951,
+      "full_ready_ms": 154.47929999936605,
+      "max_ui_gap_ms": 39.169899999251356,
+      "full_max_ui_gap_ms": 39.169899999251356,
+      "rss_tree_bytes": 330002432,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.5535000020463485
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.797799999883864
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.87030000259983
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.190600000845734,
+      "ready_ms": 155.7096000033198,
+      "full_ready_ms": 159.54530000090017,
+      "max_ui_gap_ms": 42.07790000145906,
+      "full_max_ui_gap_ms": 42.07790000145906,
+      "rss_tree_bytes": 340414464,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1432999999669846
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.81330000190064
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.88860000047134
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006299997039604932
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190132224
+        },
+        {
+          "pid": 47848,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 150286336
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.683899999043206,
+      "ready_ms": 160.08309999961057,
+      "full_ready_ms": 162.89700000197627,
+      "max_ui_gap_ms": 42.55410000041593,
+      "full_max_ui_gap_ms": 42.55410000041593,
+      "rss_tree_bytes": 350535680,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0713999981817324
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.00839999955497
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.28320000017993
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 48.27769999974407,
+      "ready_ms": 163.64289999910397,
+      "full_ready_ms": 167.69529999874067,
+      "max_ui_gap_ms": 49.375899998267414,
+      "full_max_ui_gap_ms": 49.375899998267414,
+      "rss_tree_bytes": 360423424,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2435999997251201
+        },
+        {
+          "method": "_load_document",
+          "ms": 47.853799998847535
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 47.923099999025
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005100002454128116
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190435328
+        },
+        {
+          "pid": 47848,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 169992192
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.393099999870174,
+      "ready_ms": 155.5636000011873,
+      "full_ready_ms": 159.28569999960018,
+      "max_ui_gap_ms": 39.971199999854434,
+      "full_max_ui_gap_ms": 39.971199999854434,
+      "rss_tree_bytes": 370688000,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0622000008879695
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.8929000000644
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.97020000295015
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004099998477613553
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 57.14010000156122,
+      "ready_ms": 266.9569000026968,
+      "full_ready_ms": 289.60420000294107,
+      "max_ui_gap_ms": 57.38530000235187,
+      "full_max_ui_gap_ms": 57.38530000235187,
+      "rss_tree_bytes": 271818752,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2150000002293382
+        },
+        {
+          "method": "_load_document",
+          "ms": 52.15200000020559
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 56.22660000153701
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008899998647393659
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 186703872
+        },
+        {
+          "pid": 46420,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 87220224
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 47.384100002091145,
+      "ready_ms": 140.33050000216463,
+      "full_ready_ms": 149.1731999994954,
+      "max_ui_gap_ms": 48.62739999953192,
+      "full_max_ui_gap_ms": 48.62739999953192,
+      "rss_tree_bytes": 290017280,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1277000012341887
+        },
+        {
+          "method": "_load_document",
+          "ms": 44.97339999943506
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.79459999897517
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0042000028770416975
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.74720000062371,
+      "ready_ms": 152.95630000036908,
+      "full_ready_ms": 155.57300000000396,
+      "max_ui_gap_ms": 41.07099999964703,
+      "full_max_ui_gap_ms": 41.07099999964703,
+      "rss_tree_bytes": 298397696,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.248600001417799
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.234600000985665
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.30689999854076
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00670000008540228
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 188162048
+        },
+        {
+          "pid": 46420,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 110235648
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 42.89679999783402,
+      "ready_ms": 197.11219999953755,
+      "full_ready_ms": 200.30269999915618,
+      "max_ui_gap_ms": 43.90810000040801,
+      "full_max_ui_gap_ms": 43.90810000040801,
+      "rss_tree_bytes": 309809152,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.114499998948304
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.947800000343705
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 42.581200003041886
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005399997462518513
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 54.51080000057118,
+      "ready_ms": 170.16809999768157,
+      "full_ready_ms": 173.95609999948647,
+      "max_ui_gap_ms": 55.06199999945238,
+      "full_max_ui_gap_ms": 55.06199999945238,
+      "rss_tree_bytes": 320425984,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 7.058300001517637
+        },
+        {
+          "method": "_load_document",
+          "ms": 54.090600002382416
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 54.17149999993853
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006099999154685065
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190173184
+        },
+        {
+          "pid": 46420,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 130252800
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 44.34909999690717,
+      "ready_ms": 181.83769999814103,
+      "full_ready_ms": 186.24049999925774,
+      "max_ui_gap_ms": 45.00919999918551,
+      "full_max_ui_gap_ms": 45.00919999918551,
+      "rss_tree_bytes": 330735616,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1598999990383163
+        },
+        {
+          "method": "_load_document",
+          "ms": 43.641300002491334
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 43.86609999710345
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006299997039604932
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 44.26640000019688,
+      "ready_ms": 170.53089999899385,
+      "full_ready_ms": 173.97079999864218,
+      "max_ui_gap_ms": 44.80150000017602,
+      "full_max_ui_gap_ms": 44.80150000017602,
+      "rss_tree_bytes": 340123648,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1659000010695308
+        },
+        {
+          "method": "_load_document",
+          "ms": 43.89420000006794
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 43.96650000126101
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008200000593205914
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190377984
+        },
+        {
+          "pid": 46420,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 149745664
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.710699998773634,
+      "ready_ms": 173.0515999988711,
+      "full_ready_ms": 181.7239999982121,
+      "max_ui_gap_ms": 39.23989999748301,
+      "full_max_ui_gap_ms": 39.23989999748301,
+      "rss_tree_bytes": 349986816,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1135999993712176
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.24969999914174
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.32719999991241
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 43.32100000101491,
+      "ready_ms": 148.47150000059628,
+      "full_ready_ms": 161.14379999999073,
+      "max_ui_gap_ms": 43.93049999998766,
+      "full_max_ui_gap_ms": 43.93049999998766,
+      "rss_tree_bytes": 359116800,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2854000015067868
+        },
+        {
+          "method": "_load_document",
+          "ms": 42.821300001378404
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 42.90290000062669
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005900001269765198
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 191008768
+        },
+        {
+          "pid": 46420,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 168108032
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 46.09990000244579,
+      "ready_ms": 175.22620000090683,
+      "full_ready_ms": 178.87620000328752,
+      "max_ui_gap_ms": 46.131200000672834,
+      "full_max_ui_gap_ms": 46.131200000672834,
+      "rss_tree_bytes": 369201152,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3446999982988928
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.45409999991534
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.54279999865685
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008200000593205914
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.07230000186246,
+      "ready_ms": 233.87130000264733,
+      "full_ready_ms": 237.22650000127032,
+      "max_ui_gap_ms": 39.685200001258636,
+      "full_max_ui_gap_ms": 39.685200001258636,
+      "rss_tree_bytes": 271556608,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0977000019920524
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.58860000036657
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.67770000215387
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006800000846851617
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 188538880
+        },
+        {
+          "pid": 4460,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 84897792
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 53.12279999998282,
+      "ready_ms": 152.51550000175484,
+      "full_ready_ms": 155.68100000018603,
+      "max_ui_gap_ms": 53.5849000007147,
+      "full_max_ui_gap_ms": 53.5849000007147,
+      "rss_tree_bytes": 288612352,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 5.927400001382921
+        },
+        {
+          "method": "_load_document",
+          "ms": 52.610799997637514
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 52.69169999883161
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005800000508315861
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.00839999955497,
+      "ready_ms": 159.18339999916498,
+      "full_ready_ms": 161.68130000005476,
+      "max_ui_gap_ms": 41.34259999773349,
+      "full_max_ui_gap_ms": 41.34259999773349,
+      "rss_tree_bytes": 297820160,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2825000012526289
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.61580000052345
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.689299999939976
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 189378560
+        },
+        {
+          "pid": 4460,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 108441600
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.63459999815677,
+      "ready_ms": 158.31880000041565,
+      "full_ready_ms": 162.1192999991763,
+      "max_ui_gap_ms": 42.19630000079633,
+      "full_max_ui_gap_ms": 42.19630000079633,
+      "rss_tree_bytes": 308101120,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0560999980953056
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.23359999700915
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.334299999813084
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 46.000000002095476,
+      "ready_ms": 194.34610000098473,
+      "full_ready_ms": 198.4145999995235,
+      "max_ui_gap_ms": 46.017300002858974,
+      "full_max_ui_gap_ms": 46.017300002858974,
+      "rss_tree_bytes": 322064384,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2980999999854248
+        },
+        {
+          "method": "_load_document",
+          "ms": 45.55350000009639
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 45.62959999748273
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006000002031214535
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190615552
+        },
+        {
+          "pid": 4460,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 131448832
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.374200001882855,
+      "ready_ms": 132.08840000152122,
+      "full_ready_ms": 138.51330000034068,
+      "max_ui_gap_ms": 42.10140000213869,
+      "full_max_ui_gap_ms": 42.10140000213869,
+      "rss_tree_bytes": 328019968,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.085899999452522
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.02240000065649
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.091099999903236
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006000002031214535
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 44.15729999891482,
+      "ready_ms": 176.10849999982747,
+      "full_ready_ms": 179.96689999927185,
+      "max_ui_gap_ms": 44.768700001441175,
+      "full_max_ui_gap_ms": 44.768700001441175,
+      "rss_tree_bytes": 337375232,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.037400001223432
+        },
+        {
+          "method": "_load_document",
+          "ms": 43.80500000115717
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 43.878500000573695
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004499997885432094
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190959616
+        },
+        {
+          "pid": 4460,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 146415616
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.88689999844064,
+      "ready_ms": 157.59949999846867,
+      "full_ready_ms": 161.19669999898179,
+      "max_ui_gap_ms": 41.49169999800506,
+      "full_max_ui_gap_ms": 41.49169999800506,
+      "rss_tree_bytes": 348049408,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0900000015681144
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.52839999712887
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.59570000026724
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 42.412200000399025,
+      "ready_ms": 177.70459999883315,
+      "full_ready_ms": 180.20930000056978,
+      "max_ui_gap_ms": 43.05640000166022,
+      "full_max_ui_gap_ms": 43.05640000166022,
+      "rss_tree_bytes": 358014976,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2756999967677984
+        },
+        {
+          "method": "_load_document",
+          "ms": 42.00649999984307
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 42.08199999993667
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006000002031214535
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 191639552
+        },
+        {
+          "pid": 4460,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 166375424
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 37.74390000035055,
+      "ready_ms": 149.64709999912884,
+      "full_ready_ms": 153.55400000044028,
+      "max_ui_gap_ms": 38.7351999997918,
+      "full_max_ui_gap_ms": 38.7351999997918,
+      "rss_tree_bytes": 368271360,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0870999976759776
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.38890000022366
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.45279999930062
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005200003215577453
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.95249999934458,
+      "ready_ms": 231.01690000112285,
+      "full_ready_ms": 234.10549999971408,
+      "max_ui_gap_ms": 40.626500001962995,
+      "full_max_ui_gap_ms": 40.626500001962995,
+      "rss_tree_bytes": 271667200,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.8071000013151206
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.51470000174595
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.590899999893736
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009899998985929415
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 189042688
+        },
+        {
+          "pid": 9184,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 84672512
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.387900000292575,
+      "ready_ms": 164.93049999917275,
+      "full_ready_ms": 168.47229999984847,
+      "max_ui_gap_ms": 40.113899998686975,
+      "full_max_ui_gap_ms": 40.113899998686975,
+      "rss_tree_bytes": 292331520,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2227000006532762
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.773399999627145
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.865099999384256
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004799996531801298
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.39940000034403,
+      "ready_ms": 149.35650000188616,
+      "full_ready_ms": 151.9439000003331,
+      "max_ui_gap_ms": 38.99040000032983,
+      "full_max_ui_gap_ms": 38.99040000032983,
+      "rss_tree_bytes": 299253760,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3499000015144702
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.90079999816953
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.97539999868604
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 189669376
+        },
+        {
+          "pid": 9184,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 109584384
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.844900002208306,
+      "ready_ms": 156.96260000186157,
+      "full_ready_ms": 160.24649999963003,
+      "max_ui_gap_ms": 40.85320000012871,
+      "full_max_ui_gap_ms": 40.85320000012871,
+      "rss_tree_bytes": 309768192,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0550999977567699
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.37880000012228
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.448299998184666
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.011300002370262519
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.95399999964866,
+      "ready_ms": 159.2077999994217,
+      "full_ready_ms": 162.93379999842728,
+      "max_ui_gap_ms": 39.73689999838825,
+      "full_max_ui_gap_ms": 39.73689999838825,
+      "rss_tree_bytes": 321093632,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.074800002243137
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.454300000012154
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.53529999832972
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005500001861946657
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 191414272
+        },
+        {
+          "pid": 9184,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 129679360
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.97270000076969,
+      "ready_ms": 124.38280000060331,
+      "full_ready_ms": 129.87349999821163,
+      "max_ui_gap_ms": 42.55449999982375,
+      "full_max_ui_gap_ms": 42.55449999982375,
+      "rss_tree_bytes": 330022912,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.109999997424893
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.6296000003058
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.68780000327388
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005700003384845331
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.19780000069295,
+      "ready_ms": 123.15010000020266,
+      "full_ready_ms": 128.70090000069467,
+      "max_ui_gap_ms": 40.017200000875164,
+      "full_max_ui_gap_ms": 40.017200000875164,
+      "rss_tree_bytes": 338665472,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1752000027627219
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.7111999989429
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.79109999979846
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 191852544
+        },
+        {
+          "pid": 9184,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 146829312
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.10909999872092,
+      "ready_ms": 127.94009999925038,
+      "full_ready_ms": 133.4010999999009,
+      "max_ui_gap_ms": 42.28339999826858,
+      "full_max_ui_gap_ms": 42.28339999826858,
+      "rss_tree_bytes": 347619328,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4506999978038948
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.75400000147056
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.825200001563644
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0040000013541430235
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.780599999881815,
+      "ready_ms": 124.43160000111675,
+      "full_ready_ms": 130.2843000012217,
+      "max_ui_gap_ms": 39.20559999824036,
+      "full_max_ui_gap_ms": 39.20559999824036,
+      "rss_tree_bytes": 357896192,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1414000000513624
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.24040000108653
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.34739999729209
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004099998477613553
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 193224704
+        },
+        {
+          "pid": 9184,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 164687872
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 43.91630000100122,
+      "ready_ms": 134.38570000289474,
+      "full_ready_ms": 142.8319000006013,
+      "max_ui_gap_ms": 44.304200000624405,
+      "full_max_ui_gap_ms": 44.304200000624405,
+      "rss_tree_bytes": 366567424,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4912000006006565
+        },
+        {
+          "method": "_load_document",
+          "ms": 43.53320000154781
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 43.60430000087945
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00419999923906289
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 42.0336999995925,
+      "ready_ms": 244.56149999969057,
+      "full_ready_ms": 247.54319999919971,
+      "max_ui_gap_ms": 42.27619999801391,
+      "full_max_ui_gap_ms": 42.27619999801391,
+      "rss_tree_bytes": 275062784,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.205200002004858
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.452899997239
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.536400000040885
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00670000008540228
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 189788160
+        },
+        {
+          "pid": 5176,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 87154688
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.38800000146148,
+      "ready_ms": 134.97510000161128,
+      "full_ready_ms": 141.40599999882397,
+      "max_ui_gap_ms": 42.08740000103717,
+      "full_max_ui_gap_ms": 42.08740000103717,
+      "rss_tree_bytes": 290279424,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.190799997857539
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.64710000238847
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.73459999926854
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006599999323952943
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.59420000339742,
+      "ready_ms": 163.17010000057053,
+      "full_ready_ms": 166.77049999998417,
+      "max_ui_gap_ms": 41.14960000151768,
+      "full_max_ui_gap_ms": 41.14960000151768,
+      "rss_tree_bytes": 300793856,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1068999992858153
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.212700001575286
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.285699997184565
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00419999923906289
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190504960
+        },
+        {
+          "pid": 5176,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 110288896
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.37580000315211,
+      "ready_ms": 159.40039999986766,
+      "full_ready_ms": 162.83190000103787,
+      "max_ui_gap_ms": 42.13760000129696,
+      "full_max_ui_gap_ms": 42.13760000129696,
+      "rss_tree_bytes": 311623680,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2747000000672415
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.76839999834192
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.85219999979017
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.72760000033304,
+      "ready_ms": 154.61270000014338,
+      "full_ready_ms": 158.61930000028224,
+      "max_ui_gap_ms": 40.2715000018361,
+      "full_max_ui_gap_ms": 40.2715000018361,
+      "rss_tree_bytes": 321556480,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.201200000650715
+        },
+        {
+          "method": "_load_document",
+          "ms": 39.36440000325092
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 39.44269999919925
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007300001016119495
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190951424
+        },
+        {
+          "pid": 5176,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 130605056
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.84990000067046,
+      "ready_ms": 155.8420000001206,
+      "full_ready_ms": 159.99940000256174,
+      "max_ui_gap_ms": 42.4431999999797,
+      "full_max_ui_gap_ms": 42.4431999999797,
+      "rss_tree_bytes": 332095488,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0736000003817026
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.47069999817177
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.541399998095585
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.81599999719765,
+      "ready_ms": 151.79779999743914,
+      "full_ready_ms": 154.58639999997104,
+      "max_ui_gap_ms": 42.46669999702135,
+      "full_max_ui_gap_ms": 42.46669999702135,
+      "rss_tree_bytes": 342306816,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 2.0084999996470287
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.30119999899762
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.36369999832823
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 192434176
+        },
+        {
+          "pid": 5176,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 149872640
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.5537000001932,
+      "ready_ms": 149.12420000109705,
+      "full_ready_ms": 152.02190000127302,
+      "max_ui_gap_ms": 39.78040000220062,
+      "full_max_ui_gap_ms": 39.78040000220062,
+      "rss_tree_bytes": 351768576,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1742999995476566
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.18410000167205
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.25480000159587
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006500002200482413
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.45290000087698,
+      "ready_ms": 128.96530000216444,
+      "full_ready_ms": 137.55460000174935,
+      "max_ui_gap_ms": 42.598200001521036,
+      "full_max_ui_gap_ms": 42.598200001521036,
+      "rss_tree_bytes": 361447424,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2522999968496151
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.02639999837265
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.10480000235839
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 192806912
+        },
+        {
+          "pid": 5176,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 168648704
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.87179999946966,
+      "ready_ms": 164.9619999989227,
+      "full_ready_ms": 168.09680000005756,
+      "max_ui_gap_ms": 39.19360000145389,
+      "full_max_ui_gap_ms": 39.19360000145389,
+      "rss_tree_bytes": 370974720,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.072099999873899
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.507299999764655
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.589100000535836
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 40.63079999832553,
+      "ready_ms": 225.4222999981721,
+      "full_ready_ms": 229.55000000001746,
+      "max_ui_gap_ms": 41.526599998178426,
+      "full_max_ui_gap_ms": 41.526599998178426,
+      "rss_tree_bytes": 272900096,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.9073999974352773
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.10440000274684
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.18530000030296
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00799999907030724
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190017536
+        },
+        {
+          "pid": 34992,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 85045248
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 42.28340000190656,
+      "ready_ms": 164.03619999982766,
+      "full_ready_ms": 168.0411000015738,
+      "max_ui_gap_ms": 42.78300000078161,
+      "full_max_ui_gap_ms": 42.78300000078161,
+      "rss_tree_bytes": 289755136,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3032999995630234
+        },
+        {
+          "method": "_load_document",
+          "ms": 41.768600000068545
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 41.848200002277736
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006399997801054269
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 37.75160000077449,
+      "ready_ms": 148.19659999920987,
+      "full_ready_ms": 151.01560000039171,
+      "max_ui_gap_ms": 38.81539999929373,
+      "full_max_ui_gap_ms": 38.81539999929373,
+      "rss_tree_bytes": 300318720,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1024999985238537
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.239599998429185
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.31550000156858
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005500001861946657
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 20592,
+          "name": "python.exe",
+          "rss": 190668800
+        },
+        {
+          "pid": 34992,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 109666304
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.721700002090074,
+      "ready_ms": 153.02090000113822,
+      "full_ready_ms": 156.8200000001525,
+      "max_ui_gap_ms": 37.73640000144951,
+      "full_max_ui_gap_ms": 37.73640000144951,
+      "rss_tree_bytes": 310439936,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0803000004671048
+        },
+        {
+          "method": "_load_document",
+          "ms": 36.34030000102939
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 36.41049999714596
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00670000008540228
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-nkyrxj9a",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-nkyrxj9a/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 101168,
+    "B.md": 101168
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 189915136,
+  "window_ready_wall_time": 1792685482.1554005,
+  "summary": {
+    "sync_ms": {
+      "n": 60,
+      "p50_ms": 40.947649998997804,
+      "p95_ms": 49.2091000014625,
+      "max_ms": 57.14010000156122
+    },
+    "ready_ms": {
+      "n": 60,
+      "p50_ms": 157.95914999944216,
+      "p95_ms": 233.87130000264733,
+      "max_ms": 266.9569000026968
+    },
+    "full_ready_ms": {
+      "n": 60,
+      "p50_ms": 161.43899999951827,
+      "p95_ms": 237.22650000127032,
+      "max_ms": 289.60420000294107
+    },
+    "max_ui_gap_ms": {
+      "n": 60,
+      "p50_ms": 42.043450001074234,
+      "p95_ms": 49.74930000025779,
+      "max_ms": 57.38530000235187
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 90.25470000051428,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 90.18060000016703,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 75.36199999958626,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 75.29579999754787,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 56.22660000153701,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 54.17149999993853,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 54.090600002382416,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 52.69169999883161,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 52.610799997637514,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 52.15200000020559,
+      "path": "A.md",
+      "warm": true
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 311103488,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 261091328,
+  "process_memory_after_close": [
+    {
+      "pid": 20592,
+      "name": "python.exe",
+      "rss": 187965440
+    },
+    {
+      "pid": 48800,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 73142272
+    }
+  ]
+}

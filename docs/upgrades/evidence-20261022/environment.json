@@ -1,0 +1,17 @@
+﻿{
+    "scope":  "Local machine; offscreen Qt measurements; display presentation unverified",
+    "power":  "電源配置 GUID: 6fecc5ae-f350-48a5-b669-b472cb895ccf  (Turbo)",
+    "cpu":  {
+                "Name":  "AMD Ryzen 9 5900HS with Radeon Graphics        ",
+                "NumberOfCores":  8,
+                "NumberOfLogicalProcessors":  16
+            },
+    "memory":  {
+                   "TotalPhysicalMemory":  33721307136
+               },
+    "os":  {
+               "Caption":  "Microsoft Windows 11 家用版",
+               "Version":  "10.0.26200",
+               "BuildNumber":  "26200"
+           }
+}

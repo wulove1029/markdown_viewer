@@ -1,0 +1,9 @@
+{
+  "requested_repetitions": 30,
+  "completed_repetitions": 0,
+  "process_exit_code": 3221225477,
+  "windows_exception": "0xC0000005",
+  "node": "tests/test_renderer_page_rotation.py::test_unready_spare_never_delays_navigation",
+  "log": "prewarm-native-crash-minimal.log",
+  "scope": "The process crashed before any test completion dot. The native cause was not resolved; blank-page prewarming was withdrawn."
+}

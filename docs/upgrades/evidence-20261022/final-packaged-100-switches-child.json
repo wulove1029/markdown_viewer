@@ -1,0 +1,3587 @@
+{
+  "root": "D:\\markdown_viewer\\dist\\upgrade-20261022\\MarkdownViewer\\_internal",
+  "label": "packaged-isolated",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 100000,
+  "category": "long_prose",
+  "working_set": 10,
+  "frozen": true,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 93.38889999708044,
+      "ready_ms": 566.8258000005153,
+      "full_ready_ms": 575.2877999984776,
+      "max_ui_gap_ms": 277.05239999704645,
+      "full_max_ui_gap_ms": 277.05239999704645,
+      "rss_tree_bytes": 262795264,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4264999990700744
+        },
+        {
+          "method": "_load_document",
+          "ms": 84.90760000131559
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 84.98619999954826
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007599999662488699
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 168456192
+        },
+        {
+          "pid": 50624,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 94339072
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 86.53330000015558,
+      "ready_ms": 185.3531999986444,
+      "full_ready_ms": 191.15420000161976,
+      "max_ui_gap_ms": 87.3487999997451,
+      "full_max_ui_gap_ms": 87.3487999997451,
+      "rss_tree_bytes": 283381760,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.141299999289913
+        },
+        {
+          "method": "_load_document",
+          "ms": 83.85360000102082
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 83.91599999958999
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 87.83760000005714,
+      "ready_ms": 182.48680000033346,
+      "full_ready_ms": 190.4961000000185,
+      "max_ui_gap_ms": 88.1429000000935,
+      "full_max_ui_gap_ms": 88.1429000000935,
+      "rss_tree_bytes": 293814272,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1856000019179191
+        },
+        {
+          "method": "_load_document",
+          "ms": 84.33769999828655
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 84.41369999854942
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 86.06789999976172,
+      "ready_ms": 177.51029999999446,
+      "full_ready_ms": 186.5763000023435,
+      "max_ui_gap_ms": 86.37989999988349,
+      "full_max_ui_gap_ms": 86.37989999988349,
+      "rss_tree_bytes": 303173632,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.159600000391947
+        },
+        {
+          "method": "_load_document",
+          "ms": 82.20140000048559
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 82.2797000000719
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 84.04340000197408,
+      "ready_ms": 204.172000001563,
+      "full_ready_ms": 206.724600000598,
+      "max_ui_gap_ms": 84.34230000057141,
+      "full_max_ui_gap_ms": 84.34230000057141,
+      "rss_tree_bytes": 318230528,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.092499998776475
+        },
+        {
+          "method": "_load_document",
+          "ms": 80.35030000246479
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 80.41330000196467
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 85.99099999992177,
+      "ready_ms": 201.52800000141724,
+      "full_ready_ms": 204.85629999893717,
+      "max_ui_gap_ms": 87.20629999879748,
+      "full_max_ui_gap_ms": 87.20629999879748,
+      "rss_tree_bytes": 325173248,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.152400000137277
+        },
+        {
+          "method": "_load_document",
+          "ms": 81.7693999997573
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 81.83460000145715
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 104.64399999909801,
+      "ready_ms": 219.00649999952293,
+      "full_ready_ms": 222.58069999952568,
+      "max_ui_gap_ms": 105.48059999928228,
+      "full_max_ui_gap_ms": 105.48059999928228,
+      "rss_tree_bytes": 335515648,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2532000000646804
+        },
+        {
+          "method": "_load_document",
+          "ms": 99.64369999943301
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 99.70919999977923
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005000001692678779
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 91.91680000003544,
+      "ready_ms": 202.50880000094185,
+      "full_ready_ms": 206.2729000026593,
+      "max_ui_gap_ms": 92.70300000207499,
+      "full_max_ui_gap_ms": 92.70300000207499,
+      "rss_tree_bytes": 345628672,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0832000007212628
+        },
+        {
+          "method": "_load_document",
+          "ms": 84.7899000000325
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 84.84490000046208
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005999998393235728
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 97.05399999802466,
+      "ready_ms": 313.7291999992158,
+      "full_ready_ms": 318.03840000065975,
+      "max_ui_gap_ms": 97.78379999988829,
+      "full_max_ui_gap_ms": 97.78379999988829,
+      "rss_tree_bytes": 260751360,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1231000025873072
+        },
+        {
+          "method": "_load_document",
+          "ms": 90.99649999916437
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 91.05719999934081
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007300001016119495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 90.90920000016922,
+      "ready_ms": 214.10169999944628,
+      "full_ready_ms": 217.20710000226973,
+      "max_ui_gap_ms": 91.46400000099675,
+      "full_max_ui_gap_ms": 91.46400000099675,
+      "rss_tree_bytes": 281571328,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.073999999789521
+        },
+        {
+          "method": "_load_document",
+          "ms": 84.17220000046655
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 84.22590000191121
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004699999408330768
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.100100001116516,
+      "ready_ms": 147.1101000024646,
+      "full_ready_ms": 149.8005000030389,
+      "max_ui_gap_ms": 32.70190000330331,
+      "full_max_ui_gap_ms": 32.70190000330331,
+      "rss_tree_bytes": 292798464,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.162199998361757
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.519700001808815
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.600099999195663
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 182448128
+        },
+        {
+          "pid": 36652,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 110354432
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.58850000181701,
+      "ready_ms": 154.61969999887515,
+      "full_ready_ms": 158.9683000020159,
+      "max_ui_gap_ms": 32.64540000236593,
+      "full_max_ui_gap_ms": 32.64540000236593,
+      "rss_tree_bytes": 303386624,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0747999986051582
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.91359999962151
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.002100000478094
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006099999154685065
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.334300001413794,
+      "ready_ms": 143.6345000001893,
+      "full_ready_ms": 147.07289999932982,
+      "max_ui_gap_ms": 31.076799998118076,
+      "full_max_ui_gap_ms": 31.076799998118076,
+      "rss_tree_bytes": 314286080,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1104000004706904
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.88270000059856
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.946599999675527
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.63440000207629,
+      "ready_ms": 147.25480000197422,
+      "full_ready_ms": 151.06490000107442,
+      "max_ui_gap_ms": 32.30669999902602,
+      "full_max_ui_gap_ms": 32.30669999902602,
+      "rss_tree_bytes": 324161536,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0820999996212777
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.010900002002018
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.088300002011238
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.64169999965816,
+      "ready_ms": 125.49230000149691,
+      "full_ready_ms": 131.08090000241646,
+      "max_ui_gap_ms": 33.237999999983,
+      "full_max_ui_gap_ms": 33.237999999983,
+      "rss_tree_bytes": 334004224,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1974000008194707
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.132000000274274
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.199900000705384
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009400002454640344
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.210999997507315,
+      "ready_ms": 145.6983999996737,
+      "full_ready_ms": 149.40849999766215,
+      "max_ui_gap_ms": 30.496100000164006,
+      "full_max_ui_gap_ms": 30.496100000164006,
+      "rss_tree_bytes": 343175168,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0604999988572672
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.659700001502642
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.712100000324426
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.126400000881404,
+      "ready_ms": 157.22700000333134,
+      "full_ready_ms": 159.79540000262205,
+      "max_ui_gap_ms": 30.65020000212826,
+      "full_max_ui_gap_ms": 30.65020000212826,
+      "rss_tree_bytes": 354856960,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.05249999978696
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.579399997601286
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.633300000568852
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.54549999817391,
+      "ready_ms": 149.7748000001593,
+      "full_ready_ms": 152.81119999781367,
+      "max_ui_gap_ms": 31.783999998879153,
+      "full_max_ui_gap_ms": 31.783999998879153,
+      "rss_tree_bytes": 367509504,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0817000002134591
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.956099999457365
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.036500000482192
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004899997293250635
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.718099999125116,
+      "ready_ms": 223.59900000083144,
+      "full_ready_ms": 228.36029999962193,
+      "max_ui_gap_ms": 32.29250000003958,
+      "full_max_ui_gap_ms": 32.29250000003958,
+      "rss_tree_bytes": 266993664,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2272999993001577
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.00569999878644
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.10210000158986
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008600000001024455
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.58550000182004,
+      "ready_ms": 155.01430000222172,
+      "full_ready_ms": 158.31819999948493,
+      "max_ui_gap_ms": 37.14590000163298,
+      "full_max_ui_gap_ms": 37.14590000163298,
+      "rss_tree_bytes": 279105536,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.8603999997139908
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.89019999708398
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.97249999802443
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00540000110049732
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 39.376000000629574,
+      "ready_ms": 158.4796000024653,
+      "full_ready_ms": 161.98000000076718,
+      "max_ui_gap_ms": 39.649300000746734,
+      "full_max_ui_gap_ms": 39.649300000746734,
+      "rss_tree_bytes": 291930112,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1733999999705702
+        },
+        {
+          "method": "_load_document",
+          "ms": 38.74240000004647
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.84159999870462
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006899997970322147
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 183390208
+        },
+        {
+          "pid": 53368,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 108539904
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.88980000029551,
+      "ready_ms": 113.60469999999623,
+      "full_ready_ms": 119.66000000029453,
+      "max_ui_gap_ms": 31.38550000221585,
+      "full_max_ui_gap_ms": 31.38550000221585,
+      "rss_tree_bytes": 301563904,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.114800001232652
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.393800003366778
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.46589999939897
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005399997462518513
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.218399999896064,
+      "ready_ms": 119.74139999801992,
+      "full_ready_ms": 127.89139999949839,
+      "max_ui_gap_ms": 33.67839999918942,
+      "full_max_ui_gap_ms": 33.67839999918942,
+      "rss_tree_bytes": 310448128,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.180999999633059
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.71830000085174
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.8029999982391
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.12569999959669,
+      "ready_ms": 120.4976999979408,
+      "full_ready_ms": 126.3011999981245,
+      "max_ui_gap_ms": 32.35049999784678,
+      "full_max_ui_gap_ms": 32.35049999784678,
+      "rss_tree_bytes": 320225280,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2037000014970545
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.577300000208197
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.638499996915925
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.412500000442378,
+      "ready_ms": 164.01820000100997,
+      "full_ready_ms": 167.86950000096112,
+      "max_ui_gap_ms": 31.619200002751313,
+      "full_max_ui_gap_ms": 31.619200002751313,
+      "rss_tree_bytes": 330186752,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2089000010746531
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.962799999542767
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.028400000650436
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0037999998312443495
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 35.82839999944554,
+      "ready_ms": 165.26270000031218,
+      "full_ready_ms": 169.6613999993133,
+      "max_ui_gap_ms": 36.56359999877168,
+      "full_max_ui_gap_ms": 36.56359999877168,
+      "rss_tree_bytes": 339685376,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 2.0521999977063388
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.05740000036894
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.146500002156245
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00549999822396785
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.698600001225714,
+      "ready_ms": 198.17930000135675,
+      "full_ready_ms": 200.87100000091596,
+      "max_ui_gap_ms": 39.003199999569915,
+      "full_max_ui_gap_ms": 39.003199999569915,
+      "rss_tree_bytes": 351481856,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.567400002386421
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.95000000172877
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 38.09689999980037
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007199996616691351
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.57490000114194,
+      "ready_ms": 166.14400000253227,
+      "full_ready_ms": 169.99589999977616,
+      "max_ui_gap_ms": 36.96300000228803,
+      "full_max_ui_gap_ms": 36.96300000228803,
+      "rss_tree_bytes": 363569152,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3446000011754222
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.964499998954125
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 36.051300001417985
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007700000423938036
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.10500000184402,
+      "ready_ms": 224.44290000203182,
+      "full_ready_ms": 229.0688000030059,
+      "max_ui_gap_ms": 31.82060000108322,
+      "full_max_ui_gap_ms": 31.82060000108322,
+      "rss_tree_bytes": 268275712,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1984000011580065
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.2942999987863
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.37870000116527
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006999998731771484
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.721299998025643,
+      "ready_ms": 164.37669999868376,
+      "full_ready_ms": 168.026600000303,
+      "max_ui_gap_ms": 32.20890000011423,
+      "full_max_ui_gap_ms": 32.20890000011423,
+      "rss_tree_bytes": 288247808,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2806999984604772
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.019699999887962
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.10229999947478
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004500001523410901
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.640299999708077,
+      "ready_ms": 154.34280000044964,
+      "full_ready_ms": 156.78549999938696,
+      "max_ui_gap_ms": 32.25860000020475,
+      "full_max_ui_gap_ms": 32.25860000020475,
+      "rss_tree_bytes": 295231488,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1443000003055204
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.802999997831648
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.890400001226226
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 182894592
+        },
+        {
+          "pid": 6128,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 112336896
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.074799997441005,
+      "ready_ms": 146.9254000003275,
+      "full_ready_ms": 150.36759999929927,
+      "max_ui_gap_ms": 32.087199997477,
+      "full_max_ui_gap_ms": 32.087199997477,
+      "rss_tree_bytes": 306692096,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1120000017399434
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.513699999573873
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.583299998397706
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004999998054699972
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.30139999909443,
+      "ready_ms": 152.24839999791584,
+      "full_ready_ms": 155.77489999850513,
+      "max_ui_gap_ms": 34.89849999823491,
+      "full_max_ui_gap_ms": 34.89849999823491,
+      "rss_tree_bytes": 319991808,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2884999996458646
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.78570000131731
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.87239999938174
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.33950000139885,
+      "ready_ms": 168.43920000246726,
+      "full_ready_ms": 171.62509999980102,
+      "max_ui_gap_ms": 32.94169999935548,
+      "full_max_ui_gap_ms": 32.94169999935548,
+      "rss_tree_bytes": 330313728,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1919999997189734
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.885299998975825
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.95430000050692
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006199999916134402
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.23559999949066,
+      "ready_ms": 141.48909999858006,
+      "full_ready_ms": 145.31669999996666,
+      "max_ui_gap_ms": 31.914399998640874,
+      "full_max_ui_gap_ms": 31.914399998640874,
+      "rss_tree_bytes": 336691200,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0843000018212479
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.71069999714382
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.777399999351474
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004499997885432094
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.0071000023745,
+      "ready_ms": 155.11239999977988,
+      "full_ready_ms": 158.59410000120988,
+      "max_ui_gap_ms": 32.911000002059154,
+      "full_max_ui_gap_ms": 32.911000002059154,
+      "rss_tree_bytes": 346763264,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0962000014842488
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.292200001189485
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.36330000052112
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00549999822396785
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.164100000751205,
+      "ready_ms": 114.83099999895785,
+      "full_ready_ms": 120.29070000062347,
+      "max_ui_gap_ms": 31.717800000478746,
+      "full_max_ui_gap_ms": 31.717800000478746,
+      "rss_tree_bytes": 356466688,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1302999992039986
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.377699997188756
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.46639999956824
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005000001692678779
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.287300000258256,
+      "ready_ms": 147.4917000014102,
+      "full_ready_ms": 150.93790000173612,
+      "max_ui_gap_ms": 31.603900002664886,
+      "full_max_ui_gap_ms": 31.603900002664886,
+      "rss_tree_bytes": 366080000,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1257000005571172
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.71289999934379
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.783900001551956
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004600002284860238
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.05269999711891,
+      "ready_ms": 274.47509999910835,
+      "full_ready_ms": 308.2667999988189,
+      "max_ui_gap_ms": 35.22989999692072,
+      "full_max_ui_gap_ms": 35.22989999692072,
+      "rss_tree_bytes": 267120640,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.114800001232652
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.266499998717336
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.3543999986432
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007599999662488699
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 47.186100000544684,
+      "ready_ms": 206.72689999992144,
+      "full_ready_ms": 220.18910000042524,
+      "max_ui_gap_ms": 48.70830000072601,
+      "full_max_ui_gap_ms": 48.70830000072601,
+      "rss_tree_bytes": 282193920,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.8964999981108122
+        },
+        {
+          "method": "_load_document",
+          "ms": 46.21690000203671
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 46.28700000102981
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008899998647393659
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 54.6699999977136,
+      "ready_ms": 230.9371999981522,
+      "full_ready_ms": 235.06970000016736,
+      "max_ui_gap_ms": 55.06469999818364,
+      "full_max_ui_gap_ms": 55.06469999818364,
+      "rss_tree_bytes": 292966400,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 2.407299998594681
+        },
+        {
+          "method": "_load_document",
+          "ms": 53.30899999898975
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 53.42879999807337
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 183791616
+        },
+        {
+          "pid": 51352,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 109174784
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.23150000121677,
+      "ready_ms": 141.53209999858518,
+      "full_ready_ms": 145.3204999997979,
+      "max_ui_gap_ms": 32.80610000001616,
+      "full_max_ui_gap_ms": 32.80610000001616,
+      "rss_tree_bytes": 307310592,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2916999985463917
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.724700002087047
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.80369999972754
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005100002454128116
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.120900002861163,
+      "ready_ms": 115.31560000003083,
+      "full_ready_ms": 118.71400000018184,
+      "max_ui_gap_ms": 31.611599999450846,
+      "full_max_ui_gap_ms": 31.611599999450846,
+      "rss_tree_bytes": 313110528,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1594000025070272
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.673099998239195
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.740499998501036
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.623200000467477,
+      "ready_ms": 149.2839999991702,
+      "full_ready_ms": 151.94659999906435,
+      "max_ui_gap_ms": 32.16990000146325,
+      "full_max_ui_gap_ms": 32.16990000146325,
+      "rss_tree_bytes": 323809280,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.341099999990547
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.113699998968514
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.197799999063136
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.84129999842844,
+      "ready_ms": 144.35750000120606,
+      "full_ready_ms": 147.73309999873163,
+      "max_ui_gap_ms": 32.09019999849261,
+      "full_max_ui_gap_ms": 32.09019999849261,
+      "rss_tree_bytes": 332910592,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0633999991114251
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.346899999130983
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.431299997871974
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005200003215577453
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.08160000233329,
+      "ready_ms": 143.66460000019288,
+      "full_ready_ms": 146.96330000151647,
+      "max_ui_gap_ms": 33.65010000197799,
+      "full_max_ui_gap_ms": 33.65010000197799,
+      "rss_tree_bytes": 343867392,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.134099999035243
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.50290000141831
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.562599997618236
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.35260000292328,
+      "ready_ms": 144.3862000014633,
+      "full_ready_ms": 147.99630000197794,
+      "max_ui_gap_ms": 32.9321000026539,
+      "full_max_ui_gap_ms": 32.9321000026539,
+      "rss_tree_bytes": 354230272,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4319000001705717
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.78219999972498
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.85930000108783
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.907900000485824,
+      "ready_ms": 148.70019999943906,
+      "full_ready_ms": 152.45869999853312,
+      "max_ui_gap_ms": 34.54090000013821,
+      "full_max_ui_gap_ms": 34.54090000013821,
+      "rss_tree_bytes": 364531712,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1598000019148458
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.34109999923385
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.40599999864935
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.816499998763902,
+      "ready_ms": 212.12450000166427,
+      "full_ready_ms": 218.48640000098385,
+      "max_ui_gap_ms": 31.43379999892204,
+      "full_max_ui_gap_ms": 31.43379999892204,
+      "rss_tree_bytes": 270004224,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1822000014944933
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.261399999290006
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.312799997773254
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00549999822396785
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.77180000077351,
+      "ready_ms": 134.76950000040233,
+      "full_ready_ms": 139.58439999987604,
+      "max_ui_gap_ms": 33.59700000146404,
+      "full_max_ui_gap_ms": 33.59700000146404,
+      "rss_tree_bytes": 283570176,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1513000026752707
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.12630000052741
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.19769999850541
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005799996870337054
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.667500000068685,
+      "ready_ms": 153.42859999873326,
+      "full_ready_ms": 156.82730000116862,
+      "max_ui_gap_ms": 35.0073000008706,
+      "full_max_ui_gap_ms": 35.0073000008706,
+      "rss_tree_bytes": 293511168,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.363299998047296
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.86940000200411
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.00319999855128
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005699999746866524
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 184819712
+        },
+        {
+          "pid": 43124,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 108691456
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.88349999982165,
+      "ready_ms": 143.5154999999213,
+      "full_ready_ms": 146.81429999836837,
+      "max_ui_gap_ms": 32.46419999777572,
+      "full_max_ui_gap_ms": 32.46419999777572,
+      "rss_tree_bytes": 303964160,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2054999970132485
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.41930000128923
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.4844999993511
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006000002031214535
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.67359999881592,
+      "ready_ms": 169.2178999983298,
+      "full_ready_ms": 172.80039999968722,
+      "max_ui_gap_ms": 33.33369999745628,
+      "full_max_ui_gap_ms": 33.33369999745628,
+      "rss_tree_bytes": 315195392,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1368999985279515
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.14970000044559
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.23250000155531
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.010900002962443978
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.46790000027977,
+      "ready_ms": 117.26700000144774,
+      "full_ready_ms": 122.54399999801535,
+      "max_ui_gap_ms": 32.066399999166606,
+      "full_max_ui_gap_ms": 32.066399999166606,
+      "rss_tree_bytes": 327168000,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1389999999664724
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.961000000388594
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.043400002090493
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004899997293250635
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.742800001666183,
+      "ready_ms": 139.06720000159112,
+      "full_ready_ms": 142.3995000004652,
+      "max_ui_gap_ms": 32.08259999883012,
+      "full_max_ui_gap_ms": 32.08259999883012,
+      "rss_tree_bytes": 333287424,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0795999987749383
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.30539999983739
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.357200001366436
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.161700000666315,
+      "ready_ms": 142.1167999978934,
+      "full_ready_ms": 145.49049999914132,
+      "max_ui_gap_ms": 31.881999999313848,
+      "full_max_ui_gap_ms": 31.881999999313848,
+      "rss_tree_bytes": 346935296,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.116899999033194
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.425400000240188
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.49069999906351
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.58769999977085,
+      "ready_ms": 157.4242000024242,
+      "full_ready_ms": 160.7493000010436,
+      "max_ui_gap_ms": 34.29770000002463,
+      "full_max_ui_gap_ms": 34.29770000002463,
+      "rss_tree_bytes": 354308096,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.37660000109463
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.31709999818122
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.39609999945969
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007599999662488699
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.981399999698624,
+      "ready_ms": 149.66719999938505,
+      "full_ready_ms": 152.33620000071824,
+      "max_ui_gap_ms": 33.66479999749572,
+      "full_max_ui_gap_ms": 33.66479999749572,
+      "rss_tree_bytes": 366161920,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2911000012536533
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.17909999875701
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.26610000274377
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.30669999902602,
+      "ready_ms": 233.37790000005043,
+      "full_ready_ms": 241.17710000064108,
+      "max_ui_gap_ms": 33.385099999577506,
+      "full_max_ui_gap_ms": 33.385099999577506,
+      "rss_tree_bytes": 267993088,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0575999986031093
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.55059999699006
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.635200000891928
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004499997885432094
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.144999997806735,
+      "ready_ms": 171.7231999973592,
+      "full_ready_ms": 175.1228999964951,
+      "max_ui_gap_ms": 34.933999999338994,
+      "full_max_ui_gap_ms": 34.933999999338994,
+      "rss_tree_bytes": 286937088,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3617000004160218
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.418700000765966
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.49789999992936
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007200000254670158
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.81530000115163,
+      "ready_ms": 152.92630000112695,
+      "full_ready_ms": 156.71210000073188,
+      "max_ui_gap_ms": 34.38570000071195,
+      "full_max_ui_gap_ms": 34.38570000071195,
+      "rss_tree_bytes": 300429312,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1340000019117724
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.20569999777945
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.28650000185007
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004500001523410901
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 190611456
+        },
+        {
+          "pid": 51308,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 109826048
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.30729999995674,
+      "ready_ms": 143.58100000026752,
+      "full_ready_ms": 146.9028999999864,
+      "max_ui_gap_ms": 32.88619999875664,
+      "full_max_ui_gap_ms": 32.88619999875664,
+      "rss_tree_bytes": 315080704,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1243000008107629
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.766200001584366
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.846699999732664
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.128599999647122,
+      "ready_ms": 144.167300000845,
+      "full_ready_ms": 146.46240000001853,
+      "max_ui_gap_ms": 31.687099999544444,
+      "full_max_ui_gap_ms": 31.687099999544444,
+      "rss_tree_bytes": 324812800,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0766999985207804
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.67190000001574
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.745800002478063
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 29.767700001684716,
+      "ready_ms": 153.93890000268584,
+      "full_ready_ms": 158.06740000334685,
+      "max_ui_gap_ms": 30.707300000358373,
+      "full_max_ui_gap_ms": 30.707300000358373,
+      "rss_tree_bytes": 326135808,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0649999967426993
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.269900001963833
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.346499999519438
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00419999923906289
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.967499998951098,
+      "ready_ms": 119.88800000108313,
+      "full_ready_ms": 123.07239999790909,
+      "max_ui_gap_ms": 31.775700001162477,
+      "full_max_ui_gap_ms": 31.775700001162477,
+      "rss_tree_bytes": 335466496,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0866000011446886
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.357899999216897
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.447400000412017
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.013299999409355223
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.19330000138143,
+      "ready_ms": 123.96200000148383,
+      "full_ready_ms": 127.86340000093332,
+      "max_ui_gap_ms": 32.69650000220281,
+      "full_max_ui_gap_ms": 32.69650000220281,
+      "rss_tree_bytes": 347938816,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0775999980978668
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.55490000062855
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.626299998606555
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.12319999956526,
+      "ready_ms": 164.89109999747598,
+      "full_ready_ms": 168.81309999735095,
+      "max_ui_gap_ms": 36.629499998525716,
+      "full_max_ui_gap_ms": 36.629499998525716,
+      "rss_tree_bytes": 358154240,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3218000021879561
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.39999999702559
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.49410000050557
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 35.91909999886411,
+      "ready_ms": 120.18349999925704,
+      "full_ready_ms": 125.94969999918249,
+      "max_ui_gap_ms": 36.564799996995134,
+      "full_max_ui_gap_ms": 36.564799996995134,
+      "rss_tree_bytes": 363692032,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3369999978749547
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.2935000009893
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.37219999998342
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.941000001097564,
+      "ready_ms": 226.3745000018389,
+      "full_ready_ms": 230.78349999923375,
+      "max_ui_gap_ms": 32.482599999639206,
+      "full_max_ui_gap_ms": 32.482599999639206,
+      "rss_tree_bytes": 268607488,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1444000010669697
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.345100000180537
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.426199999259552
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.682500000897562,
+      "ready_ms": 144.95519999763928,
+      "full_ready_ms": 149.40419999766164,
+      "max_ui_gap_ms": 32.185000000026776,
+      "full_max_ui_gap_ms": 32.185000000026776,
+      "rss_tree_bytes": 284524544,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4272999978857115
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.09530000074301
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.17519999796059
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.011599997378652915
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.16740000102436,
+      "ready_ms": 150.06260000154725,
+      "full_ready_ms": 153.5011999985727,
+      "max_ui_gap_ms": 34.40229999978328,
+      "full_max_ui_gap_ms": 34.40229999978328,
+      "rss_tree_bytes": 297697280,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.115299997763941
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.56970000095316
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.649299999524374
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005700003384845331
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 185790464
+        },
+        {
+          "pid": 50904,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 111906816
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.574599997635232,
+      "ready_ms": 117.33489999824087,
+      "full_ready_ms": 125.68249999822001,
+      "max_ui_gap_ms": 31.16799999770592,
+      "full_max_ui_gap_ms": 31.16799999770592,
+      "rss_tree_bytes": 303816704,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0741000005509704
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.84469999864814
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.007699999259785
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005599998985417187
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.890000002022134,
+      "ready_ms": 152.14190000187955,
+      "full_ready_ms": 159.10730000177864,
+      "max_ui_gap_ms": 32.23500000240165,
+      "full_max_ui_gap_ms": 32.23500000240165,
+      "rss_tree_bytes": 314298368,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.19750000158092
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.32710000136285
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.434600001375657
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006299997039604932
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.43280000242521,
+      "ready_ms": 156.71710000242456,
+      "full_ready_ms": 162.12350000205333,
+      "max_ui_gap_ms": 33.22150000167312,
+      "full_max_ui_gap_ms": 33.22150000167312,
+      "rss_tree_bytes": 324435968,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.181299998279428
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.769599998369813
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.859299997449853
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005900001269765198
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.82390000054147,
+      "ready_ms": 114.55960000239429,
+      "full_ready_ms": 120.46840000039083,
+      "max_ui_gap_ms": 30.847400001221104,
+      "full_max_ui_gap_ms": 30.847400001221104,
+      "rss_tree_bytes": 341204992,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.08639999962179
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.36000000065542
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.42980000100215
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.70089999891934,
+      "ready_ms": 117.83569999897736,
+      "full_ready_ms": 126.25610000031884,
+      "max_ui_gap_ms": 31.099299998459173,
+      "full_max_ui_gap_ms": 31.099299998459173,
+      "rss_tree_bytes": 342867968,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.101600002584746
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.08639999825391
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.157999997754814
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0038999969547148794
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 37.02520000297227,
+      "ready_ms": 155.57390000321902,
+      "full_ready_ms": 159.3828000004578,
+      "max_ui_gap_ms": 37.256000003253575,
+      "full_max_ui_gap_ms": 37.256000003253575,
+      "rss_tree_bytes": 353914880,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1859999976877589
+        },
+        {
+          "method": "_load_document",
+          "ms": 36.4527999990969
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 36.5248000016436
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0039000005926936865
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.03009999965434,
+      "ready_ms": 147.96360000036657,
+      "full_ready_ms": 151.7743000003975,
+      "max_ui_gap_ms": 34.88719999950263,
+      "full_max_ui_gap_ms": 34.88719999950263,
+      "rss_tree_bytes": 367538176,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2725999986287206
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.38430000076187
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.460800001194
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005100002454128116
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.8182999981218,
+      "ready_ms": 223.6747999995714,
+      "full_ready_ms": 233.24849999698927,
+      "max_ui_gap_ms": 33.0426999971678,
+      "full_max_ui_gap_ms": 33.0426999971678,
+      "rss_tree_bytes": 273858560,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1604999999690335
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.040099998790538
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.133399999816902
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005500001861946657
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.65119999964372,
+      "ready_ms": 124.60899999859976,
+      "full_ready_ms": 132.8031999983068,
+      "max_ui_gap_ms": 35.13629999724799,
+      "full_max_ui_gap_ms": 35.13629999724799,
+      "rss_tree_bytes": 286965760,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2446999971871264
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.98890000244137
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.067600001435494
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005199999577598646
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.80910000082804,
+      "ready_ms": 144.93729999958305,
+      "full_ready_ms": 148.7741000019014,
+      "max_ui_gap_ms": 32.10889999900246,
+      "full_max_ui_gap_ms": 32.10889999900246,
+      "rss_tree_bytes": 302260224,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.276700000744313
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.12130000226898
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.23530000084429
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004999998054699972
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 191483904
+        },
+        {
+          "pid": 30924,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 110776320
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.34539999943809,
+      "ready_ms": 160.64279999773134,
+      "full_ready_ms": 164.07759999856353,
+      "max_ui_gap_ms": 35.01269999833312,
+      "full_max_ui_gap_ms": 35.01269999833312,
+      "rss_tree_bytes": 313233408,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2024000025121495
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.862099997350015
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.94549999939045
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006999998731771484
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.546099999104626,
+      "ready_ms": 140.6290999984776,
+      "full_ready_ms": 144.40950000062003,
+      "max_ui_gap_ms": 32.13089999917429,
+      "full_max_ui_gap_ms": 32.13089999917429,
+      "rss_tree_bytes": 319008768,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.065000000380678
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.05860000141547
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.132100000831997
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.3869999992894,
+      "ready_ms": 156.0427999975218,
+      "full_ready_ms": 158.45949999857112,
+      "max_ui_gap_ms": 33.145999997941544,
+      "full_max_ui_gap_ms": 33.145999997941544,
+      "rss_tree_bytes": 328060928,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1608000022533815
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.70450000106939
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.91250000236323
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005000001692678779
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.030099999246886,
+      "ready_ms": 151.0660000021744,
+      "full_ready_ms": 153.6469999991823,
+      "max_ui_gap_ms": 33.18389999913052,
+      "full_max_ui_gap_ms": 33.18389999913052,
+      "rss_tree_bytes": 338309120,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0967999987769872
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.524500001978595
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.604000003426336
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004900000931229442
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 41.36389999985113,
+      "ready_ms": 175.20839999997406,
+      "full_ready_ms": 184.2612000000372,
+      "max_ui_gap_ms": 42.66439999992144,
+      "full_max_ui_gap_ms": 42.66439999992144,
+      "rss_tree_bytes": 347402240,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.7264999987673946
+        },
+        {
+          "method": "_load_document",
+          "ms": 40.740399999776855
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 40.81159999986994
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007599999662488699
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 49.62050000176532,
+      "ready_ms": 224.9435000012454,
+      "full_ready_ms": 228.96870000113267,
+      "max_ui_gap_ms": 50.55310000170721,
+      "full_max_ui_gap_ms": 50.55310000170721,
+      "rss_tree_bytes": 358334464,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.8460000028426293
+        },
+        {
+          "method": "_load_document",
+          "ms": 48.50010000154725
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 48.628000000462634
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.012500000593718141
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 44.62479999710922,
+      "ready_ms": 162.9806999990251,
+      "full_ready_ms": 166.38249999959953,
+      "max_ui_gap_ms": 45.31159999896772,
+      "full_max_ui_gap_ms": 45.31159999896772,
+      "rss_tree_bytes": 368795648,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 2.1571000033873133
+        },
+        {
+          "method": "_load_document",
+          "ms": 43.94979999779025
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 44.04839999915566
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00670000008540228
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.57970000090427,
+      "ready_ms": 236.5674000029685,
+      "full_ready_ms": 239.33949999991455,
+      "max_ui_gap_ms": 35.16220000165049,
+      "full_max_ui_gap_ms": 35.16220000165049,
+      "rss_tree_bytes": 272977920,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2973000011697877
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.95420000015292
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.06180000092718
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004899997293250635
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 36.099900000408525,
+      "ready_ms": 162.75020000102813,
+      "full_ready_ms": 166.13970000253175,
+      "max_ui_gap_ms": 36.61160000046948,
+      "full_max_ui_gap_ms": 36.61160000046948,
+      "rss_tree_bytes": 289153024,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4609999998356216
+        },
+        {
+          "method": "_load_document",
+          "ms": 35.50810000160709
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 35.57849999924656
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.329600002616644,
+      "ready_ms": 118.82870000044932,
+      "full_ready_ms": 124.70870000106515,
+      "max_ui_gap_ms": 33.975400001509115,
+      "full_max_ui_gap_ms": 33.975400001509115,
+      "rss_tree_bytes": 300634112,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1233000004722271
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.528799998544855
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.6095999989775
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008299997716676444
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 191913984
+        },
+        {
+          "pid": 53468,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 109129728
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.93059999810066,
+      "ready_ms": 160.79099999842583,
+      "full_ready_ms": 164.31749999901513,
+      "max_ui_gap_ms": 31.74339999895892,
+      "full_max_ui_gap_ms": 31.74339999895892,
+      "rss_tree_bytes": 306585600,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.128799998696195
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.31810000175028
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.404300003283424
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 37.81399999934365,
+      "ready_ms": 154.76570000100764,
+      "full_ready_ms": 158.00600000147824,
+      "max_ui_gap_ms": 38.52499999993597,
+      "full_max_ui_gap_ms": 38.52499999993597,
+      "rss_tree_bytes": 323223552,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1984000011580065
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.28920000139624
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.39299999870127
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007200000254670158
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.507799998507835,
+      "ready_ms": 139.08449999871664,
+      "full_ready_ms": 142.45110000047134,
+      "max_ui_gap_ms": 32.16539999993984,
+      "full_max_ui_gap_ms": 32.16539999993984,
+      "rss_tree_bytes": 326901760,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.211499999044463
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.962699998781318
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.0804000000644
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004799996531801298
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.322099999670172,
+      "ready_ms": 144.91679999991902,
+      "full_ready_ms": 148.6016999988351,
+      "max_ui_gap_ms": 31.989899998734472,
+      "full_max_ui_gap_ms": 31.989899998734472,
+      "rss_tree_bytes": 337043456,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.104399998439476
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.75399999943329
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.86070000063046
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.92729999925359,
+      "ready_ms": 118.99740000080783,
+      "full_ready_ms": 124.1569999983767,
+      "max_ui_gap_ms": 35.44379999948433,
+      "full_max_ui_gap_ms": 35.44379999948433,
+      "rss_tree_bytes": 345976832,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1202000023331493
+        },
+        {
+          "method": "_load_document",
+          "ms": 34.3150999979116
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 34.39960000105202
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004300000000512227
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.525200000032783,
+      "ready_ms": 142.44059999691672,
+      "full_ready_ms": 146.10030000039842,
+      "max_ui_gap_ms": 32.005999997636536,
+      "full_max_ui_gap_ms": 32.005999997636536,
+      "rss_tree_bytes": 364806144,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0365000016463455
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.97410000191303
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.035999996674946
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004599998646881431
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.03299999970477,
+      "ready_ms": 144.11399999880814,
+      "full_ready_ms": 147.7298999998311,
+      "max_ui_gap_ms": 33.748399997421075,
+      "full_max_ui_gap_ms": 33.748399997421075,
+      "rss_tree_bytes": 369885184,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1505000002216548
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.916300002194475
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.12539999731234
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.545000001438893,
+      "ready_ms": 252.90569999924628,
+      "full_ready_ms": 256.9972000019334,
+      "max_ui_gap_ms": 31.110899999475805,
+      "full_max_ui_gap_ms": 31.110899999475805,
+      "rss_tree_bytes": 279560192,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1158999986946583
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.96010000060778
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.034799998247763
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007100003131199628
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.308899997384287,
+      "ready_ms": 148.11460000055376,
+      "full_ready_ms": 153.19699999963632,
+      "max_ui_gap_ms": 32.15210000053048,
+      "full_max_ui_gap_ms": 32.15210000053048,
+      "rss_tree_bytes": 294735872,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.098100001399871
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.658600000606384
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.73020000010729
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004800000169780105
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 31.098700001166435,
+      "ready_ms": 143.82750000004307,
+      "full_ready_ms": 146.81910000217613,
+      "max_ui_gap_ms": 31.635499999538297,
+      "full_max_ui_gap_ms": 31.635499999538297,
+      "rss_tree_bytes": 300212224,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0927999974228442
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.511299999488983
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.59159999975236
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0034999975468963385
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 10152,
+          "name": "MarkdownViewer.exe",
+          "rss": 186634240
+        },
+        {
+          "pid": 54212,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 113577984
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.586299999413313,
+      "ready_ms": 116.5328999995836,
+      "full_ready_ms": 122.77919999905862,
+      "max_ui_gap_ms": 31.747699998959433,
+      "full_max_ui_gap_ms": 31.747699998959433,
+      "rss_tree_bytes": 315125760,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.217299999552779
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.02080000078422
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.096500002400717
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005099998816149309
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "C.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.76019999975688,
+      "ready_ms": 145.2155999977549,
+      "full_ready_ms": 147.89069999824278,
+      "max_ui_gap_ms": 33.167499997944105,
+      "full_max_ui_gap_ms": 33.167499997944105,
+      "rss_tree_bytes": 326189056,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0741000005509704
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.308400001056725
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.37730000182637
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0036999990697950125
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "D.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.40539999792236,
+      "ready_ms": 161.17739999754122,
+      "full_ready_ms": 164.69169999982114,
+      "max_ui_gap_ms": 35.657599997648504,
+      "full_max_ui_gap_ms": 35.657599997648504,
+      "rss_tree_bytes": 330055680,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3182999973651022
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.86790000149631
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.951100002013845
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.0047000030463095754
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "E.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.6542000034824,
+      "ready_ms": 115.76830000194605,
+      "full_ready_ms": 118.93700000291574,
+      "max_ui_gap_ms": 31.299000002036337,
+      "full_max_ui_gap_ms": 31.299000002036337,
+      "rss_tree_bytes": 339214336,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.321200001257239
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.077200000960147
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.147299999953248
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "F.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 34.50929999962682,
+      "ready_ms": 131.4313000002585,
+      "full_ready_ms": 139.69129999895813,
+      "max_ui_gap_ms": 35.25609999996959,
+      "full_max_ui_gap_ms": 35.25609999996959,
+      "rss_tree_bytes": 348192768,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0966000008920673
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.88530000302126
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.97999999651802
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004400000761961564
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "G.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 30.85090000240598,
+      "ready_ms": 142.91310000044177,
+      "full_ready_ms": 147.5785000002361,
+      "max_ui_gap_ms": 31.161300001258496,
+      "full_max_ui_gap_ms": 31.161300001258496,
+      "rss_tree_bytes": 364650496,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2224999991303775
+        },
+        {
+          "method": "_load_document",
+          "ms": 30.162700000801124
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 30.245300000387942
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.003999997716164216
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "H.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 38.785699998697964,
+      "ready_ms": 163.5564999996859,
+      "full_ready_ms": 167.63999999966472,
+      "max_ui_gap_ms": 40.19659999903524,
+      "full_max_ui_gap_ms": 40.19659999903524,
+      "rss_tree_bytes": 374280192,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3225000002421439
+        },
+        {
+          "method": "_load_document",
+          "ms": 37.873599998420104
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 37.99729999809642
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.00799999907030724
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "I.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 33.08060000199475,
+      "ready_ms": 226.1508000010508,
+      "full_ready_ms": 230.6817000026058,
+      "max_ui_gap_ms": 33.755000000383006,
+      "full_max_ui_gap_ms": 33.755000000383006,
+      "rss_tree_bytes": 273031168,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.4427000023715664
+        },
+        {
+          "method": "_load_document",
+          "ms": 32.49549999964074
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 32.56459999829531
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.02000000313273631
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "J.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 32.644599999912316,
+      "ready_ms": 163.51279999798862,
+      "full_ready_ms": 167.07580000002054,
+      "max_ui_gap_ms": 33.38449999864679,
+      "full_max_ui_gap_ms": 33.38449999864679,
+      "rss_tree_bytes": 289005568,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.2888000019302126
+        },
+        {
+          "method": "_load_document",
+          "ms": 31.672600001911633
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 31.747599998197984
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.004600002284860238
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-cukiz87j",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-cukiz87j/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 101168,
+    "B.md": 101168,
+    "C.md": 101168,
+    "D.md": 101168,
+    "E.md": 101168,
+    "F.md": 101168,
+    "G.md": 101168,
+    "H.md": 101168,
+    "I.md": 101168,
+    "J.md": 101168
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 139591680,
+  "window_ready_wall_time": 1792688016.3111768,
+  "summary": {
+    "sync_ms": {
+      "n": 100,
+      "p50_ms": 32.15950000048906,
+      "p95_ms": 39.376000000629574,
+      "max_ms": 54.6699999977136
+    },
+    "ready_ms": {
+      "n": 100,
+      "p50_ms": 149.47559999927762,
+      "p95_ms": 226.3745000018389,
+      "max_ms": 274.47509999910835
+    },
+    "full_ready_ms": {
+      "n": 100,
+      "p50_ms": 152.6349499981734,
+      "p95_ms": 233.24849999698927,
+      "max_ms": 308.2667999988189
+    },
+    "max_ui_gap_ms": {
+      "n": 100,
+      "p50_ms": 32.898600000407896,
+      "p95_ms": 40.19659999903524,
+      "max_ms": 55.06469999818364
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 99.70919999977923,
+      "path": "G.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 99.64369999943301,
+      "path": "G.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 91.05719999934081,
+      "path": "I.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 90.99649999916437,
+      "path": "I.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 84.98619999954826,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 84.90760000131559,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 84.84490000046208,
+      "path": "H.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 84.7899000000325,
+      "path": "H.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 84.41369999854942,
+      "path": "C.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 84.33769999828655,
+      "path": "C.md",
+      "warm": false
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 289763328,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 256655360,
+  "process_memory_after_close": [
+    {
+      "pid": 10152,
+      "name": "MarkdownViewer.exe",
+      "rss": 183308288
+    },
+    {
+      "pid": 39268,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 73355264
+    }
+  ]
+}

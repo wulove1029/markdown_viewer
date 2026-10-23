@@ -1,0 +1,420 @@
+{
+  "root": "D:\\markdown_viewer",
+  "label": "candidate",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 1000000,
+  "category": "code_heavy",
+  "working_set": 2,
+  "frozen": false,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 30.5871999989904,
+      "ready_ms": 864.6197999987635,
+      "full_ready_ms": 4188.905899998645,
+      "max_ui_gap_ms": 97.68229999826872,
+      "full_max_ui_gap_ms": 97.68229999826872,
+      "rss_tree_bytes": 562741248,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 0.959999997576233
+        },
+        {
+          "method": "_load_document",
+          "ms": 25.365499997860752
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 25.458600001002196
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.007200000254670158
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 47216,
+          "name": "python.exe",
+          "rss": 201076736
+        },
+        {
+          "pid": 46668,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 298708992
+        },
+        {
+          "pid": 10348,
+          "name": "python.exe",
+          "rss": 4349952
+        },
+        {
+          "pid": 49976,
+          "name": "conhost.exe",
+          "rss": 8065024
+        },
+        {
+          "pid": 49444,
+          "name": "python.exe",
+          "rss": 50540544
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 36.06460000082734,
+      "ready_ms": 298.97219999838853,
+      "full_ready_ms": 3594.6636000007857,
+      "max_ui_gap_ms": 36.08249999888358,
+      "full_max_ui_gap_ms": 67.08079999953043,
+      "rss_tree_bytes": 757846016,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.0168000007979572
+        },
+        {
+          "method": "_load_document",
+          "ms": 33.57490000053076
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 33.64460000011604
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006199999916134402
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 284.2683999988367,
+      "ready_ms": 1318.0405999992217,
+      "full_ready_ms": 1580.02530000158,
+      "max_ui_gap_ms": 285.12770000088494,
+      "full_max_ui_gap_ms": 285.12770000088494,
+      "rss_tree_bytes": 896528384,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.102299997000955
+        },
+        {
+          "method": "_load_document",
+          "ms": 283.84730000107083
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 283.89510000124574
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.008999999408842996
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 47216,
+          "name": "python.exe",
+          "rss": 210145280
+        },
+        {
+          "pid": 46668,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 622637056
+        },
+        {
+          "pid": 10348,
+          "name": "python.exe",
+          "rss": 4349952
+        },
+        {
+          "pid": 49976,
+          "name": "conhost.exe",
+          "rss": 8065024
+        },
+        {
+          "pid": 49444,
+          "name": "python.exe",
+          "rss": 51331072
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 264.15410000117845,
+      "ready_ms": 1345.0276000003214,
+      "full_ready_ms": 1606.326799999806,
+      "max_ui_gap_ms": 264.63950000106706,
+      "full_max_ui_gap_ms": 264.63950000106706,
+      "rss_tree_bytes": 1036460032,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.3881000013498124
+        },
+        {
+          "method": "_load_document",
+          "ms": 263.79760000054375
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 263.83160000114003
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 263.3408000001509,
+      "ready_ms": 1292.6373000009335,
+      "full_ready_ms": 1539.9219000028097,
+      "max_ui_gap_ms": 263.77440000214847,
+      "full_max_ui_gap_ms": 263.77440000214847,
+      "rss_tree_bytes": 1177399296,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.041100000293227
+        },
+        {
+          "method": "_load_document",
+          "ms": 262.99479999943287
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 263.03090000146767
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006899997970322147
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 47216,
+          "name": "python.exe",
+          "rss": 214065152
+        },
+        {
+          "pid": 46668,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 899588096
+        },
+        {
+          "pid": 10348,
+          "name": "python.exe",
+          "rss": 4349952
+        },
+        {
+          "pid": 49976,
+          "name": "conhost.exe",
+          "rss": 8065024
+        },
+        {
+          "pid": 49444,
+          "name": "python.exe",
+          "rss": 51331072
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 263.3787000013399,
+      "ready_ms": 1334.4316000002436,
+      "full_ready_ms": 1589.0356000018073,
+      "max_ui_gap_ms": 263.3969000016805,
+      "full_max_ui_gap_ms": 263.3969000016805,
+      "rss_tree_bytes": 1314439168,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.12989999979618
+        },
+        {
+          "method": "_load_document",
+          "ms": 262.9562999973132
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 262.99760000256356
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.005300000339047983
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-9qrzbpme",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-9qrzbpme/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 1047495,
+    "B.md": 1047495
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 188375040,
+  "window_ready_wall_time": 1792694782.4629886,
+  "summary": {
+    "sync_ms": {
+      "n": 4,
+      "p50_ms": 263.76640000125917,
+      "p95_ms": 284.2683999988367,
+      "max_ms": 284.2683999988367
+    },
+    "ready_ms": {
+      "n": 4,
+      "p50_ms": 1326.2360999997327,
+      "p95_ms": 1345.0276000003214,
+      "max_ms": 1345.0276000003214
+    },
+    "full_ready_ms": {
+      "n": 4,
+      "p50_ms": 1584.5304500016937,
+      "p95_ms": 1606.326799999806,
+      "max_ms": 1606.326799999806
+    },
+    "max_ui_gap_ms": {
+      "n": 4,
+      "p50_ms": 264.20695000160777,
+      "p95_ms": 285.12770000088494,
+      "max_ms": 285.12770000088494
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 283.89510000124574,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 283.84730000107083,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 263.83160000114003,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 263.79760000054375,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 263.03090000146767,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 262.99760000256356,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 262.99479999943287,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 262.9562999973132,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 33.64460000011604,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 33.57490000053076,
+      "path": "B.md",
+      "warm": false
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 1315225600,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 1395384320,
+  "process_memory_after_close": [
+    {
+      "pid": 47216,
+      "name": "python.exe",
+      "rss": 224604160
+    },
+    {
+      "pid": 46668,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 1033994240
+    },
+    {
+      "pid": 10348,
+      "name": "python.exe",
+      "rss": 4349952
+    },
+    {
+      "pid": 50576,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 73052160
+    },
+    {
+      "pid": 49976,
+      "name": "conhost.exe",
+      "rss": 8065024
+    },
+    {
+      "pid": 49444,
+      "name": "python.exe",
+      "rss": 51331072
+    }
+  ]
+}

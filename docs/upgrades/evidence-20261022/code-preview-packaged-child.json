@@ -1,0 +1,297 @@
+{
+  "root": "D:\\markdown_viewer\\dist\\upgrade-20261023-code-preview\\MarkdownViewer\\_internal",
+  "label": "code-preview-final-exe",
+  "python": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]",
+  "kind": "markdown",
+  "size": 1000000,
+  "category": "code_heavy",
+  "working_set": 2,
+  "frozen": true,
+  "status": "completed",
+  "samples": [
+    {
+      "path": "A.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 126.93859999853885,
+      "ready_ms": 817.2578999983671,
+      "full_ready_ms": 4001.1900999998034,
+      "max_ui_gap_ms": 343.4820000002219,
+      "full_max_ui_gap_ms": 343.4820000002219,
+      "rss_tree_bytes": 551800832,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.032100000884384
+        },
+        {
+          "method": "_load_document",
+          "ms": 120.89209999976447
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 120.94119999892428
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.011100000847363845
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 43396,
+          "name": "MarkdownViewer.exe",
+          "rss": 216981504
+        },
+        {
+          "pid": 52960,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 290230272
+        },
+        {
+          "pid": 50880,
+          "name": "MarkdownViewer.exe",
+          "rss": 46579712
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": false,
+      "body_cache_hit": false,
+      "sync_ms": 29.073800000332994,
+      "ready_ms": 283.7260000014794,
+      "full_ready_ms": 3553.8922999985516,
+      "max_ui_gap_ms": 29.11600000152248,
+      "full_max_ui_gap_ms": 43.81980000107433,
+      "rss_tree_bytes": 796143616,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1358000010659453
+        },
+        {
+          "method": "_load_document",
+          "ms": 26.363900000433205
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 26.448299999174196
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.006300000677583739
+        }
+      ],
+      "success": true
+    },
+    {
+      "path": "A.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 29.985000001033768,
+      "ready_ms": 1153.5029000006034,
+      "full_ready_ms": 1412.5548000010895,
+      "max_ui_gap_ms": 40.70039999714936,
+      "full_max_ui_gap_ms": 40.70039999714936,
+      "rss_tree_bytes": 937426944,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.1353000008966774
+        },
+        {
+          "method": "_load_document",
+          "ms": 29.60259999963455
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 29.647600000316743
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009899998985929415
+        }
+      ],
+      "success": true,
+      "process_memory": [
+        {
+          "pid": 43396,
+          "name": "MarkdownViewer.exe",
+          "rss": 251355136
+        },
+        {
+          "pid": 52960,
+          "name": "QtWebEngineProcess.exe",
+          "rss": 617836544
+        },
+        {
+          "pid": 50880,
+          "name": "MarkdownViewer.exe",
+          "rss": 68235264
+        }
+      ],
+      "navigation_history_entries": 1
+    },
+    {
+      "path": "B.md",
+      "warm": true,
+      "body_cache_hit": true,
+      "sync_ms": 27.038100000936538,
+      "ready_ms": 1089.1052000006312,
+      "full_ready_ms": 1346.6105000006792,
+      "max_ui_gap_ms": 38.5928999967291,
+      "full_max_ui_gap_ms": 38.5928999967291,
+      "rss_tree_bytes": 1077559296,
+      "sync_sections": [
+        {
+          "method": "load_file",
+          "ms": 1.121400000556605
+        },
+        {
+          "method": "_load_document",
+          "ms": 26.656400001229485
+        },
+        {
+          "method": "_activate_tab",
+          "ms": 26.695699998526834
+        },
+        {
+          "method": "_refresh_properties_panel",
+          "ms": 0.009899998985929415
+        }
+      ],
+      "success": true
+    }
+  ],
+  "temp": "C:\\Users\\woo75\\AppData\\Local\\Temp\\mdv-switch-benchmark-m44rwhcu",
+  "pyside": "6.11.2",
+  "mode": "offscreen",
+  "settings": "C:/Users/woo75/AppData/Local/Temp/mdv-switch-benchmark-m44rwhcu/settings/user/385d96895b874b21be13ab0ffb33cbab40f66ed3a6e912aa2a2f7ca31b3a7589/d5498a5f7b2f026bc3cff83413cf2998c9e14d642245e1b9d8d9893bd6d8a5e6.ini",
+  "limitations": [
+    "DOM double-frame and raster paint proxies, not monitor first paint",
+    "Filesystem cache warm; excludes application startup",
+    "TXT proxy: buffer installed/event processing; not native paint timing",
+    "No remote images or external network dependencies"
+  ],
+  "pdf_target_page": null,
+  "file_bytes": {
+    "A.md": 1047495,
+    "B.md": 1047495
+  },
+  "dpr": 1.0,
+  "screen_dpi": 96.0,
+  "rss_start_bytes": 180146176,
+  "window_ready_wall_time": 1792696245.208437,
+  "summary": {
+    "sync_ms": {
+      "n": 2,
+      "p50_ms": 28.511550000985153,
+      "p95_ms": 29.985000001033768,
+      "max_ms": 29.985000001033768
+    },
+    "ready_ms": {
+      "n": 2,
+      "p50_ms": 1121.3040500006173,
+      "p95_ms": 1153.5029000006034,
+      "max_ms": 1153.5029000006034
+    },
+    "full_ready_ms": {
+      "n": 2,
+      "p50_ms": 1379.5826500008843,
+      "p95_ms": 1412.5548000010895,
+      "max_ms": 1412.5548000010895
+    },
+    "max_ui_gap_ms": {
+      "n": 2,
+      "p50_ms": 39.64664999693923,
+      "p95_ms": 40.70039999714936,
+      "max_ms": 40.70039999714936
+    }
+  },
+  "top_sync_sections": [
+    {
+      "method": "_activate_tab",
+      "ms": 120.94119999892428,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 120.89209999976447,
+      "path": "A.md",
+      "warm": false
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 29.647600000316743,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 29.60259999963455,
+      "path": "A.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 26.695699998526834,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_load_document",
+      "ms": 26.656400001229485,
+      "path": "B.md",
+      "warm": true
+    },
+    {
+      "method": "_activate_tab",
+      "ms": 26.448299999174196,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "_load_document",
+      "ms": 26.363900000433205,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "load_file",
+      "ms": 1.1358000010659453,
+      "path": "B.md",
+      "warm": false
+    },
+    {
+      "method": "load_file",
+      "ms": 1.1353000008966774,
+      "path": "A.md",
+      "warm": true
+    }
+  ],
+  "passed": true,
+  "rss_before_close_bytes": 1077788672,
+  "tabs_closed": true,
+  "rss_after_close_bytes": 391139328,
+  "process_memory_after_close": [
+    {
+      "pid": 43396,
+      "name": "MarkdownViewer.exe",
+      "rss": 249016320
+    },
+    {
+      "pid": 50880,
+      "name": "MarkdownViewer.exe",
+      "rss": 68235264
+    },
+    {
+      "pid": 46812,
+      "name": "QtWebEngineProcess.exe",
+      "rss": 73887744
+    }
+  ]
+}
