@@ -120,6 +120,28 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-09｜1.37.0 發版分支 `release/1.37.0`
+
+作者：Claude｜狀態：分支已建立並在本機驗證；未合併 main、未 push、未打 tag
+
+- **範圍**：從 `9c5f961` 開出，收錄這批通用升級：
+  - 外部開啟入口：命令列、單一視窗轉送、`markdownviewer://` URL protocol、App Paths。
+  - IPC 協定 v1：開啟時可帶標題或行號定位；`[[頁#標題]]`、`[[#標題]]` 跳到標題。
+  - 無視窗 CLI 匯出：`--export`、`--export-batch`、`--capabilities`、`--version`。
+  - AI Agent 監看面板、狀態列徽章與通知（只連本機 Watchdog）。
+  - 文件庫變更偵測：切回視窗時重掃，連結索引在背景執行緒建立。
+  - 不受信任 Markdown 的安全強化（說明見 `docs/upgrades/2026-11-08-security-hardening.md`，升級 Vditor bundle 時要重做裡面列的修改）。
+  - Markdown 方言 `==mark==`、`[TOC]`，front matter 引號修正，預覽連結點擊崩潰修正。
+- **驗證**：全套 2588 passed、167 skipped、1 failed（已知的 help_diagnostics）；WebEngine 分組 renderer 131、security 179、office-commands 22、code-loading 6、預覽連結 3 全過；office 27 passed＋1 failed（`test_prepared_wysiwyg_pdf_contains_full_document_without_editor_chrome`，main `9c5f961` 上同樣失敗，非本分支造成）；ruff、mypy 通過；CLI `--export html` 實測可用。
+- **需要使用者決定**：合併 main、打 tag 與發版。installer.iss 新增的 URL protocol 和 App Paths 尚未實際建置安裝檔驗證。
+- **已知殘留**（都是低嚴重度）：
+  - WYSIWYG 存檔時 `[TOC]` 會被 Vditor 改成 `[toc]`。
+  - WYSIWYG 主框架導航到 `about:blank` 時，只能事後還原，無法事前攔截；期間 bridge 不會被呼叫。
+  - CLI 逾時時走 `os._exit`，暫存 profile 不會清掉。
+  - Windows toast 的實際彈出沒有經過真機人眼確認。
+  - 預覽中，若有人用程式手動把 `javascript:` 連結塞進 DOM，點擊後仍會執行；但 markdown 本身產生不出這種連結。
+  - `DocumentLibraryStore.load()` 裡的 `resolve()` 仍在 GUI 執行緒。
+
 ### 2026-10-23｜1.36.0 正式發布
 
 作者：Codex｜狀態：已發布，線上獨立驗收通過
@@ -1968,10 +1990,12 @@ single-instance/IPC 機制，故多開檔案＝多開視窗。
 ## 待辦與未決
 
 - [ ] （低）檔案樹篩選框 `textChanged` 直接觸發背景重掃，無 debounce；大文件庫上連續打字時舊樹要等最新一次掃完才換（app/file_browser.py 建構子 `self._filter.textChanged.connect(self._refresh_list)`）——可加 150ms QTimer 合併
-- [ ] （低-中）主視窗關閉、detached 視窗留存時 IPC server 消失，之後雙擊 .md
-      會開出第二個 primary（main.py:110）——可考慮 server 移交或 app 級管理
-- [ ] （低）`_open_file` 分頁 key 未 `resolve()`，與 IPC 端 resolve 路徑可能
-      失配造成同檔重複分頁（app/window.py:1480-1494）
+- [x] （低-中）主視窗關閉、detached 視窗留存時 IPC server 消失，之後雙擊 .md
+      會開出第二個 primary（main.py:110）——1.37.0 查明：真正的根因是
+      隱藏的視窗只呼叫 raise_() 而沒有重新 show；另外修了同時雙擊時的競態
+- [x] （低）`_open_file` 分頁 key 未 `resolve()`，與 IPC 端 resolve 路徑可能
+      失配造成同檔重複分頁（app/window.py:1480-1494）——1.37.0 修正
+      （`tab_path_key`，並加快取）
 - [ ] （低）docx 匯出品質項：小圖固定放大 6.2 吋（docx_export.py:36,191）、
       表格 cell inline 格式遺失（共用 parser 限制）、清單 >3 層扁平化、
       遠端圖片同步下載可能凍 UI（docx_export.py:168，PPT 同模式）

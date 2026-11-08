@@ -1,11 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.36.0"
+VERSION = "1.37.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "新增精簡工作區、專注模式、舒適閱讀預設與暖色紙張，整合章節、圖片與來源摘錄。",
-    "新增可復原草稿、範本預覽、寫作大綱、命令搜尋與並排來源同步；未存內容可直接匯出。",
-    "改良增量搜尋、PDF布局與工作配額，補強Office命令、搬移中斷復原及本機診斷。",
+    "新增外部開啟入口：命令列、markdownviewer:// 連結與單一視窗轉送，可直接跳到指定標題或行。",
+    "新增無視窗命令列匯出（Word／PPT／PDF／HTML）與 AI Agent 監看面板；切回視窗時自動重掃文件庫。",
+    "強化不受信任 Markdown 的安全防護，支援 ==螢光標記== 與 [TOC] 目錄，並修正預覽連結點擊崩潰。",
 ]
 
 GITHUB_OWNER = "wulove1029"

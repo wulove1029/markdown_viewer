@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-11-09
+
+### Added
+- 外部開啟入口：可從命令列、`markdownviewer://open?path=…` 連結或已在執行的視窗轉送開啟檔案與資料夾；安裝程式註冊 URL protocol 與 App Paths。
+- IPC 協定 v1：開啟文件時可帶標題或行號定位；`[[頁面#標題]]` 與 `[[#標題]]` wiki-link 會跳到對應標題。
+- 無視窗命令列匯出：`--export <docx|pptx|pdf|html> <輸入.md> <輸出>`、`--export-batch`、`--capabilities` 與 `--version`，不開視窗也不轉送給執行中的 Viewer。
+- AI Agent 監看：檢視選單的 AI Agents 面板、狀態列徽章與工具列按鈕，可選擇在等待回覆或可能卡住時通知；只連線本機（127.0.0.1／::1）的 Watchdog 服務。
+- Markdown 方言：`==螢光標記==`（預覽、Word 與 PowerPoint 匯出皆保留）與獨立段落的 `[TOC]` 目錄。
+
+### Changed
+- 切回視窗時偵測文件庫變更（外部編輯、git pull 等）並重建連結索引；索引改在背景執行緒建立、同一資料夾只走訪一次，關閉視窗時會停止。
+- 分頁以實際路徑辨識同一檔案，不同寫法的路徑不再開出重複分頁；隱藏中的主視窗被外部開啟時會重新顯示。
+- 預覽頁加上內容安全政策（CSP）並禁止頁面腳本開新視窗；附件封鎖清單擴充，舊版 Office、RTF、SVG、XML 附件改為開啟前確認。
+- WYSIWYG 編輯器加上 CSP、頂層導航鎖與內容清洗，Mermaid／KaTeX 改為嚴格模式，阻擋惡意文件呼叫程式內部介面或執行腳本。
+
+### Fixed
+- 封鎖文件指定的網路路徑（`//host/share`、`file://host/…`、UNC 裝置路徑）圖片與連結，避免連線外部主機而洩漏 Windows 認證雜湊。
+- 點擊未知 scheme 的連結（如 `search-ms:`、`ms-settings:`）不再交給作業系統開啟。
+- 修正點擊預覽中的 wikilink 等連結時可能使程式崩潰的問題。
+- Front matter 的雙引號字串正確處理跳脫字元，單引號字串正確處理 `''`。
+
+### Validation
+- 完整測試 2588 passed／167 skipped，1 項已知失敗（help 診斷匯出）；Ruff、mypy 通過。
+- WebEngine 分組 renderer 131、WYSIWYG 28、security 179、office-commands 22、程式碼延後高亮 6、預覽連結 3 項通過（WYSIWYG PDF 捲動還原測試在本機偶發失敗，1.36.0 基準版亦同）。
+- PyInstaller 打包後以執行檔實測命令列匯出 HTML 與 Word。
+- 尚未實際建置安裝檔驗證 URL protocol 與 App Paths 登錄。
+
 ## [1.36.0] - 2026-10-22
 
 ### Added
