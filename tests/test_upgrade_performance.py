@@ -25,8 +25,9 @@ def test_ipc_buffers_fragmented_utf8_until_disconnect(qapp, monkeypatch):
         def __init__(self):
             super().__init__()
             self.paths = []
-        def open_path(self, path):
-            self.paths.append(path)
+        def open_external_path(self, path):
+            if path:
+                self.paths.append(path)
     window = Window()
     server = main._setup_ipc_server(window)
     socket = QLocalSocket()

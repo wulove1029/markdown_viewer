@@ -47,5 +47,15 @@ Root: HKCR; Subkey: "MarkdownViewer.mdfile\shell\open\command"; ValueType: strin
 
 Root: HKCR; Subkey: ".markdown\OpenWithProgids"; ValueType: none; ValueName: "MarkdownViewer.mdfile"; Flags: uninsdeletevalue
 
+; markdownviewer://open?path=<percent-encoded absolute path> (lets other apps open a document).
+Root: HKA; Subkey: "Software\Classes\markdownviewer"; ValueType: string; ValueName: ""; ValueData: "URL:Markdown Viewer Protocol"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\markdownviewer"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\markdownviewer\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"
+Root: HKA; Subkey: "Software\Classes\markdownviewer\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+
+; App Paths lets other programs locate the executable by name.
+Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppExeName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName}"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppExeName}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即啟動 {#MyAppName}"; Flags: nowait postinstall skipifsilent

@@ -10,6 +10,7 @@ import math
 import threading
 import time
 import urllib.parse
+import weakref
 from collections import OrderedDict
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from .attachment_security import attachment_open_policy
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .html_loading import HtmlPreparation
 from .md_converter import RenderCancelled, convert, convert_text, state_page_html
+from .web_security import blocks_file_request, document_host, install_remote_file_guard
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
 _RENDER_ERROR_META = "markdown-viewer-render-error"
@@ -236,6 +238,89 @@ def _home_actions_html() -> str:
     )
 
 
+def _same_document(url: QUrl, other) -> bool:
+    """True when *url* and *other* differ at most in their fragment.
+
+    ``QUrl.matches(..., UrlFormattingOption.RemoveFragment)`` raises a
+    TypeError on PySide6 6.11 (only ComponentFormattingOption is accepted),
+    which made every preview link click fail closed; compare
+    fragment-stripped copies instead.
+    """
+    if other is None:
+        return False
+    left, right = QUrl(url), QUrl(other)
+    if left.isEmpty() or right.isEmpty():
+        return False
+    left.setFragment(None)
+    right.setFragment(None)
+    return left == right
+
+
+def _current_document_host(view) -> str:
+    """UNC host of the document *view* shows ("" for local documents)."""
+    return document_host(getattr(view, "_current_path", None))
+
+
+# Schemes Chromium loads by itself.  Anything else is "unknown" to it: Qt
+# offers a user-gesture navigation there to acceptNavigationRequest and, if it
+# is accepted, hands the URL to the OS (QDesktopServices::openUrl in C++).
+_ENGINE_SCHEMES = frozenset({
+    "http", "https", "file", "data", "about", "blob", "filesystem", "qrc",
+    "chrome", "chrome-extension", "chrome-error", "devtools",
+})
+# A clicked link may leave the preview only through these (file: by S2's rules).
+_EXTERNAL_LINK_SCHEMES = frozenset({"http", "https", "mailto"})
+
+
+def _after_navigation_callback(view, action, *args) -> None:
+    """Run *action* once Chromium's navigation callback has returned.
+
+    acceptNavigationRequest runs inside Chromium's navigation throttle.
+    Stopping, replacing or reloading the page from there -- which opening a
+    note does via deactivate() -> stop() -- trips a Chromium CHECK (the
+    process dies with 0x80000003), and a modal dialog would spin a nested
+    event loop inside it.  The callback only decides; everything else is
+    queued here.  Arguments must be values (copy any QUrl Chromium passed in).
+    """
+    def run():
+        action(*args)
+
+    if isinstance(view, QObject):
+        QTimer.singleShot(0, view, run)  # dropped if the view is gone by then
+    else:
+        QTimer.singleShot(0, run)
+
+
+def _warn_network_link(view, text: str) -> None:
+    QMessageBox.warning(
+        view,
+        "已封鎖網路路徑連結",
+        "為避免連線到文件指定的網路主機，Markdown Viewer 不會開啟：\n"
+        f"{text or '（無效的網路路徑）'}",
+    )
+
+
+def _open_attachment(view, url: QUrl, local: str) -> None:
+    policy = attachment_open_policy(local)
+    if policy == "block":
+        QMessageBox.warning(
+            view,
+            "已封鎖不安全的附件",
+            "為避免執行程式或腳本，Markdown Viewer 不會開啟：\n"
+            f"{local}",
+        )
+    elif policy == "open" or QMessageBox.question(
+        view,
+        "開啟外部附件",
+        "這個檔案類型不在一般文件清單中。\n"
+        f"確定要交給系統開啟嗎？\n\n{local}",
+        QMessageBox.StandardButton.Yes
+        | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    ) == QMessageBox.StandardButton.Yes:
+        QDesktopServices.openUrl(url)
+
+
 class _DocumentPage(QWebEnginePage):
     """Intercept link clicks: wiki-links and cross-note links open in-app,
     external links open in the system browser, in-page anchors scroll."""
@@ -246,19 +331,37 @@ class _DocumentPage(QWebEnginePage):
         else:
             super().__init__(profile, view)
         self._view = view
+        # Untrusted Markdown must not make Chromium open file://host/... or
+        # \\.\UNC\host (SMB, NTLM leak) through an image, CSS or link; only
+        # resource loads from the share the current document itself lives on
+        # stay reachable.  The guard holds the view weakly: a strong reference
+        # from this C++-owned child back to its owner crashes PySide when the
+        # wrappers are torn down.
+        view_ref = weakref.ref(view)
+        self._remote_file_guard = install_remote_file_guard(
+            self, lambda: _current_document_host(view_ref())
+        )
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        # Decide only: every side effect goes through _after_navigation_callback.
+        view = self._view
+        clicked = nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked
+        if url.isEmpty() or not url.isValid():
+            # e.g. Chromium's file://./UNC/host/... which QUrl cannot hold.
+            if clicked:
+                _after_navigation_callback(view, _warn_network_link, view, url.toString())
+            return False
         scheme = url.scheme()
         if scheme == "https" and url.host() == "markdown-viewer.invalid":
             route = url.path(QUrl.ComponentFormattingOption.FullyEncoded)
             if route.startswith("/wikilink/"):
                 target = urllib.parse.unquote(route.removeprefix("/wikilink/"))
-                if target and nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
-                    self._view.wikilink_clicked.emit(target)
+                if target and clicked:
+                    _after_navigation_callback(view, view.wikilink_clicked.emit, target)
                 return False
-            if (self._view._current_path is None and
-                    nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked):
-                self._view.home_action_requested.emit(url.path().removeprefix("/home/"))
+            if view._current_path is None and clicked:
+                _after_navigation_callback(
+                    view, view.home_action_requested.emit, url.path().removeprefix("/home/"))
             return False
         # The wikilink scheme is always ours — intercept it regardless of how
         # the navigation was triggered (real click, JS, etc.).
@@ -266,50 +369,53 @@ class _DocumentPage(QWebEnginePage):
             raw = url.toString()
             target = urllib.parse.unquote(raw.split(":", 1)[1]) if ":" in raw else ""
             if target:
-                self._view.wikilink_clicked.emit(target)
+                _after_navigation_callback(view, view.wikilink_clicked.emit, target)
             return False
-        if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
-            # Same-document fragment (footnote/anchor) -> let it scroll.
-            if url.matches(self.url(), QUrl.UrlFormattingOption.RemoveFragment):
-                return True
-            base_url = getattr(self._view, "_html_base_url", None)
-            if (url.hasFragment() and base_url is not None
-                    and url.matches(base_url, QUrl.UrlFormattingOption.RemoveFragment)):
-                # A file-backed large preview keeps the original document's
-                # base URL; its fragment must not navigate to a directory.
-                self._view.scroll_to(url.fragment())
-                return False
-            if scheme in ("http", "https", "mailto"):
-                QDesktopServices.openUrl(url)
-                return False
-            if scheme == "file":
-                local = url.toLocalFile()
-                if is_supported_document(local):
-                    if url.hasFragment():
-                        self._view.local_doc_target_clicked.emit(local, url.fragment())
-                    else:
-                        self._view.local_doc_clicked.emit(local)
-                else:
-                    policy = attachment_open_policy(local)
-                    if policy == "block":
-                        QMessageBox.warning(
-                            self._view,
-                            "已封鎖不安全的附件",
-                            "為避免執行程式或腳本，Markdown Viewer 不會開啟：\n"
-                            f"{local}",
-                        )
-                    elif policy == "open" or QMessageBox.question(
-                        self._view,
-                        "開啟外部附件",
-                        "這個檔案類型不在一般文件清單中。\n"
-                        f"確定要交給系統開啟嗎？\n\n{local}",
-                        QMessageBox.StandardButton.Yes
-                        | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No,
-                    ) == QMessageBox.StandardButton.Yes:
-                        QDesktopServices.openUrl(url)
-                return False
+        if clicked:
+            return self._accept_link_click(url, scheme)
+        if scheme not in _ENGINE_SCHEMES:
+            # Same rule as for clicks, whatever started the navigation (form,
+            # redirect, script): an unknown scheme never gets a True that Qt
+            # would turn into an OS launch.
+            return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
+
+    def _accept_link_click(self, url, scheme) -> bool:
+        """Whitelist for clicked links; anything not listed here is refused."""
+        view = self._view
+        # Same-document fragment (footnote/anchor) -> let Chromium scroll.
+        if url.hasFragment() and _same_document(url, self.url()):
+            return True
+        base_url = getattr(view, "_html_base_url", None)
+        if url.hasFragment() and _same_document(url, base_url):
+            # A file-backed large preview keeps the original document's
+            # base URL; its fragment must not navigate to a directory.
+            _after_navigation_callback(view, view.scroll_to, url.fragment())
+            return False
+        if scheme in _EXTERNAL_LINK_SCHEMES:
+            _after_navigation_callback(view, QDesktopServices.openUrl, QUrl(url))
+            return False
+        if scheme == "file":
+            if blocks_file_request(url):
+                # file://host/... or a device-namespace UNC path would open
+                # an SMB connection to a host picked by the document (NTLM
+                # hash leak).  Navigation never gets the document-share
+                # exception the resource guard grants.
+                _after_navigation_callback(view, _warn_network_link, view, url.toString())
+                return False
+            local = url.toLocalFile()
+            if is_supported_document(local):
+                if url.hasFragment():
+                    _after_navigation_callback(
+                        view, view.local_doc_target_clicked.emit, local, url.fragment())
+                else:
+                    _after_navigation_callback(view, view.local_doc_clicked.emit, local)
+            else:
+                _after_navigation_callback(view, _open_attachment, view, QUrl(url), local)
+            return False
+        # foo:, ms-settings:, search-ms:, other app schemes, about:, data:,
+        # javascript: ...: never handed to the OS and never replace the preview.
+        return False
 
 
 class _RenderSignals(QObject):
@@ -618,6 +724,9 @@ class RendererView(QWebEngineView):
             # Both attributes are needed for the built-in plugin PDF viewer.
             page.settings().setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, True)
             page.settings().setAttribute(QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
+            # No preview feature opens windows; untrusted page script must not.
+            page.settings().setAttribute(
+                QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
         page.setWebChannel(self._channel)
 
         def loaded(ok):

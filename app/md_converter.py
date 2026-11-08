@@ -27,6 +27,9 @@ from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 
+from .md_extensions import is_toc_marker, mark_plugin
+from .web_security import PREVIEW_CSP, csp_meta, is_network_path_link
+
 _CSS_PATH = Path(__file__).parent.parent / "assets" / "obsidian-light.css"
 _MERMAID_JS = _CSS_PATH.parent / "mermaid.min.js"
 _DIAGRAM_LOADING_JS = (_CSS_PATH.parent / "diagram_loading.js").read_text(encoding="utf-8")
@@ -68,6 +71,15 @@ summary { cursor: pointer; font-weight: 600; }
 .frontmatter .fm-tag { display: inline-block; background: rgba(128,128,128,.15);
     border-radius: 10px; padding: 0 8px; margin: 0 4px 2px 0; font-size: .9em; }
 """
+_EXTENSION_CSS = """
+mark:not(.annot) { background: #fff3a3; color: #1f2328; border-radius: 3px; padding: 0 .15em; }
+.theme-dark mark:not(.annot) { background: rgba(250,204,21,.30); color: inherit; }
+nav.md-toc { border: 1px solid rgba(128,128,128,.25); border-radius: 6px; padding: 8px 14px;
+    margin: 14px 0; background: rgba(128,128,128,.05); }
+nav.md-toc ul { margin: 0; padding-left: 1.4em; }
+nav.md-toc > ul { padding-left: .4em; }
+nav.md-toc li { margin: 2px 0; }
+"""
 _PARTIAL_CSS = """
 .partial-preview-notice { position: sticky; top: 0; z-index: 20;
     border: 1px solid rgba(234,179,8,.45); border-left: 4px solid #eab308;
@@ -77,7 +89,7 @@ _PARTIAL_CSS = """
 .partial-preview-notice .ppn-scope { opacity: .85; }
 .partial-preview-notice .ppn-search { display: block; margin-top: 6px; font-weight: 700; }
 """
-_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}\n{_PARTIAL_CSS}"
+_FULL_CSS = f"{_THEME_CSS}\n{_PYGMENTS_CSS}\n{_WIKILINK_CSS}\n{_CALLOUT_CSS}\n{_EXTENSION_CSS}\n{_PARTIAL_CSS}"
 
 # ---------------------------------------------------------------------------
 # Large-document thresholds -- single source of truth (spec 3.C).
@@ -523,13 +535,86 @@ def _build_parser() -> MarkdownIt:
     md = md.use(footnote_plugin)
     md = md.use(deflist_plugin)
     md = md.use(dollarmath_plugin)  # $inline$ and $$block$$ math
+    md = md.use(mark_plugin)        # ==highlight==
     md = md.use(_wikilink_plugin)   # [[note]] wiki-links
     md = md.use(_callout_plugin)    # > [!note] callouts
     md = md.use(_safe_html_plugin)  # small safe-HTML allowlist
+    md = md.use(_toc_plugin)        # [TOC] -> heading outline
     # Last: it stamps the final tags, so it must see every other plugin's
     # rewrites (callouts turn blockquotes into divs, for example).
     md = md.use(_source_line_plugin)  # data-src-start/end for inline editing
+    _harden_link_validation(md)
     return md
+
+
+def _harden_link_validation(md: MarkdownIt) -> None:
+    """Refuse scheme-relative / UNC targets for links *and* images.
+
+    In a ``file://`` preview ``![x](//host/share/x.png)`` resolves to
+    ``file://host/share/x.png``; Chromium then opens an SMB connection on
+    page load and Windows may send the user's NTLM hash to that host.
+    markdown-it renders a rejected link or image as literal text.
+    """
+    default_validate = md.validateLink
+
+    def validate_link(url: str) -> bool:
+        return default_validate(url) and not is_network_path_link(url)
+
+    md.validateLink = validate_link  # type: ignore[method-assign]
+
+
+_TOC_PLACEHOLDER = '<nav class="md-toc" data-md-toc="1"></nav>'
+
+
+def _toc_plugin(md: MarkdownIt) -> None:
+    """A top-level paragraph that is only ``[TOC]`` becomes an outline.
+
+    The parser only emits a placeholder; ``_inject_anchors`` fills it in once
+    the heading ids exist, so the links always match the real anchors.
+    """
+
+    def replace(state) -> None:
+        tokens = state.tokens
+        i = 0
+        while i + 2 < len(tokens):
+            first, inline, last = tokens[i], tokens[i + 1], tokens[i + 2]
+            if (first.type == "paragraph_open" and first.level == 0
+                    and inline.type == "inline" and is_toc_marker(inline.content)
+                    and last.type == "paragraph_close"):
+                token = Token("md_toc", "", 0)
+                token.map = first.map
+                token.block = True
+                tokens[i:i + 3] = [token]
+            i += 1
+
+    md.core.ruler.push("md_toc", replace)
+    md.renderer.rules["md_toc"] = lambda tokens, idx, options, env: _TOC_PLACEHOLDER + "\n"
+
+
+def _toc_html(headings: list[tuple[int, str, str]]) -> str:
+    """Nested ``<ul>`` outline linking to the injected heading anchors."""
+    if not headings:
+        return '<nav class="md-toc"></nav>'
+    out: list[str] = ['<nav class="md-toc"><ul>']
+    stack: list[int] = []
+    for level, text, anchor in headings:
+        if not stack:
+            stack.append(level)
+        elif level > stack[-1]:
+            out.append("<ul>")
+            stack.append(level)
+        else:
+            while len(stack) > 1 and level < stack[-1]:
+                out.append("</li></ul>")
+                stack.pop()
+            out.append("</li>")
+            if level < stack[-1]:
+                stack[-1] = level
+        out.append(f'<li><a href="#{anchor}">{text}</a>')
+    out.append("</li>")
+    out.extend("</ul></li>" for _ in stack[1:])
+    out.append("</ul></nav>")
+    return "".join(out)
 
 
 _PARSER = _build_parser()
@@ -563,15 +648,31 @@ def _inject_anchors(html: str) -> tuple[str, list[tuple[int, str, str]]]:
         html,
         flags=re.DOTALL,
     )
+    if _TOC_PLACEHOLDER in result:
+        result = result.replace(_TOC_PLACEHOLDER, _toc_html(headings))
     return result, headings
 
 
 _FRONT_MATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 
 
+_DOUBLE_ESCAPE_RE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)", re.DOTALL)
+_DOUBLE_ESCAPES = {'"': '"', "\\": "\\", "n": "\n", "t": "\t"}
+
+
+def _unescape_double(match: re.Match) -> str:
+    token = match.group(1)
+    if len(token) == 5:  # uXXXX
+        return chr(int(token[1:], 16))
+    return _DOUBLE_ESCAPES.get(token, match.group(0))
+
+
 def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
+        inner = value[1:-1]
+        if value[0] == '"':
+            return _DOUBLE_ESCAPE_RE.sub(_unescape_double, inner)
+        return inner.replace("''", "'")
     return value
 
 
@@ -1212,6 +1313,11 @@ def convert_text(
     )
 
 
+# Blocks fetch/XHR/WebSocket, frames, plugins and form posts from preview
+# pages without touching their own inline scripts (see web_security.py).
+_PREVIEW_CSP_META = csp_meta(PREVIEW_CSP)
+
+
 def _theme_class(theme: str) -> str:
     return "theme-dark" if theme == "dark" else "theme-light"
 
@@ -1233,6 +1339,7 @@ def _wrap(
 <html lang="zh-Hant" class="{theme_class}">
 <head>
 <meta charset="utf-8">
+{_PREVIEW_CSP_META}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{safe_title}</title>
 <style>{_FULL_CSS}</style>

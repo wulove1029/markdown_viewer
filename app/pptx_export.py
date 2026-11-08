@@ -28,6 +28,8 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 
+from .md_extensions import is_toc_marker, mark_plugin
+
 try:  # math support matches the viewer's renderer (already a dependency)
     from mdit_py_plugins.dollarmath import dollarmath_plugin
 except Exception:  # pragma: no cover - optional
@@ -48,6 +50,7 @@ class Run:
     bold: bool = False
     italic: bool = False
     code: bool = False
+    mark: bool = False  # ==highlight==
 
 
 @dataclass
@@ -120,6 +123,7 @@ def _build_parser() -> MarkdownIt:
         md.enable("strikethrough")
     except Exception:  # pragma: no cover - depends on preset
         log.warning("_build_parser: optional operation failed", exc_info=True)
+    md.use(mark_plugin)
     if dollarmath_plugin:
         md.use(dollarmath_plugin)
     return md
@@ -133,15 +137,19 @@ def _runs(inline) -> list:
     if not children:
         return [Run(inline.content)] if inline.content else []
     runs: list = []
-    bold = italic = 0
+    bold = italic = marked = 0
     for c in children:
         t = c.type
         if t == "text":
-            runs.append(Run(c.content, bold > 0, italic > 0))
+            runs.append(Run(c.content, bold > 0, italic > 0, mark=marked > 0))
         elif t == "code_inline":
-            runs.append(Run(c.content, bold > 0, italic > 0, code=True))
+            runs.append(Run(c.content, bold > 0, italic > 0, code=True, mark=marked > 0))
         elif t == "math_inline":
-            runs.append(Run(c.content, bold > 0, italic > 0, code=True))
+            runs.append(Run(c.content, bold > 0, italic > 0, code=True, mark=marked > 0))
+        elif t == "mark_open":
+            marked += 1
+        elif t == "mark_close":
+            marked = max(0, marked - 1)
         elif t == "strong_open":
             bold += 1
         elif t == "strong_close":
@@ -288,6 +296,9 @@ def parse_elements(md_text: str) -> list:
             i += 3
         elif tt == "paragraph_open":
             inline = tokens[i + 1]
+            if is_toc_marker(inline.content):
+                i += 3  # [TOC] has no Office equivalent; never leak the literal
+                continue
             imgs = _images(inline)
             text_runs = _runs(inline)
             if imgs:
@@ -391,6 +402,27 @@ REMOTE_IMAGE_TIMEOUT_SECONDS = 5
 REMOTE_IMAGE_MAX_TOTAL_BYTES = 8 * 1024 * 1024
 
 
+_MARK_FILL = "FFF3A3"
+# CT_TextCharacterProperties child order: a:highlight must precede these.
+_AFTER_HIGHLIGHT = ("uLnTx", "uLn", "uFillTx", "uFill", "latin", "ea", "cs", "sym",
+                    "hlinkClick", "hlinkMouseOver", "rtl", "extLst")
+
+
+def _highlight_run(run) -> None:
+    """Give a run a yellow text highlight (``a:highlight``) in schema order."""
+    from lxml import etree
+
+    r_pr = run._r.get_or_add_rPr()
+    ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    node = etree.Element(f"{{{ns}}}highlight")
+    etree.SubElement(node, f"{{{ns}}}srgbClr").set("val", _MARK_FILL)
+    for child in r_pr:
+        if etree.QName(child).localname in _AFTER_HIGHLIGHT:
+            child.addprevious(node)
+            return
+    r_pr.append(node)
+
+
 def _emit_runs(paragraph, runs, size_pt, color=None):
     if not runs:
         runs = [Run("")]
@@ -406,6 +438,8 @@ def _emit_runs(paragraph, runs, size_pt, color=None):
             run.font.name = "Consolas"
         if color is not None:
             run.font.color.rgb = color
+        if r.mark:
+            _highlight_run(run)
 
 
 def _disp_width(text: str) -> int:
@@ -464,7 +498,7 @@ def _cell_text(cell_runs) -> str:
 
 
 def _force_bold(runs) -> list:
-    return [Run(r.text, bold=True, italic=r.italic, code=r.code) for r in runs]
+    return [Run(r.text, bold=True, italic=r.italic, code=r.code, mark=r.mark) for r in runs]
 
 
 class _RemoteImageBudget:

@@ -80,12 +80,24 @@ def extract_wikilinks(text: str) -> list[tuple[str, str | None]]:
     return out
 
 
+def split_wikilink_target(target: str) -> tuple[str, str]:
+    """Split ``page#heading`` into ``(page, heading)``; either may be empty.
+
+    The page part is everything before the first ``#``; for nested
+    ``page#H1#H2`` the heading is the last segment. ``|alias`` never reaches
+    here (the wiki-link regex already separates it).
+    """
+    page, _sep, rest = target.strip().partition("#")
+    heading = rest.rsplit("#", 1)[-1].strip() if _sep else ""
+    return page.strip(), heading
+
+
 def _target_basename(target: str) -> tuple[str, str]:
     """Return (basename_key_lower, normalized_path) for a link target.
 
     Drops a ``#heading`` suffix and a trailing ``.md``; normalizes slashes.
     """
-    raw = target.strip().split("#", 1)[0].strip().replace("\\", "/")
+    raw = split_wikilink_target(target)[0].replace("\\", "/")
     if raw.lower().endswith(".md"):
         raw = raw[:-3]
     name = raw.rsplit("/", 1)[-1]
@@ -215,6 +227,9 @@ class LinkIndex:
         """Resolve a link target to a file path, or None if unknown."""
         name_key, normalized = _target_basename(target)
         if not name_key:
+            # ``[[#Heading]]`` points at a heading of the linking note itself.
+            if from_file is not None and split_wikilink_target(target)[1]:
+                return Path(from_file)
             return None
         candidates = self._by_name.get(name_key, [])
         if not candidates:

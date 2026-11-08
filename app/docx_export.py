@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 
 from docx import Document
+from docx.enum.text import WD_COLOR_INDEX
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -99,6 +100,8 @@ def _emit_runs(paragraph, runs: list[Run], *, size_pt: int = BODY_PT) -> None:
         run.bold = source.bold
         run.italic = source.italic
         run.font.size = Pt(size_pt)
+        if source.mark:
+            run.font.highlight_color = WD_COLOR_INDEX.YELLOW
         if source.code:
             _rfonts(run, CODE_FONT)
         else:

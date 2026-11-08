@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
@@ -28,6 +29,15 @@ _MODE_BADGE_SIZE = QSize(46, 18)
 _MODE_BADGE_GAP = 6
 _MODE_BADGES = {"markdown": "MD", "office": "Office"}
 _ASSETS_DIR = Path(__file__).parent.parent / "assets"
+
+
+def tab_path_key(path) -> str:
+    """Identity of a document for "is it already open?" (display path is unchanged)."""
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        resolved = Path(os.path.abspath(path))
+    return os.path.normcase(str(resolved))
 
 
 def _parent_parts(path: Path) -> list[str]:

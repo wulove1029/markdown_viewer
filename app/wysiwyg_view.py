@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import weakref
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -24,6 +25,7 @@ from PySide6.QtCore import (
     QIODevice,
     QObject,
     QSettings,
+    QTimer,
     QUrl,
     Signal,
     Slot,
@@ -34,6 +36,12 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from .text_positions import py_to_qt_position, qt_to_py_position
 from .theme import get_theme
+from .web_security import (
+    add_script_nonce,
+    install_remote_file_guard,
+    new_script_nonce,
+    wysiwyg_csp,
+)
 
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
@@ -92,6 +100,16 @@ _MERMAID_THEMES = frozenset(
     }
 )
 
+# Host actions the bundled glue's custom toolbar buttons emit (see
+# buildToolbar() in assets/vditor_glue.js). Anything else coming over
+# QWebChannel did not originate from a real toolbar button.
+_TOOLBAR_ACTIONS = frozenset(
+    {"open_graph", "toggle_source", "show_export_menu", "insert_image", "insert_attachment"}
+)
+# One coalesced Ctrl+wheel gesture never needs more than a few dozen steps.
+_MAX_ZOOM_STEPS = 50
+_CSP_PLACEHOLDER = "__WYSIWYG_CSP__"
+
 
 def _document_session_id(path: str | Path | None) -> str:
     """Return a stable, non-identifying cache key for one document path."""
@@ -101,6 +119,13 @@ def _document_session_id(path: str | Path | None) -> str:
         identity = "untitled"
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
     return f"markdown-viewer:{digest}"
+
+
+def _document_base_host(view: "WysiwygView | None") -> str:
+    """UNC host of the WYSIWYG document base ("" for local or no document)."""
+    if view is None:
+        return ""
+    return QUrl(view._document_base_url).host()
 
 
 def _read_resource(path: str) -> str:
@@ -113,6 +138,37 @@ def _read_resource(path: str) -> str:
     return ""
 
 
+class _WysiwygPage(QWebEnginePage):
+    """The editor page only ever shows the host page.
+
+    Every navigation is refused except the ``setHtml`` load of the host page
+    itself (a typed main-frame ``data:`` navigation that ``WysiwygView``
+    announces right before issuing it).  A Mermaid ``click href``, a meta
+    refresh, ``location`` changes or form posts can therefore never replace
+    the editor with a page that would inherit ``qt.webChannelTransport``.
+    Links the user follows from the editor keep their existing behaviour of
+    not navigating anywhere.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._host_load_pending = False
+
+    def expect_host_load(self) -> None:
+        self._host_load_pending = True
+
+    def acceptNavigationRequest(self, url, nav_type, is_main_frame):  # Qt override
+        if (
+            is_main_frame
+            and self._host_load_pending
+            and nav_type == QWebEnginePage.NavigationType.NavigationTypeTyped
+            and url.scheme() == "data"
+        ):
+            self._host_load_pending = False
+            return True
+        return False
+
+
 class _WysiwygBridge(QObject):
     """QWebChannel object registered as ``wysiwygBridge`` (never "bridge" --
 
@@ -122,6 +178,9 @@ class _WysiwygBridge(QObject):
     JS-facing method names (``contentChanged``/``saveWithContent``/``ready``,
     called by assets/vditor_glue.js): a Signal and a @Slot cannot share one
     name on the same QObject in PySide6.
+
+    Every slot is ignored while the view reports a foreign (non-host) page:
+    nothing such a page sends may reach Python.
     """
 
     contentPushed = Signal(str, int, int, int, str, int, int)
@@ -140,9 +199,14 @@ class _WysiwygBridge(QObject):
         super().__init__(view)
         self._view = view
 
+    def _untrusted(self) -> bool:
+        return bool(getattr(self._view, "_foreign_page", False))
+
     @Slot(result=str)
     def initialConfig(self) -> str:
         """Return the one-shot constructor payload requested by the host page."""
+        if self._untrusted():
+            return "{}"
         return self._view._claim_initial_config()
 
     @Slot(str, int, int, int, str, int, int)
@@ -156,6 +220,8 @@ class _WysiwygBridge(QObject):
         base_revision: int,
         final_length: int,
     ) -> None:
+        if self._untrusted():
+            return
         self.contentPushed.emit(
             markdown,
             generation,
@@ -177,6 +243,8 @@ class _WysiwygBridge(QObject):
         final_length: int,
     ) -> None:
         """Receive the typing hot path without a full Markdown IPC copy."""
+        if self._untrusted():
+            return
         self.contentDeltaPushed.emit(
             generation,
             start,
@@ -188,6 +256,8 @@ class _WysiwygBridge(QObject):
 
     @Slot()
     def saveRequested(self) -> None:
+        if self._untrusted():
+            return
         self.saveRequestedSig.emit()
 
     @Slot(str, int, int, int, str, int, int)
@@ -201,6 +271,8 @@ class _WysiwygBridge(QObject):
         base_revision: int,
         final_length: int,
     ) -> None:
+        if self._untrusted():
+            return
         self.saveWithContentSig.emit(
             markdown,
             generation,
@@ -213,43 +285,58 @@ class _WysiwygBridge(QObject):
 
     @Slot()
     def ready(self) -> None:
+        if self._untrusted():
+            return
         self.viewReadySig.emit()
 
     @Slot()
     def escRequested(self) -> None:
+        if self._untrusted():
+            return
         self.escRequestedSig.emit()
 
     @Slot(str)
     def toolbarAction(self, name: str) -> None:
-        self.toolbarActionSig.emit(name)
+        if not self._untrusted() and name in _TOOLBAR_ACTIONS:
+            self.toolbarActionSig.emit(name)
 
     @Slot(int)
     def zoomRequested(self, steps: int) -> None:
-        self.zoomRequestedSig.emit(steps)
+        if self._untrusted():
+            return
+        steps = max(-_MAX_ZOOM_STEPS, min(_MAX_ZOOM_STEPS, int(steps)))
+        if steps:
+            self.zoomRequestedSig.emit(steps)
 
     @Slot(str)
     def changeEditorTheme(self, value: str) -> None:
-        self._view._on_editor_theme_changed(value)
+        if not self._untrusted():
+            self._view._on_editor_theme_changed(value)
 
     @Slot(str)
     def changeCodeTheme(self, value: str) -> None:
-        self._view._on_code_theme_changed(value)
+        if not self._untrusted():
+            self._view._on_code_theme_changed(value)
 
     @Slot(str)
     def changeMermaidTheme(self, value: str) -> None:
-        self._view._on_mermaid_theme_changed(value)
+        if not self._untrusted():
+            self._view._on_mermaid_theme_changed(value)
 
     @Slot(int, int)
     def contextMenuRequested(self, x: int, y: int) -> None:
-        self.contextMenuRequestedSig.emit(x, y)
+        if not self._untrusted():
+            self.contextMenuRequestedSig.emit(x, y)
 
     @Slot(str, int, int)
     def pastePreviewRequested(self, text: str, token: int, generation: int) -> None:
-        self.pastePreviewRequestedSig.emit(text, token, generation)
+        if not self._untrusted():
+            self.pastePreviewRequestedSig.emit(text, token, generation)
 
     @Slot(str, int, int)
     def resourcePasteRequested(self, names: str, token: int, generation: int) -> None:
-        self.resourcePasteRequestedSig.emit(names, token, generation)
+        if not self._untrusted():
+            self.resourcePasteRequestedSig.emit(names, token, generation)
 
 
 class WysiwygView(QWebEngineView):
@@ -281,12 +368,36 @@ class WysiwygView(QWebEngineView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        page = QWebEnginePage(self)
+        # Refuses every navigation except the host page's own setHtml load.
+        page = _WysiwygPage(self)
         settings = page.settings()
+        # Needed: with it off Chromium refuses the bundled file:// scripts and
+        # every document-relative image (verified for S2, see
+        # docs/upgrades/2026-11-08-security-hardening.md).
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
         )
+        # Nothing in the editor opens popups; document script must not either.
+        settings.setAttribute(
+            QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False
+        )
+        # Refuse file://host/... and \\.\UNC\host (UNC/SMB) requests; only
+        # resource loads from the share the current document lives on are
+        # exempt.  Held weakly: a strong reference from the page-owned guard
+        # back to this view crashes PySide on teardown.
+        view_ref = weakref.ref(self)
+        self._remote_file_guard = install_remote_file_guard(
+            page, lambda: _document_base_host(view_ref())
+        )
         self.setPage(page)
+        # True while the page shows anything but the host page (defence in
+        # depth behind _WysiwygPage): the bridge ignores it, Python stops
+        # talking to it and the host page is restored.
+        self._foreign_page = False
+        self._restoring_host_page = False
+        self._host_restore_count = 0
+        self._host_url = QUrl()
+        page.urlChanged.connect(self._on_page_url_changed)
 
         self._bridge = _WysiwygBridge(self)
         self._bridge.contentPushed.connect(self._on_content_pushed)
@@ -347,13 +458,75 @@ class WysiwygView(QWebEngineView):
         html = html.replace(
             "__WYSIWYG_LANG__", _LANG_MAP.get(lang, "zh_TW")
         )
-        return html
+        # Only this page's own <script> tags carry the per-load nonce, so no
+        # document-supplied script, handler or javascript: URL can run.
+        nonce = new_script_nonce()
+        html = add_script_nonce(html, nonce)
+        return html.replace(_CSP_PLACEHOLDER, wysiwyg_csp(nonce))
 
     def _load_html(self, html: str) -> None:
         # Deliberately not named ``load``: QWebEngineView.load(QUrl) is a
         # real Qt slot with its own overloads, and shadowing it with a
         # str-taking method here would hide that API from this subclass.
-        self.page().setHtml(html, self._base_url)
+        page = self.page()
+        expect_host_load = getattr(page, "expect_host_load", None)
+        if expect_host_load is not None:
+            expect_host_load()
+        self._host_url = QUrl(self._base_url)
+        if self._host_restore_count:
+            # A distinct document URL guarantees urlChanged() for the restored
+            # host even if the foreign page reported the plain base URL.
+            self._host_url.setQuery(f"restore={self._host_restore_count}")
+        page.setHtml(html, self._host_url)
+
+    def _is_host_url(self, url: QUrl) -> bool:
+        if url.isEmpty() or not url.isValid():
+            return False
+        candidate = QUrl(url)
+        candidate.setFragment(None)
+        return candidate == self._host_url
+
+    def _on_page_url_changed(self, url: QUrl) -> None:
+        """Treat any committed non-host URL as hostile and recover."""
+        if self._is_host_url(url):
+            self._foreign_page = False
+            self._restoring_host_page = False
+            return
+        if self._foreign_page:
+            return
+        self._foreign_page = True
+        self._ready = False
+        self._resync_in_flight = False
+        # Keep Python's copy of the live document; the host page is rebuilt
+        # from it, and snapshots answer from it until then.
+        self._pending_markdown = (
+            self._live_markdown,
+            self._generation,
+            self._document_base_url,
+            self._document_session_id,
+        )
+        QTimer.singleShot(0, self._restore_host_page)
+
+    def _restore_host_page(self) -> None:
+        if not self._foreign_page or self._restoring_host_page:
+            return
+        self._restoring_host_page = True
+        self._host_restore_count += 1
+        self._boot_config_json = None
+        self._boot_generation = None
+        self._boot_markdown = None
+        self._load_html(self._host_html(lang="zh_TW"))
+
+    def _run_js(self, script: str, callback=None) -> None:
+        """runJavaScript on the host page only; never on a foreign page."""
+        if self._foreign_page:
+            if callback is not None:
+                callback(None)
+            return
+        if callback is None:
+            self.page().runJavaScript(script)
+        else:
+            self.page().runJavaScript(script, callback)
 
     @staticmethod
     def _read_theme_preference(
@@ -697,7 +870,7 @@ class WysiwygView(QWebEngineView):
             )
             self.content_changed.emit(markdown)
 
-        self.page().runJavaScript(script, _recovered)
+        self._run_js(script, _recovered)
 
     def _on_save_with_content(
         self,
@@ -762,7 +935,7 @@ class WysiwygView(QWebEngineView):
                 json.dumps(session_id),
             )
         )
-        self.page().runJavaScript(js, lambda _result: setattr(self, "_loading", False))
+        self._run_js(js, lambda _result: setattr(self, "_loading", False))
 
     def set_document_path(self, path: str | Path | None) -> None:
         """Set the base used to resolve relative images now and on next load."""
@@ -784,7 +957,7 @@ class WysiwygView(QWebEngineView):
                 self._document_session_id,
             )
         if self._ready:
-            self.page().runJavaScript(
+            self._run_js(
                 "window.__wysiwygGlue && window.__wysiwygGlue.setDocumentBase(%s,%s);"
                 % (
                     json.dumps(self._document_base_url),
@@ -798,7 +971,7 @@ class WysiwygView(QWebEngineView):
             "window.__wysiwygGlue && window.__wysiwygGlue.insertValue(%s);"
             % json.dumps(text)
         )
-        self.page().runJavaScript(js)
+        self._run_js(js)
 
     def run_command(self, command: str, callback=None) -> None:
         """Use the live editor's own toolbar, preserving its undo semantics."""
@@ -806,7 +979,7 @@ class WysiwygView(QWebEngineView):
             "Boolean(window.__wysiwygGlue && window.__wysiwygGlue.runCommand(%s));"
             % json.dumps(command)
         )
-        self.page().runJavaScript(js, callback or (lambda _result: None))
+        self._run_js(js, callback or (lambda _result: None))
 
     def resolve_paste_preview(
         self, token: int, generation: int, mode: str, text: str = "", callback=None,
@@ -821,7 +994,7 @@ class WysiwygView(QWebEngineView):
             "Boolean(window.__wysiwygGlue && "
             f"window.__wysiwygGlue.resolvePastePreview({arguments}));"
         )
-        self.page().runJavaScript(script, callback or (lambda _result: None))
+        self._run_js(script, callback or (lambda _result: None))
 
     def validate_paste_preview(self, token: int, generation: int, callback) -> None:
         """Check the saved live selection before copying reviewed attachments."""
@@ -832,7 +1005,7 @@ class WysiwygView(QWebEngineView):
             "Boolean(window.__wysiwygGlue && window.__wysiwygGlue.canResolvePastePreview("
             f"{int(token)},{int(generation)}));"
         )
-        self.page().runJavaScript(script, callback)
+        self._run_js(script, callback)
 
     def get_html(self, callback) -> None:
         """Fetch Vditor's rendered HTML (``getHTML()``) asynchronously.
@@ -845,7 +1018,7 @@ class WysiwygView(QWebEngineView):
             "window.__wysiwygGlue._state.vditor;"
             "return v && v.getHTML ? v.getHTML() : null;})();"
         )
-        self.page().runJavaScript(js, callback)
+        self._run_js(js, callback)
 
     def prepare_pdf_export(self, callback) -> None:
         """Build a chrome-free print sibling and report its full CSS size.
@@ -883,7 +1056,7 @@ class WysiwygView(QWebEngineView):
                 return
             callback({"ok": True, "width": width, "height": height})
 
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue ? "
             "JSON.stringify(window.__wysiwygGlue.preparePrint()) : null",
             prepared,
@@ -893,13 +1066,13 @@ class WysiwygView(QWebEngineView):
         """Remove the prepared print sibling; safe to call repeatedly."""
         if not self._ready:
             return
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue && window.__wysiwygGlue.finishPrint();"
         )
 
     def flush_pending_edits(self) -> None:
         """Force any debounced-but-unsent edit to push immediately (pre-save)."""
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue && window.__wysiwygGlue.flushPending();"
         )
 
@@ -909,7 +1082,7 @@ class WysiwygView(QWebEngineView):
             pending = self._pending_markdown
             callback(pending[0] if pending is not None else None)
             return
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue ? window.__wysiwygGlue.takeSnapshot() : null",
             lambda result: callback(result if isinstance(result, str) else None),
         )
@@ -948,7 +1121,7 @@ class WysiwygView(QWebEngineView):
                 return
             callback(value)
 
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue ? "
             "window.__wysiwygGlue.takeSnapshotEnvelope() : null",
             _decode,
@@ -965,7 +1138,7 @@ class WysiwygView(QWebEngineView):
             if callback is not None:
                 callback(result)
 
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue && window.__wysiwygGlue.acknowledgeMarkdown(%s,%d,%d,%d);"
             % (
                 json.dumps(markdown),
@@ -978,19 +1151,19 @@ class WysiwygView(QWebEngineView):
 
     def cancel_snapshot(self, token: int = 0) -> None:
         """Release a failed transition without consuming its pending push."""
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue && window.__wysiwygGlue.cancelSnapshot(%d);"
             % int(token)
         )
 
     def mark_saved(self, markdown: str | None = None) -> None:
         value = "null" if markdown is None else json.dumps(markdown)
-        self.page().runJavaScript(
+        self._run_js(
             "window.__wysiwygGlue && window.__wysiwygGlue.markSaved(%s);" % value
         )
 
     def open_find(self) -> None:
-        self.page().runJavaScript(
+        self._run_js(
             "(function(){var b=document.querySelector('button[data-type=\"find\"]');"
             "if(b){b.click();}})();"
         )
@@ -1009,7 +1182,7 @@ class WysiwygView(QWebEngineView):
             "(function(){try{if (window.find) { window.find(%s); }}"
             "catch(e){}})();" % json.dumps(snippet)
         )
-        self.page().runJavaScript(js)
+        self._run_js(js)
 
     def apply_theme(self, theme) -> None:
         """Best-effort Vditor theme sync; failures are non-fatal (cosmetic only)."""
@@ -1039,4 +1212,4 @@ class WysiwygView(QWebEngineView):
                 json.dumps(options["mermaidTheme"]),
             )
         )
-        self.page().runJavaScript(js)
+        self._run_js(js)

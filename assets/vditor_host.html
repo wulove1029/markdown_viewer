@@ -2,6 +2,13 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
+<!-- Untrusted Markdown hardening (S2): wysiwyg_view.py replaces the token
+     below with app/web_security.py's policy and stamps a per-load nonce on
+     every script tag of this page ('strict-dynamic' then admits only what
+     those scripts load). Document HTML can therefore never run scripts,
+     inline handlers or javascript: URLs, load frames/plugins, submit forms,
+     change the base URL, or open fetch/XHR/WebSocket connections. -->
+<meta http-equiv="Content-Security-Policy" content="__WYSIWYG_CSP__">
 <title>WYSIWYG</title>
 <!-- Loaded with a file:// baseUrl pointed at assets/ (LocalContentCanAccessFileUrls
      enabled by wysiwyg_view.py, mirroring fragment_render.py), so every path

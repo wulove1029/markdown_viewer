@@ -70,6 +70,196 @@
     doc.head.appendChild(style);
   }
 
+  // ---- Untrusted Markdown hardening (S2) ----------------------------------
+  // Lute renders raw HTML blocks/inlines into "display" elements while their
+  // data-md-source attribute keeps the Markdown source, and the fork's
+  // sanitize option still lets <iframe srcdoc>, <embed>, <form>, <meta> and
+  // <base> through.  Every HTML string a Lute instance returns is therefore
+  // cleaned before Vditor assigns it to innerHTML; a MutationObserver over
+  // the rendered content backstops any other insertion path, and the page
+  // CSP (vditor_host.html) is the outer layer.  Display elements are not the
+  // source of truth, so this never changes the Markdown that gets saved.
+  var BLOCKED_TAGS = {
+    IFRAME: true, FRAME: true, FRAMESET: true, EMBED: true, OBJECT: true,
+    APPLET: true, FORM: true, META: true, BASE: true, SCRIPT: true,
+    LINK: true, PORTAL: true,
+    // Parsed as markup in an inert template but as raw text once live
+    // (mutation-XSS), so it can never round-trip safely.
+    NOSCRIPT: true,
+  };
+  var URL_ATTRIBUTES = {
+    href: true, "xlink:href": true, src: true, action: true, formaction: true,
+    data: true, poster: true, background: true, lowsrc: true, dynsrc: true,
+    codebase: true, cite: true, longdesc: true, manifest: true,
+    // SVG <animate>/<set> can rewrite an href at runtime.
+    to: true, from: true, values: true, by: true,
+  };
+  // Cheap pre-check so ordinary documents skip the parse/serialize pass.
+  var UNSAFE_HTML_HINT = new RegExp(
+    "<\\s*\\/?\\s*(?:iframe|frame|frameset|embed|object|applet|form|meta|base|link|portal|noscript)\\b" +
+    "|[\\s\"'\\/]on[a-z]+\\s*=|srcdoc|script|data:|&#|&colon;", "i");
+  var LUTE_HTML_METHODS = [
+    "Md2VditorDOM", "SpinVditorDOM", "HTML2VditorDOM",
+    "Md2VditorIRDOM", "SpinVditorIRDOM", "HTML2VditorIRDOM",
+    "Md2VditorSVDOM", "SpinVditorSVDOM", "HTML2VditorSVDOM",
+    "VditorDOM2HTML", "VditorIRDOM2HTML", "VditorSVDOM2HTML",
+    "Md2HTML", "HTML2HTML",
+  ];
+
+  function isDangerousUrl(value) {
+    var normalized = String(value == null ? "" : value)
+      .replace(/[\u0000- \u007f-\u009f]+/g, "")
+      .toLowerCase();
+    if (/^(?:javascript|vbscript|livescript):/.test(normalized)) return true;
+    return normalized.indexOf("data:") === 0 && normalized.indexOf("data:image/") !== 0;
+  }
+
+  function sanitizeElement(element) {
+    var attributes = element.attributes;
+    if (!attributes) return;
+    for (var i = attributes.length - 1; i >= 0; i--) {
+      var name = String(attributes[i].name).toLowerCase();
+      if (name.indexOf("on") === 0 || name === "srcdoc" ||
+          (URL_ATTRIBUTES[name] === true && isDangerousUrl(attributes[i].value))) {
+        element.removeAttribute(attributes[i].name);
+      }
+    }
+  }
+
+  function sanitizeTree(root) {
+    if (!root) return root;
+    var elements = [];
+    if (root.nodeType === 1) elements.push(root);
+    if (typeof root.querySelectorAll === "function") {
+      var found = root.querySelectorAll("*");
+      for (var i = 0; i < found.length; i++) elements.push(found[i]);
+    }
+    for (var j = 0; j < elements.length; j++) {
+      var element = elements[j];
+      if (BLOCKED_TAGS[String(element.tagName || "").toUpperCase()] === true) {
+        if (element.parentNode) element.parentNode.removeChild(element);
+        continue;
+      }
+      sanitizeElement(element);
+    }
+    return root;
+  }
+
+  function sanitizeHtml(html) {
+    if (typeof html !== "string" || !UNSAFE_HTML_HINT.test(html)) return html;
+    if (!doc || typeof doc.createElement !== "function") return html;
+    try {
+      // <template> content lives in an inert document: nothing loads or runs
+      // while it is parsed and cleaned.
+      var template = doc.createElement("template");
+      if (!template || !template.content) return html;
+      template.innerHTML = html;
+      sanitizeTree(template.content);
+      return template.innerHTML;
+    } catch (_error) {
+      return html;
+    }
+  }
+
+  function hardenLuteInstance(instance) {
+    if (!instance || instance.__markdownViewerSanitized === true) return instance;
+    LUTE_HTML_METHODS.forEach(function (name) {
+      var original = instance[name];
+      if (typeof original !== "function") return;
+      try {
+        instance[name] = function () {
+          return sanitizeHtml(original.apply(instance, arguments));
+        };
+      } catch (_error) {
+        // Never break editor construction; CSP still applies.
+      }
+    });
+    try {
+      instance.__markdownViewerSanitized = true;
+    } catch (_error) {
+      // Same as above.
+    }
+    return instance;
+  }
+
+  function hardenLute(lute) {
+    if (!lute || typeof lute.New !== "function" ||
+        lute.New.__markdownViewerSanitized === true) {
+      return lute;
+    }
+    var originalNew = lute.New;
+    var hardenedNew = function () {
+      return hardenLuteInstance(originalNew.apply(this, arguments));
+    };
+    hardenedNew.__markdownViewerSanitized = true;
+    lute.New = hardenedNew;
+    return lute;
+  }
+
+  // Vditor injects lute.min.js asynchronously after this file has run; trap
+  // the global assignment so every Lute.New() instance is hardened.
+  function installLuteHook() {
+    if (!win) return;
+    if (win.Lute) {
+      hardenLute(win.Lute);
+      return;
+    }
+    var current;
+    try {
+      Object.defineProperty(win, "Lute", {
+        configurable: true,
+        enumerable: true,
+        get: function () { return current; },
+        set: function (value) { current = hardenLute(value); },
+      });
+    } catch (_error) {
+      // A non-configurable global means Lute already exists; nothing to do.
+    }
+  }
+
+  var CONTENT_SELECTOR = ".vditor-reset, #vditor-print-shell";
+
+  function sanitizeAddedNode(node) {
+    if (!node || node.nodeType !== 1) return;
+    if (typeof node.closest === "function" && node.closest(CONTENT_SELECTOR)) {
+      sanitizeTree(node);
+      return;
+    }
+    if (typeof node.querySelectorAll === "function") {
+      var surfaces = node.querySelectorAll(CONTENT_SELECTOR);
+      for (var i = 0; i < surfaces.length; i++) sanitizeTree(surfaces[i]);
+    }
+  }
+
+  // Mermaid `click X href "..."` (and markmap) render SVG anchors whose
+  // default action would navigate the whole editor page.  The host page also
+  // refuses every navigation (wysiwyg_view._WysiwygPage); this keeps the
+  // click from even trying.
+  function installDiagramLinkGuard() {
+    if (!doc || typeof doc.addEventListener !== "function") return;
+    doc.addEventListener("click", function (event) {
+      var target = event && event.target;
+      var element = target && (target.nodeType === 1 ? target : target.parentElement);
+      if (!element || typeof element.closest !== "function") return;
+      var link = element.closest("svg a");
+      if (link && typeof link.closest === "function" && link.closest(CONTENT_SELECTOR)) {
+        event.preventDefault();
+      }
+    }, true);
+  }
+
+  function installContentGuard() {
+    if (!win || typeof win.MutationObserver !== "function" || !doc || !doc.body) return null;
+    var observer = new win.MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var added = records[i].addedNodes;
+        for (var j = 0; j < added.length; j++) sanitizeAddedNode(added[j]);
+      }
+    });
+    observer.observe(doc.body, { childList: true, subtree: true });
+    return observer;
+  }
+
   function createGlue() {
     var state = {
       vditor: null,
@@ -1931,7 +2121,7 @@
 
         var content = doc.createElement("article");
         content.className = "vditor-reset vditor-print-content";
-        content.innerHTML = html;
+        content.innerHTML = sanitizeHtml(html);
         shell.appendChild(content);
         doc.body.appendChild(shell);
         state.printShell = shell;
@@ -1987,9 +2177,14 @@
       // never calls this directly, it happens automatically from `after`
       // once Vditor's real WYSIWYG DOM exists.
       _installBlockHandles: installBlockHandles,
+      // Test hook for the untrusted-Markdown sanitizer.
+      _sanitizeHtml: sanitizeHtml,
     };
   }
 
+  installLuteHook();
+  installContentGuard();
+  installDiagramLinkGuard();
   win.__wysiwygGlue = createGlue();
   win.__wysiwygBoot = win.__wysiwygGlue.boot;
 })(typeof window !== "undefined" ? window : globalThis, typeof document !== "undefined" ? document : null);

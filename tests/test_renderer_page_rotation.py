@@ -20,14 +20,17 @@ from app.renderer import RendererView, _run_page_javascript
 
 
 @pytest.mark.parametrize("target", ["Target", "資料/筆記#段落", "100% done", "literal%2F"])
-def test_internal_wikilink_preserves_target_without_loading_network(target):
+def test_internal_wikilink_preserves_target_without_loading_network(qapp, target):
     events = []
     page = SimpleNamespace(_view=SimpleNamespace(
         wikilink_clicked=SimpleNamespace(emit=events.append)))
     url = QUrl("https://markdown-viewer.invalid/wikilink/" + quote(target, safe=""))
     accepted = renderer._DocumentPage.acceptNavigationRequest(
         page, url, QWebEnginePage.NavigationType.NavigationTypeLinkClicked, True)
-    assert accepted is False and events == [target]
+    # The note opens after Chromium's navigation callback returns (F2).
+    assert accepted is False and events == []
+    QTest.qWait(20)
+    assert events == [target]
 
 
 def test_retired_page_javascript_reply_finishes_as_empty():

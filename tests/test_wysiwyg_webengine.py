@@ -2280,3 +2280,21 @@ def test_prepared_wysiwyg_pdf_contains_full_document_without_editor_chrome(
             assert top_rects[0].x0 < 120
     finally:
         _dispose(view)
+
+
+@_skip_webengine
+def test_wysiwyg_round_trips_mark_syntax_verbatim(qapp):
+    """D1b: ==mark== survives load -> snapshot byte for byte."""
+    source = "# Title\n\nplain ==hot== and ==a *b* c== tail\n\n## Next\n\n- ==item==\n"
+    view = WysiwygView()
+    try:
+        assert _wait_until(lambda: view._ready), "WYSIWYG view never reported ready()"
+        view.load_markdown(source)
+        assert _wait_until(lambda: "Title" in (_current_value(view) or ""))
+        assert _current_value(view) == source.rstrip("\n")
+        snapshots = []
+        view.request_markdown_snapshot(snapshots.append)
+        assert _wait_until(lambda: bool(snapshots))
+        assert (snapshots[0] or "").rstrip("\n") == source.rstrip("\n")
+    finally:
+        _dispose(view)

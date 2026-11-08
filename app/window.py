@@ -9,8 +9,11 @@ import math
 import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
     QFileSystemWatcher,
     QObject,
     QPoint,
@@ -71,8 +74,12 @@ from .annotations import Annotation, AnnotationStore, DocumentAnnotations
 from .atomic_io import atomic_write_bytes
 from .attachments import import_attachment_file, markdown_attachment_link
 from .content_zoom import clamp_zoom_factor, step_zoom_factor
-from .document_libraries import DocumentLibraryStore
-from .document_tabs import DocumentTabStrip, disambiguated_tab_labels
+from .document_libraries import (
+    DocumentLibraryStore,
+    load_excluded_folders,
+    should_skip_directory,
+)
+from .document_tabs import DocumentTabStrip, disambiguated_tab_labels, tab_path_key
 from .editor import EditorView
 from .editor_commands import supports_office
 from .editor_status import EditorStatus
@@ -94,7 +101,8 @@ from .image_paste import (
 )
 from .inline_edit import extract_source_lines, replace_source_lines
 from .left_panel import LeftPanel
-from .links import LinkIndex, collect_markdown_files, read_docs
+from .library_watch import RESCAN_ON_FOCUS_KEY, LibraryChangeWatcher
+from .links import LinkIndex, collect_markdown_files, read_docs, split_wikilink_target
 from .markdown_compat import (
     office_compatibility_risks,
     office_risk_labels,
@@ -170,8 +178,35 @@ from .wysiwyg_view import WysiwygView
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
 _RECENT_TEMPLATES_KEY = "recent_editor_templates"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
+# Link-index threads that outlived their window stay referenced until finished.
+_LINK_ORPHANS: set[QThread] = set()
 
 
+
+
+def _walk_covers(ancestor: Path, root: Path, excluded: list[str]) -> bool:
+    """True when walking *ancestor* already visits every file under *root*."""
+    if root == ancestor or not root.is_relative_to(ancestor):
+        return False
+    relative = Path()
+    for part in root.relative_to(ancestor).parts:
+        relative /= part
+        if should_skip_directory(relative, excluded):
+            return False  # the ancestor's walk prunes it: keep it as a root
+    return True
+
+
+def _walk_roots(roots: list[Path], excluded: list[str]) -> list[Path]:
+    """*roots* minus duplicates and folders another kept root's walk covers."""
+    kept: list[Path] = []
+    for root in sorted(roots, key=lambda path: len(path.parts)):  # ancestors first
+        if root not in kept and not any(_walk_covers(other, root, excluded) for other in kept):
+            kept.append(root)
+    ordered: list[Path] = []
+    for root in roots:  # keep the caller's order (file order, _MAX_FILES cut)
+        if root in kept and root not in ordered:
+            ordered.append(root)
+    return ordered
 
 
 class LinkIndexThread(QThread):
@@ -181,18 +216,27 @@ class LinkIndexThread(QThread):
 
     def __init__(self, roots, parent=None):
         super().__init__(parent)
-        self._roots = roots
+        # Path strings only: whether a root exists is checked in run(), since
+        # an offline share can block Path.exists() for seconds.
+        self._roots = [str(root) for root in roots]
 
     def run(self):
         try:
-            files = collect_markdown_files(self._roots)
-            docs = read_docs(files)
+            roots = [Path(root) for root in self._roots]
+            roots = [root for root in roots if root.exists()]
+            # The current folder is usually inside a library: walk it once.
+            walk = _walk_roots(roots, load_excluded_folders())
+            files = collect_markdown_files(walk)
+            docs = read_docs(
+                files, should_cancel=self.isInterruptionRequested
+            )
             index = LinkIndex()
             index.build(docs)
-            index.completion_candidates = completion_candidates(self._roots, files)
+            index.completion_candidates = completion_candidates(roots, files)
             self.ready.emit(index)
         except Exception:
-            self.ready.emit(None)
+            if not self.isInterruptionRequested():
+                self.ready.emit(None)
 
 
 class _SearchLineEdit(QLineEdit):
@@ -342,6 +386,23 @@ class MainWindow(QMainWindow):
         self._link_roots_key: tuple[str, ...] | None = None
         self._link_refresh_pending = False
         self._graph_window: GraphWindow | None = None
+        # Focus-triggered library change detection (external edits, git pull,
+        # sync tools) -> reuse _refresh_link_index for the rebuild.
+        self._library_watcher = LibraryChangeWatcher(
+            self._link_root_candidates,
+            self._rescan_on_focus_enabled,
+            load_excluded_folders,
+            self,
+        )
+        self._library_watcher.changed.connect(
+            lambda: self._refresh_link_index(force=True)
+        )
+        _app = QCoreApplication.instance()
+        if _app is not None:
+            # Quitting without an accepted close (closeEvent stops both scans
+            # only once the close is certain) must not leave threads running.
+            _app.aboutToQuit.connect(self._shutdown_link_thread)
+            _app.aboutToQuit.connect(self._library_watcher.shutdown)
 
         self._tag_index = TagIndex()
         if hasattr(self._tag_index, "enable_debounce"):
@@ -426,6 +487,10 @@ class MainWindow(QMainWindow):
         )
         # File tree CRUD hooks: keep tabs / recents / watcher in sync when the
         # browser creates, renames, moves, or deletes files on disk.
+        changed_signal = getattr(self._panel.file_browser, "documents_changed", None)
+        if changed_signal is not None and hasattr(changed_signal, "connect"):
+            # Open/add library -> roots change -> index rebuild (and rebaseline).
+            changed_signal.connect(lambda: self._refresh_link_index())
         self._panel.file_browser.on_note_created = self._on_browser_note_created
         self._panel.file_browser.on_new_note_requested = self._new_note
         self._panel.file_browser.on_paths_migrated = self._on_browser_paths_migrated
@@ -858,6 +923,8 @@ class MainWindow(QMainWindow):
         self._theme_action = act("切換深色模式", self._toggle_theme)
         view_menu.addAction(self._theme_action)
         view_menu.addAction(act("顯示 / 隱藏旁註卡片", self._toggle_annotation_side_notes))
+        view_menu.addSeparator()
+        self._build_agent_watch_menu(view_menu, act)
 
         tools_menu = bar.addMenu("工具(&T)")
         tools_menu.addAction(
@@ -1292,6 +1359,10 @@ QLabel#editorModeBadge {{
 """
         )
         self._tab_strip.apply_theme(self._theme)
+        for agent_widget in (getattr(self, "_agent_badge", None),
+                             getattr(self, "_agent_toolbar_btn", None)):
+            if agent_widget is not None:
+                agent_widget.apply_theme(self._theme)
         from .theme import apply_combo_popup_theme
         apply_combo_popup_theme(self._reading_mode_combo, self._theme)
         self._search_bar.setStyleSheet(self._search_style())
@@ -4449,9 +4520,27 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             )
         self._tab_bar.refresh_close_buttons()
 
+    def _cached_tab_key(self, path: str) -> str:
+        """Normalized identity of a tab path, computed once per distinct spelling.
+
+        Keyed by the tab's stored path string, so Save As / rename (which store
+        a new string) naturally get a fresh entry; no invalidation hooks needed.
+        """
+        cache = self.__dict__.setdefault("_tab_key_cache", {})
+        cached = cache.get(path)
+        if cached is None:
+            if len(cache) > 1024:
+                cache.clear()
+            cached = cache[path] = tab_path_key(path)
+        return cached
+
     def _index_of_path(self, key: str) -> int:
+        norm = self._cached_tab_key(key)
         for i in range(self._tab_bar.count()):
-            if self._tab_bar.tabData(i) == key:
+            data = self._tab_bar.tabData(i)
+            if data == key or (
+                isinstance(data, str) and data and self._cached_tab_key(data) == norm
+            ):
                 return i
         return -1
 
@@ -5172,6 +5261,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             roots.append(self._current_file.parent)
         return roots
 
+    def _link_root_candidates(self) -> list[str]:
+        """Library root strings for the watcher; no filesystem access."""
+        roots: list[str] = []
+        try:
+            roots.extend(str(lib.path) for lib in DocumentLibraryStore().load())
+        except Exception:
+            log.warning("Could not load document libraries for rescan", exc_info=True)
+        if self._current_file:
+            roots.append(str(self._current_file.parent))
+        return roots
+
     def _link_roots(self) -> list[Path]:
         roots: list[Path] = []
         try:
@@ -5192,9 +5292,22 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 unique.append(root)
         return unique
 
+    def _link_index_roots(self) -> list[str]:
+        """Root strings for LinkIndexThread, deduplicated; no filesystem access."""
+        unique: list[str] = []
+        seen: set[str] = set()
+        for root in self._link_root_candidates():
+            text = str(Path(root))
+            if text.casefold() not in seen:
+                seen.add(text.casefold())
+                unique.append(text)
+        return unique
+
     def _refresh_link_index(self, force: bool = False):
-        roots = self._link_roots()
-        key = tuple(sorted(str(r).casefold() for r in roots))
+        # GUI thread: strings only.  The thread drops roots that do not exist
+        # (an offline share blocks Path.exists) and walks each folder once.
+        roots = self._link_index_roots()
+        key = tuple(sorted(root.casefold() for root in roots))
         if not force and key == self._link_roots_key:
             self._refresh_backlinks()
             return
@@ -5208,7 +5321,23 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._link_thread.ready.connect(self._on_link_index_ready)
         self._link_thread.finished.connect(self._on_link_index_finished)
         self._link_thread.start()
+        self._library_watcher.rebaseline()
         self._refresh_backlinks()
+
+    def _rescan_on_focus_enabled(self) -> bool:
+        value = QSettings(_ORG, _APP).value(RESCAN_ON_FOCUS_KEY, True)
+        if isinstance(value, str):
+            return value.strip().lower() not in ("false", "0", "no", "off", "")
+        return bool(value)
+
+    def event(self, event):
+        if event.type() == QEvent.Type.WindowActivate:
+            self._library_watcher.notify_activated()
+        elif event.type() == QEvent.Type.DeferredDelete:
+            # Deleted without an accepted close (a cancelled close, then
+            # deleteLater): Qt must never destroy a running QThread child.
+            self._stop_background_scans()
+        return super().event(event)
 
     def _on_link_index_ready(self, index):
         if index is not None:
@@ -5286,7 +5415,6 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             if self._current_kind == "pdf" and fragment.startswith("page="):
                 self._pdf_view.restore_page(max(0, int(fragment[5:]) - 1))
             elif fragment.startswith("annotation="):
-                from urllib.parse import unquote
                 identity = unquote(fragment.partition("=")[2])
                 if self._find_annotation(identity) is None:
                     self.statusBar().showMessage("來源註記已不存在；已開啟原文件。", 6000)
@@ -5296,10 +5424,25 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self._renderer.page().runJavaScript(f"window.scrollTo(0,{max(0, int(fragment[7:]))});")
             elif fragment.startswith("line="):
                 self._renderer.reveal_source_line_after_load(max(1, int(fragment[5:])))
+            elif fragment.startswith("heading="):
+                self._scroll_to_heading_text(unquote(fragment.partition("=")[2]))
             elif fragment:
                 self._renderer.scroll_to(fragment)
         except ValueError:
             self.statusBar().showMessage("來源位置無效；已開啟原文件。", 5000)
+
+    def _scroll_to_heading_text(self, text: str) -> bool:
+        """Scroll the loaded preview to the heading titled *text* (via the TOC)."""
+        def norm(value) -> str:
+            return " ".join(str(value).split()).casefold()
+
+        wanted = norm(text)
+        for _level, title, anchor in self._panel.toc.entries():
+            if wanted and norm(title) == wanted and isinstance(anchor, str) and anchor:
+                self._renderer.scroll_to(anchor)
+                return True
+        self.statusBar().showMessage("找不到指定的標題；已開啟原文件。", 5000)
+        return False
 
     def _on_local_doc_clicked(self, path: str):
         if path and Path(path).exists():
@@ -5310,7 +5453,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         if not resolved or not Path(resolved).exists():
             resolved = self._resolve_in_current_folder(target)
         if resolved and Path(resolved).exists():
-            self._open_file(str(resolved))
+            heading = split_wikilink_target(target)[1]
+            if heading and not heading.startswith("^"):
+                self._open_document_target(
+                    str(resolved), "heading=" + quote(heading, safe=""))
+            else:
+                self._open_file(str(resolved))
             return
         self._offer_create_note(target)
 
@@ -5948,6 +6096,60 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def open_path(self, filepath: str):
         self._open_file(filepath)
+
+    def _cancel_deferred_update_close(self) -> None:
+        """A waking window must not quit itself when an updater thread ends."""
+        self._update_close_pending = False
+        self._update_close_deferred = False
+        self._deferred_update_close_approved = False
+
+    def bring_to_front(self) -> None:
+        """Re-show a hidden/minimized window and focus it.
+
+        Closing the main window only hides it (detached windows keep the app
+        alive), so a forwarded launch must show it again, not just raise_().
+        """
+        if getattr(self, "_update_close_deferred", False):
+            self._cancel_deferred_update_close()
+        if not self.isVisible():
+            self._agent_watch_resume()
+            # closeEvent already ran the session-close bookkeeping.
+            self._session_closing = False
+            self.show()
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def open_external_path(self, filepath: str, anchor: dict | None = None) -> None:
+        """Entry for argv / IPC / URL launches: file, folder, or '' (focus only).
+
+        *anchor* is ``{"heading": text}`` or ``{"line": n}`` (files only); it
+        scrolls the opened document there through the pending-source-target path.
+        """
+        self.bring_to_front()
+        if not filepath:
+            return
+        path = Path(filepath)
+        if path.is_dir():
+            self.open_folder(path)
+            return
+        fragment = ""
+        if isinstance(anchor, dict):
+            if isinstance(anchor.get("heading"), str) and anchor["heading"].strip():
+                fragment = "heading=" + quote(anchor["heading"], safe="")
+            elif isinstance(anchor.get("line"), int) and anchor["line"] >= 1:
+                fragment = f"line={anchor['line']}"
+        if fragment and path.is_file():
+            self._open_document_target(filepath, fragment)
+        else:
+            self.open_path(filepath)
+
+    def open_folder(self, folder: Path) -> None:
+        """Add *folder* to the document libraries if needed and reveal it."""
+        if not self._sidebar_open:
+            self._do_toggle(0)
+        self._panel.file_browser.open_folder(folder)
 
     def _panel_open_file(self):
         self._panel.open_file_dialog()
@@ -6830,7 +7032,171 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _restore_geometry(self):
         session_state.restore_geometry(self)
 
+    # --- AI Agent watch (Watchdog) ------------------------------------------
+
+    def _build_agent_watch_menu(self, menu, act) -> None:
+        from .agent_watchdog import (
+            KEY_ENABLED,
+            KEY_TOAST_STUCK,
+            KEY_TOAST_WAITING,
+            WatchdogConfig,
+        )
+
+        self._agent_watcher = None
+        self._agents_dock = None
+        self._agent_badge = None
+        config = WatchdogConfig.load()
+
+        def toggle(text, key, value):
+            action = act(text, lambda checked=False, k=key: self._set_agent_setting(k, checked))
+            action.setCheckable(True)
+            action.setChecked(value)
+            return action
+
+        self._agents_panel_action = act("AI Agents 面板", self._toggle_agents_panel)
+        self._agents_panel_action.setCheckable(True)
+        menu.addAction(self._agents_panel_action)
+        self._agent_enable_action = toggle("啟用 Agent 監看", KEY_ENABLED, config.enabled)
+        menu.addAction(self._agent_enable_action)
+        menu.addAction(toggle(
+            "等待回覆時通知（只在閱讀器開著時通知）",
+            KEY_TOAST_WAITING, config.toast_waiting))
+        menu.addAction(toggle(
+            "可能卡住時通知（只在閱讀器開著時通知）",
+            KEY_TOAST_STUCK, config.toast_stuck))
+        menu.addAction(act("設定 Watchdog 位址…", self._edit_watchdog_url))
+
+    def start_agent_watchdog(self) -> None:
+        """Primary instance only (called by main.py after the IPC server is up)."""
+        if self._agent_watcher is not None:
+            return
+        from .agent_watchdog import AgentWatcher
+        from .agents_panel import AgentBadge
+
+        watcher = AgentWatcher(self)
+        self._agent_watcher = watcher
+        from .agents_panel import AgentToolbarButton
+
+        badge = AgentBadge(self, self._theme)
+        badge.clicked_callback = self._toggle_agents_panel
+        self.statusBar().addPermanentWidget(badge)
+        self._agent_badge = badge
+        ai_btn = AgentToolbarButton(self._theme, self._toolbar)
+        ai_btn.clicked.connect(self._toggle_agents_panel)
+        tb_layout = self._toolbar.layout()
+        tb_layout.insertWidget(tb_layout.indexOf(self._toolbar_utilities), ai_btn)
+        self._agent_toolbar_btn = ai_btn
+
+        def refresh_agent_widgets() -> None:
+            badge.refresh(watcher)
+            ai_btn.refresh(watcher)
+
+        watcher.changed.connect(refresh_agent_widgets)
+        watcher.toast_clicked.connect(self._on_agent_toast_clicked)
+        watcher.start()
+        refresh_agent_widgets()
+        if self._agents_dock is not None:
+            self._agents_dock.set_watcher(watcher)
+
+    def _ensure_agents_dock(self):
+        if self._agents_dock is None:
+            from PySide6.QtWidgets import QApplication
+
+            from .agents_panel import AgentsDock
+
+            dock = AgentsDock(self)
+            dock.set_watcher(self._agent_watcher)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            dock.visibilityChanged.connect(self._agents_panel_action.setChecked)
+            QApplication.instance().aboutToQuit.connect(dock.shutdown)
+            self._agents_dock = dock
+        return self._agents_dock
+
+    def _toggle_agents_panel(self, *_args) -> None:
+        dock = self._ensure_agents_dock()
+        dock.setVisible(not dock.isVisible())
+
+    def _show_agents_panel(self) -> None:
+        self._ensure_agents_dock().show()
+
+    def _on_agent_toast_clicked(self) -> None:
+        self.bring_to_front()
+        self._show_agents_panel()
+
+    def _set_agent_setting(self, key: str, value: bool) -> None:
+        from .agent_watchdog import KEY_ENABLED, WatchdogConfig, save_setting
+
+        save_setting(key, value)
+        watcher = self._agent_watcher
+        if watcher is None:
+            return
+        if key == KEY_ENABLED:
+            watcher.start()
+        else:
+            watcher.config = WatchdogConfig.load()
+            watcher.state.toast_waiting = watcher.config.toast_waiting
+            watcher.state.toast_stuck = watcher.config.toast_stuck
+
+    def _edit_watchdog_url(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+
+        from .agent_watchdog import KEY_BASE_URL, WatchdogConfig, save_setting
+        from .agent_watchdog_state import is_loopback_url
+
+        current = WatchdogConfig.load().base_url
+        text, ok = QInputDialog.getText(
+            self, "設定 Watchdog 位址",
+            "Watchdog 位址（僅接受 127.0.0.1 或 ::1）：",
+            text=current)
+        if not ok:
+            return
+        text = text.strip().rstrip("/")
+        if not is_loopback_url(text):
+            QMessageBox.warning(
+                self, "位址無效",
+                "只接受本機位址，例如 http://127.0.0.1:8787。")
+            return
+        save_setting(KEY_BASE_URL, text)
+        if self._agent_watcher is not None:
+            self._agent_watcher.start()
+
+    def _agent_watch_pause(self) -> None:
+        watcher = getattr(self, "_agent_watcher", None)
+        if watcher is not None:
+            watcher.pause()
+
+    def _agent_watch_resume(self) -> None:
+        watcher = getattr(self, "_agent_watcher", None)
+        if watcher is not None:
+            watcher.resume()
+
+    def _shutdown_link_thread(self) -> None:
+        """Stop the link-index thread; never let Qt destroy it while running."""
+        thread = self._link_thread
+        self._link_refresh_pending = False
+        if thread is None:
+            return
+        self._link_thread = None
+        thread.requestInterruption()
+        try:
+            thread.ready.disconnect(self._on_link_index_ready)
+            thread.finished.disconnect(self._on_link_index_finished)
+        except (RuntimeError, TypeError):
+            pass
+        if thread.isRunning() and not thread.wait(3000):
+            log.warning("Link index thread did not stop in time; orphaning it")
+            _LINK_ORPHANS.add(thread)
+            thread.finished.connect(lambda t=thread: _LINK_ORPHANS.discard(t))
+            thread.setParent(None)
+
+    def _stop_background_scans(self) -> None:
+        """Stop the focus rescan and the link-index rebuild (blocks briefly)."""
+        self._library_watcher.shutdown()
+        self._shutdown_link_thread()
+
     def closeEvent(self, event):
+        # The background scans stop only once the close is accepted below: a
+        # "Cancel" in the save prompt keeps the rebuild (and never waits on it).
         if hasattr(self._tag_index, "flush"):
             try:
                 self._tag_index.flush()
@@ -6842,6 +7208,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         pdf_annotation_writer.cleanup_session_backups()
         if self._deferred_update_close_approved:
             self._deferred_update_close_approved = False
+            self._stop_background_scans()
             super().closeEvent(event)
             return
         if (
@@ -6861,6 +7228,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             return
         self._wysiwyg_close_snapshot_approved = False
         if session_state.close_event(self, event):
+            self._stop_background_scans()
+            self._agent_watch_pause()
             if update_flow.defer_close_until_updates_finish(self, event):
                 self._deferred_update_close_approved = True
                 return

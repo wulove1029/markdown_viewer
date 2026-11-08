@@ -261,6 +261,34 @@ def _start_source_snapshot_export(window, path: str, setup: dict | None) -> None
     job.start(text, Path(window.current_file))
 
 
+SNAPSHOT_READY_JS = """(function() {
+    const marker = document.querySelector('meta[name="markdown-viewer-render-generation"]');
+    if (!marker || Number(marker.content) !== GENERATION) return 0;
+    if (document.querySelector('meta[name="markdown-viewer-render-error"]')) return -1;
+    if (document.readyState !== 'complete' || document.fonts.status === 'loading') return 0;
+    if (Array.from(document.images).some(image => !image.complete)) return 0;
+    if (window.mdDiagrams) {
+        window.mdDiagrams.ensureAll();
+        if (!window.mdDiagrams.status().complete) return 0;
+    } else if (Array.from(document.querySelectorAll('.mermaid')).some(
+        diagram => !diagram.querySelector('svg'))) return 0;
+    return 1;
+})()"""
+
+
+def snapshot_ready_js(generation: int) -> str:
+    """Probe script: 1 when the rendered snapshot is printable, -1 on error."""
+    return SNAPSHOT_READY_JS.replace("GENERATION", str(generation))
+
+
+def html_with_base(value: str, base_url: QUrl) -> str:
+    """Keep relative local assets valid when the destination is another folder."""
+    if "<base " not in value:
+        base = html.escape(base_url.toString(), quote=True)
+        value = value.replace("<head>", f'<head><base href="{base}">', 1)
+    return value
+
+
 class _SourceSnapshotExport(QObject):
     """Print one immutable source snapshot and release every owned Qt resource."""
 
@@ -302,19 +330,8 @@ class _SourceSnapshotExport(QObject):
             return
         self._checking = True
         generation = self.view._render_generation
-        self.view.page().runJavaScript("""(function() {
-            const marker = document.querySelector('meta[name="markdown-viewer-render-generation"]');
-            if (!marker || Number(marker.content) !== GENERATION) return 0;
-            if (document.querySelector('meta[name="markdown-viewer-render-error"]')) return -1;
-            if (document.readyState !== 'complete' || document.fonts.status === 'loading') return 0;
-            if (Array.from(document.images).some(image => !image.complete)) return 0;
-            if (window.mdDiagrams) {
-                window.mdDiagrams.ensureAll();
-                if (!window.mdDiagrams.status().complete) return 0;
-            } else if (Array.from(document.querySelectorAll('.mermaid')).some(
-                diagram => !diagram.querySelector('svg'))) return 0;
-            return 1;
-        })()""".replace("GENERATION", str(generation)), self._on_ready)
+        self.view.page().runJavaScript(
+            snapshot_ready_js(generation), self._on_ready)
 
     def _on_ready(self, value) -> None:
         self._checking = False
@@ -355,10 +372,7 @@ class _SourceSnapshotExport(QObject):
         if not isinstance(value, str) or not value:
             self._finish(False)
             return
-        # Keep relative local assets valid when the destination is another folder.
-        if "<base " not in value:
-            base = html.escape(self.base_url.toString(), quote=True)
-            value = value.replace("<head>", f'<head><base href="{base}">', 1)
+        value = html_with_base(value, self.base_url)
         try:
             Path(self.path).write_text(value, encoding="utf-8")
         except OSError:

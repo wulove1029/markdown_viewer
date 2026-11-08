@@ -1,13 +1,13 @@
 """Session persistence helpers delegated from MainWindow."""
 
 import json
-import os
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QSettings, QTimer
 from PySide6.QtWidgets import QDialog
 
 from .content_zoom import ZOOM_FACTORS, clamp_zoom_factor
+from .document_tabs import tab_path_key
 from .edit_backend import (
     PREVIEW_DOUBLE_CLICK_SETTINGS_KEY as PREVIEW_DOUBLE_CLICK_KEY,
 )
@@ -231,7 +231,7 @@ def restore_file_tree_state(window):
 
 
 def _session_path_key(path: str) -> str:
-    return os.path.normcase(os.path.abspath(path))
+    return tab_path_key(path)
 
 
 def restore_last_session(window, file_arg: str = ""):
@@ -306,6 +306,10 @@ def _restore_session_documents(window, file_arg: str):
         if key not in known:
             window._add_tab(Path(path), document_kind(Path(path)))
             known[key] = path
+    if file_arg and Path(file_arg).is_dir():
+        # A folder launch registers/reveals the library; tabs restore as usual.
+        window.open_folder(Path(file_arg))
+        file_arg = ""
     if file_arg:
         # A file-manager launch selects its file while keeping the old tabs.
         # Reuse saved path spelling for case-insensitive Windows duplicates.

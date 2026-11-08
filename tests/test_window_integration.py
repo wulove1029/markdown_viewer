@@ -3274,9 +3274,15 @@ class _FakeDocumentPageView(QObject):
         self._current_path = current_path
 
 
-def _make_document_page(current_path=None):
+# The autouse fakes silence QTimer.singleShot; the page queues its side effects
+# with it (F2: never inside Chromium's navigation callback), so restore it here.
+_REAL_SINGLE_SHOT = QTimer.__dict__["singleShot"]
+
+
+def _make_document_page(monkeypatch, current_path=None):
     from app.renderer import _DocumentPage
 
+    monkeypatch.setattr(QTimer, "singleShot", _REAL_SINGLE_SHOT)
     view = _FakeDocumentPageView(current_path)
     page = _DocumentPage(view)
     events = []
@@ -3284,8 +3290,8 @@ def _make_document_page(current_path=None):
     return page, events
 
 
-def test_accept_navigation_request_fires_home_new_on_real_home_link_click(qapp):
-    page, events = _make_document_page(current_path=None)
+def test_accept_navigation_request_fires_home_new_on_real_home_link_click(qapp, monkeypatch):
+    page, events = _make_document_page(monkeypatch, current_path=None)
 
     accepted = page.acceptNavigationRequest(
         QUrl("https://markdown-viewer.invalid/home/new"),
@@ -3293,29 +3299,33 @@ def test_accept_navigation_request_fires_home_new_on_real_home_link_click(qapp):
         True,
     )
 
+    # Emitted after Chromium's navigation callback returns, never inside it.
+    assert events == []
+    QTest.qWait(20)
     assert events == ["new"]
     # The scheme is always intercepted (never handed to the page itself).
     assert accepted is False
 
 
-def test_accept_navigation_request_ignores_same_url_inside_an_open_document(qapp):
+def test_accept_navigation_request_ignores_same_url_inside_an_open_document(qapp, monkeypatch):
     # _current_path set (a real document tab is active) must block the home
     # action even for a literal same-URL link inside that document's body.
-    page, events = _make_document_page(current_path="C:/notes/doc.md")
+    page, events = _make_document_page(monkeypatch, current_path="C:/notes/doc.md")
 
     page.acceptNavigationRequest(
         QUrl("https://markdown-viewer.invalid/home/new"),
         QWebEnginePage.NavigationType.NavigationTypeLinkClicked,
         True,
     )
+    QTest.qWait(20)
 
     assert events == []
 
 
-def test_accept_navigation_request_ignores_non_click_navigation(qapp):
+def test_accept_navigation_request_ignores_non_click_navigation(qapp, monkeypatch):
     # A programmatic / stale (queued, no-longer-relevant) navigation must
     # never retrigger "new", even while the home page is genuinely showing.
-    page, events = _make_document_page(current_path=None)
+    page, events = _make_document_page(monkeypatch, current_path=None)
 
     for nav_type in (
         QWebEnginePage.NavigationType.NavigationTypeTyped,
@@ -3326,6 +3336,7 @@ def test_accept_navigation_request_ignores_non_click_navigation(qapp):
         page.acceptNavigationRequest(
             QUrl("https://markdown-viewer.invalid/home/new"), nav_type, True
         )
+    QTest.qWait(20)
 
     assert events == []
 

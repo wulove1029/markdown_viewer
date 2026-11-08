@@ -85,7 +85,20 @@ _TEXT_TONE_SUBTLE = "subtle"
 # Sidecar files the app maintains next to documents. They never appear in the
 # tree (their suffix isn't in SUPPORTED_EXTENSIONS); we just tag them hidden on
 # Windows so Explorer's default view stays clean.
-_HIDDEN_SIDECAR_SUFFIXES = (".notes.json", ".highlights.json", ".bak")
+_HIDDEN_SIDECAR_SUFFIXES = (".notes.json", ".highlights.json")
+
+
+def _is_hidden_sidecar(name: str, sibling_names: set[str]) -> bool:
+    """True for sidecars this app makes; *sibling_names* are casefolded names.
+
+    A ``.bak`` is only ours (``a.md.bak``) when the file it backs up (``a.md``)
+    exists beside it; other tools' backups such as
+    ``Doc.md.2026-11-08.bak`` stay visible to Explorer.
+    """
+    lowered = name.casefold()
+    if lowered.endswith(_HIDDEN_SIDECAR_SUFFIXES):
+        return True
+    return lowered.endswith(".bak") and lowered[:-4] in sibling_names
 
 # Second-line tag-pill geometry (px). English comments per project rules.
 _PILL_HEIGHT = 16       # pill badge height
@@ -565,6 +578,7 @@ def _scan_folder(
     allowed = request.allowed
     nodes: list[_ScanNode] = []
     count = 0
+    sibling_names = {entry.name.casefold() for entry in entries}
     for entry in entries:
         if not _entry_is_dir(entry):
             continue
@@ -586,7 +600,7 @@ def _scan_folder(
         if not _entry_is_file(entry):
             continue
         name = entry.name
-        if name.lower().endswith(_HIDDEN_SIDECAR_SUFFIXES):
+        if _is_hidden_sidecar(name, sibling_names):
             # Keep pre-existing sidecars out of Explorer's default view.
             # Windows-only, best-effort; these never enter the tree.
             set_hidden(entry.path)
@@ -1731,6 +1745,15 @@ class FileBrowserView(QWidget):
         if not added:
             QMessageBox.information(self, "文件庫已存在", "這個資料夾已在文件庫中。")
         self.refresh_libraries()
+
+    def open_folder(self, folder: str | Path) -> None:
+        """Register *folder* as a library unless already covered, then reveal it."""
+        folder = Path(folder)
+        if not self.contains_library_path(folder):
+            self._store.add(folder)
+        self._remember_expanded(str(folder))
+        self.refresh_libraries()
+        self._select_path(folder)
 
     def _manage_libraries(self):
         dialog = LibraryManagerDialog(self._store, self._theme, self)
