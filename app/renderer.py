@@ -43,6 +43,7 @@ from .attachment_security import attachment_open_policy
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .html_loading import HtmlPreparation
 from .md_converter import RenderCancelled, convert, convert_text, state_page_html
+from .pdf_tounicode import repair_radical_tounicode
 from .web_security import blocks_file_request, document_host, install_remote_file_guard
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
@@ -1748,8 +1749,14 @@ class RendererView(QWebEngineView):
         callback = self._pdf_callback
         self._pdf_callback = None
         try:
-            if callback:
-                callback(path, ok)
+            try:
+                if ok:
+                    # Chromium writes Kangxi radicals into ToUnicode for glyphs
+                    # CJK fonts share with ideographs; fix copy/search text.
+                    repair_radical_tounicode(path)
+            finally:
+                if callback:
+                    callback(path, ok)
         finally:
             if deferred is not None and isValid(self):
                 self._submit_page_navigation(deferred)

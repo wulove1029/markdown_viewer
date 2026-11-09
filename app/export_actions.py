@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from . import edit_backend
 from .file_types import is_markdown
 from .md_converter import read_text
+from .pdf_tounicode import repair_radical_tounicode
 from .settings_store import APP, ORG
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
@@ -553,7 +554,11 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
     def _on_printed(exported_path, ok) -> None:
         if state["phase"] != "printing":
             return
-        _complete(str(exported_path), bool(ok))
+        try:
+            if ok:
+                repair_radical_tounicode(str(exported_path))
+        finally:
+            _complete(str(exported_path), bool(ok))
 
     def _on_prepared(result) -> None:
         nonlocal page

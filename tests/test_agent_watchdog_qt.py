@@ -957,3 +957,37 @@ def test_info_page_stops_the_dashboard_and_page_is_frozen_on_hide(qapp, mock_dog
         host.close()
         host.deleteLater()
         qapp.processEvents()
+
+
+def test_start_bat_default_is_unset_and_saved_value_is_kept(tmp_path, monkeypatch):
+    ini = tmp_path / "settings.ini"
+    monkeypatch.setattr(
+        settings_store, "settings",
+        lambda: QSettings(str(ini), QSettings.Format.IniFormat),
+    )
+    assert agent_watchdog.DEFAULT_START_BAT == ""
+    assert agent_watchdog.WatchdogConfig.load().start_bat == ""
+    agent_watchdog.save_setting(agent_watchdog.KEY_START_BAT, r"C:\x\start.bat")
+    assert agent_watchdog.WatchdogConfig.load().start_bat == r"C:\x\start.bat"
+
+
+@pytest.mark.parametrize("bat", ["", r"C:\x\start.bat"])
+def test_info_page_with_and_without_start_bat(qapp, bat):
+    watcher = SimpleNamespace(
+        available=False, base_url="http://127.0.0.1:1",
+        config=SimpleNamespace(enabled=True, start_bat=bat),
+        redetect=lambda: None)
+    host, dock = _panel_dock(watcher)
+    try:
+        dock._show_info()
+        text = dock._info_label.text()
+        assert "未啟動" in text
+        if bat:
+            assert bat in text
+        else:
+            assert "尚未指定" in text and "watchdog/start_bat" in text
+    finally:
+        dock.shutdown()
+        host.close()
+        host.deleteLater()
+        qapp.processEvents()

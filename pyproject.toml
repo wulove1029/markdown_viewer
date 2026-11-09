@@ -93,7 +93,7 @@ files = [
     "app/atomic_io.py", "app/file_types.py", "app/edit_backend.py", "app/tab_state.py",
     "app/window.py", "app/background_jobs.py", "app/diagnostics.py", "app/large_source.py",
     "app/library_content.py", "app/search_index.py", "app/web_security.py",
-    "app/cli_export.py", "app/library_watch.py",
+    "app/cli_export.py", "app/library_watch.py", "app/pdf_tounicode.py",
 ]
 
 [[tool.mypy.overrides]]

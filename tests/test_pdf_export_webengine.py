@@ -165,3 +165,69 @@ def test_source_exports_use_unsaved_snapshot_and_local_image(qapp, tmp_path, mon
     assert "SAVED DISK" not in text and "LATER EDIT" not in text
     assert source.read_text("utf-8") == "# SAVED DISK VERSION"
     owner.close()
+
+
+def _tounicode_text(path) -> str:
+    """Text as extractors that ignore /ActualText (pypdf and others) see it."""
+    flags = fitz.TEXTFLAGS_TEXT | fitz.TEXT_IGNORE_ACTUALTEXT
+    with fitz.open(path) as document:
+        return "".join(page.get_text(flags=flags) for page in document)
+
+
+def _radicals(text: str) -> list[str]:
+    return [c for c in text if 0x2E80 <= ord(c) <= 0x2FDF]
+
+
+@_skip_webengine
+def test_preview_pdf_text_layer_keeps_unified_ideographs(qapp, tmp_path, monkeypatch):
+    """The preview's printToPdf output must not extract 一/二/目 as radicals.
+
+    Microsoft JhengHei (and Noto Sans TC, Yu Gothic, ...) share one glyph
+    between an ideograph and its Kangxi radical; Chromium writes the radical
+    into ToUnicode and only wraps the glyph in /ActualText.
+    """
+    import shutil
+
+    from app import renderer
+
+    raw_path = tmp_path / "raw.pdf"
+    repair = renderer.repair_radical_tounicode
+
+    def keep_raw_then_repair(path):
+        shutil.copyfile(path, raw_path)
+        return repair(path)
+
+    monkeypatch.setattr(renderer, "repair_radical_tounicode", keep_raw_then_repair)
+    markdown_path = tmp_path / "cjk.md"
+    markdown_path.write_text(
+        "# 部首\n\n一、二、目\n\n- 第一項\n- 第二項\n  - 巢狀項目\n", encoding="utf-8"
+    )
+    view = RendererView()
+    view.resize(900, 700)
+    view.show()
+    view.load_file(markdown_path)
+    _wait(3000)
+
+    output_path = tmp_path / "cjk.pdf"
+    result = {}
+    loop = QEventLoop()
+
+    def finished(path, ok):
+        result.update(path=path, ok=ok)
+        loop.quit()
+
+    view.export_pdf(str(output_path), finished, export_actions.pdf_layout("A4", "portrait"))
+    QTimer.singleShot(30000, loop.quit)
+    loop.exec()
+    view.close()
+
+    assert result == {"path": str(output_path), "ok": True}
+    if not _radicals(_tounicode_text(raw_path)):
+        pytest.skip(
+            "no available CJK font shares glyphs between ideographs and radicals "
+            "(e.g. Microsoft JhengHei), so Chromium's raw PDF has nothing to repair"
+        )
+    text = _tounicode_text(output_path)
+    assert _radicals(text) == [], text
+    for word in ("一、二、目", "第一項", "第二項", "巢狀項目"):
+        assert word in text, text

@@ -246,6 +246,101 @@ def test_office_pdf_print_result_always_restores_live_surface(
     assert completed == [(window, "chosen.pdf", printed_ok)]
 
 
+@pytest.mark.parametrize("printed_ok", [True, False])
+def test_office_pdf_repairs_text_layer_only_after_successful_print(
+    monkeypatch, printed_ok
+):
+    events = []
+    window = _Window()
+    window._edit_mode = True
+    window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
+    window._wysiwyg_view = _OfficeView(events)
+    monkeypatch.setattr(
+        export_actions, "repair_radical_tounicode",
+        lambda path: events.append(("repair", path)),
+    )
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    window._wysiwyg_view.prepare_callback(True)
+
+    window._wysiwyg_view._page.pdfPrintingFinished.emit("chosen.pdf", printed_ok)
+
+    repaired = [("repair", "chosen.pdf")] if printed_ok else []
+    assert events == ["progress", "prepare", "print", *repaired, "finish", "complete"]
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_renderer_pdf_repairs_text_layer_before_reporting(monkeypatch, ok):
+    from types import SimpleNamespace
+
+    from app import renderer
+
+    events = []
+    monkeypatch.setattr(
+        renderer, "repair_radical_tounicode", lambda path: events.append(("repair", path))
+    )
+    view = SimpleNamespace(
+        _pdf_printing=True,
+        _deferred_navigation=None,
+        _pdf_callback=lambda path, done: events.append(("done", path, done)),
+    )
+
+    renderer.RendererView._on_pdf_finished(view, "out.pdf", ok)
+
+    repaired = [("repair", "out.pdf")] if ok else []
+    assert events == [*repaired, ("done", "out.pdf", ok)]
+    assert view._pdf_printing is False and view._pdf_callback is None
+
+
+class _RepairAborted(BaseException):
+    """Escapes the repair's own ``except Exception`` guard."""
+
+
+def _abort_repair(path):
+    raise _RepairAborted(path)
+
+
+def test_office_pdf_completes_even_if_repair_aborts(monkeypatch):
+    events = []
+    window = _Window()
+    window._edit_mode = True
+    window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
+    window._wysiwyg_view = _OfficeView(events)
+    monkeypatch.setattr(export_actions, "repair_radical_tounicode", _abort_repair)
+    completed = _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    window._wysiwyg_view.prepare_callback(True)
+
+    with pytest.raises(_RepairAborted):
+        window._wysiwyg_view._page.pdfPrintingFinished.emit("chosen.pdf", True)
+
+    # The progress dialog is closed and the live surface restored regardless.
+    assert completed == [(window, "chosen.pdf", True)]
+    assert window._wysiwyg_view.finish_count == 1
+    assert window._wysiwyg_view._page.pdfPrintingFinished.callbacks == []
+
+
+def test_renderer_pdf_reports_even_if_repair_aborts(monkeypatch):
+    from types import SimpleNamespace
+
+    from app import renderer
+
+    done = []
+    monkeypatch.setattr(renderer, "repair_radical_tounicode", _abort_repair)
+    view = SimpleNamespace(
+        _pdf_printing=True,
+        _deferred_navigation=None,
+        _pdf_callback=lambda path, ok: done.append((path, ok)),
+    )
+
+    with pytest.raises(_RepairAborted):
+        renderer.RendererView._on_pdf_finished(view, "out.pdf", True)
+
+    assert done == [("out.pdf", True)]
+
+
 def test_office_pdf_print_exception_restores_live_surface(monkeypatch):
     events = []
     window = _Window()

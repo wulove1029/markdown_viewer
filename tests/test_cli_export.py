@@ -114,6 +114,69 @@ def test_export_each_format(sample, tmp_path, fmt):
         assert "CLI Title" in text and "<base href=" in text
 
 
+CJK_MARKDOWN = """# 部首測試
+
+一、二、目
+
+- 第一項
+- 第二項
+  - 巢狀項目
+
+**粗體目錄**
+"""
+
+
+# The same CLI with the ToUnicode repair switched off: Chromium's raw output.
+_RAW_PDF_EXPORT = (
+    "import sys\n"
+    "import app.renderer\n"
+    "app.renderer.repair_radical_tounicode = lambda path: 0\n"
+    "from app.cli_export import main\n"
+    "raise SystemExit(main(sys.argv[1:]))\n"
+)
+
+
+def _tounicode_text(pdf: Path) -> str:
+    """Text as extractors that ignore /ActualText (pypdf and others) see it."""
+    import fitz
+
+    flags = fitz.TEXTFLAGS_TEXT | fitz.TEXT_IGNORE_ACTUALTEXT
+    with fitz.open(pdf) as document:
+        return "".join(page.get_text(flags=flags) for page in document)
+
+
+def _radicals(text: str) -> list[str]:
+    return [c for c in text if 0x2E80 <= ord(c) <= 0x2FDF]
+
+
+def test_pdf_text_layer_keeps_unified_ideographs(tmp_path):
+    """Fonts like Microsoft JhengHei share one glyph between 一 (U+4E00) and
+    the Kangxi radical ⼀ (U+2F00); the PDF's ToUnicode must not say ⼀."""
+    md = tmp_path / "cjk.md"
+    md.write_text(CJK_MARKDOWN, encoding="utf-8")
+    raw = tmp_path / "raw.pdf"
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", _RAW_PDF_EXPORT,
+         "--export", "pdf", str(md), str(raw)],
+        cwd=ROOT, env=_env(), capture_output=True, text=True, encoding="utf-8",
+        timeout=240,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    if not _radicals(_tounicode_text(raw)):
+        pytest.skip(
+            "no installed CJK font shares glyphs between ideographs and radicals "
+            "(e.g. Microsoft JhengHei), so Chromium's raw PDF has nothing to repair"
+        )
+
+    out = tmp_path / "cjk.pdf"
+    result = _run(["--export", "pdf", md, out])
+    assert result.returncode == 0, result.stderr + result.stdout
+    text = _tounicode_text(out)
+    assert _radicals(text) == [], text
+    for word in ("一、二、目", "第一項", "第二項", "巢狀項目", "粗體目錄"):
+        assert word in text, text
+
+
 def test_output_in_other_folder_is_created(sample, tmp_path):
     out = tmp_path / "nested" / "dir" / "out.html"
     result = _run(["--export", "html", sample, out])

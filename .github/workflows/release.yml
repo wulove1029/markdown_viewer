@@ -42,7 +42,11 @@ jobs:
           RUN_WEBENGINE_TESTS: "1"
           QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
         run: |
-          py -3 -X utf8 -m pytest tests/test_annotation_bridge.py tests/test_renderer_source_navigation.py tests/test_translate_menus.py tests/test_inline_edit_webengine.py tests/test_table_edit_webengine.py tests/test_pdf_export_webengine.py tests/test_reading_style_webengine.py tests/test_renderer_switching.py tests/test_release_validation.py tests/test_html_loading.py tests/test_diagram_loading_webengine.py tests/test_renderer_page_rotation.py
+          py -3 -X utf8 -m pytest tests/test_annotation_bridge.py tests/test_renderer_source_navigation.py tests/test_translate_menus.py tests/test_inline_edit_webengine.py tests/test_table_edit_webengine.py tests/test_pdf_export_webengine.py tests/test_reading_style_webengine.py tests/test_renderer_switching.py tests/test_release_validation.py tests/test_html_loading.py tests/test_diagram_loading_webengine.py tests/test_preview_link_navigation_webengine.py tests/test_renderer_page_rotation.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Own process: test_renderer_page_rotation can crash natively, which
+          # would otherwise skip these tests that run after it.
+          py -3 -X utf8 -m pytest tests/test_security_untrusted_markdown.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           py -3 -X utf8 -m pytest tests/test_wysiwyg_webengine.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

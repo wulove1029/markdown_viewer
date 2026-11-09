@@ -41,7 +41,7 @@ from .agent_watchdog_state import (
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8787"
-DEFAULT_START_BAT = r"D:\AI_Agent_Watchdog\start.bat"
+DEFAULT_START_BAT = ""  # unset: user points to their own start.bat
 EVENTS_INTERVAL_MS = 5000
 STATUS_INTERVAL_MS = 60000
 LEGACY_INTERVAL_MS = 15000
