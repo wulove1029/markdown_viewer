@@ -475,3 +475,41 @@ def test_watcher_reads_install_json_from_aiwatch_home(qapp, layout, make, monkey
     finally:
         w.shutdown()
         w.deleteLater()
+
+
+# --- legacy Watchdog vs. a program that only answers 404 -------------------------
+
+
+def test_real_legacy_watchdog_still_works_and_is_not_started(
+        qapp, layout, make, mock_dog):  # noqa: F811
+    home, _ = layout
+    mock_dog.events_status = 404  # old Watchdog: no /api/events, valid /api/status
+    w = make(mock_dog.url, home)
+    w.start()
+    assert wait_until(qapp, lambda: w.state.legacy and w.available)
+    qapp.processEvents()
+    assert w.calls == [] and w.autostart_message == ""
+
+
+@pytest.mark.parametrize("status_mode", ["404", "wrong_shape"])
+def test_404_occupant_means_port_busy_and_no_start(
+        qapp, layout, make, mock_dog, status_mode):  # noqa: F811
+    home, _ = layout
+    mock_dog.events_status = 404
+    if status_mode == "404":
+        mock_dog.status_status = 404
+    else:
+        mock_dog.status_override = {"hello": "world"}
+    w = make(mock_dog.url, home)
+    w.start()
+    assert wait_until(qapp, lambda: "port 被佔用" in w.autostart_message)
+    assert w.calls == [] and not w.available
+
+
+def test_200_non_contract_occupant_is_port_busy(qapp, layout, make, mock_dog):  # noqa: F811
+    home, _ = layout
+    mock_dog.events_override = {"schema": 1}  # 200, wrong shape
+    w = make(mock_dog.url, home)
+    w.start()
+    assert wait_until(qapp, lambda: "port 被佔用" in w.autostart_message)
+    assert w.calls == [] and not w.available

@@ -65,6 +65,12 @@ def default_endpoint_path() -> Path:
     return agent_autostart.aiwatch_home() / "endpoint.json"
 
 
+def _is_status_snapshot(payload: dict[str, Any]) -> bool:
+    """Shape of /api/status: lists 'sessions' and 'attention'."""
+    return (isinstance(payload.get("sessions"), list)
+            and isinstance(payload.get("attention"), list))
+
+
 def _as_bool(value: object, default: bool) -> bool:
     if value is None:
         return default
@@ -347,7 +353,9 @@ class AgentWatcher(QObject):
     def _on_events(self, reply: QNetworkReply) -> None:
         status = self._http_status(reply)
         if status == 404:
-            self._connected()
+            # Only a status snapshot of the right shape proves an old Watchdog
+            # (checked in _on_status); a program that merely answers 404 is
+            # treated as an occupied port there.
             self.state.set_legacy(True)
             if self._legacy_probe_at <= time.monotonic():
                 self._legacy_probe_at = time.monotonic() + LEGACY_REPROBE_S
@@ -394,6 +402,8 @@ class AgentWatcher(QObject):
     def _on_status(self, reply: QNetworkReply, reschedule: bool) -> None:
         status = self._http_status(reply)
         payload = self._json(reply) if status == 200 else None
+        if reschedule and payload is not None and not _is_status_snapshot(payload):
+            payload = None  # legacy mode: a foreign 200 is not a Watchdog
         if payload is None:
             if reschedule:
                 self._failed(status)  # legacy mode: status is the only poll
@@ -402,7 +412,10 @@ class AgentWatcher(QObject):
                 log.warning("Watchdog /api/status reconciliation failed (%s)", status)
             return
         was_unavailable = self.state.unavailable
-        self._connected()
+        was_legacy = self.state.legacy
+        self._connected()  # leaving an outage clears legacy ...
+        if reschedule and was_legacy:
+            self.state.set_legacy(True)  # ... but a verified legacy status keeps it
         self.state.apply_status(payload)
         if was_unavailable and not self._events_timer.isActive():
             self._events_timer.start(0)

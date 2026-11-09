@@ -31,6 +31,7 @@ class Script:
         self.events_status = 200
         self.delay = 0.0
         self.status_status = 200
+        self.status_override = None   # dict -> sent instead of the status body
         self.events_override = None   # dict -> sent instead of the normal body
         self.location = None          # Location header for 3xx answers
         self.log = []          # (path, query, thread name)
@@ -74,6 +75,8 @@ def _handler_for(script):
                 elif path == "/api/status":
                     if script.status_status != 200:
                         return self._send(script.status_status, b"boom")
+                    if script.status_override is not None:
+                        return self._send(200, script.status_override)
                     self._send(200, {
                         "generated_at": 1.0, "version": 3, "sessions": [],
                         "attention": script.attention, "hidden": 0,
