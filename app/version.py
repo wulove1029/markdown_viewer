@@ -1,10 +1,10 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.38.1"
+VERSION = "1.38.2"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "修正開啟文件的同時關閉視窗或分頁時，程式偶發閃退；其他背景工作的同類問題也一併修正。",
-    "PDF 註解讀取、存檔權限檢查與翻譯完成後會釋放記憶體，長時間使用不再持續成長。",
+    "修正預覽剛換內容時按 Esc 沒反應，以及關閉視窗或結束程式時背景工作偶發導致的閃退。",
+    "檢查或下載更新時關閉程式，會立即結束，不再卡住數十秒。",
 ]
 
 GITHUB_OWNER = "wulove1029"

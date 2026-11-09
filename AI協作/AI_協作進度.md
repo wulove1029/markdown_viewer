@@ -120,6 +120,36 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10 03:20 — 1.38.2 本機整合：Esc 空窗、QThread 生命週期、兩題偶發測試〔已實作＋已驗證，未 push〕
+**作者**：Claude（指揮官 session，無人值守模式）。實作派 3 個 Claude 子代理（opus）；驗收另派 fresh 子代理，A、C 的補件都重新驗收過。
+**類型**：錯誤修正＋測試穩定化
+
+- **A：預覽 Esc 回報**（`app/renderer.py`、`assets/annotations.js`）
+  - 原因：監聽器要等 JS 注入、QWebChannel 握手都完成才會裝上。CPU 很忙時這段要 1–3.7 秒，重繪後在這段時間內按的 Esc 會被吞掉。
+  - 修法：改用 `QWebEngineScript`，在 DocumentCreation 時機裝到 MainWorld（和 bridge 同一個 world）。監聽器只記住最後一次 Esc，等 bridge 接上再送出。
+  - 防偽造：只接受 `isTrusted` 的事件；按鍵資訊用預先存好的原生取值函式讀；對外連接入口不可覆寫；頁面污染原型時，bridge 注入也不會中斷。
+  - 已知：頁面可以搶先連接、把回報壓掉，效果等同頁面自己呼叫 preventDefault，不是新的能力。
+  - 安全驗收結果：送 101 個合成 Esc，舊版誤報 162 次，新版 0 次。
+- **B：WYSIWYG PDF 測試**（`tests/test_wysiwyg_webengine.py`）
+  - 原因：App 在載入後兩個動畫影格才還原捲動位置，測試在這之前就捲動了。
+  - 修法：等還原完成再捲動。App 本身沒有缺陷。
+  - 實作者量到修改前 14/20 失敗、修改後 0/20；驗收者在修改前沒能重現失敗，這點未經獨立確認。
+- **C：QThread 生命週期**（`app/window.py`、`app/library_watch.py`、`app/update_flow.py`、`app/updater.py`）
+  - `LinkIndexThread`、`_ScanThread` 改成 daemon 執行緒加 `WorkerRelay`，以工作身分比對、丟掉過期的回報。
+  - 更新流程：網路存取改到輔助執行緒，cancel 時直接放棄它，約 0.05 秒內結束；`aboutToQuit` 的等待上限改成 5 秒。
+  - `thread.start()` 失敗時不留下狀態。
+  - 實測：6 種情境修改前各 3/3 中止，修改後 0/3。
+- **D：恢復 CI 上的 hardlink 測試**：拿掉 skipif。如果推上去後 CI 這一題失敗，就 revert 那個 commit。
+- **待辦**（都是低風險）：
+  - 被放棄的更新輔助執行緒沒有數量上限。
+  - library scan 失敗後 10 秒內不會重試。
+  - WYSIWYG 的 preparePrint/finishPrint 和捲動還原之間有一個小競態。
+  - MainWorld 的頁面腳本本來就拿得到 `qt.webChannelTransport`。縱深防禦的做法是把 bridge 移到 ApplicationWorld。
+
+**驗證**：全套 2764 passed／0 failed；WebEngine 四組 302 項全部通過；ruff、mypy 通過。
+
+**→ 下一棒**：由使用者決定要不要 push，以及要不要發 1.38.2。
+
 ### 2026-11-09 22:45 — 1.38.1：背景工作的 Qt 物件生命週期全面修正〔已實作＋已驗證〕
 **作者**：Claude（指揮官 session）。實作派給 Claude 子代理（opus）；驗收另派兩位 fresh 子代理（opus）。
 **類型**：重構＋錯誤修正
