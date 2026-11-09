@@ -8,8 +8,8 @@ object dies), Qt state is torn down on the worker while the GUI thread may be
 destroying the receiver: a native crash.
 
 * ``WorkerRelay`` keeps the signals object on the receiver's side. It is a
-  child of the receiver, so it is created and destroyed on the receiver's
-  thread. A job only gets ``relay.emit``, which crosses threads through a
+  child of the receiver living in the receiver's thread, so it is destroyed
+  there. A job only gets ``relay.emit``, which crosses threads through a
   queued signal and becomes a no-op once the receiver is destroyed.
 * ``CancelScope`` sets plain ``threading.Event`` cancel flags when its owner is
   destroyed. Cancel flags are never connected to a Qt signal themselves.
@@ -24,7 +24,7 @@ import threading
 import weakref
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 
 def call_on_destroyed(owner: QObject, callback: Callable[[], object]) -> Callable[..., None]:
@@ -104,7 +104,11 @@ class _RelayBridge(QObject):
         callback: Callable[..., object],
         connection: Qt.ConnectionType,
     ) -> None:
-        super().__init__(owner)
+        super().__init__()
+        # Created on any thread, then handed to the owner's thread before it
+        # becomes the owner's child (Qt refuses a parent in another thread).
+        self.moveToThread(owner.thread())
+        self.setParent(owner)
         self.closed = False
         self._callback = _hold(callback)
         self.delivered.connect(self._dispatch, connection)
@@ -130,9 +134,10 @@ class WorkerRelay(CancelScope):
     A bound-method *callback* is held weakly. Any other callable is held
     strongly, so it must not capture the owner.
 
-    ``emit`` on the owner's thread calls back synchronously, as a signal with
-    an automatic connection would; ``queued=True`` always defers to the
-    owner's event loop.
+    ``emit`` on the thread the owner lives in calls back synchronously, as a
+    signal with an automatic connection would; ``queued=True`` always defers
+    to the owner's event loop. The relay may be created on another thread as
+    long as nothing changes the owner's children at the same moment.
     """
 
     def __init__(
@@ -142,7 +147,6 @@ class WorkerRelay(CancelScope):
         *,
         queued: bool = False,
     ) -> None:
-        self._thread_id = threading.get_ident()
         connection = (
             Qt.ConnectionType.QueuedConnection if queued
             else Qt.ConnectionType.AutoConnection
@@ -152,16 +156,20 @@ class WorkerRelay(CancelScope):
 
     def emit(self, *args: object) -> None:
         """Report *args* to the owner; thread-safe and a no-op once closed."""
-        if threading.get_ident() == self._thread_id:
-            bridge = self._bridge
-            if bridge is not None:
-                bridge.delivered.emit(args)
-            return
-        # Held across the emission so close() cannot return, and the owner
-        # cannot go on to delete the bridge, while a worker is emitting.
         with self._lock:
-            if self._bridge is not None:
-                self._bridge.delivered.emit(args)
+            bridge = self._bridge
+            if bridge is None:
+                return
+            if QThread.currentThread() is not bridge.thread():
+                # Held across the emission so close() cannot return, and the
+                # owner cannot go on to delete the bridge, while another
+                # thread is emitting.
+                bridge.delivered.emit(args)
+                return
+        # On the bridge's own thread close() cannot run concurrently. The lock
+        # is released first so a synchronous callback may close the relay or
+        # wait for workers that are themselves trying to report.
+        bridge.delivered.emit(args)
 
     def close(self) -> None:
         with self._lock:

@@ -240,3 +240,37 @@ def test_destroying_owners_while_workers_report_never_crashes(qapp):
     qapp.processEvents()
     gc.collect()
     assert all(count <= 3 for count in delivered)
+
+
+def test_relay_created_on_another_thread_reports_on_the_owner_thread(qapp):
+    # The same-thread shortcut follows the thread the bridge lives in (the
+    # owner's), not the thread that happened to create the relay.
+    receiver = _Receiver()
+    created, errors = [], []
+
+    def create():
+        try:
+            created.append(WorkerRelay(receiver, receiver.report))
+        except Exception as exc:  # pragma: no cover - the assertion reports it
+            errors.append(exc)
+
+    creator = threading.Thread(target=create)
+    creator.start()
+    creator.join(5)
+    assert errors == []
+    (relay,) = created
+    main = threading.get_ident()
+    assert relay._bridge.thread() is receiver.thread()
+    assert relay._bridge.parent() is receiver
+    relay.emit("from owner thread")
+    assert receiver.calls == [(main, ("from owner thread",))]  # synchronous, as before
+    worker = threading.Thread(target=relay.emit, args=("from worker",))
+    worker.start()
+    worker.join(5)
+    assert len(receiver.calls) == 1  # queued until the owner's loop runs
+    assert _wait(qapp, lambda: len(receiver.calls) == 2)
+    assert receiver.calls[1] == (main, ("from worker",))
+    cancel = relay.track(threading.Event())
+    delete(receiver)
+    assert relay.closed and cancel.is_set()
+    relay.emit("after close")
