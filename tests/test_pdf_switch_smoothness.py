@@ -235,3 +235,55 @@ def test_write_probe_coalesces_and_rejects_stale_file_and_document(qapp, tmp_pat
     controller._finished(tasks[2].path, tasks[2].signature, "wrong version")
     assert not window.reasons
     controller.timer.stop()
+
+
+def test_write_probe_reports_on_gui_thread_and_not_after_controller_dies(
+    qapp, tmp_path, monkeypatch
+):
+    import threading
+
+    from shiboken6 import delete
+
+    class Window(QObject):
+        def __init__(self):
+            super().__init__()
+            self._current_kind = "pdf"
+            self._current_file = tmp_path / "a.pdf"
+            self._current_file.write_bytes(b"a")
+            self.reasons = []
+            self._pdf_view = self
+
+        def set_annotation_write_blocked(self, reason):
+            self.reasons.append((threading.get_ident(), reason))
+
+    tasks = []
+
+    class Pool:
+        def start(self, task, priority=0):
+            tasks.append(task)
+
+    monkeypatch.setattr(pdf_flow.QThreadPool, "globalInstance", lambda: Pool())
+    monkeypatch.setattr(pdf_flow.pdf_annotation_writer, "writable_reason",
+                        lambda _path: "read only")
+    window = Window()
+    controller = pdf_flow._WriteCheckController(window)
+    controller.request(window._current_file)
+    controller._start()
+    assert not any(isinstance(value, QObject) for value in vars(tasks[0]).values())
+    worker = threading.Thread(target=tasks[0].run)
+    worker.start()
+    worker.join(5)
+    assert window.reasons == []
+    qapp.processEvents()
+    assert window.reasons == [(threading.get_ident(), "read only")]
+    controller.request(window._current_file)
+    controller._start()
+    relay = controller._relay
+    delete(controller)
+    assert relay.closed
+    worker = threading.Thread(target=tasks[1].run)
+    worker.start()
+    worker.join(5)
+    qapp.processEvents()
+    assert len(window.reasons) == 1
+    delete(window)

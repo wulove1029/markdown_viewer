@@ -11,7 +11,7 @@ outside this module. Persistence remains in the existing PDF stores/writer.
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QSettings, QThreadPool, QTimer
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from . import pdf_annotation_writer, pdf_metadata_cache
@@ -20,6 +20,7 @@ from .pdf_highlights import DEFAULT_COLOR, PdfHighlight, PdfHighlightStore, Rect
 from .pdf_notes import PdfNote, PdfNoteStore
 from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
+from .worker_relay import WorkerRelay
 
 _PDF_ANNOTATION_AUTHOR_KEY = "pdf_annotation_author"
 
@@ -309,23 +310,22 @@ def edit_pdf_annotation_author(self):
     self.statusBar().showMessage(f"PDF 註解作者已設為「{name}」", 3000)
 
 
-class _WriteCheckSignals(QObject):
-    finished = Signal(object, object, str)
-
-
 class _WriteCheckTask(QRunnable):
-    def __init__(self, path, signature):
+    """Probes PDF write permission; ``report(path, signature, reason)`` is the
+    controller's ``WorkerRelay.emit``, so the task owns no Qt object."""
+
+    def __init__(self, path, signature, report):
         super().__init__()
         self.setAutoDelete(False)
         self.path, self.signature = path, signature
-        self.signals = _WriteCheckSignals()
+        self.report = report
 
     def run(self):
         try:
             reason = pdf_annotation_writer.writable_reason(self.path) or ""
         except Exception:
             reason = "無法讀取此 PDF，無法寫入註解"
-        self.signals.finished.emit(self.path, self.signature, reason)
+        self.report(self.path, self.signature, reason)
 
 
 class _WriteCheckController(QObject):
@@ -340,6 +340,9 @@ class _WriteCheckController(QObject):
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._start)
+        # The probe reports through a relay this controller owns; the task is
+        # released by whichever thread drops it last and must own no QObject.
+        self._relay = WorkerRelay(self, self._finished)
 
     def request(self, path):
         self.request_id += 1
@@ -352,9 +355,8 @@ class _WriteCheckController(QObject):
             return
         path, signature, self.running_id = self.pending
         self.pending = None
-        task = _WriteCheckTask(path, signature)
+        task = _WriteCheckTask(path, signature, self._relay.emit)
         self.running = task
-        task.signals.finished.connect(self._finished)
         QThreadPool.globalInstance().start(task)
 
     def _finished(self, path, signature, reason):
