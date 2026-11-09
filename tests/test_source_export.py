@@ -190,3 +190,40 @@ def test_source_pdf_action_routes_to_snapshot_job(export_owner, monkeypatch, tmp
     # Reentrant export must keep the original job and immutable source text.
     export_actions.export_pdf(export_owner)
     assert export_owner._source_export_job is job
+
+
+def test_closing_window_cancels_conversion_without_weakly_tracked_event(
+    export_owner, tmp_path,
+):
+    # The render cancel Event is shared with the render worker. It must reach
+    # the window's destroyed signal through a closure, not as a bound method
+    # PySide tracks weakly and tears down wherever the worker releases it.
+    import weakref
+
+    from shiboken6 import delete
+
+    owner = _Owner(export_owner.current_file)
+    export_actions._start_source_snapshot_export(
+        owner, str(tmp_path / "result.pdf"), {"size": "A4", "orientation": "portrait"},
+    )
+    cancel = owner._source_export_job.view._render_cancel
+    assert weakref.getweakrefcount(cancel) == 0
+    assert not cancel.is_set()
+    delete(owner)
+    assert cancel.is_set()
+
+
+def test_finished_export_no_longer_cancels_on_window_close(export_owner, monkeypatch, tmp_path):
+    from shiboken6 import delete
+
+    monkeypatch.setattr(export_actions, "on_pdf_exported", lambda *args: None)
+    owner = _Owner(export_owner.current_file)
+    export_actions._start_source_snapshot_export(
+        owner, str(tmp_path / "result.pdf"), {"size": "A4", "orientation": "portrait"},
+    )
+    job = owner._source_export_job
+    cancel = job.view._render_cancel
+    job.view.deactivate = lambda: None  # observe only the destroyed hookup
+    job._finish(False)
+    delete(owner)
+    assert not cancel.is_set()

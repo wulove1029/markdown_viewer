@@ -23,6 +23,7 @@ from .file_types import is_markdown
 from .md_converter import read_text
 from .pdf_repair_async import repair_async
 from .settings_store import APP, ORG
+from .worker_relay import call_on_destroyed
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
 _PDF_PAGE_SIZES = {
@@ -344,8 +345,10 @@ class _SourceSnapshotExport(QObject):
             defer_code=False,
         )
         # A closing window must cancel conversion even if its event loop is leaving.
-        self._cancel_on_destroy = self.view._render_cancel.set
-        self.window.destroyed.connect(self._cancel_on_destroy)
+        # The Event is shared with the render worker, so it is reached through a
+        # closure rather than connecting its bound set method, which PySide
+        # would track weakly and tear down wherever the worker releases it.
+        self._cancel_on_destroy = call_on_destroyed(self.window, self.view._render_cancel.set)
         self.timeout.start(60000)
         self.poll.start()
 
