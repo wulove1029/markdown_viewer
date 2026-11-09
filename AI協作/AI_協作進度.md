@@ -120,6 +120,24 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-09 22:45 — 1.38.1：背景工作的 Qt 物件生命週期全面修正〔已實作＋已驗證〕
+**作者**：Claude（指揮官 session）。實作派給 Claude 子代理（opus）；驗收另派兩位 fresh 子代理（opus）。
+**類型**：重構＋錯誤修正
+
+- **背景**：1.38.0 修掉了資料夾改名的關閉競態。驗收時發現同一類寫法還有很多處：背景工作物件自己帶著 QObject 訊號物件，或用 bound method、`Event.set` 去接 `destroyed`。這類寫法會讓 Qt 物件在背景執行緒被釋放或斷開，如果主執行緒剛好在銷毀接收端，就會原生崩潰。
+- **共用工具** `app/worker_relay.py`：
+  - `WorkerRelay`：訊號物件歸接收端擁有，跟著接收端住在同一個執行緒。背景工作只拿得到 thread-safe 的 `emit`；接收端銷毀後，`emit` 變成 no-op。同一執行緒與否，依 bridge 實際所在的執行緒判斷。
+  - `CancelScope`：接收端銷毀時，由 slot 設定取消旗標。
+  - `call_on_destroyed`：用 closure 接 `destroyed`。
+  - 這個模組已加進 mypy 的檢查清單。
+- **遷移範圍**：盤點 23 處，遷移了 text_loading、file_browser（改名與 `_ScanJob`）、global_search、html_loading、renderer、properties_panel、tag_flow、writing_outline、pdf_view、export_actions、pdf_flow、pdf_repair_async、translate。不改的位置都已記錄理由：closure 只在主執行緒，或屬於 QThread 子類別等不同寫法。
+- **崩潰重現**：在 text_loading 做壓力測試（開檔的同時銷毀接收端，加入 0–3 ms 隨機延遲）。驗收者的獨立重現結果是修改前 21/30 個程序崩潰，修改後 0/30。
+- **洩漏**：`_PdfEmbeddedAnnotationsTask`、`_WriteCheckTask`、`TranslateTask` 原本設定 `setAutoDelete(False)`，丟進 QThreadPool 後永遠不會釋放，現在改回 autoDelete。測試確認跑 N 次之後存活實例數為 0。
+- **其他**：install.json 的 schema 改成嚴格整數，和 Watchdog 端一致。
+- **未做**：QThread 子類別（library_watch、update_flow、window）屬於不同寫法，沒有改，安全性未確認。
+
+**→ 下一棒**：使用者決定要不要 push 並發布 1.38.1。
+
 ### 2026-11-09 深夜 — 1.38 本機整合：六項修正與 Watchdog 自動啟動〔已實作＋已驗證，未 push〕
 **作者**：Claude（指揮官 session）；實作與驗收都派 Claude 子代理，每項由不同的 fresh 子代理驗收
 **類型**：實作＋驗收

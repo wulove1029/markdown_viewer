@@ -1,11 +1,10 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.38.0"
+VERSION = "1.38.1"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "修正快速切換文件、在分割視窗即時預覽中輸入，或資料夾改名後立刻關閉視窗時，程式偶發閃退。",
-    "大型 PDF 匯出的中文修正改在背景進行，畫面不再停頓；外部改寫檔案後，搜尋與標籤也會即時更新。",
-    "AI Agent 監看：連不到 Watchdog 時，可依它登記的 install.json 自動啟動（可從選單關閉）。",
+    "修正開啟文件的同時關閉視窗或分頁時，程式偶發閃退；其他背景工作的同類問題也一併修正。",
+    "PDF 註解讀取、存檔權限檢查與翻譯完成後會釋放記憶體，長時間使用不再持續成長。",
 ]
 
 GITHUB_OWNER = "wulove1029"
