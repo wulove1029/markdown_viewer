@@ -267,12 +267,18 @@ class LibraryChangeWatcher(QObject):
             log.warning("Could not resolve library roots for rescan", exc_info=True)
             return
         self._last_scan_at = self._clock()
-        self.scan_count += 1
         thread = _ScanThread(
             self._generation, baseline_only, self._scan_fn, roots, excluded, self._relay.emit
         )
+        try:
+            thread.start()
+        except RuntimeError:
+            # e.g. "can't start new thread": nothing runs, so nothing may be
+            # waited for; the next activation or rebaseline tries again.
+            log.warning("Could not start a library signature scan", exc_info=True)
+            return
+        self.scan_count += 1
         self._thread = thread
-        thread.start()
 
     def _on_scan_reported(self, thread: _ScanThread, generation: int, sig, baseline_only: bool):
         try:

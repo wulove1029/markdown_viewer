@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import logging
 import os
 import threading
 import time
@@ -13,7 +14,7 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSettings
 from PySide6.QtWidgets import QApplication
 
-from app import session_state
+from app import library_watch, session_state
 from app import window as window_mod
 from app.library_watch import (
     LibraryChangeWatcher,
@@ -583,6 +584,58 @@ def test_refresh_while_an_ended_build_still_reports_queues_a_rebuild(
         assert window._link_thread is first and window._link_refresh_pending
 
         assert _pump(lambda: window._link_thread is None and len(walks) == 2)
+        assert any("Source" in b for b in window._link_index.backlinks(target))
+    finally:
+        _dispose_window(window)
+
+
+def _refuse_to_start(self):
+    raise RuntimeError("can't start new thread")
+
+
+def test_scan_that_cannot_start_leaves_the_watcher_idle(qapp, monkeypatch, caplog):
+    probe = _Probe(_sig(1))
+    w, emitted = _watcher(qapp, probe)
+    try:
+        monkeypatch.setattr(library_watch._ScanThread, "start", _refuse_to_start)
+        with caplog.at_level(logging.WARNING, logger="app.library_watch"):
+            w.rebaseline()
+        assert w._thread is None and w.scan_count == 0 and probe.calls == 0
+        assert "Could not start a library signature scan" in caplog.text
+        w.shutdown()  # nothing was started, so there is nothing to wait for
+
+        monkeypatch.undo()
+        w.rebaseline()
+        assert _idle(w) and w._baseline == _sig(1) and emitted == []
+    finally:
+        w.shutdown()
+
+
+def test_link_build_that_cannot_start_leaves_no_build_behind(
+    qapp, tmp_path, isolated_window_env, monkeypatch, caplog
+):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    target = lib / "Target.md"
+    target.write_text("# Target\n", encoding="utf-8")
+    _FakeStore.roots = [lib]
+    monkeypatch.setattr(window_mod.MainWindow, "_check_updates_silent", lambda self: None)
+    window = window_mod.MainWindow()
+    try:
+        assert _pump(lambda: window._link_thread is None)
+        (lib / "Source.md").write_text("see [[Target]]\n", encoding="utf-8")
+        real_start = window_mod.LinkIndexThread.start
+        monkeypatch.setattr(window_mod.LinkIndexThread, "start", _refuse_to_start)
+        with caplog.at_level(logging.WARNING, logger="app.window"):
+            window._refresh_link_index(force=True)
+        assert window._link_thread is None
+        assert "Could not start the link index build" in caplog.text
+        window._shutdown_link_thread()  # must not wait() on a thread never started
+
+        monkeypatch.setattr(window_mod.LinkIndexThread, "start", real_start)
+        window._refresh_link_index()  # unforced: the failed roots never counted as indexed
+        assert window._link_thread is not None
+        assert _pump(lambda: window._link_thread is None)
         assert any("Source" in b for b in window._link_index.backlinks(target))
     finally:
         _dispose_window(window)

@@ -5338,8 +5338,17 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self._link_refresh_pending = True
             self._refresh_backlinks()
             return
-        self._link_thread = LinkIndexThread(roots, self._link_relay.emit)
-        self._link_thread.start()
+        build = LinkIndexThread(roots, self._link_relay.emit)
+        try:
+            build.start()
+        except RuntimeError:
+            # e.g. "can't start new thread": nothing runs, so nothing may be
+            # waited for; forgetting the key lets the next refresh retry.
+            log.warning("Could not start the link index build", exc_info=True)
+            self._link_roots_key = None
+            self._refresh_backlinks()
+            return
+        self._link_thread = build
         self._library_watcher.rebaseline()
         self._refresh_backlinks()
 
