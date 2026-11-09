@@ -1185,3 +1185,89 @@ def test_quitting_while_an_updater_thread_runs_does_not_crash(tmp_path, job):
     assert proc.returncode == 0, proc.stderr
     assert "OK" in proc.stdout
     assert "QThread: Destroyed" not in proc.stderr
+
+
+_STALLED_QUIT_SCRIPT = r'''
+import socket, sys, tempfile, threading, time
+from pathlib import Path
+from PySide6.QtCore import QSettings, QTimer
+from PySide6.QtWidgets import QApplication, QMainWindow
+app = QApplication([])
+from app import update_flow, updater
+from app.updater import UpdateInfo
+
+ini = str(Path(tempfile.mkdtemp()) / "s.ini")
+update_flow.QSettings = lambda *a, **k: QSettings(ini, QSettings.Format.IniFormat)
+job = sys.argv[1]
+
+# Accepts and never answers: the real worker waits for response headers.
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen(4)
+held = []
+def accept():
+    while True:
+        try:
+            held.append(listener.accept()[0])
+        except OSError:
+            return
+threading.Thread(target=accept, daemon=True).start()
+url = "http://127.0.0.1:%d/MarkdownViewerSetup.exe" % listener.getsockname()[1]
+updater.LATEST_RELEASE_API = url
+updater._require_trusted_url = lambda _url: None
+
+class Win(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self._update_check_thread = None
+        self._update_download_thread = None
+        self._update_cancel_event = None
+
+    def _set_update_state(self, state, *, version=""):
+        pass
+
+owner = Win()  # never shown, so quitting has no window to close first
+if job == "check":
+    update_flow.check_for_updates(owner, manual=False)
+    thread = owner._update_check_thread
+else:
+    update_flow.download_update(owner, UpdateInfo(
+        True, "1.0.0", "1.1.0", "https://github.com/example/release",
+        asset_name="MarkdownViewerSetup.exe", asset_url=url,
+        asset_digest="sha256:" + "a" * 64,
+    ), dest_dir=tempfile.mkdtemp())
+    update_flow._close_progress(owner)
+    thread = owner._update_download_thread
+quit_at = []
+def quit_now():
+    assert thread.isRunning()
+    quit_at.append(time.monotonic())
+    app.quit()
+QTimer.singleShot(500, quit_now)
+app.exec()
+elapsed = time.monotonic() - quit_at[0]
+assert thread.isFinished(), "quit returned with the updater thread running"
+print("OK %.3f" % elapsed)
+sys.exit(0)
+'''
+
+
+@pytest.mark.parametrize("job", ["check", "download"])
+def test_quitting_cancels_an_updater_stalled_on_a_real_socket(tmp_path, job):
+    """Closing a response never woke a read blocked on its socket, so the
+    quit-time wait sat out the whole 15 s / 20 s socket timeout."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    script = tmp_path / "stalled_quit_probe.py"
+    script.write_text(_STALLED_QUIT_SCRIPT, encoding="utf-8")
+    repo = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONPATH=str(repo))
+    proc = subprocess.run(
+        [sys.executable, "-B", "-X", "utf8", str(script), job],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr
+    elapsed = float(proc.stdout.split("OK", 1)[1].split()[0])
+    assert elapsed < 3.0, elapsed

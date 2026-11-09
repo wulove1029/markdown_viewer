@@ -1,8 +1,10 @@
 """Tests for update version comparison and the hardened streaming download."""
 
 import builtins
+import dataclasses
 import hashlib
 import json
+import socket
 import threading
 import time
 
@@ -525,3 +527,196 @@ def test_verify_installer_round_trip(tmp_path):
     path.unlink()
     assert verify_installer(path, digest) is False
     assert verify_installer(path, None) is False
+
+
+# --- cancel latency against a real, deliberately slow local server -------
+
+
+class _SlowHttpServer:
+    """A local HTTP/1.1 server that stalls or trickles on purpose.
+
+    ``stall_headers`` never answers. Otherwise it waits ``head_delay``, sends
+    the headers, then *body* in ``chunk``-byte pieces ``interval`` apart.
+    """
+
+    def __init__(self, body=b"", *, stall_headers=False, head_delay=0.0,
+                 chunk=1024, interval=0.0):
+        self.body = body
+        self._stall = stall_headers
+        self._head_delay = head_delay
+        self._chunk = chunk
+        self._interval = interval
+        self._stop = threading.Event()
+        self._conns = []
+        self._threads = []
+        self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._listener.bind(("127.0.0.1", 0))
+        self._listener.listen(8)
+        self._listener.settimeout(0.05)
+        port = self._listener.getsockname()[1]
+        self.url = f"http://127.0.0.1:{port}/MarkdownViewer_Setup_v1.6.0.exe"
+        self._spawn(self._accept)
+
+    def _spawn(self, target, *args):
+        thread = threading.Thread(target=target, args=args, daemon=True)
+        self._threads.append(thread)
+        thread.start()
+
+    def _accept(self):
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._listener.accept()
+            except OSError:
+                continue
+            self._conns.append(conn)
+            self._spawn(self._serve, conn)
+
+    def _serve(self, conn):
+        try:
+            conn.settimeout(5)
+            request = b""
+            while b"\r\n\r\n" not in request:
+                data = conn.recv(4096)
+                if not data:
+                    return
+                request += data
+            if self._stall or self._stop.wait(self._head_delay):
+                self._stop.wait()
+                return
+            conn.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+                + f"Content-Length: {len(self.body)}\r\n".encode()
+                + b"Connection: close\r\n\r\n"
+            )
+            for start in range(0, len(self.body), self._chunk):
+                if self._stop.is_set():
+                    return
+                conn.sendall(self.body[start:start + self._chunk])
+                if self._interval:
+                    self._stop.wait(self._interval)
+        except OSError:
+            pass
+
+    def close(self):
+        self._stop.set()
+        for conn in self._conns:
+            try:
+                conn.close()
+            except OSError:
+                pass
+        self._listener.close()
+        for thread in self._threads:
+            thread.join(5)
+
+
+@pytest.fixture
+def slow_server(monkeypatch):
+    servers = []
+
+    def start(*args, **kwargs):
+        server = _SlowHttpServer(*args, **kwargs)
+        servers.append(server)
+        # Plain local HTTP stands in for GitHub here.
+        monkeypatch.setattr(updater, "_require_trusted_url", lambda _url: None)
+        monkeypatch.setattr(updater, "LATEST_RELEASE_API", server.url)
+        return server
+
+    yield start
+    for server in servers:
+        server.close()
+
+
+def _release_json(size=6000):
+    release = {
+        "tag_name": "v99.0.0",
+        "html_url": "https://github.com/example/release",
+        "assets": [{
+            "name": "MarkdownViewer_Setup_v99.0.0.exe",
+            "browser_download_url": "https://github.com/example/Setup.exe",
+            "digest": "sha256:" + "a" * 64,
+        }],
+        "body": "x" * size,
+    }
+    return json.dumps(release).encode()
+
+
+def _cancel_after(job, delay=0.5):
+    """Run *job(cancel)* on a thread, cancel it after *delay* seconds and
+    return (outcome, seconds from cancel to the job's end)."""
+    cancel = threading.Event()
+    outcome = {}
+
+    def run():
+        try:
+            outcome["value"] = job(cancel)
+        except BaseException as exc:  # noqa: BLE001 - recorded for assertions
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    time.sleep(delay)
+    cancelled_at = time.monotonic()
+    cancel.set()
+    worker.join(30)
+    assert not worker.is_alive(), "the cancelled job never ended"
+    return outcome, time.monotonic() - cancelled_at
+
+
+@pytest.mark.parametrize(
+    "server_kwargs",
+    [
+        {"stall_headers": True},
+        # About 1.3 KB/s: the old check read the whole body before it looked.
+        {"chunk": 64, "interval": 0.05},
+    ],
+    ids=["stalled-headers", "trickled-body"],
+)
+def test_cancelled_check_ends_promptly(slow_server, server_kwargs):
+    slow_server(_release_json(), **server_kwargs)
+    outcome, elapsed = _cancel_after(
+        lambda cancel: updater.check_for_update("1.0.0", cancel=cancel)
+    )
+    assert isinstance(outcome.get("error"), UpdateCancelled), outcome
+    assert elapsed < 2.0, elapsed
+
+
+@pytest.mark.parametrize(
+    "server_kwargs",
+    [
+        {"stall_headers": True},
+        {"chunk": 512, "interval": 0.0625},  # 8 KB/s
+    ],
+    ids=["stalled-headers", "trickled-body"],
+)
+def test_cancelled_download_ends_promptly_and_cleans_up(
+    tmp_path, slow_server, server_kwargs
+):
+    payload = b"s" * (256 * 1024)
+    server = slow_server(payload, **server_kwargs)
+    info = dataclasses.replace(_info(payload=payload), asset_url=server.url)
+    outcome, elapsed = _cancel_after(
+        lambda cancel: download_installer(info, dest_dir=tmp_path, cancel=cancel)
+    )
+    assert isinstance(outcome.get("error"), UpdateCancelled), outcome
+    assert elapsed < 2.0, elapsed
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_slow_download_still_completes(tmp_path, slow_server):
+    """Gaps far longer than the cancel poll are not mistaken for a cancel."""
+    payload = bytes(range(256)) * 24
+    server = slow_server(payload, head_delay=0.8, chunk=2048, interval=0.8)
+    info = dataclasses.replace(_info(payload=payload), asset_url=server.url)
+    seen = []
+    target = download_installer(
+        info, dest_dir=tmp_path, cancel=threading.Event(),
+        progress=lambda done, total: seen.append((done, total)),
+    )
+    assert target.read_bytes() == payload
+    assert seen[0] == (0, len(payload)) and seen[-1] == (len(payload), len(payload))
+
+
+def test_slow_check_still_completes(slow_server):
+    slow_server(_release_json(), head_delay=0.5, chunk=1024, interval=0.4)
+    result = updater.check_for_update("1.0.0", cancel=threading.Event())
+    assert result.has_update is True and result.latest_version == "99.0.0"

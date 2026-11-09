@@ -60,13 +60,10 @@ log = logging.getLogger(__name__)
 PROGRESS_INTERVAL_MS = 150
 
 #: How long quitting waits for the updater threads it has just cancelled.
-#: A worker notices the cancel only when its pending connect or read
-#: returns: closing the response does not interrupt a read that is already
-#: blocked on the socket. A stalled server holds it until
-#: updater.CHECK_TIMEOUT / DOWNLOAD_TIMEOUT (15 s / 20 s), a trickling
-#: download until its current 64 KB read completes, and a check reads its
-#: whole body first, so this wait is not an upper bound on any of them.
-QUIT_WAIT_MS = 30_000
+#: The socket work runs on a helper thread that is abandoned on cancel, so a
+#: worker ends within updater.CANCEL_POLL_S plus removing its partial file,
+#: whether the server is stalled, slow to answer or trickling its body.
+QUIT_WAIT_MS = 5_000
 _QUIT_HOOK_PROPERTY = "_updaterQuitHook"
 
 
@@ -274,15 +271,12 @@ def defer_close_until_updates_finish(window, event) -> bool:
     # that is about to be destroyed was observed wedging the Qt event loop
     # seconds later in a completely unrelated part of the app.
     #
-    # The cancellation above shortens this wait only loosely. A worker notices
-    # it when its pending connect or read returns: closing the response does
-    # not interrupt a read already blocked on the socket. A stalled server
-    # holds the worker until updater.CHECK_TIMEOUT (15 s) or
-    # updater.DOWNLOAD_TIMEOUT (20 s) expires, a trickling download until its
-    # current 64 KB read completes, and a check reads its whole body before it
-    # looks at the cancel. The OS DNS lookup inside getaddrinfo is covered by
-    # neither timeout. The QThread is never destroyed while running; it lives
-    # until its finished signal fires.
+    # What bounds this wait is the cancellation above. The worker only waits
+    # on a helper thread that does the DNS lookup, connect and reads, polling
+    # its cancel event every updater.CANCEL_POLL_S, so it ends within that
+    # plus removing its partial file. The abandoned helper finishes on its
+    # own under the socket timeouts and holds no Qt object. The QThread is
+    # never destroyed while running; it lives until its finished signal fires.
     return True
 
 

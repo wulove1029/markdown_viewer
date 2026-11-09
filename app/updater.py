@@ -7,6 +7,7 @@ log = logging.getLogger(__name__)
 import hashlib
 import json
 import os
+import queue
 import re
 import shutil
 import tempfile
@@ -17,6 +18,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .version import LATEST_RELEASE_API, VERSION
 
@@ -27,18 +29,17 @@ _TRUSTED_HOSTS = {"github.com", "api.github.com"}
 _TRUSTED_HOST_SUFFIXES = (".github.com", ".githubusercontent.com")
 _SHA256_RE = re.compile(r"[0-9a-fA-F]{64}")
 
-#: Bytes pulled from the socket per read. Small enough that a cancel request is
-#: noticed promptly, large enough that hashing and writing stay cheap.
+#: Most bytes taken from the socket per read; hashing and writing stay cheap.
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 #: Socket timeout for the connect *and* for every read. urllib installs it on
-#: the underlying socket, so a stalled server cannot park a worker forever.
+#: the underlying socket, so a stalled server cannot park a transfer forever.
 DOWNLOAD_TIMEOUT = 20.0
-#: Socket timeout for the release-metadata check. This is also the honest upper
-#: bound on how long a cancelled check worker can still run: once bytes are
-#: flowing the cancel event closes the socket in milliseconds, but a cancel that
-#: arrives while the connect (or the OS DNS lookup, which Python's timeout does
-#: not cover) is still outstanding can only be noticed when that call returns.
+#: Socket timeout for the release-metadata check (connect and every read).
 CHECK_TIMEOUT = 15.0
+#: How often a worker waiting on the network looks at its cancel event. The
+#: socket work runs on a helper thread (see _Transfer), so this, and not the
+#: socket timeouts above, bounds how long a cancelled worker keeps running.
+CANCEL_POLL_S = 0.05
 _JOB_DIR_PREFIX = "mdviewer-update-"
 
 
@@ -125,9 +126,9 @@ def check_for_update(
 ) -> UpdateInfo:
     """Fetch the latest release metadata.
 
-    ``cancel`` may be set at any time; it closes the socket so a check that is
-    already reading unwinds immediately instead of holding a closing window
-    open for the whole ``timeout``.
+    ``cancel`` may be set at any time: the check then raises UpdateCancelled
+    within ``CANCEL_POLL_S``, whether it is still resolving, connecting,
+    waiting for headers or reading a slow body (see _Transfer).
     """
     request = urllib.request.Request(
         LATEST_RELEASE_API,
@@ -140,12 +141,24 @@ def check_for_update(
     if cancel is not None and cancel.is_set():
         raise UpdateCancelled("Update check cancelled.")
 
-    done = threading.Event()
-    watcher = None
+    transfer = _Transfer(request, timeout, DOWNLOAD_CHUNK_SIZE)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            watcher = _watch_for_cancel(cancel, response, done)
-            release = json.loads(response.read().decode("utf-8"))
+        body = bytearray()
+        kind, value = transfer.next(cancel)
+        if kind == "open":
+            transfer.proceed()
+            while True:
+                kind, value = transfer.next(cancel)
+                if kind != "data" or not value:
+                    break
+                body += value
+        if kind == "cancelled":
+            raise UpdateCancelled("Update check cancelled.")
+        if kind in ("open_error", "read_error"):
+            raise value
+        release = json.loads(bytes(body).decode("utf-8"))
+    except UpdateCancelled:
+        raise
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return UpdateInfo(False, current_version, current_version, "")
@@ -155,9 +168,7 @@ def check_for_update(
             raise UpdateCancelled("Update check cancelled.") from exc
         raise UpdateError(f"Unable to check for updates: {exc}") from exc
     finally:
-        done.set()
-        if watcher is not None:
-            watcher.join(timeout=1.0)
+        transfer.abandon()
 
     if cancel is not None and cancel.is_set():
         raise UpdateCancelled("Update check cancelled.")
@@ -260,30 +271,111 @@ def cleanup_job_dir(path) -> None:
     _remove_job_dir(Path(path).parent)
 
 
-def _watch_for_cancel(cancel, response, done: threading.Event):
-    """Close the socket as soon as *cancel* fires so a blocked read returns.
+def _close_quietly(response) -> None:
+    try:
+        response.close()
+    except Exception:
+        log.warning("Closing an update response failed", exc_info=True)
 
-    Without this a cancel is only noticed once the current read completes or
-    the socket timeout elapses; closing the response unwinds the worker in
-    milliseconds instead of up to DOWNLOAD_TIMEOUT seconds.
+
+class _Transfer:
+    """Open *request* and read its body on a daemon helper thread.
+
+    The calling worker only waits on a queue, ``CANCEL_POLL_S`` at a time, so
+    a cancel returns it at once whatever the socket is doing: resolving,
+    connecting, waiting for headers or receiving a trickle. Closing a
+    response cannot interrupt a read already blocked on its socket, so an
+    abandoned helper keeps its socket timeout, stops before its next read,
+    closes the response and ends on its own. It holds no Qt object.
+
+    Events: ``("open", response)``, then ``("data", bytes)`` up to an empty
+    chunk; or ``("open_error" | "read_error", exc)``. The body is read only
+    after ``proceed()``, once the caller has vetted the response.
     """
-    if cancel is None:
-        return None
 
-    def _run() -> None:
-        while not done.is_set():
-            if cancel.wait(0.05):
-                try:
-                    response.close()
-                except Exception:
-                    log.warning("_run: optional operation failed", exc_info=True)
+    def __init__(self, request, timeout: float, chunk_size: int) -> None:
+        self._events: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=8)
+        self._stop = threading.Event()
+        self._go = threading.Event()
+        self._lock = threading.Lock()
+        self._response: Any = None
+        threading.Thread(
+            target=self._run,
+            args=(request, timeout, chunk_size),
+            name="update-transfer",
+            daemon=True,
+        ).start()
+
+    def next(self, cancel: threading.Event | None) -> tuple[str, Any]:
+        """The helper's next event, or ``("cancelled", None)`` once *cancel* is set."""
+        while True:
+            if cancel is not None and cancel.is_set():
+                self.abandon()
+                return "cancelled", None
+            try:
+                return self._events.get(timeout=CANCEL_POLL_S)
+            except queue.Empty:
+                continue
+
+    def proceed(self) -> None:
+        self._go.set()
+
+    def abandon(self) -> None:
+        """Stop the helper without waiting for it; harmless once it has ended."""
+        self._stop.set()
+        with self._lock:
+            response, self._response = self._response, None
+        if response is not None:
+            # close() can block behind a read in progress: never on the worker.
+            threading.Thread(
+                target=_close_quietly, args=(response,), name="update-close", daemon=True
+            ).start()
+
+    def _put(self, event: tuple[str, Any]) -> bool:
+        while not self._stop.is_set():
+            try:
+                self._events.put(event, timeout=CANCEL_POLL_S)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _run(self, request, timeout: float, chunk_size: int) -> None:
+        try:
+            response = urllib.request.urlopen(request, timeout=timeout)
+        except Exception as exc:
+            self._put(("open_error", exc))
+            return
+        with self._lock:
+            # abandon() sets _stop before it takes the lock: either it finds
+            # this response, or this sees _stop and keeps it to close below.
+            stored = not self._stop.is_set()
+            if stored:
+                self._response = response
+        try:
+            if self._stop.is_set() or not self._put(("open", response)):
                 return
-
-    watcher = threading.Thread(
-        target=_run, name="update-cancel-watch", daemon=True
-    )
-    watcher.start()
-    return watcher
+            while not self._go.wait(CANCEL_POLL_S):
+                if self._stop.is_set():
+                    return
+            # read1 returns what one receive brings, so a trickle reaches the
+            # caller as it arrives and a stop is noticed between receives.
+            read = getattr(response, "read1", None) or response.read
+            while not self._stop.is_set():
+                try:
+                    chunk = read(chunk_size)
+                except Exception as exc:
+                    self._put(("read_error", exc))
+                    return
+                if not self._put(("data", chunk)) or not chunk:
+                    return
+        finally:
+            with self._lock:
+                owned = not stored or self._response is response
+                if self._response is response:
+                    self._response = None
+            if owned:  # otherwise abandon() took it and closes it
+                _close_quietly(response)
 
 
 def download_installer(
@@ -335,42 +427,44 @@ def download_installer(
         update.asset_url,
         headers={"User-Agent": "MarkdownViewer-Updater"},
     )
-    done = threading.Event()
     try:
-        try:
-            response = urllib.request.urlopen(request, timeout=timeout)
-        except UpdateError:
-            raise
-        except Exception as exc:
+        transfer = _Transfer(request, timeout, chunk_size)
+        kind, value = transfer.next(cancel)
+        if kind == "cancelled":
+            raise UpdateCancelled("Update download cancelled.")
+        if kind == "open_error":
             if cancel is not None and cancel.is_set():
-                raise UpdateCancelled("Update download cancelled.") from exc
-            raise UpdateError(f"Unable to download update: {exc}") from exc
+                raise UpdateCancelled("Update download cancelled.") from value
+            if isinstance(value, UpdateError):
+                raise value
+            raise UpdateError(f"Unable to download update: {value}") from value
 
-        watcher = _watch_for_cancel(cancel, response, done)
+        response = value
         hasher = hashlib.sha256()
         downloaded = 0
         total: int | None = None
         try:
             _require_trusted_url(response.geturl())
             total = _content_length(response)
+            transfer.proceed()
             if progress is not None:
                 progress(0, total)
             with open(part, "wb") as handle:
                 while True:
                     if cancel is not None and cancel.is_set():
                         raise UpdateCancelled("Update download cancelled.")
-                    try:
-                        chunk = response.read(chunk_size)
-                    except UpdateError:
-                        raise
-                    except Exception as exc:
+                    kind, value = transfer.next(cancel)
+                    if kind == "cancelled":
+                        raise UpdateCancelled("Update download cancelled.")
+                    if kind == "read_error":
                         if cancel is not None and cancel.is_set():
                             raise UpdateCancelled(
                                 "Update download cancelled."
-                            ) from exc
+                            ) from value
                         raise UpdateError(
-                            f"Update download interrupted: {exc}"
-                        ) from exc
+                            f"Update download interrupted: {value}"
+                        ) from value
+                    chunk = value
                     if not chunk:
                         break
                     hasher.update(chunk)
@@ -394,14 +488,9 @@ def download_installer(
                         f"Unable to save the update download: {exc}"
                     ) from exc
         finally:
-            done.set()
-            try:
-                response.close()
-            except Exception:
-                log.warning("download_installer: optional operation failed", exc_info=True)
-            if watcher is not None:
-                # Join the daemon so it cannot outlive the transfer it watches.
-                watcher.join(timeout=1.0)
+            # The helper has closed the response after the last chunk; a
+            # transfer that ended early is stopped and closed off this thread.
+            transfer.abandon()
 
         if cancel is not None and cancel.is_set():
             raise UpdateCancelled("Update download cancelled.")
@@ -422,6 +511,5 @@ def download_installer(
         part.replace(target)
         return target
     except BaseException:
-        done.set()
         _remove_job_dir(job_dir)
         raise
