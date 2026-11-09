@@ -755,7 +755,14 @@ class RendererView(QWebEngineView):
         loaded, printed = self._page_signal_bindings
         old.loadFinished.disconnect(loaded)
         old.pdfPrintingFinished.disconnect(printed)
-        old.setWebChannel(None)
+        # Never retire the page with setWebChannel(None). A script already sent
+        # to its renderer (the annotation or Escape bridge boot) may still make
+        # the document's first qt.webChannelTransport.send; Qt 6.11 binds that
+        # request to the page's transport host without a null check, and None
+        # has just destroyed the host: an access violation in the GUI thread.
+        # An empty channel owned by the page keeps the host until the page is
+        # deleted and gives the retired document no bridge objects.
+        old.setWebChannel(QWebChannel(old))
         old.triggerAction(QWebEnginePage.WebAction.Stop)
         self._bind_document_page(replacement, old)
         self._page_epoch += 1
@@ -1061,8 +1068,11 @@ class RendererView(QWebEngineView):
                 # stop()/replacement can also emit loadFinished(False). Only
                 # release the shield once the active navigation is no longer
                 # running; stale false completions must not expose the old page.
+                # The view is the timer's context: a view deleted right after a
+                # stopped or refused navigation drops the check instead of
+                # calling page() on a deleted C++ object.
                 generation, path = self._render_generation, self._current_path
-                QTimer.singleShot(0, lambda: self._on_failed_navigation(generation, path))
+                QTimer.singleShot(0, self, lambda: self._on_failed_navigation(generation, path))
             elif self._current_path is None:
                 self._inject_annotations(True)
 

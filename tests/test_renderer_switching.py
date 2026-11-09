@@ -187,6 +187,24 @@ _real = pytest.mark.skipif(
 
 
 @_real
+def test_failed_navigation_check_is_dropped_with_its_view(qapp):
+    """A stopped or refused load followed by closing the view queues no stale check."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtTest import QTest
+    from shiboken6 import isValid
+
+    view = RendererView()
+    checks = []
+    view._on_failed_navigation = lambda *args: checks.append(args)
+    view._on_page_load_finished(False)
+    view.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert not isValid(view)
+    QTest.qWait(50)
+    assert checks == []
+
+
+@_real
 def test_real_warm_switch_never_loads_placeholder_or_reparses_and_restores_scroll(
     qapp, tmp_path, monkeypatch
 ):

@@ -96,10 +96,10 @@ _real = pytest.mark.skipif(os.environ.get("RUN_WEBENGINE_TESTS") != "1",
                           reason="set RUN_WEBENGINE_TESTS=1 for Chromium page rotation")
 
 
-def _evaluate(view, script):
+def _evaluate(view, script, page=None):
     values = []
     loop = QEventLoop()
-    view.page().runJavaScript(script, lambda value: (values.append(value), loop.quit()))
+    (page or view.page()).runJavaScript(script, lambda value: (values.append(value), loop.quit()))
     QTimer.singleShot(5000, loop.quit)
     loop.exec()
     assert values, "JavaScript did not answer"
@@ -261,3 +261,33 @@ def test_immediate_navigation_after_rotation_remains_usable(qapp, tmp_path, monk
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         assert not isValid(old)
     assert view._page_rotation_count == 11
+
+
+@_real
+def test_retired_page_channel_handshake_after_rotation(qapp, tmp_path, monkeypatch):
+    """A boot script queued before rotation may open the channel afterwards.
+
+    Retiring the page with setWebChannel(None) made that first transport send
+    an access violation in Qt 6.11; deferring the page's deletion makes the
+    race deterministic instead of depending on event ordering.
+    """
+    monkeypatch.setattr(renderer, "_PAGE_NAVIGATION_LIMIT", 1)
+    retired = []
+    monkeypatch.setattr(renderer._DocumentPage, "deleteLater", lambda page: retired.append(page))
+    note = tmp_path / "handshake.md"
+    note.write_text("# HANDSHAKE", "utf-8")
+    view = RendererView()
+    _load(view, note)
+    old = view.page()
+    old.runJavaScript(view._qwebchannel_js + "\nnew QWebChannel(qt.webChannelTransport,"
+                      " function (c) { window.__retiredBridge = !!c.objects.bridge; });")
+    view._next_render_generation()
+    view._navigate_page("html", "<html><body>AFTER-ROTATION</body></html>")
+    assert view.page() is not old and retired[-1] is old
+    assert old.webChannel() is not None and old.webChannel() is not view._channel
+    _until(lambda: _evaluate(view, "window.__retiredBridge === false", page=old))
+    _until(lambda: _evaluate(view, "document.body.innerText") == "AFTER-ROTATION")
+    for page in retired:
+        QWebEnginePage.deleteLater(page)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert not any(isValid(page) for page in retired)
