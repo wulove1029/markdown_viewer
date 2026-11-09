@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-11-09
+
+### Added
+- AI Agent 監看：連不到 Watchdog 時，會依 Watchdog 登記的 `install.json` 把它啟動成沒有視窗的背景程序。
+  - 啟動前會先驗證 `install.json` 的格式與路徑，以分離程序直接啟動，不經過 shell；Viewer 結束時不會關閉 Watchdog。
+  - 同一次執行最多嘗試 3 次，間隔至少 60 秒。兩個程式同時啟動時，只會留下一個 Watchdog。
+  - port 被其他程式佔用、或安裝位置不存在（例如隨身碟沒插）時，面板會顯示原因，不會啟動。
+  - 可以從選單的「連不到時自動啟動 Watchdog」關閉，也可以在 Watchdog 端執行 `aiwatch.py --autostart off` 關閉。
+  - `AIWATCH_HOME` 環境變數現在同時決定 `endpoint.json` 與 `install.json` 的位置。
+
+### Changed
+- PDF 匯出的中文文字對照修正改在背景執行緒進行，大型文件匯出時畫面不再停頓。500 頁實測，主執行緒最長停頓從約 2.5 秒降到 32 ms。修正進行中再次匯出 PDF 時，會提示「PDF 仍在處理中」；命令列匯出照舊在結束前完成修正。
+- 搜尋索引與標籤：外部程式在同一個時間戳刻度內、以相同大小改寫檔案，現在也偵測得到。近期改動的檔案會先比對內容雜湊，再使用快取。
+- GitHub Actions 上暫時略過一項 hardlink 快取測試，本機照常執行。
+
+### Fixed
+- 預覽換頁時偶發的原生崩潰：快速切換文件，或在分割視窗的即時預覽中輸入時，程式可能閃退。
+- 預覽關閉後，延後執行的導覽失敗處理不再存取已刪除的物件。
+- 資料夾改名剛完成或剛取消時立刻關閉視窗，程式不再當掉。
+- 命令列匯出 PDF、HTML 時，若設定 `QT_QPA_PLATFORM=offscreen`，檔案雖然寫出，結束碼卻是錯誤（0xC0000005）；現在結束碼正確。
+
+### Validation
+- 完整測試 2708 passed／170 skipped、0 failed；Ruff、mypy 通過。
+- WebEngine 分組：office-commands 22、renderer（含頁面輪換、切換、PDF 匯出、程式碼延後高亮）62、WYSIWYG 28、security 179 項全部通過。
+- 頁面輪換測試：修改前 10 次崩潰 4 次，修改後 20 次 0 崩潰。資料夾改名關閉競態：加入時序放大後，修改前 5/5 崩潰，修改後 20 次 0 崩潰。
+- Watchdog 自動啟動以真實 Watchdog 做端到端實測：兩個程式同時啟動，最後只留下一個；install.json 關閉 autostart 或路徑不存在時不啟動，並顯示原因。
+- 命令列匯出 PDF、HTML、Word、PowerPoint，在 offscreen 與一般模式下結束碼都是 0；輸入不存在、輸出不可寫入時結束碼非 0，既有檔案不受影響。
+- 每項修改都由獨立的驗收者在修改前後對照實測。
+
 ## [1.37.1] - 2026-11-09
 
 ### Fixed

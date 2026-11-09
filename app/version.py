@@ -1,10 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.37.1"
+VERSION = "1.38.0"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "修正匯出的 PDF 在複製、搜尋或擷取中文時，「一」「二」「目」等字變成外觀相同的部首字元。",
-    "AI Agent 監看的 Watchdog 啟動檔不再預設為特定電腦的路徑；未設定時面板會說明如何指定。",
+    "修正快速切換文件、在分割視窗即時預覽中輸入，或資料夾改名後立刻關閉視窗時，程式偶發閃退。",
+    "大型 PDF 匯出的中文修正改在背景進行，畫面不再停頓；外部改寫檔案後，搜尋與標籤也會即時更新。",
+    "AI Agent 監看：連不到 Watchdog 時，可依它登記的 install.json 自動啟動（可從選單關閉）。",
 ]
 
 GITHUB_OWNER = "wulove1029"
