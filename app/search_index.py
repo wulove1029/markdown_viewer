@@ -7,8 +7,10 @@ unprotected persistent database, and restarting always rebuilds from source.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,37 @@ class FileVersion:
     changed_ns: int
     device: int
     inode: int
+
+
+# Timestamps are only trusted once they are older than the cache by more than
+# this window (racy-git rule). It must exceed the coarsest tick we may meet:
+# NTFS clock ~15.6 ms, FAT/exFAT mtime 2 s. Only files modified inside the
+# window are ever re-read or hashed; everything else stays metadata-only.
+RACY_WINDOW_NS = 2_500_000_000
+
+
+_FILETIME_EPOCH_NS = 116444736000000000 * 100
+
+
+def _now_ns() -> int:
+    return time.time_ns()
+
+
+def is_racy(version: FileVersion, now_ns: int | None = None) -> bool:
+    """True when a same-size rewrite could still carry this exact version."""
+    now = _now_ns() if now_ns is None else now_ns
+    changed = version.changed_ns
+    if os.name == "nt":
+        changed -= _FILETIME_EPOCH_NS  # NTFS ChangeTime counts from 1601
+    return max(version.modified_ns, changed) + RACY_WINDOW_NS >= now
+
+
+def file_digest(path: str | Path) -> bytes:
+    digest = hashlib.blake2b(digest_size=20)
+    with open(path, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.digest()
 
 
 if os.name == "nt":
@@ -163,6 +196,8 @@ class _Entry:
     version: FileVersion
     text: str
     cost: int
+    racy: bool = False
+    digest: bytes | None = None
 
 
 class SearchIndex:
@@ -180,6 +215,7 @@ class SearchIndex:
         self._lock = RLock()
         self.hits = 0
         self.reads = 0
+        self.verifications = 0
         self.evictions = 0
 
     @property
@@ -206,13 +242,30 @@ class SearchIndex:
     def peek(self, path: str | Path, version: FileVersion) -> str | None:
         """Return cached text only for a freshly validated filesystem version.
 
-        This never reads source bytes, allowing metadata workers to reuse a
-        search result without moving cold large-file I/O onto the GUI thread.
+        This never decodes source text. Only an entry whose timestamps are too
+        recent to trust (racy) costs one hash of the file bytes, so call it
+        from workers, not the GUI thread.
         """
         key = path_key(path)
         with self._lock:
             cached = self._entries.get(key)
             if cached is None or cached.version != version:
+                return None
+            if not cached.racy:
+                self._entries.move_to_end(key)
+                self.hits += 1
+                return cached.text
+            if cached.digest is None:
+                return None
+        # Racy entry: timestamps prove nothing, so compare content hashes.
+        # Only files modified within the racy window reach this I/O.
+        try:
+            digest = file_digest(path)
+        except OSError:
+            return None
+        with self._lock:
+            self.verifications += 1
+            if self._entries.get(key) is not cached or digest != cached.digest:
                 return None
             self._entries.move_to_end(key)
             self.hits += 1
@@ -243,10 +296,30 @@ class SearchIndex:
                 return decoded[0] if decoded is not None else None
             with self._lock:
                 cached = self._entries.get(key)
-                if cached is not None and cached.version == before:
+                if cached is not None and cached.version == before and not cached.racy:
                     self._entries.move_to_end(key)
                     self.hits += 1
                     return cached.text
+            digest = None
+            if is_racy(before):
+                # Timestamps cannot prove this file unchanged. Hash the bytes
+                # before decoding, so a later write can only make us re-read.
+                try:
+                    digest = file_digest(path)
+                except OSError:
+                    digest = None
+                with self._lock:
+                    self.verifications += 1
+                    if (
+                        digest is not None and cached is not None
+                        and cached.version == before and cached.digest == digest
+                    ):
+                        if not is_racy(before):
+                            cached = _Entry(cached.version, cached.text, cached.cost)
+                            self._entries[key] = cached
+                        self._entries.move_to_end(key)
+                        self.hits += 1
+                        return cached.text
             decoded = decoder(path)
             with self._lock:
                 self.reads += 1
@@ -264,6 +337,7 @@ class SearchIndex:
                 self.invalidate(path)
                 return None
             text = decoded[0]
+            racy = is_racy(after)
             cost = sys.getsizeof(text) + sys.getsizeof(key) + sys.getsizeof(before) + 160
             with self._lock:
                 previous = self._entries.pop(key, None)
@@ -274,7 +348,7 @@ class SearchIndex:
                         _old_key, old_entry = self._entries.popitem(last=False)
                         self._bytes -= old_entry.cost
                         self.evictions += 1
-                    self._entries[key] = _Entry(after, text, cost)
+                    self._entries[key] = _Entry(after, text, cost, racy, digest)
                     self._bytes += cost
             return text
         raise OSError("搜尋期間文件持續變動，請重新搜尋")

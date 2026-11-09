@@ -1,5 +1,6 @@
 """Versioning, bounded-memory and responsive library search regressions."""
 
+import dataclasses
 import os
 import statistics
 import time
@@ -7,7 +8,7 @@ from threading import Event
 
 import pytest
 
-from app import global_search
+from app import global_search, search_index
 from app.global_search import FileSearchResult, GlobalSearchView, SearchHit, SearchReport
 from app.md_converter import read_text_detailed
 from app.search_index import SearchCancelled, SearchIndex, directory_versions, file_version
@@ -99,13 +100,59 @@ def test_external_hardlink_write_with_restored_mtime_invalidates_cached_source(t
         os.link(path, alias)
     except OSError:
         pytest.skip("Hard links are unavailable on this filesystem")
-    # Windows timestamps tick at ~15.6 ms; let them advance past the cached version.
-    time.sleep(0.05)
     before = path.stat()
     alias.write_text("other", encoding="utf-8")
     os.utime(alias, ns=(before.st_atime_ns, before.st_mtime_ns))
     assert not search(root, "first", index).results
     assert search(root, "other", index).results
+
+
+def _freeze_version(monkeypatch, path, now_offset_ns=0):
+    """Make every stat of *path* report one version: the 'same tick' case."""
+    frozen = file_version(path)
+    monkeypatch.setattr(search_index, "file_version", lambda _path: frozen)
+    monkeypatch.setattr(global_search, "directory_versions", lambda *_args: {})
+    stamp = frozen.modified_ns
+    monkeypatch.setattr(search_index, "_now_ns", lambda: stamp + now_offset_ns)
+
+
+def test_same_size_rewrite_inside_one_timestamp_tick_is_detected_without_sleep(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "note.md"
+    path.write_text("first", encoding="utf-8")
+    _freeze_version(monkeypatch, path)
+    index = SearchIndex()
+    assert search(tmp_path, "first", index).results
+    path.write_text("other", encoding="utf-8")  # identical size and version
+    assert not search(tmp_path, "first", index).results
+    assert search(tmp_path, "other", index).results
+    assert index.reads == 2
+
+
+def test_only_files_inside_the_racy_window_have_their_content_verified(tmp_path, monkeypatch):
+    old, new = tmp_path / "old.md", tmp_path / "new.md"
+    old.write_text("needle old", encoding="utf-8")
+    new.write_text("needle new", encoding="utf-8")
+    real = file_version
+    hour = 3600 * 10**9
+
+    def versions(path):
+        version = real(path)
+        if path.name != "old.md":
+            return version
+        return dataclasses.replace(
+            version, modified_ns=version.modified_ns - hour, changed_ns=version.changed_ns - hour
+        )
+
+    monkeypatch.setattr(search_index, "file_version", versions)
+    monkeypatch.setattr(global_search, "directory_versions", lambda *_args: {})
+    index = SearchIndex()
+    assert len(search(tmp_path, "needle", index).results) == 2
+    assert (index.reads, index.verifications) == (2, 1)
+    assert len(search(tmp_path, "needle", index).results) == 2
+    # Settled file: metadata only. Recent file: hashed, but not decoded again.
+    assert (index.reads, index.verifications, index.hits) == (2, 2, 2)
 
 
 def test_same_names_new_files_deletion_and_rename_follow_current_sources(tmp_path):

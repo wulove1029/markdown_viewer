@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import document_metadata as metadata
-from app import global_search, library_content, links, md_converter, tag_flow
+from app import global_search, library_content, links, md_converter, search_index, tag_flow
 from app.document_metadata import DocumentMetadata
 from app.library_content import DerivedContentIndex, content_key, read_source
 from app.search_index import SearchCancelled, default_index
@@ -165,6 +165,34 @@ def test_derived_cache_budget_eviction_and_identical_content_reuse():
     assert index.retained_bytes == 0
 
 
+def test_same_tick_same_size_rewrite_is_seen_by_source_reads_and_tags(tmp_path, monkeypatch):
+    path = tmp_path / "note.md"
+    path.write_text("#old", encoding="utf-8")
+    frozen = search_index.file_version(path)
+    monkeypatch.setattr(search_index, "file_version", lambda _path: frozen)
+    monkeypatch.setattr(library_content, "file_version", lambda _path: frozen)
+    stamp = frozen.modified_ns
+    monkeypatch.setattr(search_index, "_now_ns", lambda: stamp)
+    old = metadata.read_metadata(path)
+    assert old.body_tags == ("old",)
+    path.write_text("#new", encoding="utf-8")  # same size, same reported version
+    assert metadata.signature(path) != old.signature
+    assert read_source(path) == "#new"
+    assert metadata.read_metadata(path).body_tags == ("new",)
+
+
+def test_racy_signature_stays_equal_for_unchanged_content_after_the_window(tmp_path, monkeypatch):
+    path = tmp_path / "note.md"
+    path.write_text("#same", encoding="utf-8")
+    first = metadata.signature(path)
+    assert first[-1] is not None  # fresh file: content hash recorded
+    now = search_index._now_ns()
+    monkeypatch.setattr(search_index, "_now_ns", lambda: now + 2 * search_index.RACY_WINDOW_NS)
+    assert metadata.signature(path) == first
+    monkeypatch.setattr(search_index, "_now_ns", lambda: now + 10**12)
+    assert metadata.signature(path)[-1] is None  # settled and no longer remembered
+
+
 def test_saved_tag_request_ignores_previous_generation_and_external_rewrite(tmp_path):
     path = tmp_path / "note.md"
     path.write_text("#old", encoding="utf-8")
@@ -177,8 +205,6 @@ def test_saved_tag_request_ignores_previous_generation_and_external_rewrite(tmp_
         _refresh_tags_panel=lambda: None,
     )
     tag_flow.apply_metadata(window, 6, path, old)
-    # Windows timestamps tick at ~15.6 ms; let them advance past the old metadata.
-    time.sleep(0.05)
     path.write_text("#new", encoding="utf-8")
     tag_flow.apply_metadata(window, 7, path, old)
     assert updates == []

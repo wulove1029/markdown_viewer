@@ -14,16 +14,50 @@ from collections import OrderedDict
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+from . import search_index
 from .search_index import FileVersion, SearchCancelled, default_index, file_version, path_key
 
 _READ_LOCK = threading.RLock()
 _READING: dict[tuple, threading.Event] = {}
 
 
+_RACY_LOCK = threading.Lock()
+_RACY_HASHES: OrderedDict[tuple, tuple[bytes, int]] = OrderedDict()
+_RACY_STICKY_NS = 30_000_000_000
+_RACY_MAX = 256
+
+
+def _racy_stamp(path: Path, base: tuple, version: FileVersion) -> bytes | None:
+    """Content hash for files whose timestamps cannot prove they are unchanged.
+
+    Only files modified within the racy window are hashed. A hash, once taken,
+    is reused for the same metadata for a while so a snapshot taken inside the
+    window still compares equal to one taken just after it (same content).
+    """
+    now = search_index._now_ns()
+    with _RACY_LOCK:
+        known = _RACY_HASHES.get(base)
+        if known is not None and known[1] <= now:
+            del _RACY_HASHES[base]
+            known = None
+    if known is None and not search_index.is_racy(version, now):
+        return None
+    digest = search_index.file_digest(path)
+    if known is None or known[0] != digest:
+        with _RACY_LOCK:
+            _RACY_HASHES[base] = digest, now + _RACY_STICKY_NS
+            _RACY_HASHES.move_to_end(base)
+            while len(_RACY_HASHES) > _RACY_MAX:
+                _RACY_HASHES.popitem(last=False)
+    return digest
+
+
 def source_signature(path: Path) -> tuple:
-    version = file_version(Path(path))
-    return (str(Path(path).resolve()), version.modified_ns, version.size,
+    path = Path(path)
+    version = file_version(path)
+    base = (str(path.resolve()), version.modified_ns, version.size,
             version.changed_ns, version.inode, version.device)
+    return base + (_racy_stamp(path, base, version),)
 
 
 def version_from_signature(signature: tuple) -> FileVersion:
