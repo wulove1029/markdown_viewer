@@ -92,6 +92,8 @@ def test_external_hardlink_write_with_restored_mtime_invalidates_cached_source(t
         os.link(path, alias)
     except OSError:
         pytest.skip("Hard links are unavailable on this filesystem")
+    # Windows timestamps tick at ~15.6 ms; let them advance past the cached version.
+    time.sleep(0.05)
     before = path.stat()
     alias.write_text("other", encoding="utf-8")
     os.utime(alias, ns=(before.st_atime_ns, before.st_mtime_ns))

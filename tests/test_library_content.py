@@ -177,6 +177,8 @@ def test_saved_tag_request_ignores_previous_generation_and_external_rewrite(tmp_
         _refresh_tags_panel=lambda: None,
     )
     tag_flow.apply_metadata(window, 6, path, old)
+    # Windows timestamps tick at ~15.6 ms; let them advance past the old metadata.
+    time.sleep(0.05)
     path.write_text("#new", encoding="utf-8")
     tag_flow.apply_metadata(window, 7, path, old)
     assert updates == []
