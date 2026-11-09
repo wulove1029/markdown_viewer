@@ -137,6 +137,89 @@ def test_folder_rename_can_cancel_and_rejects_second_request(qapp, tmp_path, mon
     view.close()
 
 
+def _block_folder_walk(monkeypatch):
+    import threading
+
+    from app import file_ops
+    started, release = threading.Event(), threading.Event()
+    walk = file_ops.os.walk
+
+    def slow_walk(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        yield from walk(*args, **kwargs)
+    monkeypatch.setattr(file_ops.os, "walk", slow_walk)
+    return started, release
+
+
+def test_folder_rename_job_leaves_no_qt_teardown_to_worker(qapp, tmp_path, monkeypatch):
+    # The global pool deletes a finished runnable on its worker thread, which
+    # releases everything the job owns there. A job-owned signals QObject, or a
+    # job object behind a bound-method connection (PySide tracks it weakly),
+    # was torn down on the worker while the UI thread destroyed the view: a
+    # native crash.
+    import gc
+    import threading
+    import weakref
+
+    from PySide6.QtCore import QElapsedTimer, Qt, QThreadPool
+    from PySide6.QtTest import QTest
+    from shiboken6 import delete
+
+    folder = tmp_path / "old"
+    folder.mkdir()
+    view = _make_view(tmp_path, monkeypatch, [])
+    monkeypatch.setattr("app.file_browser.QInputDialog.getText", lambda *_a, **_k: ("new", True))
+    destroyed_on = []
+    view._rename_signals.destroyed.connect(
+        lambda *_: destroyed_on.append(threading.get_ident()),
+        Qt.ConnectionType.DirectConnection,
+    )
+    started, release = _block_folder_walk(monkeypatch)
+    view._rename_folder_action(str(folder))
+    assert started.wait(5)
+    job = view._rename_job
+    assert weakref.getweakrefcount(job) == 0
+    assert weakref.getweakrefcount(job.cancel) == 0
+    del job
+    view._rename_progress.canceled.emit()
+    release.set()
+    timer = QElapsedTimer()
+    timer.start()
+    while view._rename_job is not None and timer.elapsed() < 5000:
+        QTest.qWait(10)
+    assert view._rename_job is None
+    # The worker has now released its last reference to the finished job.
+    assert QThreadPool.globalInstance().waitForDone(5000)
+    gc.collect()
+    assert destroyed_on == []
+    delete(view)
+    assert destroyed_on == [threading.get_ident()]
+
+
+def test_folder_rename_finishing_after_view_is_destroyed_emits_nothing(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QThreadPool
+    from shiboken6 import delete
+
+    folder = tmp_path / "old"
+    folder.mkdir()
+    view = _make_view(tmp_path, monkeypatch, [])
+    monkeypatch.setattr("app.file_browser.QInputDialog.getText", lambda *_a, **_k: ("new", True))
+    started, release = _block_folder_walk(monkeypatch)
+    view._rename_folder_action(str(folder))
+    assert started.wait(5)
+    relay = view._rename_relay
+    delete(view)
+    # Closed before the worker can report, so it never emits through the
+    # signals object that was destroyed with the view.
+    assert relay._signals is None
+    release.set()
+    assert QThreadPool.globalInstance().waitForDone(5000)
+    assert folder.exists() and not (tmp_path / "new").exists()
+
+
 def test_tag_filter_keeps_matching_library_and_survives_refresh(
     qapp, tmp_path, monkeypatch
 ):

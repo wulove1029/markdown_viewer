@@ -676,21 +676,57 @@ class _RenameSignals(QObject):
     finished = Signal(object, object)
 
 
+class _RenameRelay:
+    """Links a folder-rename job on the global pool to its view.
+
+    The pool deletes a finished runnable on its worker thread, so everything
+    the job owns is released there. Nothing Qt tracks may therefore belong to
+    the job: neither a signals QObject nor an object behind a bound-method
+    connection (PySide follows those with a weak reference and tears the
+    connection down where the object dies). Either would be torn down on the
+    worker while the UI thread may be destroying the view, a native crash.
+
+    The signals object is a child of the view, so it is created and destroyed
+    on the UI thread. ``close()`` runs when the view is destroyed: it cancels
+    the running job, lets an emission already in progress finish, and blocks
+    any later one.
+    """
+
+    def __init__(self, signals: _RenameSignals):
+        self._lock = threading.Lock()
+        self._signals: _RenameSignals | None = signals
+        self._cancel: threading.Event | None = None
+
+    def start(self, cancel: threading.Event) -> None:
+        self._cancel = cancel
+
+    def emit(self, mapping, error) -> None:
+        with self._lock:
+            if self._signals is not None:
+                self._signals.finished.emit(mapping, error)
+
+    def close(self) -> None:
+        with self._lock:
+            self._signals = None
+        if self._cancel is not None:
+            self._cancel.set()
+
+
 class _RenameFolderJob(QRunnable):
-    def __init__(self, folder: Path, name: str):
+    def __init__(self, folder: Path, name: str, relay: _RenameRelay):
         super().__init__()
         self.folder = folder
         self.name = name
         self.cancel = threading.Event()
-        self.signals = _RenameSignals()
+        self.relay = relay
 
     def run(self):
         try:
             mapping = file_ops.rename_folder(self.folder, self.name, cancel=self.cancel)
         except Exception as exc:
-            self.signals.finished.emit(None, exc)
+            self.relay.emit(None, exc)
         else:
-            self.signals.finished.emit(mapping, None)
+            self.relay.emit(mapping, None)
 
 
 class FileBrowserView(QWidget):
@@ -728,6 +764,14 @@ class FileBrowserView(QWidget):
         self._lifetime_token = _ScanToken()
         _token = self._lifetime_token
         self.destroyed.connect(lambda *_: _token.cancel())
+        # Folder renames report through a signals object this view owns; see
+        # _RenameRelay for why it never belongs to the worker's job.
+        self._rename_job: _RenameFolderJob | None = None
+        self._rename_signals = _RenameSignals(self)
+        self._rename_signals.finished.connect(self._folder_rename_finished)
+        self._rename_relay = _RenameRelay(self._rename_signals)
+        _relay = self._rename_relay
+        self.destroyed.connect(lambda *_: _relay.close())
         # Requests that arrived while a scan was running; replayed once the
         # tree for that scan has been built.
         self._pending_tree_state: dict | None = None
@@ -1563,7 +1607,7 @@ class FileBrowserView(QWidget):
         self.refresh_libraries()
 
     def _rename_folder_action(self, path: str):
-        if getattr(self, "_rename_job", None) is not None:
+        if self._rename_job is not None:
             return
         folder = Path(path)
         name, ok = QInputDialog.getText(
@@ -1571,22 +1615,28 @@ class FileBrowserView(QWidget):
         )
         if not ok or not name.strip() or name.strip() == folder.name:
             return
-        job = _RenameFolderJob(folder, name.strip())
+        job = _RenameFolderJob(folder, name.strip(), self._rename_relay)
         self._rename_job = job
+        self._rename_relay.start(job.cancel)
         progress = QProgressDialog("正在準備資料夾重新命名…", "取消", 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress.setMinimumDuration(0)
-        progress.canceled.connect(job.cancel.set)
-        self.destroyed.connect(job.cancel.set)
+        progress.canceled.connect(self._cancel_folder_rename)
         self._rename_progress = progress
         self._tree.setEnabled(False)
-        job.signals.finished.connect(self._folder_rename_finished)
         progress.show()
         QThreadPool.globalInstance().start(job)
+
+    @Slot()
+    def _cancel_folder_rename(self):
+        if self._rename_job is not None:
+            self._rename_job.cancel.set()
 
     @Slot(object, object)
     def _folder_rename_finished(self, mapping, error):
         job = self._rename_job
+        if job is None:
+            return
         self._rename_job = None
         self._rename_progress.close()
         self._rename_progress.deleteLater()
