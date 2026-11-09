@@ -120,6 +120,24 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-09 晚上 — 1.37.1 發版：CI 上暫時略過 hardlink 測試〔已實作＋已驗證〕
+**作者**：Claude（指揮官 session，家裡桌機接手）
+**類型**：實作
+
+- **起因**：`tests/test_search_index.py::test_external_hardlink_write_with_restored_mtime_invalidates_cached_source`
+  在 GitHub Actions 的 Windows runner 上 4 跑 4 敗；本機 NTFS 15 次都通過。v1.37.0 的 tag
+  在同一個 runner 映像和 Python 版本上重跑也失敗，所以不是 1.37.1 的改動造成的。
+  Release workflow 也會跑全套測試，這題會擋住發版。
+- **使用者決定**：只在 CI 略過，本機照跑，根因排進 1.38。
+- **改動**：測試加 `@pytest.mark.skipif(os.environ.get("GITHUB_ACTIONS") == "true", ...)`，
+  reason 寫明原因。
+- **驗證**：本機 1 passed；設 `GITHUB_ACTIONS=true` 時 1 skipped（顯示 reason）；整個測試檔
+  26 passed、2 skipped（benchmark，原本就要手動開）；ruff check／format 都通過。
+- **1.38 待辦**：查出這題在 CI 失敗的根因；同大小、落在同一時間戳刻度內的外部改寫要能偵測到
+  （`app/search_index.py` 的 `file_version`）。
+
+**→ 下一棒**：推 main → CI → tag `v1.37.1` → 核對 draft Release。
+
 ### 2026-11-09 16:10 — 測試程序原生當機不再跳「應用程式錯誤」視窗〔已實作＋已驗證〕
 **作者**：Claude（使用者另開的 session，不是本專案的指揮官 session）
 **類型**：實作
