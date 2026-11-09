@@ -325,6 +325,44 @@ class TestStartTranslation:
         assert seen == [(3, "服務不可用")]
         assert tr.inflight_count() == 0
 
+    def test_task_holds_no_qt_object_and_receiver_dies_on_gui_thread(
+        self, qapp, monkeypatch
+    ):
+        """No QObject is left for the worker thread to release."""
+        import threading
+
+        from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, QThreadPool
+
+        release = threading.Event()
+        monkeypatch.setattr(tr, "translate",
+                            lambda text, **kw: release.wait(5) and "譯文")
+        destroyed_on = []
+
+        class TrackedReceiver(tr._TaskReceiver):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.destroyed.connect(
+                    lambda *_: destroyed_on.append(threading.current_thread()),
+                    Qt.ConnectionType.DirectConnection,
+                )
+
+        monkeypatch.setattr(tr, "_TaskReceiver", TrackedReceiver)
+        seen = []
+        tr.start_translation(
+            9, "hello", provider="google", target="zh-TW",
+            on_finished=lambda rid, r: seen.append((rid, r)),
+            on_failed=lambda rid, m: seen.append(("failed", m)),
+        )
+        (task,) = tr._INFLIGHT
+        assert not any(isinstance(value, QObject) for value in vars(task).values())
+        del task
+        release.set()
+        self._drain(qapp, seen)
+        assert seen == [(9, "譯文")]
+        assert QThreadPool.globalInstance().waitForDone(5000)
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        assert destroyed_on == [threading.main_thread()]
+
     def test_unexpected_exception_is_reported_not_swallowed(self, qapp, monkeypatch):
         def boom(text, **kw):
             raise RuntimeError("kaboom")

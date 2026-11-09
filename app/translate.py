@@ -19,7 +19,9 @@ import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool
+
+from .worker_relay import WorkerRelay
 
 # ── QSettings keys (never rename: older configs must migrate) ────────────
 
@@ -375,9 +377,32 @@ def cache_size() -> int:
 
 # ── Qt worker ───────────────────────────────────────────────────────────
 
-class _TaskSignals(QObject):
-    finished = Signal(int, str)   # request id, translated text
-    failed = Signal(int, str)     # request id, user-facing message
+class _TaskReceiver(QObject):
+    """GUI-thread end of one translation.
+
+    Parented to the application, so only its own ``deleteLater`` on the GUI
+    thread destroys it. The task reports through its relays and holds no
+    QObject that a worker thread could release.
+    """
+
+    def __init__(self, on_finished, on_failed) -> None:
+        super().__init__(QCoreApplication.instance())
+        self._on_finished = on_finished
+        self._on_failed = on_failed
+        self.finished = WorkerRelay(self, self._report_finished)
+        self.failed = WorkerRelay(self, self._report_failed)
+
+    def _report_finished(self, request_id: int, text: str) -> None:
+        self._deliver(self._on_finished, request_id, text)
+
+    def _report_failed(self, request_id: int, message: str) -> None:
+        self._deliver(self._on_failed, request_id, message)
+
+    def _deliver(self, callback, request_id: int, value: str) -> None:
+        try:
+            callback(request_id, value)
+        finally:
+            self.deleteLater()
 
 
 class TranslateTask(QRunnable):
@@ -385,6 +410,8 @@ class TranslateTask(QRunnable):
 
     ``request_id`` lets the receiver drop results from a superseded selection
     instead of overwriting whatever the user asked for most recently.
+    ``on_finished(request_id, text)`` and ``on_failed(request_id, message)``
+    run on the worker thread; pass ``WorkerRelay.emit`` functions.
     """
 
     def __init__(
@@ -395,9 +422,12 @@ class TranslateTask(QRunnable):
         provider: str,
         target: str,
         api_key: str = "",
+        on_finished,
+        on_failed,
     ):
         super().__init__()
-        self.signals = _TaskSignals()
+        self._on_finished = on_finished
+        self._on_failed = on_failed
         self._id = int(request_id)
         self._text = text
         self._provider = provider
@@ -413,17 +443,15 @@ class TranslateTask(QRunnable):
                 api_key=self._api_key,
             )
         except TranslationError as exc:
-            self.signals.failed.emit(self._id, str(exc))
+            self._on_failed(self._id, str(exc))
         except Exception as exc:  # noqa: BLE001 - a worker crash must not kill the app
-            self.signals.failed.emit(self._id, f"翻譯失敗：{exc}")
+            self._on_failed(self._id, f"翻譯失敗：{exc}")
         else:
-            self.signals.finished.emit(self._id, result)
+            self._on_finished(self._id, result)
 
 
-# QThreadPool.start() does not keep the Python wrapper alive, so a task left
-# only in a local would be collected mid-flight and its signals destroyed with
-# it — the result then never reaches the window. Hold a reference until the
-# task reports back.
+# Running tasks, held until they report back (see inflight_count). The task is
+# not auto-deleted and must never be collected mid-flight.
 _INFLIGHT: set[TranslateTask] = set()
 
 
@@ -438,25 +466,25 @@ def start_translation(
     on_failed,
 ) -> None:
     """Queue a translation and route its result to the given callbacks."""
-    task = TranslateTask(
-        request_id, text, provider=provider, target=target, api_key=api_key
-    )
-    # Python owns the lifetime now; Qt must not delete it out from under us.
-    task.setAutoDelete(False)
-    _INFLIGHT.add(task)
 
-    def _finished(rid, result, _task=task):
-        _INFLIGHT.discard(_task)
+    def _finished(rid, result):
+        _INFLIGHT.discard(task)
         # Runs on the GUI thread, so the cache needs no lock of its own.
         remember_translation(text, provider, target, result)
         on_finished(rid, result)
 
-    def _failed(rid, message, _task=task):
-        _INFLIGHT.discard(_task)
+    def _failed(rid, message):
+        _INFLIGHT.discard(task)
         on_failed(rid, message)
 
-    task.signals.finished.connect(_finished)
-    task.signals.failed.connect(_failed)
+    receiver = _TaskReceiver(_finished, _failed)
+    task = TranslateTask(
+        request_id, text, provider=provider, target=target, api_key=api_key,
+        on_finished=receiver.finished.emit, on_failed=receiver.failed.emit,
+    )
+    # Python owns the lifetime now; Qt must not delete it out from under us.
+    task.setAutoDelete(False)
+    _INFLIGHT.add(task)
     QThreadPool.globalInstance().start(task)
 
 
