@@ -122,7 +122,10 @@ def test_search_task_records_work_without_query_or_path(qapp, tmp_path, recorder
     monkeypatch.setattr(global_search, "load_excluded_folders", lambda: [])
     note = tmp_path / "private-note.md"
     note.write_text("private-query private-body", encoding="utf-8")
-    task = global_search._SearchTask(1, [tmp_path], "private-query", Event(), SearchIndex(), {})
+    task = global_search._SearchTask(
+        1, [tmp_path], "private-query", Event(), SearchIndex(), {},
+        on_progress=lambda *_args: None, on_finished=lambda *_args: None,
+    )
     task.run()
     output = recorder.snapshot()
     assert output["aggregates"]["library_search"]["work_items"] == 1

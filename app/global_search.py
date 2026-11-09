@@ -14,12 +14,10 @@ from typing import Callable, Iterable, Mapping
 
 from PySide6.QtCore import (
     QEvent,
-    QObject,
     QRunnable,
     QSize,
     Qt,
     QTimer,
-    Signal,
     Slot,
 )
 from PySide6.QtGui import QAbstractTextDocumentLayout, QColor, QFont, QPalette, QTextDocument
@@ -41,6 +39,7 @@ from .file_types import document_kind
 from .md_converter import read_text_detailed
 from .search_index import SearchCancelled, SearchIndex, default_index, directory_versions
 from .theme import LIGHT, Theme, collection_stylesheet
+from .worker_relay import WorkerRelay
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _QUERY_ROLE = Qt.ItemDataRole.UserRole.value + 1
@@ -271,12 +270,14 @@ def _path_key(path: str | Path) -> str:
     return os.path.normcase(str(path)).casefold()
 
 
-class _SearchSignals(QObject):
-    finished = Signal(int, str, object)
-    progress = Signal(int, str, object, int)
-
-
 class _SearchTask(QRunnable):
+    """One library search; reports through the view's ``WorkerRelay.emit``.
+
+    ``on_progress(request_id, query, batch, scanned)`` and
+    ``on_finished(request_id, query, results)`` may run on a worker thread.
+    The task owns no Qt object, so nothing Qt tracks is released on the worker.
+    """
+
     def __init__(
         self,
         request_id: int,
@@ -285,6 +286,9 @@ class _SearchTask(QRunnable):
         cancel_event: Event,
         index: SearchIndex,
         overlays: Mapping[str | Path, str],
+        *,
+        on_progress: Callable[[int, str, object, int], None],
+        on_finished: Callable[[int, str, object], None],
     ):
         super().__init__()
         self.request_id = request_id
@@ -293,7 +297,8 @@ class _SearchTask(QRunnable):
         self.cancel_event = cancel_event
         self.index = index
         self.overlays = overlays
-        self.signals = _SearchSignals()
+        self.on_progress = on_progress
+        self.on_finished = on_finished
 
     @Slot()
     def run(self):
@@ -302,7 +307,7 @@ class _SearchTask(QRunnable):
             results = search_document_files(
                 self.roots, self.query, self.cancel_event.is_set,
                 index=self.index, overlays=self.overlays,
-                on_results=lambda batch, scanned: self.signals.progress.emit(
+                on_results=lambda batch, scanned: self.on_progress(
                     self.request_id, self.query, batch, scanned
                 ),
             )
@@ -317,7 +322,7 @@ class _SearchTask(QRunnable):
             cancelled=results.cancelled or self.cancel_event.is_set(),
             failed=results.source_error,
         )
-        self.signals.finished.emit(self.request_id, self.query, results)
+        self.on_finished(self.request_id, self.query, results)
 
 
 class _SearchResultDelegate(QStyledItemDelegate):
@@ -383,6 +388,10 @@ class GlobalSearchView(QWidget):
         self._composing = False
         self._resume_after_composition = False
         self._pool = background_jobs.pool()
+        # Search tasks report through relays this view owns; a task outliving
+        # the view reports nothing and releases no Qt object on its worker.
+        self._progress_relay = WorkerRelay(self, self._on_search_progress)
+        self._finished_relay = WorkerRelay(self, self._on_search_finished)
         self._render_queue = deque()
         self._render_query = ""
         self._render_timer = QTimer(self)
@@ -576,9 +585,10 @@ QWidget#globalSearch QLabel[muted="true"] {{
         self._render_queue.clear()
         self._render_timer.stop()
         self._status.setText("正在搜尋…")
-        task = _SearchTask(request_id, roots, query, self._cancel_event, self._index, overlays)
-        task.signals.finished.connect(self._on_search_finished)
-        task.signals.progress.connect(self._on_search_progress)
+        task = _SearchTask(
+            request_id, roots, query, self._cancel_event, self._index, overlays,
+            on_progress=self._progress_relay.emit, on_finished=self._finished_relay.emit,
+        )
         if self._tasks:
             # Keep only the latest waiting request. A cancelled scan exits at
             # the next file/line checkpoint before another scan consumes I/O.

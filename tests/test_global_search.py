@@ -118,3 +118,45 @@ def test_search_view_renders_highlights_and_opens_selected_result(qapp, tmp_path
 
     view._render_results("absent", [])
     assert view._list.item(0).text() == "找不到符合的內容"
+
+
+def test_search_outliving_its_view_reports_nothing_and_holds_no_qt_object(
+    qapp, tmp_path, monkeypatch
+):
+    import gc
+    import threading
+
+    from PySide6.QtCore import QObject, QThreadPool
+    from shiboken6 import delete
+
+    from app import global_search
+
+    started, release = threading.Event(), threading.Event()
+    real_search = global_search.search_document_files
+
+    def blocked_search(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return real_search(*args, **kwargs)
+
+    monkeypatch.setattr(global_search, "search_document_files", blocked_search)
+    (tmp_path / "note.md").write_text("needle", encoding="utf-8")
+    selected = []
+    view = GlobalSearchView(
+        roots_provider=lambda: [tmp_path],
+        on_result_selected=lambda *args: selected.append(args),
+    )
+    view._input.setText("needle")
+    view._search_now()
+    assert started.wait(5)
+    (task,) = view._tasks.values()
+    assert not any(isinstance(value, QObject) for value in vars(task).values())
+    del task
+    relays = (view._progress_relay, view._finished_relay)
+    delete(view)
+    assert all(relay.closed for relay in relays)
+    release.set()
+    assert QThreadPool.globalInstance().waitForDone(5000)
+    gc.collect()
+    qapp.processEvents()  # a late report would touch the destroyed view here
+    assert selected == []
