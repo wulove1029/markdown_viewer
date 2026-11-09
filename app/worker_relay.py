@@ -125,8 +125,9 @@ class _RelayBridge(QObject):
 class WorkerRelay(CancelScope):
     """Deliver ``emit(*args)`` from any thread as ``callback(*args)`` on the owner.
 
-    Create the relay on the owner's thread and keep it for the owner's
-    lifetime; hand jobs ``relay.emit`` (never the owner or a QObject). The
+    Prefer creating the relay on the owner's thread (see the last paragraph)
+    and keep it for the owner's lifetime; hand jobs ``relay.emit`` (never the
+    owner or a QObject). The
     signals object is a child of *owner*. When *owner* is destroyed the relay
     closes: tracked cancel flags are set, an emission already in progress
     finishes, and every later or still-queued report is dropped.
@@ -136,8 +137,10 @@ class WorkerRelay(CancelScope):
 
     ``emit`` on the thread the owner lives in calls back synchronously, as a
     signal with an automatic connection would; ``queued=True`` always defers
-    to the owner's event loop. The relay may be created on another thread as
-    long as nothing changes the owner's children at the same moment.
+    to the owner's event loop. Creating the relay on another thread works as
+    long as nothing changes the owner's children at the same moment, but it
+    is discouraged: re-parenting there sends the owner's ChildAdded event from
+    that thread. Every relay in the app is created on the owner's thread.
     """
 
     def __init__(
