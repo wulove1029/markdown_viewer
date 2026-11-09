@@ -120,6 +120,41 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-09 深夜 — 1.38 本機整合：五項修正與 Watchdog 自動啟動〔已實作＋已驗證，未 push〕
+**作者**：Claude（指揮官 session）；實作與驗收都派 Claude 子代理，每項由不同的 fresh 子代理驗收
+**類型**：實作＋驗收
+
+使用者授權：方向和改程式由 AI 自行決定，使用者只看成果；push、Release、部署要使用者當場確認。
+1.37.1 已在同一晚發布為正式版，並設為 Latest（tag `v1.37.1` → `8695f15`）。
+
+本機分支 `integrate/1.38`（從 `8695f15` 開出，未 push）：
+- **預覽換頁原生崩潰**（`app/renderer.py` 的 `_rotate_document_page`）：
+  - 根因：換頁時對舊 page 呼叫 `setWebChannel(None)`；之後才執行的 `new QWebChannel` 腳本送出第一個請求時，QtWebEngine 6.11 會對空指標取值（Qt6WebEngineCore+0x32a655），也就是 11/09 15:40 那次當機。
+  - 修法：舊 page 改接一個空的 channel，這個 channel 掛在舊 page 底下、跟著一起銷毀。
+  - 使用者情境：快速切換檔案，或在分割視窗的即時預覽中打字，換頁剛好落在上一份文件載入完成之後，程式就會閃退。
+  - 實測：`tests/test_renderer_page_rotation.py` 修改前 10 次崩 4 次，修改後 20 次 0 崩潰。
+- **預覽導覽失敗的計時器**：計時器原本用 lambda 抓住 self，view 已刪除後才觸發。改成以 view 作為 context（`renderer.py` 的 `_on_failed_navigation`），修掉 CI 上 security 組的偶發失敗。
+- **同大小、同一時間戳刻度內的外部改寫**（`app/search_index.py`、`app/library_content.py`）：
+  - 修法：mtime 或 ChangeTime 落在快取時間前 2.5 秒內的檔案，先比對內容雜湊再使用快取。1.37.1 加在兩個測試裡的 `time.sleep(0.05)` 已拿掉。
+  - 已知限制：標籤流程（`app/tag_flow.py`）在 GUI 執行緒上，對 2.5 秒內改過的檔案會讀整檔。
+- **PDF 修正改到背景執行緒**（新增 `app/pdf_repair_async.py`）：
+  - 範圍：GUI 的四條匯出路徑改成非同步，CLI 維持同步。
+  - 實測：500 頁時，主執行緒最大停頓從 2479 ms 降到 32 ms。
+  - 防護：`_pdf_export_busy` 擋住重複匯出，並顯示「PDF 仍在處理中」；所有結束路徑都會解除旗標。
+- **CLI 在 offscreen 下的 exit code**（`app/cli_export.py` 的 `_flush_deferred_deletes`）：
+  - 根因：匯出後的 `deleteLater` 沒有被執行，view 一直活到 QApplication 解構時才被收。
+  - 實測：修改後，四種格式在 offscreen 與非 offscreen 下的 exit code 都是 0。
+- **Watchdog 自動啟動**（新增 `app/agent_autostart.py`）：
+  - 合約：照 Watchdog README〈自動啟動合約〉，並和另外兩個 session 對齊競態規則。
+  - 規則：探測打 `/api/events`；只讀 install.json；啟動時不經過 shell，以分離程序啟動；啟動後每 2 秒探一次，最多 20 秒；兩次嘗試間隔 60 秒，最多 3 次；Viewer 結束時不殺 Watchdog。
+  - 新增選單開關。
+  - 實測：真實端到端，兩個客戶端同時啟動，最後只留下一個 Watchdog。
+- **測試**：`tests/test_final_lifecycle_review.py` 的 Help 選單改用 `findChildren` 查找。本機 PySide6 是 6.11.0，lock 是 6.11.2；在 6.11.0 上 `QAction.menu()` 會拿到已經刪除的物件。
+
+**驗證**：每一項都由不同的 fresh 子代理驗收，涵蓋實跑、修改前後對照與挑錯。整合後的全套結果寫在 CHANGELOG 1.38.0 的 Validation。
+
+**→ 下一棒**：使用者看過成果後，決定是否 push main，以及是否發 1.38.0。
+
 ### 2026-11-09 晚上 — 1.37.1 發版：CI 上暫時略過 hardlink 測試〔已實作＋已驗證〕
 **作者**：Claude（指揮官 session，家裡桌機接手）
 **類型**：實作
