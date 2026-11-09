@@ -646,3 +646,107 @@ def test_office_pdf_reports_complete_only_after_background_repair(
     pending[0](repaired)
     assert events == ["progress", "prepare", "print", "finish", "complete"]
     assert getattr(window, "_pdf_repair_failed", False) is (not repaired)
+
+
+def _guarded_window(events):
+    window = _Window()
+    window._edit_mode = True
+    window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
+    window._wysiwyg_view = _OfficeView(events)
+    messages = []
+    window.statusBar = lambda: type(
+        "_S", (), {"showMessage": lambda self, *a: messages.append(a)}
+    )()
+    return window, messages
+
+
+def test_office_pdf_reentry_is_refused_while_repair_runs(monkeypatch):
+    events = []
+    window, messages = _guarded_window(events)
+    setup = {"size": "A4", "orientation": "portrait"}
+    _start_pdf_export(monkeypatch, window, setup, events)
+    pending = []
+    monkeypatch.setattr(export_actions, "repair_async", lambda p, cb: pending.append(cb))
+    window._wysiwyg_view.prepare_callback(True)
+    window._wysiwyg_view._page.pdfPrintingFinished.emit("chosen.pdf", True)
+
+    # Repair is running: a second export must not open another progress dialog.
+    export_actions.export_pdf(window)
+    export_actions.export_pdf(window)
+
+    assert events.count("progress") == 1
+    assert messages == [("PDF 仍在處理中", 5000)] * 2
+
+
+def test_office_pdf_reentry_is_refused_while_preparing(monkeypatch):
+    events = []
+    window, messages = _guarded_window(events)
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+
+    export_actions.export_pdf(window)
+
+    assert events == ["progress", "prepare"]
+    assert messages == [("PDF 仍在處理中", 5000)]
+
+
+@pytest.mark.parametrize("repaired", [True, False])
+def test_office_pdf_can_export_again_after_repair_ends(monkeypatch, repaired):
+    events = []
+    window, messages = _guarded_window(events)
+    setup = {"size": "A4", "orientation": "portrait"}
+    _start_pdf_export(monkeypatch, window, setup, events)
+    pending = []
+    monkeypatch.setattr(export_actions, "repair_async", lambda p, cb: pending.append(cb))
+    window._wysiwyg_view.prepare_callback(True)
+    window._wysiwyg_view._page.pdfPrintingFinished.emit("chosen.pdf", True)
+    pending[0](repaired)
+
+    export_actions.export_pdf(window)
+
+    assert messages == []
+    assert events.count("progress") == 2
+
+
+def test_office_pdf_can_export_again_after_print_failure(monkeypatch):
+    events = []
+    window, messages = _guarded_window(events)
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    window._wysiwyg_view.prepare_callback(True)
+    window._wysiwyg_view._page.pdfPrintingFinished.emit("chosen.pdf", False)
+
+    export_actions.export_pdf(window)
+
+    assert messages == [] and events.count("progress") == 2
+
+
+def test_office_pdf_guard_released_when_prepare_fails(monkeypatch):
+    events = []
+    window, messages = _guarded_window(events)
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    window._wysiwyg_view.prepare_callback(False)
+
+    export_actions.export_pdf(window)
+
+    assert messages == [] and events.count("progress") == 2
+
+
+def test_office_pdf_guard_released_when_view_is_destroyed(monkeypatch):
+    events = []
+    window, messages = _guarded_window(events)
+    destroyed = _Signal()
+    window._wysiwyg_view.destroyed = destroyed
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+
+    destroyed.emit()  # view torn down while still preparing
+    assert events[-1] == "complete"
+
+    export_actions.export_pdf(window)
+    assert messages == [] and events.count("progress") == 2

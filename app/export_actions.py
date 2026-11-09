@@ -70,6 +70,11 @@ def export_pdf(window):
         or not is_markdown(window.current_file)
     ):
         return
+    if getattr(window, "_wysiwyg_pdf_busy", False):
+        # A WYSIWYG export is still printing or repairing its PDF: refuse
+        # rather than stack a second progress dialog over the first.
+        window.statusBar().showMessage("PDF 仍在處理中", 5000)
+        return
     setup = ask_page_setup(window)
     if setup is None:
         return
@@ -525,6 +530,7 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
     """Prepare the live Office surface, print it, then always restore it."""
     view = window.wysiwyg_view
     show_pdf_progress(window)
+    window._wysiwyg_pdf_busy = True  # released by _complete on every outcome
     state = {"phase": "preparing", "cleaned": False, "connected": False}
     page = None
 
@@ -553,6 +559,7 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
         if state["phase"] == "done":
             return
         state["phase"] = "done"
+        window._wysiwyg_pdf_busy = False
         _disconnect()
         try:
             _cleanup()
@@ -621,6 +628,16 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
             page.printToPdf(path, layout)
         except (AttributeError, RuntimeError, TypeError):
             _complete(path, False)
+
+    def _view_destroyed(*_args) -> None:
+        # The view died before the export finished: release the guard and
+        # close the progress dialog instead of leaving both stuck.
+        if state["phase"] in ("preparing", "printing") and isValid(window):
+            _complete(path, False)
+
+    destroyed = getattr(view, "destroyed", None)
+    if destroyed is not None and hasattr(destroyed, "connect"):
+        destroyed.connect(_view_destroyed)
 
     prepare = getattr(view, "prepare_pdf_export", None)
     if not callable(prepare):
