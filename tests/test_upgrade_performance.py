@@ -93,7 +93,7 @@ def test_cancelled_render_skips_conversion(qapp, monkeypatch):
         AssertionError("obsolete request was parsed")))
     worker = renderer._MarkdownRenderWorker(1, text="# obsolete", cancel=cancel)
     delivered = []
-    worker.signals.ready.connect(lambda *args: delivered.append(args))
+    worker.on_ready = lambda *args: delivered.append(args)
     worker.run()
     assert not delivered
 

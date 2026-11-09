@@ -479,3 +479,42 @@ def test_real_partial_export_waits_for_file_backed_full_page_and_temp_cleanup(
     view.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert all(not item.exists() for item in temporary_paths)
+
+
+@_real
+def test_render_worker_outliving_its_view_reports_nothing(qapp, tmp_path, monkeypatch):
+    """Render workers report through view-owned relays and hold no Qt object."""
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool
+    from shiboken6 import isValid
+
+    from app import renderer
+
+    started, release, workers = threading.Event(), threading.Event(), []
+    real_convert = renderer.convert
+
+    def blocked_convert(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return real_convert(*args, **kwargs)
+
+    class TrackedWorker(renderer._MarkdownRenderWorker):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            workers.append(vars(self).copy())
+
+    monkeypatch.setattr(renderer, "convert", blocked_convert)
+    monkeypatch.setattr(renderer, "_MarkdownRenderWorker", TrackedWorker)
+    path = tmp_path / "late.md"
+    path.write_text("# Late\n\nbody", encoding="utf-8")
+    view = RendererView()
+    view.load_file(path)
+    assert started.wait(5)
+    assert workers and not any(isinstance(v, QObject) for v in workers[0].values())
+    relays = (view._file_partial_relay, view._file_ready_relay, view._text_ready_relay)
+    view.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert not isValid(view)
+    assert all(relay.closed for relay in relays)
+    release.set()
+    assert QThreadPool.globalInstance().waitForDone(5000)
+    qapp.processEvents()  # a late report would reach the destroyed view here

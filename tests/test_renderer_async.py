@@ -13,7 +13,7 @@ def test_markdown_file_worker_returns_generation_and_headings(qapp, tmp_path):
     results = []
 
     worker = _MarkdownRenderWorker(42, path=path, theme="light")
-    worker.signals.ready.connect(lambda *args: results.append(args))
+    worker.on_ready = lambda *args: results.append(args)
     worker.run()
 
     generation, source, html, headings = results[0]
@@ -32,7 +32,7 @@ def test_markdown_text_worker_returns_preview_html(qapp):
         theme="dark",
         title="live-preview",
     )
-    worker.signals.ready.connect(lambda *args: results.append(args))
+    worker.on_ready = lambda *args: results.append(args)
     worker.run()
 
     generation, source, html, headings = results[0]

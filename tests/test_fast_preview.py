@@ -107,8 +107,8 @@ def test_worker_emits_partial_then_full_for_a_large_file(qapp, tmp_path, monkeyp
     monkeypatch.setattr(mc, "SUBPROCESS_MIN_BYTES", 1 << 40)  # stay in-process
     partials, finals = [], []
     worker = renderer._MarkdownRenderWorker(3, path=path, theme="light")
-    worker.signals.partial_ready.connect(lambda *a: partials.append(a))
-    worker.signals.ready.connect(lambda *a: finals.append(a))
+    worker.on_partial = lambda *a: partials.append(a)
+    worker.on_ready = lambda *a: finals.append(a)
 
     worker.run()
 
@@ -126,8 +126,8 @@ def test_worker_skips_the_partial_pass_for_a_normal_file(qapp, tmp_path):
     path.write_text("# Small\n\nbody\n", encoding="utf-8")
     partials, finals = [], []
     worker = renderer._MarkdownRenderWorker(1, path=path, theme="light")
-    worker.signals.partial_ready.connect(lambda *a: partials.append(a))
-    worker.signals.ready.connect(lambda *a: finals.append(a))
+    worker.on_partial = lambda *a: partials.append(a)
+    worker.on_ready = lambda *a: finals.append(a)
 
     worker.run()
 
@@ -148,7 +148,7 @@ def test_worker_skips_the_partial_pass_when_the_full_body_is_cached(
     mc.convert_body(path)  # first open populates the cache
     partials = []
     worker = renderer._MarkdownRenderWorker(2, path=path, theme="light")
-    worker.signals.partial_ready.connect(lambda *a: partials.append(a))
+    worker.on_partial = lambda *a: partials.append(a)
 
     worker.run()
 
@@ -170,8 +170,8 @@ def test_cancelled_worker_emits_no_partial_view(qapp, tmp_path, monkeypatch):
     delivered = []
     worker = renderer._MarkdownRenderWorker(4, path=path, theme="light",
                                             cancel=cancel)
-    worker.signals.partial_ready.connect(lambda *a: delivered.append(a))
-    worker.signals.ready.connect(lambda *a: delivered.append(a))
+    worker.on_partial = lambda *a: delivered.append(a)
+    worker.on_ready = lambda *a: delivered.append(a)
 
     worker.run()
 

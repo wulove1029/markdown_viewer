@@ -13,7 +13,7 @@ import urllib.parse
 import weakref
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PySide6.QtCore import (
     QFile,
@@ -47,6 +47,7 @@ from .md_converter import RenderCancelled, convert, convert_text, state_page_htm
 from .pdf_repair_async import repair_async
 from .pdf_tounicode import repair_radical_tounicode
 from .web_security import blocks_file_request, document_host, install_remote_file_guard
+from .worker_relay import WorkerRelay
 
 _RENDER_GENERATION_META = "markdown-viewer-render-generation"
 _RENDER_ERROR_META = "markdown-viewer-render-error"
@@ -421,14 +422,6 @@ class _DocumentPage(QWebEnginePage):
         return False
 
 
-class _RenderSignals(QObject):
-    ready = Signal(int, object, str, list)
-    # Fast text reading: a block-boundary prefix of a very large document,
-    # emitted before ``ready`` so there is something to read while the full
-    # preview finishes in the render worker process.
-    partial_ready = Signal(int, object, str, list, int)
-
-
 class _LoadingShield(QWidget):
     """Intercept old-page input immediately; display a hint only for slow loads."""
 
@@ -501,7 +494,14 @@ class _LoadingShield(QWidget):
 
 
 class _MarkdownRenderWorker(QRunnable):
-    """Run Markdown conversion off the GUI thread."""
+    """Run Markdown conversion off the GUI thread.
+
+    ``on_ready(generation, source, html, headings)`` and, for fast text
+    reading, ``on_partial(generation, path, html, headings, percent)`` (a
+    block-boundary prefix of a very large document, reported before
+    ``on_ready``) are the view's ``WorkerRelay.emit``. The worker owns no Qt
+    object, because the pool releases it on its worker thread.
+    """
 
     def __init__(
         self,
@@ -513,6 +513,8 @@ class _MarkdownRenderWorker(QRunnable):
         title: str = "preview",
         cancel: threading.Event | None = None,
         defer_code: bool = True,
+        on_ready: Callable[[int, object, str, list], None] | None = None,
+        on_partial: Callable[[int, object, str, list, int], None] | None = None,
     ):
         super().__init__()
         self.generation = generation
@@ -522,7 +524,8 @@ class _MarkdownRenderWorker(QRunnable):
         self.title = title
         self.cancel = cancel
         self.defer_code = defer_code
-        self.signals = _RenderSignals()
+        self.on_ready = on_ready
+        self.on_partial = on_partial
 
     def _cancelled(self) -> bool:
         return self.cancel is not None and self.cancel.is_set()
@@ -545,8 +548,8 @@ class _MarkdownRenderWorker(QRunnable):
         if self._cancelled():
             return
         percent = max(1, round(_prefix_bytes * 100 / max(size, 1)))
-        self.signals.partial_ready.emit(self.generation, path, html,
-                                        list(rendered.headings), percent)
+        if self.on_partial is not None:
+            self.on_partial(self.generation, path, html, list(rendered.headings), percent)
 
     def run(self):
         try:
@@ -594,8 +597,8 @@ class _MarkdownRenderWorker(QRunnable):
             html = html.replace("</head>", f'<meta name="{_RENDER_ERROR_META}" content="true"></head>', 1)
             headings = []
             source = self.path
-        if self.cancel is None or not self.cancel.is_set():
-            self.signals.ready.emit(self.generation, source, html, headings)
+        if (self.cancel is None or not self.cancel.is_set()) and self.on_ready is not None:
+            self.on_ready(self.generation, source, html, headings)
 
 
 class RendererView(QWebEngineView):
@@ -652,6 +655,12 @@ class RendererView(QWebEngineView):
         self._pending_ratio: tuple[int, float] | None = None
         self._render_generation = 0
         self._render_pool = background_jobs.pool()
+        # Render workers report through relays this view owns: a worker holds
+        # no Qt object of its own for its pool thread to release, and reports
+        # arriving after the view is destroyed are dropped.
+        self._file_partial_relay = WorkerRelay(self, self._on_file_partial_ready)
+        self._file_ready_relay = WorkerRelay(self, self._on_file_render_ready)
+        self._text_ready_relay = WorkerRelay(self, self._on_text_render_ready)
         self._pending_text_base_url: QUrl | None = None
         self._scroll_y = 0  # last polled vertical scroll (for per-tab restore)
         self._scroll_anchor = None
@@ -1277,9 +1286,9 @@ class RendererView(QWebEngineView):
             return
 
         worker = _MarkdownRenderWorker(generation, path=path, theme=self._theme,
-                                       cancel=self._render_cancel)
-        worker.signals.partial_ready.connect(self._on_file_partial_ready)
-        worker.signals.ready.connect(self._on_file_render_ready)
+                                       cancel=self._render_cancel,
+                                       on_ready=self._file_ready_relay.emit,
+                                       on_partial=self._file_partial_relay.emit)
         self._render_pool.start(worker, background_jobs.VISIBLE)
 
     def _stale_render(self, generation: int, source) -> bool:
@@ -1438,9 +1447,8 @@ class RendererView(QWebEngineView):
         self._pending_text_base_url = base_url
         worker = _MarkdownRenderWorker(
             generation, text=text, theme=theme, title=title, cancel=self._render_cancel,
-            defer_code=defer_code,
+            defer_code=defer_code, on_ready=self._text_ready_relay.emit,
         )
-        worker.signals.ready.connect(self._on_text_render_ready)
         self._render_pool.start(worker, background_jobs.VISIBLE)
 
     def _on_text_render_ready(self, generation: int, _source, html: str, _headings: list):

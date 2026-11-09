@@ -118,7 +118,7 @@ def test_transform_error_emits_an_error_page(qapp, monkeypatch):
     monkeypatch.setattr(code_loading, 'defer_code_highlighting', fail)
     results = []
     worker = _MarkdownRenderWorker(18, text='# Source')
-    worker.signals.ready.connect(lambda *args: results.append(args))
+    worker.on_ready = lambda *args: results.append(args)
     worker.run()
     assert len(results) == 1
     assert results[0][0] == 18
@@ -126,7 +126,7 @@ def test_transform_error_emits_an_error_page(qapp, monkeypatch):
     assert 'transform failure' in results[0][2]
     results.clear()
     worker = _MarkdownRenderWorker(19, text='# Source', defer_code=False)
-    worker.signals.ready.connect(lambda *args: results.append(args))
+    worker.on_ready = lambda *args: results.append(args)
     worker.run()
     assert 'markdown-viewer-render-error' not in results[0][2]
     assert '<h1' in results[0][2]
