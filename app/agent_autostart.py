@@ -77,7 +77,8 @@ def load_install(home: Path) -> InstallCheck:
     if not isinstance(data, dict):
         return _bad("install.json 格式不符（不是物件）。")
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema != SUPPORTED_SCHEMA:
+    # Strictly the integer 1, like the Watchdog: 1.0, True and "1" are refused.
+    if not (type(schema) is int and schema == SUPPORTED_SCHEMA):
         return _bad(f"install.json 的 schema 是 {schema!r}，本程式只支援 1，不自動啟動。")
     if data.get("autostart") is not True:
         return _bad("install.json 的 autostart 為關閉（可用 aiwatch.py --autostart on 開啟）。")

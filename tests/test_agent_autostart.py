@@ -138,6 +138,8 @@ def test_corrupt_install_json(layout):
 BAD = {
     "schema_2": (lambda i, t: i.update(schema=2), "schema"),
     "schema_bool": (lambda i, t: i.update(schema=True), "schema"),
+    "schema_float": (lambda i, t: i.update(schema=1.0), "schema"),
+    "schema_string": (lambda i, t: i.update(schema="1"), "schema"),
     "schema_missing": (lambda i, t: i.pop("schema"), "schema"),
     "autostart_false": (lambda i, t: i.update(autostart=False), "autostart"),
     "autostart_string": (lambda i, t: i.update(autostart="true"), "autostart"),
@@ -177,6 +179,17 @@ def test_invalid_install_is_rejected_with_a_reason(layout, tmp_path, name):
     assert not check.ok
     assert check.reason and keyword in check.reason
 
+
+
+@pytest.mark.parametrize("schema", [1.0, True, "1"])
+def test_schema_must_be_the_integer_one(layout, schema):
+    home, install = layout
+    install["schema"] = schema
+    write_install(home, install)
+    check = au.load_install(home)
+    assert not check.ok
+    assert check.reason == (
+        f"install.json 的 schema 是 {schema!r}，本程式只支援 1，不自動啟動。")
 
 def test_install_json_is_never_written(layout):
     home, _ = layout
