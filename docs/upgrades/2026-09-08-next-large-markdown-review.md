@@ -153,7 +153,7 @@ RUN_WEBENGINE_TESTS=1 py -3 -X utf8 -m pytest tests/test_renderer_async.py \
 - `C:\Users\USER01\AppData\Roaming\python\markdown-viewer\recovery-leaked-backup-20260908` 仍在，
   但那是 **批次 2（更新下載）** 已記錄的舊外洩備份（見 `docs/upgrades/2026-09-08-next-update-download.md:187`），
   ctime 2026-08-25、mtime 10:58（早於本次測試），**與本分支無關**。
-- `Get-CimInstance Win32_Process` 顯示 **無任何 `--render-worker` 殘留程序**（只有其他 session 的 pytest 與 MCP 程序）。
+- `Get-CimInstance Win32_Process` 顯示 **無任何 `--render-worker` 殘留程序**（只有其他 session 的 pytest 與工具程序）。
 
 ### 9. 保留 1.31.0 行為 — PASS
 
