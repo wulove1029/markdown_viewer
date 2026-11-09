@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.37.1] - 2026-11-09
+
+### Fixed
+- 匯出 PDF 時，CJK 字型中與統一漢字共用字形的康熙部首／部首補充字元不再寫進文字對照表，複製、搜尋與文字擷取會得到正確的漢字（如「一」「二」「目」「首」）。文件中刻意輸入的部首字元維持不變，加密 PDF 不處理，修正失敗時保留原檔；適用預覽、批次、命令列與編輯模式的 PDF 匯出。
+- AI Agent 監看：Watchdog 啟動檔不再預設為特定電腦的路徑；未設定時面板會說明如何指定，已儲存的自訂路徑照常生效。
+
+### Changed
+- 發版流程加跑預覽連結與不受信任 Markdown 的 WebEngine 測試，後者在獨立程序執行，避免其他測試的原生崩潰連帶略過。
+
+### Validation
+- 完整測試 2617 passed／168 skipped，1 項已知失敗（help 診斷匯出）；Ruff、mypy 通過。
+- WebEngine 分組 security 179、WYSIWYG 28、office-commands 22、程式碼延後高亮 6、預覽連結 3 項通過；renderer 組的頁面輪換測試偶發原生崩潰、大型未儲存快照 PDF 匯出測試在慢速磁碟逾時，兩者在 1.37.0 基準版同樣發生。
+- PyInstaller 打包後以執行檔實測 PDF 中文文字擷取與 Word 匯出。
+- 1.37.0 安裝實測：URL protocol 與 App Paths 登錄生效，`markdownviewer://` 連結可開啟文件。
+
 ## [1.37.0] - 2026-11-09
 
 ### Added

@@ -1,11 +1,10 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.37.0"
+VERSION = "1.37.1"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "新增外部開啟入口：命令列、markdownviewer:// 連結與單一視窗轉送，可直接跳到指定標題或行。",
-    "新增無視窗命令列匯出（Word／PPT／PDF／HTML）與 AI Agent 監看面板；切回視窗時自動重掃文件庫。",
-    "強化不受信任 Markdown 的安全防護，支援 ==螢光標記== 與 [TOC] 目錄，並修正預覽連結點擊崩潰。",
+    "修正匯出的 PDF 在複製、搜尋或擷取中文時，「一」「二」「目」等字變成外觀相同的部首字元。",
+    "AI Agent 監看的 Watchdog 啟動檔不再預設為特定電腦的路徑；未設定時面板會說明如何指定。",
 ]
 
 GITHUB_OWNER = "wulove1029"
