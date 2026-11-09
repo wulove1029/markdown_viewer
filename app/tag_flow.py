@@ -3,7 +3,7 @@
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Signal
+from PySide6.QtCore import QRunnable
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from . import background_jobs
@@ -12,30 +12,46 @@ from .annotations import AnnotationStore, DocumentAnnotations
 from .document_metadata import cached_metadata, read_metadata, signature
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .manage_tags_dialog import ManageTagsDialog
-
-
-class _MetadataSignals(QObject):
-    ready = Signal(int, object, object)
-    failed = Signal(int, object, str)
+from .worker_relay import WorkerRelay
 
 
 class _MetadataWorker(QRunnable):
-    def __init__(self, generation, path, cancel):
+    """Reads document metadata off the GUI thread.
+
+    ``on_ready(generation, path, result)`` and ``on_failed(generation, path,
+    message)`` are the window's ``WorkerRelay.emit``; the worker owns no Qt
+    object for its pool thread to release.
+    """
+
+    def __init__(self, generation, path, cancel, on_ready, on_failed):
         super().__init__()
         self.generation = generation
         self.path = path
         self.cancel = cancel
-        self.signals = _MetadataSignals()
+        self.on_ready = on_ready
+        self.on_failed = on_failed
 
     def run(self):
         try:
             result = read_metadata(self.path, cancel=self.cancel)
         except Exception as exc:
             if not self.cancel.is_set():
-                self.signals.failed.emit(self.generation, self.path, str(exc))
+                self.on_failed(self.generation, self.path, str(exc))
         else:
             if not self.cancel.is_set():
-                self.signals.ready.emit(self.generation, self.path, result)
+                self.on_ready(self.generation, self.path, result)
+
+
+def _metadata_relays(self):
+    """Window-owned relays, created on first use on the GUI thread."""
+    relays = getattr(self, "_metadata_worker_relays", None)
+    if relays is None:
+        relays = (
+            WorkerRelay(self, self._on_document_metadata_ready),
+            WorkerRelay(self, self._on_document_metadata_failed),
+        )
+        self._metadata_worker_relays = relays
+    return relays
 
 
 def cancel_metadata(self):
@@ -62,9 +78,8 @@ def request_metadata(self, *, render_pending=False):
     # Pure editor workspaces need only the cheaper metadata operation.
     if render_pending:
         return
-    worker = _MetadataWorker(generation, path, self._metadata_cancel)
-    worker.signals.ready.connect(self._on_document_metadata_ready)
-    worker.signals.failed.connect(self._on_document_metadata_failed)
+    ready, failed = _metadata_relays(self)
+    worker = _MetadataWorker(generation, path, self._metadata_cancel, ready.emit, failed.emit)
     background_jobs.submit(worker, key=(id(self), "metadata"), should_cancel=worker.cancel.is_set)
 
 
