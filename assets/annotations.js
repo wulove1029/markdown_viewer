@@ -720,10 +720,15 @@
   // exists, waits until the context handlers above (and inline/table
   // editors) have run, and keeps an Escape pressed before this channel was
   // ready instead of losing it; it only needs this page's bridge to report.
+  // A failure here must never keep afterChannel() from booting the page.
   function connectUnhandledEscape() {
-    var connect = window.__mdUnhandledEscapeConnect;
-    if (typeof connect === "function" && bridge && bridge.reportUnhandledEscape) {
-      connect(function (generation) { bridge.reportUnhandledEscape(generation); });
+    if (!bridge || !bridge.reportUnhandledEscape) return;
+    try {
+      window.__mdUnhandledEscapeConnect(function (generation) {
+        bridge.reportUnhandledEscape(generation);
+      });
+    } catch (error) {
+      // No usable watcher in this document: no Escape reports, nothing else.
     }
   }
 

@@ -383,3 +383,69 @@ def test_escape_reports_survive_pages_without_document_creation_scripts(qapp):
         assert _until(lambda: reported == [7]), reported
     finally:
         view.close()
+
+
+# Page script that hides the Escape watcher's hook from both "already
+# installed" probes, so the copy carried by the bridge boot really runs again
+# in a document that already has the watcher. Everything else is untouched:
+# the channel library itself relies on hasOwnProperty.
+_HIDE_ESCAPE_WATCH_JS = """(function () {
+  var hasOwn = Object.prototype.hasOwnProperty;
+  var describe = Object.getOwnPropertyDescriptor;
+  function hidden(target, key) {
+    return target === window && String(key).indexOf("__mdUnhandledEscape") === 0;
+  }
+  Object.prototype.hasOwnProperty = function (key) {
+    return hidden(this, key) ? false : hasOwn.call(this, key);
+  };
+  Object.getOwnPropertyDescriptor = function (target, key) {
+    return hidden(target, key) ? undefined : describe(target, key);
+  };
+  window.__builtinsPatched = true;
+})();"""
+
+
+@_skip_webengine
+@pytest.mark.parametrize("page", ["markdown", "live-preview"])
+def test_bridge_boot_survives_page_patched_builtins(qapp, tmp_path, page):
+    from PySide6.QtCore import QUrl
+    from PySide6.QtWebEngineCore import QWebEngineScript
+
+    view = RendererView()
+    view.resize(700, 500)
+    reported = []
+    view.bridge.unhandledEscape.connect(reported.append)
+    view.set_search_escape_generation(7)
+    patcher = QWebEngineScript()
+    patcher.setName("test-page-patches-builtins")
+    patcher.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+    patcher.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+    patcher.setSourceCode(_HIDE_ESCAPE_WATCH_JS)
+    view.page().scripts().insert(patcher)
+    try:
+        view.show()
+        if page == "markdown":
+            md = tmp_path / "patched.md"
+            md.write_text("# Patched\n\nbody text\n", encoding="utf-8")
+            view.load_file(md)
+            # annotations.js, then inline_edit.js after it, then the boot.
+            booted = "typeof window.__annot === 'object' && !!window.__inlineEdit"
+        else:
+            view.render_html("<html><body tabindex='0'>patched preview</body></html>",
+                             QUrl.fromLocalFile(str(tmp_path) + "/"))
+            # reading_media.js is the last part of the live-preview boot.
+            booted = ("document.body.textContent === 'patched preview' && "
+                      "window.__mdUnhandledEscapeInstalled === true && !!window.readingMedia")
+        assert _until(lambda: _eval(
+            view, f"window.__builtinsPatched === true && {_ESCAPE_WATCH_READY} && ({booted})"
+        ) is True, _LOAD_TIMEOUT_MS)
+        _press_escape(view)
+        assert _until(lambda: reported == [7]), reported
+        # Exactly one watcher: a second listener would report this one twice.
+        view.set_search_escape_generation(8)
+        assert _eval(view, "window.__mdSearchEscapeGeneration") == 8
+        _press_escape(view)
+        assert _until(lambda: len(reported) >= 2), reported
+        assert reported == [7, 8]
+    finally:
+        view.close()

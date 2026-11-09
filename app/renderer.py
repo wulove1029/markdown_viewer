@@ -85,48 +85,61 @@ _UNHANDLED_ESCAPE_WATCH_SCRIPT = "markdown-viewer-unhandled-escape-watch"
 # Escape that stayed unhandled until the page's bridge script hands it a
 # report function through __mdUnhandledEscapeConnect, defined (normally before
 # any page script exists) non-writable and non-configurable, so a page can
-# neither replace it to capture that function nor displace the first one.
-# Only trusted (real) key events count, read through getters captured here,
-# so a synthetic event or a patched KeyboardEvent/Event prototype reports
-# nothing. Running it again in the same document is a no-op.
+# neither replace it to capture that function nor feed it a report. Only
+# trusted (real) key events count, read through getters captured here, so a
+# synthetic event or a patched KeyboardEvent/Event prototype reports nothing.
+# This prevents forged reports, not suppressed ones: a page script that
+# connects first takes the reports away from the bridge, which gains it
+# nothing over handling Escape itself (preventDefault) -- either way Python
+# hears nothing.
+# The copy the bridge boot scripts carry may run after page scripts, which
+# can have patched built-ins by then. It therefore claims the hook before it
+# adds its listener (an existing hook makes that throw: never a second
+# listener) and keeps every failure inside, so the boot code after it runs.
 _UNHANDLED_ESCAPE_WATCH_JS = r"""
 (function () {
   "use strict";
-  if (Object.prototype.hasOwnProperty.call(window, "__mdUnhandledEscapeConnect")) return;
-  var call = Function.prototype.call;
-  var keyOf = call.bind(Object.getOwnPropertyDescriptor(KeyboardEvent.prototype, "key").get);
-  var preventedOf = call.bind(
-    Object.getOwnPropertyDescriptor(Event.prototype, "defaultPrevented").get);
-  var later = window.setTimeout.bind(window);
-  var toNumber = Number;
-  var report = null;
-  var pending = 0;
-  window.__mdSearchEscapeGeneration = __GENERATION__;
-  document.addEventListener("keydown", function (event) {
-    var key = keyOf(event);
-    if (!event.isTrusted || (key !== "Escape" && key !== "Esc")) return;
-    var generation = toNumber(window.__mdSearchEscapeGeneration || 0);
-    if (!(generation > 0)) return;
-    // Let page tools (context menu, inline/table editors) handle it first.
-    later(function () {
-      if (preventedOf(event)) return;
-      if (report) report(generation);
-      else pending = generation;
-    }, 0);
-  });
-  Object.defineProperty(window, "__mdUnhandledEscapeConnect", {
-    value: function (sink) {
-      if (report || typeof sink !== "function") return false;
-      report = sink;
-      if (pending) {
-        var generation = pending;
-        pending = 0;
-        sink(generation);
+  try {
+    var describe = Object.getOwnPropertyDescriptor;
+    var define = Object.defineProperty;
+    var hook = "__mdUnhandledEscapeConnect";
+    if (describe(window, hook)) return;
+    var call = Function.prototype.call;
+    var keyOf = call.bind(describe(KeyboardEvent.prototype, "key").get);
+    var preventedOf = call.bind(describe(Event.prototype, "defaultPrevented").get);
+    var later = window.setTimeout.bind(window);
+    var toNumber = Number;
+    var report = null;
+    var pending = 0;
+    define(window, hook, {
+      value: function (sink) {
+        if (report || typeof sink !== "function") return false;
+        report = sink;
+        if (pending) {
+          var generation = pending;
+          pending = 0;
+          sink(generation);
+        }
+        return true;
       }
-      return true;
-    }
-  });
-  Object.defineProperty(window, "__mdUnhandledEscapeReady", {value: true});
+    });
+    document.addEventListener("keydown", function (event) {
+      var key = keyOf(event);
+      if (!event.isTrusted || (key !== "Escape" && key !== "Esc")) return;
+      var generation = toNumber(window.__mdSearchEscapeGeneration || 0);
+      if (!(generation > 0)) return;
+      // Let page tools (context menu, inline/table editors) handle it first.
+      later(function () {
+        if (preventedOf(event)) return;
+        if (report) report(generation);
+        else pending = generation;
+      }, 0);
+    });
+    define(window, "__mdUnhandledEscapeReady", {value: true});
+    window.__mdSearchEscapeGeneration = __GENERATION__;
+  } catch (error) {
+    // Already installed, or built-ins a page patched before a late install.
+  }
 })();
 """
 
@@ -136,13 +149,17 @@ _UNHANDLED_ESCAPE_JS = r"""
 (function () {
   if (window.__mdUnhandledEscapeInstalled) return;
   window.__mdUnhandledEscapeInstalled = true;
-  var connect = window.__mdUnhandledEscapeConnect;
-  if (typeof connect !== "function" || typeof QWebChannel === "undefined" ||
-      !window.qt || !qt.webChannelTransport) return;
+  if (typeof QWebChannel === "undefined" || !window.qt ||
+      !qt.webChannelTransport) return;
   new QWebChannel(qt.webChannelTransport, function (channel) {
     var bridge = channel.objects.bridge;
-    if (bridge && bridge.reportUnhandledEscape) {
-      connect(function (generation) { bridge.reportUnhandledEscape(generation); });
+    if (!bridge || !bridge.reportUnhandledEscape) return;
+    try {
+      window.__mdUnhandledEscapeConnect(function (generation) {
+        bridge.reportUnhandledEscape(generation);
+      });
+    } catch (error) {
+      // No usable watcher in this document: no Escape reports, nothing else.
     }
   });
 })();
