@@ -7,6 +7,7 @@ log = logging.getLogger(__name__)
 import json
 import math
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -20,7 +21,6 @@ from PySide6.QtCore import (
     QSettings,
     QSize,
     Qt,
-    QThread,
     QTimer,
     QUrl,
     Signal,
@@ -172,14 +172,13 @@ from .translate_dialog import TranslationDialog
 from .updater import is_newer_version
 from .version import RELEASE_NOTES, VERSION
 from .wikilink_completion import completion_candidates
+from .worker_relay import WorkerRelay
 from .workspace_controls import WorkspaceControls
 from .wysiwyg_view import WysiwygView
 
 _RECENT_RESOURCES_KEY = "recent_editor_resources"
 _RECENT_TEMPLATES_KEY = "recent_editor_templates"
 _DETACHED_WINDOWS: set[QMainWindow] = set()
-# Link-index threads that outlived their window stay referenced until finished.
-_LINK_ORPHANS: set[QThread] = set()
 
 
 
@@ -209,34 +208,52 @@ def _walk_roots(roots: list[Path], excluded: list[str]) -> list[Path]:
     return ordered
 
 
-class LinkIndexThread(QThread):
-    """Build the wiki-link index off the UI thread (reads many small files)."""
+class LinkIndexThread:
+    """Build the wiki-link index on a daemon thread (reads many small files).
 
-    ready = Signal(object)
+    Holds no Qt object. It reports ``(self, "ready", index_or_None)`` and then
+    ``(self, "finished", None)`` through the window's relay. Qt neither owns
+    nor destroys the thread, so a build stuck on an offline share may outlive
+    its window, or the application, without "QThread: Destroyed while thread
+    is still running"; the relay drops what it reports after the window.
+    """
 
-    def __init__(self, roots, parent=None):
-        super().__init__(parent)
-        # Path strings only: whether a root exists is checked in run(), since
+    def __init__(self, roots, report):
+        # Path strings only: whether a root exists is checked in _run(), since
         # an offline share can block Path.exists() for seconds.
         self._roots = [str(root) for root in roots]
+        self._report = report
+        self.cancel = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="link-index", daemon=True)
 
-    def run(self):
+    def start(self) -> None:
+        self._thread.start()
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def wait(self, timeout_s: float) -> bool:
+        """Join for at most *timeout_s*; True when the thread has ended."""
+        self._thread.join(timeout_s)
+        return not self._thread.is_alive()
+
+    def _run(self):
         try:
             roots = [Path(root) for root in self._roots]
             roots = [root for root in roots if root.exists()]
             # The current folder is usually inside a library: walk it once.
             walk = _walk_roots(roots, load_excluded_folders())
             files = collect_markdown_files(walk)
-            docs = read_docs(
-                files, should_cancel=self.isInterruptionRequested
-            )
+            docs = read_docs(files, should_cancel=self.cancel.is_set)
             index = LinkIndex()
             index.build(docs)
             index.completion_candidates = completion_candidates(roots, files)
-            self.ready.emit(index)
+            self._report(self, "ready", index)
         except Exception:
-            if not self.isInterruptionRequested():
-                self.ready.emit(None)
+            if not self.cancel.is_set():
+                self._report(self, "ready", None)
+        finally:
+            self._report(self, "finished", None)
 
 
 class _SearchLineEdit(QLineEdit):
@@ -382,7 +399,9 @@ class MainWindow(QMainWindow):
 
         # Wiki-link index ([[note]] -> file, plus inverted backlinks).
         self._link_index = LinkIndex()
+        # The build in flight, until its "finished" report is handled.
         self._link_thread: LinkIndexThread | None = None
+        self._link_relay = WorkerRelay(self, self._on_link_build_report)
         self._link_roots_key: tuple[str, ...] | None = None
         self._link_refresh_pending = False
         self._graph_window: GraphWindow | None = None
@@ -5312,14 +5331,14 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._refresh_backlinks()
             return
         self._link_roots_key = key
-        if self._link_thread is not None and self._link_thread.isRunning():
+        # A build counts as running until its last report has been handled,
+        # even when its thread has already ended.
+        if self._link_thread is not None:
             if force:
                 self._link_refresh_pending = True
             self._refresh_backlinks()
             return
-        self._link_thread = LinkIndexThread(roots, self)
-        self._link_thread.ready.connect(self._on_link_index_ready)
-        self._link_thread.finished.connect(self._on_link_index_finished)
+        self._link_thread = LinkIndexThread(roots, self._link_relay.emit)
         self._link_thread.start()
         self._library_watcher.rebaseline()
         self._refresh_backlinks()
@@ -5335,7 +5354,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             self._library_watcher.notify_activated()
         elif event.type() == QEvent.Type.DeferredDelete:
             # Deleted without an accepted close (a cancelled close, then
-            # deleteLater): Qt must never destroy a running QThread child.
+            # deleteLater): cancel the scans that would only be discarded.
             self._stop_background_scans()
         return super().event(event)
 
@@ -5352,11 +5371,16 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
                 self._graph_window.set_index(index, current)
         self._refresh_backlinks()
 
+    def _on_link_build_report(self, build, kind, index) -> None:
+        if build is not self._link_thread:
+            return  # abandoned by _shutdown_link_thread
+        if kind == "ready":
+            self._on_link_index_ready(index)
+        else:
+            self._on_link_index_finished()
+
     def _on_link_index_finished(self):
-        thread = self._link_thread
         self._link_thread = None
-        if thread is not None:
-            thread.deleteLater()
         if self._link_refresh_pending:
             self._link_refresh_pending = False
             self._refresh_link_index(force=True)
@@ -7174,23 +7198,20 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             watcher.resume()
 
     def _shutdown_link_thread(self) -> None:
-        """Stop the link-index thread; never let Qt destroy it while running."""
+        """Cancel the link-index build and wait for it briefly (bounded).
+
+        Its reports are ignored from now on. A build that does not stop in
+        time finishes on its own daemon thread; nothing Qt-owned is left to
+        destroy while it runs.
+        """
         thread = self._link_thread
         self._link_refresh_pending = False
         if thread is None:
             return
         self._link_thread = None
-        thread.requestInterruption()
-        try:
-            thread.ready.disconnect(self._on_link_index_ready)
-            thread.finished.disconnect(self._on_link_index_finished)
-        except (RuntimeError, TypeError):
-            pass
-        if thread.isRunning() and not thread.wait(3000):
-            log.warning("Link index thread did not stop in time; orphaning it")
-            _LINK_ORPHANS.add(thread)
-            thread.finished.connect(lambda t=thread: _LINK_ORPHANS.discard(t))
-            thread.setParent(None)
+        thread.cancel.set()
+        if not thread.wait(3.0):
+            log.warning("Link index build did not stop in time; leaving it to finish")
 
     def _stop_background_scans(self) -> None:
         """Stop the focus rescan and the link-index rebuild (blocks briefly)."""

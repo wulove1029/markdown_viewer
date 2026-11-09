@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import functools
+import inspect
 import os
 import threading
 import time
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSettings
 from PySide6.QtWidgets import QApplication
 
 from app import session_state
@@ -434,7 +436,7 @@ def test_cancelled_close_keeps_link_index_rebuild_and_watcher(
         monkeypatch.setattr(window_mod, "collect_markdown_files", blocked_collect)
         window._refresh_link_index(force=True)
         thread = window._link_thread
-        assert thread is not None and thread.isRunning()
+        assert thread is not None and thread.is_alive()
         watcher = window._library_watcher
         generation = watcher._generation
         index_before = window._link_index
@@ -443,7 +445,7 @@ def test_cancelled_close_keeps_link_index_rebuild_and_watcher(
         started = time.monotonic()
         assert window.close() is False
         assert time.monotonic() - started < 1.0
-        assert window._link_thread is thread and not thread.isInterruptionRequested()
+        assert window._link_thread is thread and not thread.cancel.is_set()
         assert watcher._generation == generation
 
         release.set()
@@ -454,20 +456,155 @@ def test_cancelled_close_keeps_link_index_rebuild_and_watcher(
         release.clear()
         window._refresh_link_index(force=True)
         thread = window._link_thread
-        assert thread is not None and thread.isRunning()
+        assert thread is not None and thread.is_alive()
         window._confirm_close_all_edits = lambda: True
         threading.Timer(0.2, release.set).start()
         assert window.close() is True
-        assert window._link_thread is None and thread.isFinished()
+        assert window._link_thread is None and not thread.is_alive()
         assert watcher._generation > generation
     finally:
         release.set()
         _dispose_window(window)
 
 
+
+
+# ------------------------------------------- background jobs hold no Qt object
+def _qt_objects_held_by(job):
+    """QObjects *job* references directly, through bound methods or partials.
+
+    The job may be released on its own thread, so it must hold none (see
+    app/worker_relay.py); its relay's emit is the sanctioned way back.
+    """
+    found = []
+
+    def visit(value):
+        if isinstance(value, QObject):
+            found.append(value)
+        elif inspect.ismethod(value):
+            visit(value.__self__)
+        elif isinstance(value, functools.partial):
+            for part in (value.func, *value.args, *value.keywords.values()):
+                visit(part)
+
+    for value in vars(job).values():
+        visit(value)
+    return found
+
+
+def test_scan_job_holds_no_qt_object(qapp, tmp_path):
+    (tmp_path / "a.md").write_text("a", encoding="utf-8")
+    w = LibraryChangeWatcher(lambda: [tmp_path], lambda: True, lambda: [], None)
+    try:
+        w.rebaseline()  # the default scan, bound to nothing Qt-owned
+        job = w._thread
+        assert job is not None
+        assert _qt_objects_held_by(job) == []
+        assert _idle(w) and w._baseline is not None and w._baseline.count == 1
+    finally:
+        w.shutdown()
+
+
+def test_scan_report_after_shutdown_is_dropped(qapp):
+    def scan(roots, excluded, cancel=None):
+        cancel.wait(5)
+        return _sig(1)  # a result that still arrives after shutdown()
+
+    w, emitted = _watcher(qapp, scan)
+    w.rebaseline()
+    job = w._thread
+    started = time.monotonic()
+    w.shutdown()
+    assert time.monotonic() - started < 1.0  # the scan honoured the cancel
+    assert w._thread is None and job.cancel.is_set()
+    assert _pump(lambda: not job.is_alive())
+    QCoreApplication.processEvents()
+    assert w._baseline is None and emitted == [] and w._thread is None
+
+
+def test_link_build_holds_no_qt_object(qapp, tmp_path, isolated_window_env, monkeypatch):
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    (lib / "a.md").write_text("# a\n", encoding="utf-8")
+    _FakeStore.roots = [lib]
+    monkeypatch.setattr(window_mod.MainWindow, "_check_updates_silent", lambda self: None)
+    window = window_mod.MainWindow()
+    release = threading.Event()
+    try:
+        assert _pump(lambda: window._link_thread is None)
+
+        def blocked_collect(roots, **kwargs):
+            release.wait(10)
+            return []
+
+        monkeypatch.setattr(window_mod, "collect_markdown_files", blocked_collect)
+        window._refresh_link_index(force=True)
+        build = window._link_thread
+        assert build is not None and build.is_alive()
+        assert _qt_objects_held_by(build) == []
+        release.set()
+        assert _pump(lambda: window._link_thread is None)
+    finally:
+        release.set()
+        _dispose_window(window)
+
+
+def test_refresh_while_an_ended_build_still_reports_queues_a_rebuild(
+    qapp, tmp_path, isolated_window_env, monkeypatch
+):
+    """An ended build whose reports were still queued used to be replaced at
+    once; its late ``finished`` then retired the newer, running QThread."""
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    target = lib / "Target.md"
+    target.write_text("# Target\n", encoding="utf-8")
+    _FakeStore.roots = [lib]
+    monkeypatch.setattr(window_mod.MainWindow, "_check_updates_silent", lambda self: None)
+    window = window_mod.MainWindow()
+    try:
+        assert _pump(lambda: window._link_thread is None)
+        walks = []
+        real_collect = window_mod.collect_markdown_files
+
+        def counting_collect(roots, **kwargs):
+            walks.append(1)
+            return real_collect(roots, **kwargs)
+
+        monkeypatch.setattr(window_mod, "collect_markdown_files", counting_collect)
+        window._refresh_link_index(force=True)
+        first = window._link_thread
+        deadline = time.monotonic() + 10
+        while first.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.005)  # no event processing: its reports stay queued
+        assert not first.is_alive()
+
+        (lib / "Source.md").write_text("see [[Target]]\n", encoding="utf-8")
+        window._refresh_link_index(force=True)
+        assert window._link_thread is first and window._link_refresh_pending
+
+        assert _pump(lambda: window._link_thread is None and len(walks) == 2)
+        assert any("Source" in b for b in window._link_index.backlinks(target))
+    finally:
+        _dispose_window(window)
+
+
 # ------------------------------------------- I1b: shutdown while indexing
-_CRASH_SCRIPT = r'''
-import sys, time, tempfile
+def _run_script(tmp_path, source, *args):
+    import subprocess
+    import sys
+
+    script = tmp_path / "crash_probe.py"
+    script.write_text(source, encoding="utf-8")
+    repo = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONPATH=str(repo))
+    return subprocess.run(
+        [sys.executable, "-B", "-X", "utf8", str(script), *args],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=300,
+    )
+
+
+_WINDOW_SCRIPT_PREAMBLE = r'''
+import random, sys, threading, time, tempfile
 from pathlib import Path
 from PySide6.QtCore import QSettings, QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
@@ -489,6 +626,7 @@ window_mod.PdfView = _FakePdfView
 window_mod.LeftPanel = _FakePanel
 window_mod.TagIndex = _FakeTagIndex
 window_mod.MainWindow._refresh_tags_panel = lambda self: None
+window_mod.MainWindow._check_updates_silent = lambda self: None
 (tmp / "n.md").write_text("# n\n", encoding="utf-8")
 class Store:
     def load(self):
@@ -497,46 +635,159 @@ class Store:
         return [L()]
 window_mod.DocumentLibraryStore = Store
 window_mod.load_excluded_folders = lambda: []
+'''
 
+_CRASH_SCRIPT = _WINDOW_SCRIPT_PREAMBLE + r'''
 mode = sys.argv[1]
+delay = {"short": 1.0, "long": 4.5, "exit": 6.0}[mode]
 def slow_collect(roots, **kw):
-    time.sleep(1.0 if mode == "short" else 4.5)
+    time.sleep(delay)
     return []
 window_mod.collect_markdown_files = slow_collect
 
 w = window_mod.MainWindow()
 w._refresh_link_index(force=True)
-assert w._link_thread is not None and w._link_thread.isRunning()
+build = w._link_thread
+assert build is not None and build.is_alive()
 w.close()
 w.deleteLater()
 QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 assert not isValid(w)
+if mode == "exit":
+    # Still building when the interpreter exits: a QThread here was
+    # destroyed while running and aborted the process.
+    assert build.is_alive()
+    print("OK")
+    sys.exit(0)
 deadline = time.monotonic() + 20
 for _ in range(50):
     QCoreApplication.processEvents()
     time.sleep(0.02)
-while window_mod._LINK_ORPHANS and time.monotonic() < deadline:
+while build.is_alive() and time.monotonic() < deadline:
     QCoreApplication.processEvents()
     time.sleep(0.02)
-assert not window_mod._LINK_ORPHANS
+assert not build.is_alive()
 print("OK")
 '''
 
 
-@pytest.mark.parametrize("mode", ["short", "long"])
+@pytest.mark.parametrize("mode", ["short", "long", "exit"])
 def test_closing_window_while_link_index_builds_does_not_crash(tmp_path, mode):
-    import subprocess
-    import sys
-
-    script = tmp_path / "crash_probe.py"
-    script.write_text(_CRASH_SCRIPT, encoding="utf-8")
-    repo = Path(__file__).resolve().parent.parent
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONPATH=str(repo))
-    proc = subprocess.run(
-        [sys.executable, "-X", "utf8", str(script), mode],
-        cwd=repo, env=env, capture_output=True, text=True, timeout=120,
-    )
+    proc = _run_script(tmp_path, _CRASH_SCRIPT, mode)
     assert proc.returncode == 0, proc.stderr
     assert "OK" in proc.stdout
     assert "QThread: Destroyed" not in proc.stderr
     assert "Warning" not in proc.stderr
+
+
+_LINK_STRESS_SCRIPT = _WINDOW_SCRIPT_PREAMBLE + r'''
+mode, rounds = sys.argv[1], int(sys.argv[2])
+random.seed(7)
+gate = threading.Event()
+walks = [0]
+def collect(roots, **kw):
+    walks[0] += 1
+    if walks[0] % 2 == 0:
+        gate.wait(10)  # the second build of each round waits for the gate
+    return []
+window_mod.collect_markdown_files = collect
+
+def pump(predicate, timeout=20.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        if predicate():
+            return True
+        time.sleep(0.001)
+    return predicate()
+
+w = window_mod.MainWindow()
+assert pump(lambda: w._link_thread is None)
+for i in range(rounds):
+    gate.clear()
+    walks[0] = 0
+    w._refresh_link_index(force=True)
+    first = w._link_thread
+    if mode == "ended":
+        while first.is_alive():  # ended, but its reports are still queued
+            time.sleep(0.0005)
+    else:
+        time.sleep(random.uniform(0, 0.004))
+    w._refresh_link_index(force=True)
+    for _ in range(5):
+        QCoreApplication.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gate.set()
+    assert pump(lambda: w._link_thread is None), f"round {i} never settled"
+    assert not w._link_refresh_pending
+w.close()
+print("OK", rounds)
+'''
+
+
+@pytest.mark.parametrize("mode", ["ended", "racing"])
+def test_link_index_refresh_racing_a_finished_build_does_not_crash(tmp_path, mode):
+    proc = _run_script(tmp_path, _LINK_STRESS_SCRIPT, mode, "200")
+    assert proc.returncode == 0, proc.stderr
+    assert "OK 200" in proc.stdout
+
+
+_WATCH_STRESS_SCRIPT = r'''
+import random, sys, threading, time
+from PySide6.QtCore import QCoreApplication, QObject
+from PySide6.QtWidgets import QApplication
+from shiboken6 import delete
+app = QApplication([])
+from app.library_watch import LibraryChangeWatcher, LibrarySignature
+
+mode = sys.argv[1]
+random.seed(11)
+
+def spin(seconds):
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        pass
+
+if mode == "owner":
+    rounds = int(sys.argv[2])
+    def scan(roots, excluded, cancel=None):
+        spin(random.uniform(0, 0.002))
+        return LibrarySignature(1, 1, "d")
+    for i in range(rounds):
+        owner = QObject()
+        watcher = LibraryChangeWatcher(lambda: ["."], lambda: True, lambda: [], owner,
+                                       scan_fn=scan)
+        watcher.rebaseline()
+        spin(random.uniform(0, 0.002))
+        if i % 3 == 1:
+            QCoreApplication.processEvents()
+        delete(owner)  # no shutdown(): destroyed as the scan starts or ends
+        del watcher
+    deadline = time.monotonic() + 20
+    while threading.active_count() > 1 and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+    QCoreApplication.processEvents()
+    print("OK", rounds)
+else:
+    # A scan stuck on an offline share outlives shutdown() and the process.
+    def scan(roots, excluded, cancel=None):
+        time.sleep(4.0)
+        return None
+    watcher = LibraryChangeWatcher(lambda: ["."], lambda: True, lambda: [], None,
+                                   scan_fn=scan)
+    watcher.rebaseline()
+    watcher.shutdown()
+    assert watcher._thread is None
+    print("OK exit")
+    sys.exit(0)
+'''
+
+
+@pytest.mark.parametrize("mode", ["owner", "exit"])
+def test_library_scan_outliving_its_owner_does_not_crash(tmp_path, mode):
+    proc = _run_script(tmp_path, _WATCH_STRESS_SCRIPT, mode, "300")
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout
+    assert "QThread: Destroyed" not in proc.stderr

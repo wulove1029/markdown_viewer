@@ -8,6 +8,7 @@ plus ``stat`` only, never file contents) and rebuild when it differs.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import os
@@ -17,10 +18,11 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from .document_libraries import should_skip_directory
 from .file_types import MARKDOWN_EXTENSIONS
+from .worker_relay import WorkerRelay
 
 log = logging.getLogger(__name__)
 
@@ -122,30 +124,54 @@ def compute_library_signature(
     )
 
 
-# Threads still running when their watcher is torn down stay referenced here
-# until they finish, so Qt never destroys a running QThread.
-_ORPHANS: set[QThread] = set()
+def _default_scan(roots, excluded, cancel=None, *, timeout_s: float, clock: Callable[[], float]):
+    # Runs on the scan thread: existence checks may block on offline shares.
+    roots = [r for r in roots if Path(r).exists()]
+    return compute_library_signature(
+        roots, excluded, timeout_s=timeout_s, cancel=cancel, clock=clock
+    )
 
 
-class _ScanThread(QThread):
-    done = Signal(int, object, bool)  # generation, signature-or-None, baseline_only
+class _ScanThread:
+    """One signature scan on its own daemon thread; holds no Qt object.
 
-    def __init__(self, generation, baseline_only, scan, roots, excluded, parent=None):
-        super().__init__(parent)
+    It reports ``(self, generation, signature_or_None, baseline_only)``
+    through the watcher's relay once, after the scan, cancelled or not. Qt
+    neither owns nor destroys this thread, so a scan blocked on an offline
+    share may outlive its watcher, or the application, without "QThread:
+    Destroyed while thread is still running"; its late report is dropped.
+    """
+
+    def __init__(self, generation, baseline_only, scan, roots, excluded, report):
         self._generation = generation
         self._baseline_only = baseline_only
         self._scan = scan
         self._roots = roots
         self._excluded = excluded
+        self._report = report
         self.cancel = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="library-scan", daemon=True)
 
-    def run(self):
+    def start(self) -> None:
+        self._thread.start()
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def wait(self, timeout_s: float) -> bool:
+        """Join for at most *timeout_s*; True when the thread has ended."""
+        self._thread.join(timeout_s)
+        return not self._thread.is_alive()
+
+    def _run(self) -> None:
+        sig = None
         try:
             sig = self._scan(self._roots, self._excluded, cancel=self.cancel)
         except Exception:
             log.warning("Library signature scan failed", exc_info=True)
             sig = None
-        self.done.emit(self._generation, sig, self._baseline_only)
+        finally:
+            self._report(self, self._generation, sig, self._baseline_only)
 
 
 class LibraryChangeWatcher(QObject):
@@ -172,8 +198,11 @@ class LibraryChangeWatcher(QObject):
         self._excluded_provider = excluded_provider
         self._min_interval_s = min_interval_s
         self._clock = clock
-        self._timeout_s = timeout_s
-        self._scan_fn = scan_fn or self._default_scan
+        # Never a bound method of this watcher: scans may end, and be
+        # released, on their own thread after the watcher is gone.
+        self._scan_fn = scan_fn or functools.partial(
+            _default_scan, timeout_s=timeout_s, clock=clock
+        )
         self._baseline: LibrarySignature | None = None
         self._last_scan_at: float | None = None
         self._generation = 0
@@ -185,13 +214,9 @@ class LibraryChangeWatcher(QObject):
         self._timer.setSingleShot(True)
         self._timer.setInterval(debounce_ms)
         self._timer.timeout.connect(self._debounce_fired)
-
-    def _default_scan(self, roots, excluded, cancel=None):
-        # Runs on the scan thread: existence checks may block on offline shares.
-        roots = [r for r in roots if Path(r).exists()]
-        return compute_library_signature(
-            roots, excluded, timeout_s=self._timeout_s, cancel=cancel, clock=self._clock
-        )
+        # Scans report through this relay only; it drops reports once the
+        # watcher is destroyed.
+        self._relay = WorkerRelay(self, self._on_scan_reported)
 
     # -- public API ---------------------------------------------------------
     def notify_activated(self) -> None:
@@ -219,10 +244,9 @@ class LibraryChangeWatcher(QObject):
         thread = self._thread
         if thread is not None:
             thread.cancel.set()
-            if not thread.wait(1500):
-                _ORPHANS.add(thread)
-                thread.finished.connect(lambda t=thread: _ORPHANS.discard(t))
-                thread.setParent(None)
+            # Bounded: a scan stuck on an offline share is left to finish on
+            # its daemon thread, and whatever it reports is ignored.
+            thread.wait(1.5)
             self._thread = None
 
     # -- internals ----------------------------------------------------------
@@ -245,12 +269,16 @@ class LibraryChangeWatcher(QObject):
         self._last_scan_at = self._clock()
         self.scan_count += 1
         thread = _ScanThread(
-            self._generation, baseline_only, self._scan_fn, roots, excluded, self
+            self._generation, baseline_only, self._scan_fn, roots, excluded, self._relay.emit
         )
-        thread.done.connect(self._on_done)
-        thread.finished.connect(self._on_thread_finished)
         self._thread = thread
         thread.start()
+
+    def _on_scan_reported(self, thread: _ScanThread, generation: int, sig, baseline_only: bool):
+        try:
+            self._on_done(generation, sig, baseline_only)
+        finally:
+            self._on_thread_finished(thread)
 
     def _on_done(self, generation: int, sig, baseline_only: bool) -> None:
         if generation != self._generation:
@@ -270,12 +298,9 @@ class LibraryChangeWatcher(QObject):
             finally:
                 self._emitting = False
 
-    def _on_thread_finished(self) -> None:
-        thread = self.sender()
+    def _on_thread_finished(self, thread: _ScanThread) -> None:
         if thread is self._thread:
             self._thread = None
-        if isinstance(thread, QThread):
-            thread.deleteLater()
         if self._queued_baseline and self._thread is None:
             self._queued_baseline = False
             self._start_scan(baseline_only=True)
