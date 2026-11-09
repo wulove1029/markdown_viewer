@@ -91,6 +91,27 @@ def _current_value(view) -> str:
     return value.rstrip("\n") if isinstance(value, str) else value
 
 
+def _wait_for_document_session_restore(view):
+    """Return once the last load's document-session restore has run.
+
+    ``setValue()`` in assets/vditor_glue.js answers ``getValue()`` at once but
+    queues ``restoreDocumentSession()`` on a 0 ms timer, and that restore
+    writes the saved scrollTop two animation frames later. A 0 ms timer queued
+    after it runs after it, and the two frames requested from there fire after
+    the restore's own frames (callbacks run in request order), so once the flag
+    flips the load can no longer overwrite a scroll position the test sets.
+    """
+    _eval(
+        view,
+        "window.__testSessionRestoreBarrier=false;setTimeout(function(){"
+        "requestAnimationFrame(function(){requestAnimationFrame(function(){"
+        "window.__testSessionRestoreBarrier=true;});});},0);true",
+    )
+    assert _wait_until(
+        lambda: _eval(view, "window.__testSessionRestoreBarrier===true") is True
+    ), "the animation frames after the document load never ran"
+
+
 def _dom_rect(view, node_expression):
     """Return one DOM node's viewport rect as a JSON-compatible mapping."""
     raw = _eval(
@@ -2173,6 +2194,10 @@ def test_prepared_wysiwyg_pdf_contains_full_document_without_editor_chrome(
             lambda: bottom_marker in (_current_value(view) or ""),
             timeout_ms=8000,
         )
+        # The load's session restore rewrites the live scrollTop. Scrolling
+        # before it lands lets preparePrint() save (and restore) that value
+        # instead of the position recorded in `before`.
+        _wait_for_document_session_restore(view)
         before = json.loads(
             _eval(
                 view,
