@@ -79,6 +79,34 @@ def test_repair_failure_keeps_the_original_pdf(qapp, tmp_path, monkeypatch):
     assert path.read_bytes() == original
 
 
+def test_repair_task_holds_no_qt_object_and_job_dies_on_main_thread(
+    qapp, tmp_path, monkeypatch
+):
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt
+
+    path = tmp_path / "out.pdf"
+    path.write_bytes(_radical_pdf())
+    tasks, destroyed_on, done = [], [], []
+
+    class TrackedTask(pdf_repair_async._Task):
+        def __init__(self, *args):
+            super().__init__(*args)
+            tasks.append(vars(self).copy())
+
+    monkeypatch.setattr(pdf_repair_async, "_Task", TrackedTask)
+    pdf_repair_async.repair_async(str(path), done.append)
+    (job,) = pdf_repair_async._active
+    job.destroyed.connect(lambda *_: destroyed_on.append(threading.current_thread()),
+                          Qt.ConnectionType.DirectConnection)
+    del job
+    assert not any(isinstance(value, QObject) for value in tasks[0].values())
+    _wait_for(done)
+    assert pdf_repair_async._get_pool().waitForDone(10000)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert done == [True]
+    assert destroyed_on == [threading.main_thread()]
+
+
 def test_repair_skips_a_file_replaced_while_it_was_analysed(tmp_path, monkeypatch):
     """A newer export to the same path must never be overwritten."""
     path = tmp_path / "out.pdf"

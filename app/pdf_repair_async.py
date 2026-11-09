@@ -13,9 +13,10 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QCoreApplication, QObject, QRunnable, QThreadPool
 
 from . import pdf_tounicode
+from .worker_relay import WorkerRelay
 
 log = logging.getLogger(__name__)
 
@@ -35,15 +36,17 @@ def _get_pool() -> QThreadPool:
 
 
 class _Job(QObject):
-    """Lives on the main thread; the worker's signal is delivered here queued."""
+    """Lives on the main thread; the worker's report is delivered here queued.
 
-    finished = Signal(bool)
+    Parented to the application so only ``deleteLater`` on the main thread
+    destroys it, never the worker releasing a last Python reference.
+    """
 
     def __init__(self, path: str, on_done: Callable[[bool], None]) -> None:
-        super().__init__()
+        super().__init__(QCoreApplication.instance())
         self.path = path
         self._on_done = on_done
-        self.finished.connect(self._deliver)
+        self.relay = WorkerRelay(self, self._deliver)
 
     def _deliver(self, ok: bool) -> None:
         _active.discard(self)
@@ -54,19 +57,25 @@ class _Job(QObject):
 
 
 class _Task(QRunnable):
-    def __init__(self, job: _Job) -> None:
+    """Repairs one PDF; ``report(ok)`` is the job's ``WorkerRelay.emit``.
+
+    The task holds no QObject, because the pool releases it on its worker.
+    """
+
+    def __init__(self, path: str, report: Callable[[bool], None]) -> None:
         super().__init__()
-        self._job = job
+        self._path = path
+        self._report = report
 
     def run(self) -> None:
         ok = False
         try:
-            pdf_tounicode.repair_radical_tounicode_strict(Path(self._job.path))
+            pdf_tounicode.repair_radical_tounicode_strict(Path(self._path))
             ok = True
         except Exception:
-            log.warning("Could not repair PDF text mapping of %s", self._job.path,
+            log.warning("Could not repair PDF text mapping of %s", self._path,
                         exc_info=True)
-        self._job.finished.emit(ok)
+        self._report(ok)
 
 
 def repair_async(path: str, on_done: Callable[[bool], None]) -> None:
@@ -77,4 +86,4 @@ def repair_async(path: str, on_done: Callable[[bool], None]) -> None:
     """
     job = _Job(str(path), on_done)
     _active.add(job)
-    _get_pool().start(_Task(job))
+    _get_pool().start(_Task(job.path, job.relay.emit))
