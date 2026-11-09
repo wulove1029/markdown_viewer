@@ -117,3 +117,47 @@ def test_modeless_outline_smoke(editor, qapp):
     assert dialog.tree.topLevelItem(0).childCount() == 1
     assert not dialog.grab().isNull()
     dialog.close()
+
+
+def test_background_parse_outliving_its_controller_reports_nothing(editor, qapp, monkeypatch):
+    import threading
+
+    from PySide6.QtCore import QObject
+    from shiboken6 import delete
+
+    from app import writing_outline
+
+    entered, release, tasks, received = threading.Event(), threading.Event(), [], []
+    extract = writing_outline.extract_writing_headings
+
+    def blocked(text):
+        if threading.current_thread() is not threading.main_thread():
+            entered.set()
+            assert release.wait(5)
+        return extract(text)
+
+    class TrackedTask(writing_outline._OutlineTask):
+        def __init__(self, *args):
+            super().__init__(*args)
+            tasks.append(vars(self).copy())
+
+    monkeypatch.setattr(writing_outline, "extract_writing_headings", blocked)
+    monkeypatch.setattr(writing_outline, "_OutlineTask", TrackedTask)
+    monkeypatch.setattr(WritingOutlineController, "_receive_headings",
+                        lambda _self, *args: received.append(args))
+    editor.set_content("# heading\nbody")
+    controller = WritingOutlineController(editor)
+    controller._timer.stop()
+    controller._start_refresh()
+    try:
+        assert entered.wait(5)
+        assert not any(isinstance(value, QObject) for value in tasks[0].values())
+        relay = controller._relay
+        controller.close()
+        delete(controller)
+        assert relay.closed
+    finally:
+        release.set()
+    assert QThreadPool.globalInstance().waitForDone(5000)
+    qapp.processEvents()
+    assert received == []

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import background_jobs
+from .worker_relay import WorkerRelay
 
 
 @dataclass(frozen=True)
@@ -60,22 +61,23 @@ def extract_writing_headings(text: str) -> list[WritingHeading]:
     return headings
 
 
-class _OutlineSignals(QObject):
-    finished = Signal(int, int, object)
-
-
 class _OutlineTask(QRunnable):
-    def __init__(self, text: str, generation: int, revision: int):
+    """Parses headings off the GUI thread.
+
+    ``report(generation, revision, headings)`` is the controller's
+    ``WorkerRelay.emit``; the task owns no Qt object for its pool thread to
+    release.
+    """
+
+    def __init__(self, text: str, generation: int, revision: int, report):
         super().__init__()
         self.text = text
         self.generation = generation
         self.revision = revision
-        self.signals = _OutlineSignals()
+        self.report = report
 
     def run(self):
-        self.signals.finished.emit(
-            self.generation, self.revision, extract_writing_headings(self.text)
-        )
+        self.report(self.generation, self.revision, extract_writing_headings(self.text))
 
 
 class WritingOutlineController(QObject):
@@ -93,6 +95,7 @@ class WritingOutlineController(QObject):
         self._active = True
         self._running = False
         self._task = None
+        self._relay = WorkerRelay(self, self._receive_headings)
         self._changing_visibility = False
         self._folded: list[QTextCursor] = []
         self._hidden_blocks = []
@@ -136,9 +139,9 @@ class WritingOutlineController(QObject):
             return
         self._running = True
         self._task = _OutlineTask(
-            self._document.toPlainText(), self._generation, self._document.revision()
+            self._document.toPlainText(), self._generation, self._document.revision(),
+            self._relay.emit,
         )
-        self._task.signals.finished.connect(self._receive_headings)
         background_jobs.pool().start(self._task, background_jobs.BACKGROUND)
 
     def _receive_headings(self, generation: int, revision: int, headings) -> None:
