@@ -259,18 +259,30 @@ def _start_source_snapshot_export(window, path: str, setup: dict | None) -> None
     """Own an isolated renderer so delayed split previews cannot leak into exports."""
     text = _export_source_text(window)
     if text is None:
+        window._pdf_export_busy = False
         window._export_btn.setEnabled(bool(window.current_file))
         QMessageBox.warning(window, "匯出文件", "無法讀取檔案內容。")
         return
-    job = _SourceSnapshotExport(window, path, setup)
-    window._source_export_job = job
-    window.exporting = True
-    window._export_btn.setEnabled(False)
-    show_pdf_progress(window)
-    if setup is None and window.pdf_progress is not None:
-        window.pdf_progress.setLabelText("正在匯出 HTML…")
-        window.pdf_progress.setWindowTitle("匯出 HTML")
-    job.start(text, Path(window.current_file))
+    try:
+        job = _SourceSnapshotExport(window, path, setup)
+        window._source_export_job = job
+        window.exporting = True
+        window._export_btn.setEnabled(False)
+        show_pdf_progress(window)
+        if setup is None and window.pdf_progress is not None:
+            window.pdf_progress.setLabelText("正在匯出 HTML…")
+            window.pdf_progress.setWindowTitle("匯出 HTML")
+        job.start(text, Path(window.current_file))
+    except BaseException:
+        # Nothing asynchronous owns the export yet: undo every guard so the
+        # next export is not refused, tell the user, then let the error out.
+        window._pdf_export_busy = False
+        window.exporting = False
+        window._source_export_job = None
+        close_pdf_progress(window)
+        window._export_btn.setEnabled(bool(window.current_file))
+        QMessageBox.warning(window, "匯出文件", "匯出失敗，請重試。")
+        raise
 
 
 SNAPSHOT_READY_JS = """(function() {

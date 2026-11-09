@@ -297,3 +297,55 @@ def test_preview_reentry_is_refused_before_any_dialog_and_first_export_completes
     assert events == ["progress", "complete"] and warnings == []
     export_actions.export_pdf(window)
     assert len(window._renderer.exports) == 2
+
+
+@pytest.mark.parametrize("failure", ["unreadable", "constructor", "start"])
+def test_source_snapshot_failure_before_async_handoff_releases_the_guard(
+    monkeypatch, failure
+):
+    from pathlib import Path
+
+    from tests.test_pdf_export import _Window
+
+    window = _Window()
+    window._pdf_progress = None
+    window.exporting = False
+    window._source_export_job = None
+    window._edit_mode = True
+    window.statusBar = lambda: SimpleNamespace(
+        showMessage=lambda *a: messages.append(a), clearMessage=lambda: None
+    )
+    messages, warnings = [], []
+    monkeypatch.setattr(export_actions.QMessageBox, "warning", lambda *a: warnings.append(a))
+    monkeypatch.setattr(export_actions, "show_pdf_progress", lambda w: None)
+    monkeypatch.setattr(
+        export_actions, "_export_source_text",
+        lambda w: None if failure == "unreadable" else "text",
+    )
+
+    class Job:
+        def __init__(self, *_args):
+            if failure == "constructor":
+                raise RuntimeError("cannot build")
+
+        def start(self, *_args):
+            raise RuntimeError("cannot start")
+
+    monkeypatch.setattr(export_actions, "_SourceSnapshotExport", Job)
+    window.current_file = Path("manual.md")
+    window._pdf_export_busy = True
+
+    if failure == "unreadable":
+        export_actions._start_source_snapshot_export(window, "o.pdf", {"size": "A4"})
+    else:
+        with pytest.raises(RuntimeError):
+            export_actions._start_source_snapshot_export(window, "o.pdf", {"size": "A4"})
+
+    assert window._pdf_export_busy is False
+    assert window.exporting is False and window._source_export_job is None
+    assert len(warnings) == 1
+    assert window._export_btn.enabled is True
+    # The next export is no longer refused with "PDF 仍在處理中".
+    monkeypatch.setattr(export_actions, "ask_page_setup", lambda _o: None)
+    export_actions.export_pdf(window)
+    assert messages == []
