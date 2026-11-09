@@ -240,8 +240,31 @@ def _ensure_app():
     return app
 
 
+def _flush_deferred_deletes() -> None:
+    """Carry out pending ``deleteLater()`` calls now.
+
+    The CLI never runs a top-level event loop, and ``processEvents()`` does not
+    deliver DeferredDelete events posted outside one. Without this the export's
+    WebEngine view and pages outlive their job and are still alive when
+    QApplication is destroyed at interpreter exit ("Release of profile requested
+    but WebEnginePage still not deleted"); under QT_QPA_PLATFORM=offscreen that
+    teardown crashes with an access violation after a successful export.
+    """
+    if "PySide6.QtCore" not in sys.modules:
+        return
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    if QCoreApplication.instance() is None:
+        return
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QCoreApplication.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def _cleanup_profile() -> None:
     global _profile_dir
+    # Chromium must let go of every page before its profile directory goes.
+    _flush_deferred_deletes()
     if _profile_dir:
         shutil.rmtree(_profile_dir, ignore_errors=True)
         _profile_dir = None
@@ -250,7 +273,6 @@ def _cleanup_profile() -> None:
 def _run_snapshot(text: str, src: Path, tmp: Path, pdf: bool, timeout_s: float) -> bool:
     """Render *text* in a never-shown RendererView and print it to PDF or HTML."""
     from PySide6.QtCore import QEventLoop, QObject, QTimer, QUrl
-    from PySide6.QtWidgets import QApplication
 
     from . import export_actions
     from .renderer import RendererView
@@ -337,11 +359,13 @@ def _run_snapshot(text: str, src: Path, tmp: Path, pdf: bool, timeout_s: float) 
         def run(self) -> bool:
             self.start()
             self.loop.exec()
+            ok = self.ok
             self.view.deactivate()
             self.view.deleteLater()
             self.deleteLater()
-            QApplication.processEvents()
-            return self.ok
+            # The view (and its page) must be gone before QApplication is.
+            _flush_deferred_deletes()
+            return ok
 
     return Job().run()
 
@@ -381,6 +405,7 @@ def _run_office(fmt: str, text: str, src: Path, tmp: Path, warnings: list[str]) 
     finally:
         if renderer is not None:
             renderer.cleanup()
+            _flush_deferred_deletes()
 
 
 def export_one(

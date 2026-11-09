@@ -1,8 +1,9 @@
 """Headless CLI export (F1b): runs main.py in a real subprocess.
 
-WebEngine cannot run under the offscreen platform, so the child process drops
-QT_QPA_PLATFORM (conftest sets it for the in-process Qt tests). Nothing here
-shows a window; a GUI launch would block until the subprocess timeout.
+The child process drops QT_QPA_PLATFORM (conftest sets it for the in-process Qt
+tests) so most exports use the real platform plugin; the offscreen tests put it
+back on purpose because callers run the CLI that way too. Nothing here shows a
+window; a GUI launch would block until the subprocess timeout.
 """
 
 from __future__ import annotations
@@ -51,11 +52,17 @@ def _env() -> dict[str, str]:
     return env
 
 
-def _run(args, timeout=240, **kwargs):
+def _offscreen_env() -> dict[str, str]:
+    env = _env()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    return env
+
+
+def _run(args, timeout=240, env=None, **kwargs):
     return subprocess.run(
         [sys.executable, "-X", "utf8", str(MAIN), *map(str, args)],
-        cwd=ROOT, env=_env(), capture_output=True, text=True, encoding="utf-8",
-        timeout=timeout, **kwargs,
+        cwd=ROOT, env=env if env is not None else _env(), capture_output=True,
+        text=True, encoding="utf-8", timeout=timeout, **kwargs,
     )
 
 
@@ -175,6 +182,35 @@ def test_pdf_text_layer_keeps_unified_ideographs(tmp_path):
     assert _radicals(text) == [], text
     for word in ("一、二、目", "第一項", "第二項", "巢狀項目", "粗體目錄"):
         assert word in text, text
+
+
+@pytest.mark.parametrize("fmt", ["pdf", "html"])
+def test_offscreen_export_exits_zero(sample, tmp_path, fmt):
+    """Callers judge success by the exit code. The export's WebEngine view used
+    to outlive the job and crash QApplication teardown under the offscreen
+    platform (0xC0000005) after the file had already been written."""
+    out = tmp_path / f"out.{fmt}"
+    rj = tmp_path / "result.json"
+    result = _run(["--export", fmt, sample, out, "--result-json", rj],
+                  env=_offscreen_env())
+    _assert_ok(result, rj, fmt, sample, out)
+    if fmt == "pdf":
+        assert out.read_bytes().startswith(b"%PDF")
+    else:
+        assert "CLI Title" in out.read_text(encoding="utf-8")
+
+
+def test_offscreen_unwritable_output_exit_4(sample, tmp_path):
+    blocker = tmp_path / "not_a_folder"
+    blocker.write_text("x", encoding="utf-8")
+    out = blocker / "out.pdf"
+    rj = tmp_path / "r.json"
+    result = _run(["--export", "pdf", sample, out, "--result-json", rj],
+                  env=_offscreen_env())
+    assert result.returncode == 4, result.stderr + result.stdout
+    data = _read_json(rj)
+    assert data["ok"] is False and data["exitCode"] == 4 and data["error"]
+    assert blocker.read_text(encoding="utf-8") == "x"
 
 
 def test_output_in_other_folder_is_created(sample, tmp_path):
