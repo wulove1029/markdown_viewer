@@ -12,7 +12,6 @@ from typing import Callable
 from PySide6.QtCore import (
     QByteArray,
     QMimeData,
-    QObject,
     QPointF,
     QRect,
     QRectF,
@@ -71,6 +70,7 @@ from .document_libraries import (
 )
 from .file_types import SUPPORTED_EXTENSIONS, is_pdf
 from .theme import LIGHT, Theme, collection_stylesheet, menu_stylesheet, svg_icon
+from .worker_relay import WorkerRelay
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 _LIBRARY_ROLE = Qt.ItemDataRole.UserRole.value + 1
@@ -641,24 +641,26 @@ def _scan_libraries(
     return results
 
 
-class _ScanSignals(QObject):
-    # (generation, request, results-or-None)
-    finished = Signal(int, object, object)
-
-
 class _ScanJob(QRunnable):
-    """Runs one library scan off the UI thread and reports back by signal.
+    """Runs one library scan off the UI thread and reports back through a relay.
 
-    The signals object is owned by the job (not parented to the view) so a
-    late-finishing scan cannot emit through a widget that has been destroyed.
+    ``report(generation, request, results-or-None)`` is the view's
+    ``WorkerRelay.emit``: the job owns no Qt object to release on its worker
+    thread, and a scan finishing after the view is destroyed reports nothing.
     """
 
-    def __init__(self, generation: int, request: _ScanRequest, token: _ScanToken):
+    def __init__(
+        self,
+        generation: int,
+        request: _ScanRequest,
+        token: _ScanToken,
+        report: Callable[[int, _ScanRequest, object], None],
+    ):
         super().__init__()
         self.generation = generation
         self.request = request
         self.token = token
-        self.signals = _ScanSignals()
+        self.report = report
 
     def run(self):
         try:
@@ -669,64 +671,31 @@ class _ScanJob(QRunnable):
             results = None
         if self.token.cancelled:
             return
-        self.signals.finished.emit(self.generation, self.request, results)
-
-
-class _RenameSignals(QObject):
-    finished = Signal(object, object)
-
-
-class _RenameRelay:
-    """Links a folder-rename job on the global pool to its view.
-
-    The pool deletes a finished runnable on its worker thread, so everything
-    the job owns is released there. Nothing Qt tracks may therefore belong to
-    the job: neither a signals QObject nor an object behind a bound-method
-    connection (PySide follows those with a weak reference and tears the
-    connection down where the object dies). Either would be torn down on the
-    worker while the UI thread may be destroying the view, a native crash.
-
-    The signals object is a child of the view, so it is created and destroyed
-    on the UI thread. ``close()`` runs when the view is destroyed: it cancels
-    the running job, lets an emission already in progress finish, and blocks
-    any later one.
-    """
-
-    def __init__(self, signals: _RenameSignals):
-        self._lock = threading.Lock()
-        self._signals: _RenameSignals | None = signals
-        self._cancel: threading.Event | None = None
-
-    def start(self, cancel: threading.Event) -> None:
-        self._cancel = cancel
-
-    def emit(self, mapping, error) -> None:
-        with self._lock:
-            if self._signals is not None:
-                self._signals.finished.emit(mapping, error)
-
-    def close(self) -> None:
-        with self._lock:
-            self._signals = None
-        if self._cancel is not None:
-            self._cancel.set()
+        self.report(self.generation, self.request, results)
 
 
 class _RenameFolderJob(QRunnable):
-    def __init__(self, folder: Path, name: str, relay: _RenameRelay):
+    """Renames one folder on the global pool.
+
+    The pool deletes a finished runnable on its worker thread, so the job owns
+    nothing Qt tracks: it reports through the view's ``WorkerRelay.emit`` and
+    its cancel flag is a plain Event the view sets from its own slot.
+    """
+
+    def __init__(self, folder: Path, name: str, report: Callable[[object, object], None]):
         super().__init__()
         self.folder = folder
         self.name = name
         self.cancel = threading.Event()
-        self.relay = relay
+        self.report = report
 
     def run(self):
         try:
             mapping = file_ops.rename_folder(self.folder, self.name, cancel=self.cancel)
         except Exception as exc:
-            self.relay.emit(None, exc)
+            self.report(None, exc)
         else:
-            self.relay.emit(mapping, None)
+            self.report(mapping, None)
 
 
 class FileBrowserView(QWidget):
@@ -764,14 +733,12 @@ class FileBrowserView(QWidget):
         self._lifetime_token = _ScanToken()
         _token = self._lifetime_token
         self.destroyed.connect(lambda *_: _token.cancel())
-        # Folder renames report through a signals object this view owns; see
-        # _RenameRelay for why it never belongs to the worker's job.
+        # Background scans and folder renames report through relays this view
+        # owns, so no job releases a Qt object on its worker thread. Destroying
+        # the view drops late reports and cancels a running rename.
+        self._scan_relay = WorkerRelay(self, self._on_scan_finished, queued=True)
         self._rename_job: _RenameFolderJob | None = None
-        self._rename_signals = _RenameSignals(self)
-        self._rename_signals.finished.connect(self._folder_rename_finished)
-        self._rename_relay = _RenameRelay(self._rename_signals)
-        _relay = self._rename_relay
-        self.destroyed.connect(lambda *_: _relay.close())
+        self._rename_relay = WorkerRelay(self, self._folder_rename_finished)
         # Requests that arrived while a scan was running; replayed once the
         # tree for that scan has been built.
         self._pending_tree_state: dict | None = None
@@ -1202,10 +1169,7 @@ class FileBrowserView(QWidget):
         self._status.setText("正在掃描文件庫…")
         token = _ScanToken(self._lifetime_token)
         self._scan_token = token
-        job = _ScanJob(generation, request, token)
-        job.signals.finished.connect(
-            self._on_scan_finished, Qt.ConnectionType.QueuedConnection
-        )
+        job = _ScanJob(generation, request, token, self._scan_relay.emit)
         self._scan_pool.start(job)
 
     @Slot(int, object, object)
@@ -1615,9 +1579,9 @@ class FileBrowserView(QWidget):
         )
         if not ok or not name.strip() or name.strip() == folder.name:
             return
-        job = _RenameFolderJob(folder, name.strip(), self._rename_relay)
+        job = _RenameFolderJob(folder, name.strip(), self._rename_relay.emit)
         self._rename_job = job
-        self._rename_relay.start(job.cancel)
+        self._rename_relay.track(job.cancel)
         progress = QProgressDialog("正在準備資料夾重新命名…", "取消", 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress.setMinimumDuration(0)
@@ -1638,6 +1602,7 @@ class FileBrowserView(QWidget):
         if job is None:
             return
         self._rename_job = None
+        self._rename_relay.forget(job.cancel)
         self._rename_progress.close()
         self._rename_progress.deleteLater()
         self._tree.setEnabled(True)

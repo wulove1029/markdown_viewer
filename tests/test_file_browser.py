@@ -171,7 +171,7 @@ def test_folder_rename_job_leaves_no_qt_teardown_to_worker(qapp, tmp_path, monke
     view = _make_view(tmp_path, monkeypatch, [])
     monkeypatch.setattr("app.file_browser.QInputDialog.getText", lambda *_a, **_k: ("new", True))
     destroyed_on = []
-    view._rename_signals.destroyed.connect(
+    view._rename_relay._bridge.destroyed.connect(
         lambda *_: destroyed_on.append(threading.get_ident()),
         Qt.ConnectionType.DirectConnection,
     )
@@ -214,7 +214,7 @@ def test_folder_rename_finishing_after_view_is_destroyed_emits_nothing(
     delete(view)
     # Closed before the worker can report, so it never emits through the
     # signals object that was destroyed with the view.
-    assert relay._signals is None
+    assert relay.closed and relay._bridge is None
     release.set()
     assert QThreadPool.globalInstance().waitForDone(5000)
     assert folder.exists() and not (tmp_path / "new").exists()
@@ -920,3 +920,58 @@ def test_failed_background_scan_reports_instead_of_blocking(
         assert view._pending_select is None
     finally:
         view.close()
+
+
+def test_background_scan_finishing_after_view_is_destroyed_releases_no_qt_object(
+    qapp, tmp_path, monkeypatch
+):
+    # The scan job reports through the view's relay: it owns no signals object
+    # that a worker thread would release, and a scan that outlives the view
+    # reports nothing.
+    import gc
+    import threading
+
+    from PySide6.QtCore import Qt
+    from shiboken6 import delete
+
+    from app import file_browser
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    (root / "note.md").write_text("n", encoding="utf-8")
+    started, release, jobs = threading.Event(), threading.Event(), []
+    scan = file_browser._scan_libraries
+
+    def blocked_scan(request, token=None):
+        started.set()
+        assert release.wait(5)
+        return scan(request, token)
+
+    class TrackedJob(file_browser._ScanJob):
+        def __init__(self, *args):
+            super().__init__(*args)
+            jobs.append(vars(self).copy())
+
+    monkeypatch.setattr("app.file_browser._ScanJob", TrackedJob)
+
+    monkeypatch.setattr("app.file_browser._scan_libraries", blocked_scan)
+    view = _make_bg_view(
+        tmp_path, monkeypatch, [DocumentLibrary("lib", "Vault", str(root))]
+    )
+    assert started.wait(5)
+    relay = view._scan_relay
+    destroyed_on = []
+    relay._bridge.destroyed.connect(
+        lambda *_: destroyed_on.append(threading.get_ident()),
+        Qt.ConnectionType.DirectConnection,
+    )
+    from PySide6.QtCore import QObject
+
+    assert jobs and not any(isinstance(value, QObject) for value in jobs[0].values())
+    # The view's own pool waits for the scan while the view is destroyed.
+    threading.Timer(0.05, release.set).start()
+    delete(view)
+    assert relay.closed
+    assert destroyed_on == [threading.get_ident()]
+    gc.collect()
+    qapp.processEvents()
