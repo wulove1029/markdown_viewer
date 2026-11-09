@@ -116,11 +116,13 @@ def test_inline_edit_handler_exception_answers_instead_of_hanging_the_page(qapp)
 
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QEventLoop, QTimer
 
+from app import renderer
 from app.annotations import Annotation
 from app.renderer import RendererView
 
@@ -150,6 +152,36 @@ def _eval(view, js):
     QTimer.singleShot(4000, loop.quit)
     loop.exec()
     return box.get("v")
+
+
+def _until(predicate, timeout_ms=10000, step_ms=20):
+    """Poll *predicate* while the event loop runs; never a fixed sleep."""
+    from PySide6.QtTest import QTest
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        QTest.qWait(step_ms)
+    return predicate()
+
+
+# Set by the renderer's document-creation script once its Escape watcher is
+# listening; from then on an unhandled Escape is kept until the bridge is ready.
+_ESCAPE_WATCH_READY = "window.__mdUnhandledEscapeReady === true"
+
+
+def _escape_watch_ready(view, document_check):
+    return _eval(view, f"!!({document_check}) && {_ESCAPE_WATCH_READY}") is True
+
+
+def _press_escape(view):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    focus_target = view.focusProxy() or view
+    focus_target.setFocus()
+    QTest.keyClick(focus_target, Qt.Key.Key_Escape)
 
 
 @_skip_webengine
@@ -198,9 +230,6 @@ def test_orphan_annotation_not_rendered(qapp, tmp_path):
 
 @_skip_webengine
 def test_rendered_page_reports_only_unhandled_escape(qapp, tmp_path):
-    from PySide6.QtCore import Qt
-    from PySide6.QtTest import QTest
-
     md = tmp_path / "escape.md"
     md.write_text("# Escape bridge", encoding="utf-8")
     view = RendererView()
@@ -211,30 +240,137 @@ def test_rendered_page_reports_only_unhandled_escape(qapp, tmp_path):
     try:
         view.show()
         view.load_file(md)
-        _wait(1500)
-        focus_target = view.focusProxy() or view
-        focus_target.setFocus()
-        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
-        _wait(200)
-        assert reported == [7]
+        assert _until(lambda: view._loaded_markdown_generation == view._render_generation)
+        assert _until(lambda: _escape_watch_ready(view, "document.querySelector('h1')"))
+        _press_escape(view)
+        assert _until(lambda: reported == [7]), reported
+        # A fresh token for the next Escape: a duplicate report of the first
+        # one would reach Python before it, so the order proves there is none.
+        view.set_search_escape_generation(8)
+        _press_escape(view)
+        assert _until(lambda: len(reported) >= 2), reported
+        assert reported == [7, 8]
 
         reported.clear()
+        view.set_search_escape_generation(7)
         view.render_html("<html><body tabindex='0'>live preview</body></html>")
-        _wait(500)
-        focus_target = view.focusProxy() or view
-        focus_target.setFocus()
-        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
-        _wait(200)
-        assert reported == [7]
+        assert _until(lambda: _escape_watch_ready(
+            view, "document.body && document.body.textContent === 'live preview'"))
+        _press_escape(view)
+        assert _until(lambda: reported == [7]), reported
 
         _eval(
             view,
+            "window.__escapeSeen = 0;"
             "document.addEventListener('keydown', function(e) {"
-            "if (e.key === 'Escape') e.preventDefault();"
+            "if (e.key !== 'Escape') return;"
+            "window.__escapeSeen += 1;"
+            "if (!window.__letEscapeThrough) e.preventDefault();"
             "}, true); true;",
         )
-        QTest.keyClick(focus_target, Qt.Key.Key_Escape)
-        _wait(200)
-        assert reported == [7]
+        _press_escape(view)
+        assert _until(lambda: _eval(view, "window.__escapeSeen") == 1)
+        # The page handled that Escape. Only the next, unhandled one (with a
+        # fresh token) may arrive, and a report of the handled one would
+        # have reached Python first.
+        view.set_search_escape_generation(8)
+        _eval(view, "window.__letEscapeThrough = true; true;")
+        _press_escape(view)
+        assert _until(lambda: len(reported) >= 2), reported
+        assert reported == [7, 8]
+    finally:
+        view.close()
+
+
+@_skip_webengine
+@pytest.mark.parametrize("rotate", [False, True], ids=["same-page", "rotated-page"])
+def test_escape_pressed_while_a_redrawn_preview_boots_is_still_reported(
+    qapp, tmp_path, monkeypatch, rotate
+):
+    """Escape in the new document before its QWebChannel is ready is not lost.
+
+    The key is pressed from the redrawn page's own loadFinished, i.e. before
+    the bridge boot script has even run there, let alone finished its channel
+    handshake. Under CPU load that window lasts seconds. Like the live
+    preview, the page has a file base URL.
+    """
+    from PySide6.QtCore import QUrl
+
+    if rotate:
+        monkeypatch.setattr(renderer, "_PAGE_NAVIGATION_LIMIT", 1)
+    view = RendererView()
+    view.resize(700, 500)
+    reported, loads, pressed = [], [], []
+    view.bridge.unhandledEscape.connect(reported.append)
+    view.loadFinished.connect(loads.append)
+    view.set_search_escape_generation(7)
+
+    def press_on_load(ok):
+        if ok and not pressed:
+            pressed.append(view.page())
+            _press_escape(view)
+
+    try:
+        view.show()
+        assert _until(lambda: loads == [True]), loads  # the empty-state page
+        first_page = view.page()
+        view.loadFinished.connect(press_on_load)
+        view.render_html("<html><body tabindex='0'>redrawn preview</body></html>",
+                         QUrl.fromLocalFile(str(tmp_path) + "/"))
+        assert (view.page() is not first_page) == rotate
+        assert _until(lambda: bool(pressed))
+        assert pressed == [view.page()]
+        assert _until(lambda: reported == [7]), reported
+    finally:
+        view.close()
+
+
+@_skip_webengine
+def test_escape_watch_script_follows_generation_and_page_rotation(qapp):
+    view = RendererView()
+
+    def watcher_sources():
+        return [script.sourceCode() for script in
+                view.page().scripts().find(renderer._UNHANDLED_ESCAPE_WATCH_SCRIPT)]
+
+    try:
+        sources = watcher_sources()
+        assert len(sources) == 1 and "window.__mdSearchEscapeGeneration = 0;" in sources[0]
+        view.set_search_escape_generation(7)
+        sources = watcher_sources()
+        assert len(sources) == 1 and "window.__mdSearchEscapeGeneration = 7;" in sources[0]
+        first_page = view.page()
+        view._rotate_document_page()
+        assert view.page() is not first_page
+        sources = watcher_sources()
+        assert len(sources) == 1 and "window.__mdSearchEscapeGeneration = 7;" in sources[0]
+    finally:
+        view.close()
+
+
+@_skip_webengine
+def test_escape_reports_survive_pages_without_document_creation_scripts(qapp):
+    """Qt 6.11 runs no QWebEngineScript in a data: page that replaced another.
+
+    Such a page (setHtml without a base URL, twice) must still report an
+    unhandled Escape once its bridge is up instead of never.
+    """
+    view = RendererView()
+    view.resize(700, 500)
+    reported, loads = [], []
+    view.bridge.unhandledEscape.connect(reported.append)
+    view.loadFinished.connect(loads.append)
+    view.set_search_escape_generation(7)
+    try:
+        view.show()
+        assert _until(lambda: loads == [True]), loads  # data: empty-state page
+        for text in ("first data page", "second data page"):
+            count = len(loads)
+            view.render_html(f"<html><body tabindex='0'>{text}</body></html>")
+            assert _until(lambda count=count: len(loads) > count)
+        assert _until(lambda: _escape_watch_ready(
+            view, "document.body && document.body.textContent === 'second data page'"))
+        _press_escape(view)
+        assert _until(lambda: reported == [7]), reported
     finally:
         view.close()

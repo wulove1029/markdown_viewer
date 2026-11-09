@@ -1194,6 +1194,83 @@ def test_preview_csp_blocks_websocket_and_fetch_but_features_still_work(
         _wait(150)
 
 
+# Runs as page script once the bridge is live: tries to replace or reuse the
+# Escape watcher's hook, sends synthetic Escape keys, and patches the event
+# prototypes so every real key would look like an unhandled Escape.
+_HOSTILE_ESCAPE_JS = """(function () {
+  var result = {};
+  var hook = window.__mdUnhandledEscapeConnect;
+  try { window.__mdUnhandledEscapeConnect = function () {}; } catch (e) {}
+  try {
+    Object.defineProperty(window, "__mdUnhandledEscapeConnect", {value: function () {}});
+    result.redefined = true;
+  } catch (e) { result.redefined = false; }
+  result.hookKept = window.__mdUnhandledEscapeConnect === hook;
+  result.secondSink = hook(function (generation) { window.__stolenEscape = generation; });
+  ["Escape", "Esc"].forEach(function (key) {
+    document.body.dispatchEvent(new KeyboardEvent("keydown",
+      {key: key, keyCode: 27, bubbles: true, cancelable: true}));
+  });
+  Object.defineProperty(KeyboardEvent.prototype, "key", {get: function () { return "Escape"; }});
+  Object.defineProperty(Event.prototype, "defaultPrevented", {get: function () { return false; }});
+  window.__realKeys = 0;
+  document.addEventListener("keydown", function (e) {
+    window.__realKeys += 1;
+    if (e.keyCode === 27 && !window.__letEscapeThrough) e.preventDefault();
+  }, true);
+  result.bridgeExposed = Object.getOwnPropertyNames(window).filter(function (name) {
+    try {
+      var value = window[name];
+      return !!value && typeof value.reportUnhandledEscape === "function";
+    } catch (e) { return false; }
+  });
+  return JSON.stringify(result);
+})()"""
+
+
+@_webengine
+def test_preview_page_script_cannot_forge_or_capture_escape_reports(qapp, tmp_path):
+    from PySide6.QtCore import Qt
+
+    document = tmp_path / "escape.md"
+    document.write_text("# Escape\n\nbody text\n", encoding="utf-8")
+    view = renderer.RendererView()
+    reported = []
+    view.bridge.unhandledEscape.connect(reported.append)
+    view.set_search_escape_generation(7)
+    try:
+        view.resize(800, 600)
+        view.show()
+        _load_preview(view, document)
+        assert _until(lambda: _eval(view, "window.__mdUnhandledEscapeReady === true") is True)
+        focus = view.focusProxy() or view
+        focus.setFocus()
+        # A real Escape first: the bridge is connected, so any forged or
+        # redirected report below would really reach Python.
+        QTest.keyClick(focus, Qt.Key.Key_Escape)
+        assert _until(lambda: reported == [7], 10000), reported
+
+        result = json.loads(_eval(view, _HOSTILE_ESCAPE_JS))
+        assert result == {"redefined": False, "hookKept": True, "secondSink": False,
+                          "bridgeExposed": []}
+        focus.setFocus()
+        QTest.keyClick(focus, Qt.Key.Key_A)  # now claims to be Escape
+        QTest.keyClick(focus, Qt.Key.Key_Escape)  # handled; now claims not to be
+        assert _until(lambda: _eval(view, "window.__realKeys") == 2, 10000)
+        # Any report of the synthetic or patched keys above would reach Python
+        # before this one, sent with a fresh token after them.
+        view.set_search_escape_generation(8)
+        _eval(view, "window.__letEscapeThrough = true; true;")
+        QTest.keyClick(focus, Qt.Key.Key_Escape)
+        assert _until(lambda: len(reported) >= 2, 10000), reported
+        assert reported == [7, 8]
+        assert _eval(view, "window.__stolenEscape === undefined") is True
+    finally:
+        view.close()
+        view.deleteLater()
+        _wait(150)
+
+
 @_webengine
 def test_preview_link_and_anchor_clicks_work(qapp, tmp_path):
     other = tmp_path / "other.md"

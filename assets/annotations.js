@@ -623,6 +623,7 @@
         qt.webChannelTransport) {
       new QWebChannel(qt.webChannelTransport, function (channel) {
         bridge = channel.objects.bridge;
+        connectUnhandledEscape();
         afterChannel();
       });
     } else {
@@ -714,19 +715,17 @@
   });
 
   // QWebEngine consumes key events inside its internal focus widget, so an
-  // unhandled Escape does not bubble back to MainWindow.keyPressEvent.  Wait
-  // until the page's context handlers above (and inline/table editors) have
-  // run, then report only an Escape that remains genuinely unhandled.
-  document.addEventListener("keydown", function (e) {
-    if (e.key !== "Escape" && e.key !== "Esc") return;
-    var generation = Number(window.__mdSearchEscapeGeneration || 0);
-    if (generation <= 0) return;
-    window.setTimeout(function () {
-      if (!e.defaultPrevented && bridge && bridge.reportUnhandledEscape) {
-        bridge.reportUnhandledEscape(generation);
-      }
-    }, 0);
-  });
+  // unhandled Escape does not bubble back to MainWindow.keyPressEvent.  The
+  // renderer's document-creation watcher listens from the moment the page
+  // exists, waits until the context handlers above (and inline/table
+  // editors) have run, and keeps an Escape pressed before this channel was
+  // ready instead of losing it; it only needs this page's bridge to report.
+  function connectUnhandledEscape() {
+    var connect = window.__mdUnhandledEscapeConnect;
+    if (typeof connect === "function" && bridge && bridge.reportUnhandledEscape) {
+      connect(function (generation) { bridge.reportUnhandledEscape(generation); });
+    }
+  }
 
   window.addEventListener("resize", scheduleSideNoteLayout);
   window.addEventListener("load", scheduleSideNoteLayout);

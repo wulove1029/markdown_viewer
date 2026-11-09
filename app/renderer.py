@@ -31,6 +31,7 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
     QWebEngineProfile,
+    QWebEngineScript,
     QWebEngineSettings,
     QWebEngineUrlScheme,
 )
@@ -74,25 +75,75 @@ def _run_page_javascript(view, script, callback=None):
 
     page.runJavaScript(script, checked)
 
+_UNHANDLED_ESCAPE_WATCH_SCRIPT = "markdown-viewer-unhandled-escape-watch"
+
+# Installed on every preview page as a QWebEngineScript: it runs in each new
+# document at DocumentCreation, before any page script and long before the
+# QWebChannel handshake that follows loadFinished (seconds under CPU load).
+# It shares the bridge's world (MainWorld, where setWebChannel installs
+# qt.webChannelTransport) but never touches the channel. It keeps the last
+# Escape that stayed unhandled until the page's bridge script hands it a
+# report function through __mdUnhandledEscapeConnect, defined (normally before
+# any page script exists) non-writable and non-configurable, so a page can
+# neither replace it to capture that function nor displace the first one.
+# Only trusted (real) key events count, read through getters captured here,
+# so a synthetic event or a patched KeyboardEvent/Event prototype reports
+# nothing. Running it again in the same document is a no-op.
+_UNHANDLED_ESCAPE_WATCH_JS = r"""
+(function () {
+  "use strict";
+  if (Object.prototype.hasOwnProperty.call(window, "__mdUnhandledEscapeConnect")) return;
+  var call = Function.prototype.call;
+  var keyOf = call.bind(Object.getOwnPropertyDescriptor(KeyboardEvent.prototype, "key").get);
+  var preventedOf = call.bind(
+    Object.getOwnPropertyDescriptor(Event.prototype, "defaultPrevented").get);
+  var later = window.setTimeout.bind(window);
+  var toNumber = Number;
+  var report = null;
+  var pending = 0;
+  window.__mdSearchEscapeGeneration = __GENERATION__;
+  document.addEventListener("keydown", function (event) {
+    var key = keyOf(event);
+    if (!event.isTrusted || (key !== "Escape" && key !== "Esc")) return;
+    var generation = toNumber(window.__mdSearchEscapeGeneration || 0);
+    if (!(generation > 0)) return;
+    // Let page tools (context menu, inline/table editors) handle it first.
+    later(function () {
+      if (preventedOf(event)) return;
+      if (report) report(generation);
+      else pending = generation;
+    }, 0);
+  });
+  Object.defineProperty(window, "__mdUnhandledEscapeConnect", {
+    value: function (sink) {
+      if (report || typeof sink !== "function") return false;
+      report = sink;
+      if (pending) {
+        var generation = pending;
+        pending = 0;
+        sink(generation);
+      }
+      return true;
+    }
+  });
+  Object.defineProperty(window, "__mdUnhandledEscapeReady", {value: true});
+})();
+"""
+
+# Live/split preview pages: open the page's one QWebChannel and hand the
+# watcher above a function that reports through the bridge.
 _UNHANDLED_ESCAPE_JS = r"""
 (function () {
   if (window.__mdUnhandledEscapeInstalled) return;
   window.__mdUnhandledEscapeInstalled = true;
-  if (typeof QWebChannel === "undefined" || !window.qt ||
-      !qt.webChannelTransport) return;
+  var connect = window.__mdUnhandledEscapeConnect;
+  if (typeof connect !== "function" || typeof QWebChannel === "undefined" ||
+      !window.qt || !qt.webChannelTransport) return;
   new QWebChannel(qt.webChannelTransport, function (channel) {
     var bridge = channel.objects.bridge;
-    document.addEventListener("keydown", function (event) {
-      if (event.key !== "Escape" && event.key !== "Esc") return;
-      var generation = Number(window.__mdSearchEscapeGeneration || 0);
-      if (generation <= 0) return;
-      window.setTimeout(function () {
-        if (!event.defaultPrevented && bridge &&
-            bridge.reportUnhandledEscape) {
-          bridge.reportUnhandledEscape(generation);
-        }
-      }, 0);
-    });
+    if (bridge && bridge.reportUnhandledEscape) {
+      connect(function (generation) { bridge.reportUnhandledEscape(generation); });
+    }
   });
 })();
 """
@@ -740,6 +791,7 @@ class RendererView(QWebEngineView):
             # No preview feature opens windows; untrusted page script must not.
             page.settings().setAttribute(
                 QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
+        self._install_unhandled_escape_watch(page)
         page.setWebChannel(self._channel)
 
         def loaded(ok):
@@ -753,6 +805,28 @@ class RendererView(QWebEngineView):
         page.loadFinished.connect(loaded)
         page.pdfPrintingFinished.connect(printed)
         self._page_signal_bindings = (loaded, printed)
+
+    def _unhandled_escape_watch_js(self) -> str:
+        # The current search generation is part of the source, so an Escape
+        # pressed before the bridge boot script runs is not dropped as unarmed.
+        return _UNHANDLED_ESCAPE_WATCH_JS.replace(
+            "__GENERATION__", str(int(self._search_escape_generation)))
+
+    def _install_unhandled_escape_watch(self, page):
+        """(Re)install the Escape watcher for *page*'s future documents.
+
+        Replacing the script never touches the current document.
+        """
+        scripts = page.scripts()
+        for script in scripts.find(_UNHANDLED_ESCAPE_WATCH_SCRIPT):
+            scripts.remove(script)
+        script = QWebEngineScript()
+        script.setName(_UNHANDLED_ESCAPE_WATCH_SCRIPT)
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(False)
+        script.setSourceCode(self._unhandled_escape_watch_js())
+        scripts.insert(script)
 
     def _rotate_document_page(self):
         """Release Chromium document/process state; history clearing is insufficient."""
@@ -1514,12 +1588,19 @@ class RendererView(QWebEngineView):
     def _inject_annotations(self, ok):
         if not ok or self._inactive:
             return
+        # The Escape watcher normally exists since document creation; this
+        # copy is a no-op then. Qt 6.11 runs no QWebEngineScript at all in a
+        # data: document that replaced another data: document (setHtml with
+        # no base URL), so such a page gets the watcher here, before its
+        # channel boots, rather than no Escape reports at all.
+        watch = self._unhandled_escape_watch_js()
         if not self._current_path or not is_markdown(self._current_path):
             # Live/split previews deliberately skip annotation and inline-edit
             # scripts, but their WebEngine focus widget still swallows Escape.
             # Install only the tiny unhandled-key bridge on those pages.
             _run_page_javascript(self,
-                "window.__mdSearchEscapeGeneration = %d;\n"
+                watch
+                + "\nwindow.__mdSearchEscapeGeneration = %d;\n"
                 % self._search_escape_generation
                 + self._qwebchannel_js
                 + "\n"
@@ -1540,6 +1621,8 @@ class RendererView(QWebEngineView):
             "(function(){"
             f"var m=document.querySelector('meta[name=\"{_RENDER_GENERATION_META}\"]');"
             f"if(!m || Number(m.content)!=={self._render_generation}) return;\n"
+            + watch
+            + "\n"
             + self._qwebchannel_js
             + "\n"
             + self._annotations_js
@@ -1562,6 +1645,7 @@ class RendererView(QWebEngineView):
     def set_search_escape_generation(self, generation: int):
         """Arm unhandled-Escape reports for the current search generation."""
         self._search_escape_generation = max(0, int(generation))
+        self._install_unhandled_escape_watch(self.page())
         _run_page_javascript(self,
             "window.__mdSearchEscapeGeneration = %d;"
             % self._search_escape_generation
