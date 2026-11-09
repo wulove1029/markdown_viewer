@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import yaml
-from PySide6.QtCore import QObject, QRunnable, Qt, QTimer, Signal
+from PySide6.QtCore import QRunnable, Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -20,17 +20,21 @@ from PySide6.QtWidgets import (
 
 from . import background_jobs
 from .frontmatter_properties import PropertiesDocument
-
-
-class _PropertiesSignals(QObject):
-    done = Signal(int, object, object, str)
+from .worker_relay import WorkerRelay
 
 
 class _ReadProperties(QRunnable):
-    def __init__(self, generation, path, cancel):
+    """Reads front matter off the GUI thread.
+
+    ``report(generation, path, payload, error)`` is the panel's
+    ``WorkerRelay.emit``; the worker owns no Qt object for its pool thread to
+    release.
+    """
+
+    def __init__(self, generation, path, cancel, report):
         super().__init__()
         self.generation, self.path, self.cancel = generation, path, cancel
-        self.signals = _PropertiesSignals()
+        self.report = report
 
     def run(self):
         payload, error = None, ""
@@ -61,7 +65,7 @@ class _ReadProperties(QRunnable):
         except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
             error = f"無法載入屬性：{exc}"
         if not self.cancel.is_set():
-            self.signals.done.emit(self.generation, self.path, payload, error)
+            self.report(self.generation, self.path, payload, error)
 
 
 class PropertiesPanel(QWidget):
@@ -73,6 +77,7 @@ class PropertiesPanel(QWidget):
         self._original_values = {}
         self._generation = 0
         self._cancel = threading.Event()
+        self._read_relay = WorkerRelay(self, self._read_done)
         self._pending_document = None
         self._pending_rows = []
         self._row_offset = 0
@@ -111,8 +116,8 @@ class PropertiesPanel(QWidget):
             self._message.setText("開啟 Markdown 文件後可編輯屬性。")
         else:
             self._message.setText(f"正在載入 {path.name} 的屬性…")
-            worker = _ReadProperties(self._generation, path, self._cancel)
-            worker.signals.done.connect(self._read_done)
+            worker = _ReadProperties(
+                self._generation, path, self._cancel, self._read_relay.emit)
             background_jobs.submit(
                 worker, key=(id(self), "properties"), should_cancel=worker.cancel.is_set,
             )

@@ -63,6 +63,46 @@ def test_slow_old_request_is_cancelled_without_blocking_or_replacing_new_file(
         assert QThreadPool.globalInstance().waitForDone(5000)
 
 
+
+def test_read_outliving_its_panel_reports_nothing_and_holds_no_qt_object(
+    qapp, tmp_path, monkeypatch,
+):
+    from PySide6.QtCore import QObject
+    from shiboken6 import delete
+
+    path = tmp_path / "late.md"
+    path.write_text("---\ntitle: late\n---\nBody", encoding="utf-8")
+    entered, release, workers, delivered = threading.Event(), threading.Event(), [], []
+    parse = PropertiesDocument.parse
+
+    def delayed(raw):
+        entered.set()
+        assert release.wait(5)
+        return parse(raw)
+
+    class TrackedRead(properties_panel._ReadProperties):
+        def __init__(self, *args):
+            super().__init__(*args)
+            workers.append(vars(self).copy())
+
+    monkeypatch.setattr(PropertiesDocument, "parse", delayed)
+    monkeypatch.setattr(properties_panel, "_ReadProperties", TrackedRead)
+    monkeypatch.setattr(PropertiesPanel, "_read_done",
+                        lambda _self, *args: delivered.append(args))
+    panel = PropertiesPanel(lambda *_: True)
+    try:
+        panel.set_document(path)
+        _wait(entered.is_set)
+        assert not any(isinstance(value, QObject) for value in workers[0].values())
+        relay = panel._read_relay
+        delete(panel)
+        assert relay.closed
+    finally:
+        release.set()
+        assert QThreadPool.globalInstance().waitForDone(5000)
+    QTest.qWait(20)
+    assert delivered == []
+
 def test_changed_file_is_rejected_and_cannot_be_saved(qapp, tmp_path, monkeypatch):
     path = tmp_path / "changing.md"
     path.write_text("---\ntitle: old\n---\nbody", encoding="utf-8")
