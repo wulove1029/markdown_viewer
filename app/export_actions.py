@@ -70,9 +70,10 @@ def export_pdf(window):
         or not is_markdown(window.current_file)
     ):
         return
-    if getattr(window, "_wysiwyg_pdf_busy", False):
-        # A WYSIWYG export is still printing or repairing its PDF: refuse
-        # rather than stack a second progress dialog over the first.
+    if getattr(window, "_pdf_export_busy", False):
+        # An export is still printing or repairing its PDF: refuse here, before
+        # any dialog, so the running export's callback and progress dialog are
+        # never touched by a second request.
         window.statusBar().showMessage("PDF 仍在處理中", 5000)
         return
     setup = ask_page_setup(window)
@@ -86,6 +87,7 @@ def export_pdf(window):
         return
 
     window._export_btn.setEnabled(False)
+    window._pdf_export_busy = True  # released by on_pdf_exported / _complete
     if _wysiwyg_active(window):
         _export_wysiwyg_pdf(window, path, setup)
         return
@@ -530,7 +532,6 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
     """Prepare the live Office surface, print it, then always restore it."""
     view = window.wysiwyg_view
     show_pdf_progress(window)
-    window._wysiwyg_pdf_busy = True  # released by _complete on every outcome
     state = {"phase": "preparing", "cleaned": False, "connected": False}
     page = None
 
@@ -559,7 +560,7 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
         if state["phase"] == "done":
             return
         state["phase"] = "done"
-        window._wysiwyg_pdf_busy = False
+        window._pdf_export_busy = False
         _disconnect()
         try:
             _cleanup()
@@ -654,6 +655,7 @@ def export_single_page(window, dims):
     layout = _single_page_layout(dims, window.renderer.width())
     if layout is None:
         window._pending_pdf_path = None
+        window._pdf_export_busy = False
         window._export_btn.setEnabled(
             bool(window.current_file) and is_markdown(window.current_file)
         )
@@ -697,6 +699,7 @@ def _repair_failed_handler(window):
 
 
 def on_pdf_exported(window, path: str, ok: bool):
+    window._pdf_export_busy = False
     repair_failed = bool(getattr(window, "_pdf_repair_failed", False))
     window._pdf_repair_failed = False
     close_pdf_progress(window)

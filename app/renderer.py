@@ -1658,7 +1658,11 @@ class RendererView(QWebEngineView):
         (the headless CLI) the repair runs synchronously before on_done.
         """
         if getattr(self, "_pdf_printing", False):
-            if on_done:
+            # Second line of defence (the window refuses re-entry earlier).
+            # The in-flight export owns its callback: reporting failure through
+            # that same callback would close its progress dialog early and show
+            # a bogus error, so only a different caller hears "busy".
+            if on_done and on_done != self._pdf_callback:
                 on_done(str(filepath), False)
             return
         self._pdf_callback = on_done
@@ -1766,7 +1770,10 @@ class RendererView(QWebEngineView):
             # until the worker is done; the callback is delivered afterwards.
             def repaired(succeeded: bool):
                 if not isValid(self):
-                    return  # view destroyed meanwhile; the PDF is intact on disk
+                    # The main preview view is a child of the main window and
+                    # dies only with it (the progress dialog goes too); the
+                    # PDF is intact on disk and no window method may be called.
+                    return
                 try:
                     if not succeeded and on_repair_failed:
                         on_repair_failed(path)

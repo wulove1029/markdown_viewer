@@ -219,3 +219,81 @@ def test_on_pdf_exported_warns_once_after_repair_failure(monkeypatch):
     export_actions.on_pdf_exported(window, "out.pdf", True)
 
     assert len(warnings) == 1 and completes == ["out.pdf", "out.pdf"]
+
+
+def test_renderer_reentry_never_reports_through_the_running_exports_callback(
+    monkeypatch,
+):
+    pending = []
+    monkeypatch.setattr(renderer, "repair_async", lambda p, cb: pending.append(cb))
+
+    class Owner:
+        def __init__(self):
+            self.events = []
+
+        def on_exported(self, path, ok):
+            self.events.append((path, ok))
+
+    owner = Owner()
+    view = _async_view(owner.on_exported)
+    renderer.RendererView._on_pdf_finished(view, "out.pdf", True)
+
+    # A fresh bound-method object of the same callback is still "the same".
+    renderer.RendererView.export_pdf(view, "out.pdf", owner.on_exported)
+    assert owner.events == []
+
+    # A different caller is told the renderer is busy.
+    other = []
+    renderer.RendererView.export_pdf(
+        view, "x.pdf", lambda path, ok: other.append((path, ok))
+    )
+    assert other == [("x.pdf", False)]
+
+    pending[0](True)
+    assert owner.events == [("out.pdf", True)]
+
+
+def test_preview_reentry_is_refused_before_any_dialog_and_first_export_completes(
+    monkeypatch,
+):
+    from tests.test_pdf_export import _Window
+
+    window = _Window()
+    window._pdf_progress = None
+    messages, events, dialogs, warnings = [], [], [], []
+    window.statusBar = lambda: SimpleNamespace(
+        showMessage=lambda *a: messages.append(a), clearMessage=lambda: None
+    )
+    monkeypatch.setattr(
+        export_actions, "ask_page_setup",
+        lambda _o: dialogs.append("setup") or {"size": "A4", "orientation": "portrait"},
+    )
+    monkeypatch.setattr(
+        export_actions.QFileDialog, "getSaveFileName",
+        lambda *a, **k: (dialogs.append("save") or "chosen.pdf", ""),
+    )
+    monkeypatch.setattr(
+        export_actions, "show_pdf_progress", lambda w: events.append("progress")
+    )
+    monkeypatch.setattr(
+        export_actions.QMessageBox, "warning", lambda *a: warnings.append(a)
+    )
+    monkeypatch.setattr(
+        export_actions, "show_export_complete", lambda w, p: events.append("complete")
+    )
+
+    export_actions.export_pdf(window)
+    assert window._renderer.exports[0][0] == "chosen.pdf"
+
+    # Repair is "running": a second request must stop before any dialog.
+    export_actions.export_pdf(window)
+    assert dialogs == ["setup", "save"]
+    assert len(window._renderer.exports) == 1
+    assert events == ["progress"] and warnings == []
+    assert messages == [("PDF 仍在處理中", 5000)]
+
+    # The first export then completes normally and re-arms the action.
+    export_actions.on_pdf_exported(window, "chosen.pdf", True)
+    assert events == ["progress", "complete"] and warnings == []
+    export_actions.export_pdf(window)
+    assert len(window._renderer.exports) == 2
