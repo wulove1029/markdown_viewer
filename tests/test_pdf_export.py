@@ -24,7 +24,7 @@ class _Renderer:
     def width(self):
         return self._width
 
-    def export_pdf(self, path, callback, layout):
+    def export_pdf(self, path, callback, layout, **_kwargs):
         self.exports.append((path, callback, layout))
 
 
@@ -109,6 +109,10 @@ class _Window:
 
 def _start_pdf_export(monkeypatch, window, setup, events):
     completed = []
+    # Tests drive the worker-thread repair synchronously unless they override it.
+    monkeypatch.setattr(
+        export_actions, "repair_async", lambda path, done: done(True)
+    )
     monkeypatch.setattr(export_actions, "ask_page_setup", lambda _owner: setup)
     monkeypatch.setattr(
         export_actions.QFileDialog,
@@ -255,12 +259,12 @@ def test_office_pdf_repairs_text_layer_only_after_successful_print(
     window._edit_mode = True
     window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
     window._wysiwyg_view = _OfficeView(events)
-    monkeypatch.setattr(
-        export_actions, "repair_radical_tounicode",
-        lambda path: events.append(("repair", path)),
-    )
     _start_pdf_export(
         monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    monkeypatch.setattr(
+        export_actions, "repair_async",
+        lambda path, done: (events.append(("repair", path)), done(True)),
     )
     window._wysiwyg_view.prepare_callback(True)
 
@@ -270,9 +274,27 @@ def test_office_pdf_repairs_text_layer_only_after_successful_print(
     assert events == ["progress", "prepare", "print", *repaired, "finish", "complete"]
 
 
+def _renderer_stub(callback):
+    from types import SimpleNamespace
+
+    from app import renderer
+
+    view = SimpleNamespace(
+        _pdf_printing=True,
+        _deferred_navigation=None,
+        _pdf_callback=callback,
+        _pdf_async_repair=(False, None),
+    )
+    view._finish_pdf_export = (
+        lambda *args, **kwargs: renderer.RendererView._finish_pdf_export(
+            view, *args, **kwargs
+        )
+    )
+    return view
+
+
 @pytest.mark.parametrize("ok", [True, False])
 def test_renderer_pdf_repairs_text_layer_before_reporting(monkeypatch, ok):
-    from types import SimpleNamespace
 
     from app import renderer
 
@@ -280,11 +302,7 @@ def test_renderer_pdf_repairs_text_layer_before_reporting(monkeypatch, ok):
     monkeypatch.setattr(
         renderer, "repair_radical_tounicode", lambda path: events.append(("repair", path))
     )
-    view = SimpleNamespace(
-        _pdf_printing=True,
-        _deferred_navigation=None,
-        _pdf_callback=lambda path, done: events.append(("done", path, done)),
-    )
+    view = _renderer_stub(lambda path, done: events.append(("done", path, done)))
 
     renderer.RendererView._on_pdf_finished(view, "out.pdf", ok)
 
@@ -307,10 +325,10 @@ def test_office_pdf_completes_even_if_repair_aborts(monkeypatch):
     window._edit_mode = True
     window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
     window._wysiwyg_view = _OfficeView(events)
-    monkeypatch.setattr(export_actions, "repair_radical_tounicode", _abort_repair)
     completed = _start_pdf_export(
         monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
     )
+    monkeypatch.setattr(export_actions, "repair_async", lambda path, done: _abort_repair(path))
     window._wysiwyg_view.prepare_callback(True)
 
     with pytest.raises(_RepairAborted):
@@ -323,17 +341,12 @@ def test_office_pdf_completes_even_if_repair_aborts(monkeypatch):
 
 
 def test_renderer_pdf_reports_even_if_repair_aborts(monkeypatch):
-    from types import SimpleNamespace
 
     from app import renderer
 
     done = []
     monkeypatch.setattr(renderer, "repair_radical_tounicode", _abort_repair)
-    view = SimpleNamespace(
-        _pdf_printing=True,
-        _deferred_navigation=None,
-        _pdf_callback=lambda path, ok: done.append((path, ok)),
-    )
+    view = _renderer_stub(lambda path, ok: done.append((path, ok)))
 
     with pytest.raises(_RepairAborted):
         renderer.RendererView._on_pdf_finished(view, "out.pdf", True)
@@ -606,3 +619,30 @@ def test_single_page_aborts_instead_of_silently_using_viewport_height(
     assert window.refresh_count == 1
     assert len(warnings) == 1
     assert "頁面尺寸" in warnings[0][2]
+
+
+@pytest.mark.parametrize("repaired", [True, False])
+def test_office_pdf_reports_complete_only_after_background_repair(
+    monkeypatch, repaired
+):
+    events = []
+    window = _Window()
+    window._edit_mode = True
+    window._active_edit_backend = edit_backend.WYSIWYG_BACKEND
+    window._wysiwyg_view = _OfficeView(events)
+    _start_pdf_export(
+        monkeypatch, window, {"size": "A4", "orientation": "portrait"}, events
+    )
+    pending = []
+    monkeypatch.setattr(export_actions, "repair_async", lambda p, cb: pending.append(cb))
+    window._wysiwyg_view.prepare_callback(True)
+
+    page = window._wysiwyg_view._page
+    page.pdfPrintingFinished.emit("chosen.pdf", True)
+    page.pdfPrintingFinished.emit("chosen.pdf", True)  # duplicate print signal
+
+    # Still repairing: progress stays up, nothing reported, one repair only.
+    assert events == ["progress", "prepare", "print"] and len(pending) == 1
+    pending[0](repaired)
+    assert events == ["progress", "prepare", "print", "finish", "complete"]
+    assert getattr(window, "_pdf_repair_failed", False) is (not repaired)

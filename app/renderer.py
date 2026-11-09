@@ -13,6 +13,7 @@ import urllib.parse
 import weakref
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import (
     QFile,
@@ -43,6 +44,7 @@ from .attachment_security import attachment_open_policy
 from .file_types import is_markdown, is_pdf, is_supported_document
 from .html_loading import HtmlPreparation
 from .md_converter import RenderCancelled, convert, convert_text, state_page_html
+from .pdf_repair_async import repair_async
 from .pdf_tounicode import repair_radical_tounicode
 from .web_security import blocks_file_request, document_host, install_remote_file_guard
 
@@ -631,6 +633,7 @@ class RendererView(QWebEngineView):
         self._theme = "light"
         self._side_notes_visible = False
         self._pdf_callback = None
+        self._pdf_async_repair: tuple[bool, Any] = (False, None)
         self._zoom_factor = 1.0
         self._pending_scroll: int | None = None
         self._pending_scroll_generation: int | None = None
@@ -1106,11 +1109,16 @@ class RendererView(QWebEngineView):
         if pending_export is not None and not self._partial_preview_active:
             filepath, on_done, layout = pending_export
             self._pending_export = None
+            async_repair, on_repair_failed = getattr(
+                self, "_pdf_async_repair", (False, None)
+            )
             if self._render_failed_generation == generation:
                 if on_done is not None:
                     on_done(filepath, False)
             else:
-                self.export_pdf(filepath, on_done, layout)
+                self.export_pdf(
+                    filepath, on_done, layout, async_repair, on_repair_failed
+                )
         target, self._pending_scroll, self._pending_scroll_generation = (
             _pending_scroll_target(
                 self._pending_scroll,
@@ -1639,16 +1647,22 @@ class RendererView(QWebEngineView):
             % json.dumps(self._side_notes_visible)
         )
 
-    def export_pdf(self, filepath: str | Path, on_done=None, layout=None):
+    def export_pdf(self, filepath: str | Path, on_done=None, layout=None,
+                   async_repair=False, on_repair_failed=None):
         """Render the current page to a PDF. on_done(path, ok) fires when finished.
 
         layout is a QPageLayout; when omitted an A4 portrait layout is used.
+        With async_repair the text-layer repair runs on a worker thread and
+        on_done fires only after it; if it fails the unrepaired PDF is kept,
+        on_repair_failed(path) is called, then on_done(path, True).  Without it
+        (the headless CLI) the repair runs synchronously before on_done.
         """
         if getattr(self, "_pdf_printing", False):
             if on_done:
                 on_done(str(filepath), False)
             return
         self._pdf_callback = on_done
+        self._pdf_async_repair = (bool(async_repair), on_repair_failed)
         if self._partial_preview_active:
             # Fast text reading only ever shows a prefix; exporting it would
             # silently produce a truncated PDF. Hold the request until the full
@@ -1744,13 +1758,37 @@ class RendererView(QWebEngineView):
         ) if ok else callback(None))
 
     def _on_pdf_finished(self, path: str, ok: bool):
+        async_repair, on_repair_failed = getattr(
+            self, "_pdf_async_repair", (False, None)
+        )
+        if ok and async_repair:
+            # Stay in the "printing" state (no re-export, navigation deferred)
+            # until the worker is done; the callback is delivered afterwards.
+            def repaired(succeeded: bool):
+                if not isValid(self):
+                    return  # view destroyed meanwhile; the PDF is intact on disk
+                try:
+                    if not succeeded and on_repair_failed:
+                        on_repair_failed(path)
+                finally:
+                    self._finish_pdf_export(path, True)
+
+            try:
+                repair_async(path, repaired)
+            except Exception:
+                log.warning("Could not start PDF text repair", exc_info=True)
+                repaired(False)
+            return
+        self._finish_pdf_export(path, ok, repair=ok)
+
+    def _finish_pdf_export(self, path: str, ok: bool, repair: bool = False):
         self._pdf_printing = False
         deferred, self._deferred_navigation = getattr(self, "_deferred_navigation", None), None
         callback = self._pdf_callback
         self._pdf_callback = None
         try:
             try:
-                if ok:
+                if repair:
                     # Chromium writes Kangxi radicals into ToUnicode for glyphs
                     # CJK fonts share with ideographs; fix copy/search text.
                     repair_radical_tounicode(path)

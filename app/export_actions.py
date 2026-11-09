@@ -16,11 +16,12 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
 )
+from shiboken6 import isValid
 
 from . import edit_backend
 from .file_types import is_markdown
 from .md_converter import read_text
-from .pdf_tounicode import repair_radical_tounicode
+from .pdf_repair_async import repair_async
 from .settings_store import APP, ORG
 
 # PDF export page sizes (key -> QPageSize id) plus a "single" long-page mode.
@@ -92,7 +93,10 @@ def export_pdf(window):
     else:
         layout = pdf_layout(setup["size"], setup["orientation"])
         show_pdf_progress(window)
-        window.renderer.export_pdf(path, window._on_pdf_exported, layout)
+        window.renderer.export_pdf(
+            path, window._on_pdf_exported, layout,
+            async_repair=True, on_repair_failed=_repair_failed_handler(window),
+        )
 
 
 def export_pptx(window):
@@ -363,7 +367,11 @@ class _SourceSnapshotExport(QObject):
 
     def _print(self, layout) -> None:
         try:
-            self.view.export_pdf(self.path, lambda _path, ok: self._finish(bool(ok)), layout)
+            self.view.export_pdf(
+                self.path, lambda _path, ok: self._finish(bool(ok)), layout,
+                async_repair=True,
+                on_repair_failed=_repair_failed_handler(self.window),
+            )
         except (RuntimeError, TypeError):
             self._finish(False)
 
@@ -554,11 +562,29 @@ def _export_wysiwyg_pdf(window, path: str, setup: dict) -> None:
     def _on_printed(exported_path, ok) -> None:
         if state["phase"] != "printing":
             return
+        if not ok:
+            _complete(str(exported_path), False)
+            return
+        # Keep the progress dialog up while a worker thread repairs the text
+        # layer; the export is reported only afterwards.  "printing" phase
+        # stays set so a second print signal is ignored meanwhile.
+        state["phase"] = "repairing"
+
+        def _repaired(succeeded: bool) -> None:
+            if not isValid(window):
+                return
+            if not succeeded:
+                _repair_failed_handler(window)(str(exported_path))
+            state["phase"] = "printing"
+            _complete(str(exported_path), True)
+
         try:
-            if ok:
-                repair_radical_tounicode(str(exported_path))
-        finally:
-            _complete(str(exported_path), bool(ok))
+            repair_async(str(exported_path), _repaired)
+        except BaseException:
+            # Could not hand the work to the worker: still restore the live
+            # surface and close the progress dialog, then let it propagate.
+            _repaired(False)
+            raise
 
     def _on_prepared(result) -> None:
         nonlocal page
@@ -624,7 +650,8 @@ def export_single_page(window, dims):
 
     show_pdf_progress(window)
     window.renderer.export_pdf(
-        window._pending_pdf_path, window._on_pdf_exported, layout
+        window._pending_pdf_path, window._on_pdf_exported, layout,
+        async_repair=True, on_repair_failed=_repair_failed_handler(window),
     )
     window._pending_pdf_path = None
 
@@ -645,7 +672,16 @@ def close_pdf_progress(window):
         window.pdf_progress = None
 
 
+def _repair_failed_handler(window):
+    """Callback that remembers the PDF text repair failed, for on_pdf_exported."""
+    def handler(_path: str) -> None:
+        window._pdf_repair_failed = True
+    return handler
+
+
 def on_pdf_exported(window, path: str, ok: bool):
+    repair_failed = bool(getattr(window, "_pdf_repair_failed", False))
+    window._pdf_repair_failed = False
     close_pdf_progress(window)
     window._export_btn.setEnabled(
         bool(window.current_file)
@@ -658,6 +694,13 @@ def on_pdf_exported(window, path: str, ok: bool):
         return
 
     window.statusBar().showMessage(f"已匯出 PDF：{path}", 5000)
+    if repair_failed:
+        QMessageBox.warning(
+            window,
+            "匯出 PDF",
+            "PDF 已匯出，但文字層修正失敗，已保留未修正的檔案。\n"
+            "複製或搜尋 PDF 中的部分中文字（如部首字形）可能不正確。",
+        )
     show_export_complete(window, path)
 
 

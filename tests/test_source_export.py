@@ -60,7 +60,7 @@ class _SnapshotRenderer:
     def content_size(self, callback):
         callback([900, 2000])
 
-    def export_pdf(self, path, callback, layout):
+    def export_pdf(self, path, callback, layout, **_kwargs):
         self.exports.append((path, callback, layout))
 
     def toHtml(self, callback):

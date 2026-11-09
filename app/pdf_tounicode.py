@@ -75,6 +75,29 @@ def is_unified_ideograph(text: str) -> bool:
     return len(text) == 1 and unicodedata.name(text, "").startswith("CJK UNIFIED IDEOGRAPH-")
 
 
+def repair_radical_tounicode_strict(path: str | Path) -> int:
+    """Like :func:`repair_radical_tounicode` but lets failures propagate.
+
+    The corrected file is written to a temporary file and swapped in with
+    ``os.replace`` (``atomic_write_bytes``), so the PDF is never left half
+    written.  If the file changed on disk while it was being analysed (another
+    export to the same path finished meanwhile) it is left alone: replacing it
+    would overwrite the newer PDF with a repaired copy of the older one.
+    """
+    target = Path(path)
+    before = target.stat()
+    data = target.read_bytes()
+    fixed, repaired = repair_radical_tounicode_bytes(data)
+    if not fixed:
+        return 0
+    after = target.stat()
+    if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+        log.info("PDF %s changed during text repair; leaving it as is", target)
+        return 0
+    atomic_write_bytes(target, repaired, backup=False)
+    return fixed
+
+
 def repair_radical_tounicode(path: str | Path) -> int:
     """Fix radical ToUnicode entries of the PDF at *path* in place.
 
@@ -83,11 +106,7 @@ def repair_radical_tounicode(path: str | Path) -> int:
     """
     target = Path(path)
     try:
-        data = target.read_bytes()
-        fixed, repaired = repair_radical_tounicode_bytes(data)
-        if fixed:
-            atomic_write_bytes(target, repaired, backup=False)
-        return fixed
+        return repair_radical_tounicode_strict(target)
     except OSError as exc:
         log.warning("Could not repair PDF text mapping of %s: %s", target, exc)
     except Exception:
