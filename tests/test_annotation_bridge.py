@@ -169,6 +169,9 @@ def _until(predicate, timeout_ms=10000, step_ms=20):
 # Set by the renderer's document-creation script once its Escape watcher is
 # listening; from then on an unhandled Escape is kept until the bridge is ready.
 _ESCAPE_WATCH_READY = "window.__mdUnhandledEscapeReady === true"
+# Loading a document (the first one also starts Chromium) can take far longer
+# under CPU load than delivering an Escape; those waits get their own cap.
+_LOAD_TIMEOUT_MS = 30000
 
 
 def _escape_watch_ready(view, document_check):
@@ -240,13 +243,17 @@ def test_rendered_page_reports_only_unhandled_escape(qapp, tmp_path):
     try:
         view.show()
         view.load_file(md)
-        assert _until(lambda: view._loaded_markdown_generation == view._render_generation)
-        assert _until(lambda: _escape_watch_ready(view, "document.querySelector('h1')"))
+        assert _until(lambda: view._loaded_markdown_generation == view._render_generation,
+                      _LOAD_TIMEOUT_MS)
+        assert _until(lambda: _escape_watch_ready(view, "document.querySelector('h1')"),
+                      _LOAD_TIMEOUT_MS)
         _press_escape(view)
         assert _until(lambda: reported == [7]), reported
         # A fresh token for the next Escape: a duplicate report of the first
         # one would reach Python before it, so the order proves there is none.
+        # The token reaches the page as script, which a key event may overtake.
         view.set_search_escape_generation(8)
+        assert _eval(view, "window.__mdSearchEscapeGeneration") == 8
         _press_escape(view)
         assert _until(lambda: len(reported) >= 2), reported
         assert reported == [7, 8]
@@ -255,7 +262,8 @@ def test_rendered_page_reports_only_unhandled_escape(qapp, tmp_path):
         view.set_search_escape_generation(7)
         view.render_html("<html><body tabindex='0'>live preview</body></html>")
         assert _until(lambda: _escape_watch_ready(
-            view, "document.body && document.body.textContent === 'live preview'"))
+            view, "document.body && document.body.textContent === 'live preview'"),
+            _LOAD_TIMEOUT_MS)
         _press_escape(view)
         assert _until(lambda: reported == [7]), reported
 
@@ -312,13 +320,13 @@ def test_escape_pressed_while_a_redrawn_preview_boots_is_still_reported(
 
     try:
         view.show()
-        assert _until(lambda: loads == [True]), loads  # the empty-state page
+        assert _until(lambda: loads == [True], _LOAD_TIMEOUT_MS), loads  # empty-state page
         first_page = view.page()
         view.loadFinished.connect(press_on_load)
         view.render_html("<html><body tabindex='0'>redrawn preview</body></html>",
                          QUrl.fromLocalFile(str(tmp_path) + "/"))
         assert (view.page() is not first_page) == rotate
-        assert _until(lambda: bool(pressed))
+        assert _until(lambda: bool(pressed), _LOAD_TIMEOUT_MS)
         assert pressed == [view.page()]
         assert _until(lambda: reported == [7]), reported
     finally:
@@ -363,13 +371,14 @@ def test_escape_reports_survive_pages_without_document_creation_scripts(qapp):
     view.set_search_escape_generation(7)
     try:
         view.show()
-        assert _until(lambda: loads == [True]), loads  # data: empty-state page
+        assert _until(lambda: loads == [True], _LOAD_TIMEOUT_MS), loads  # data: empty page
         for text in ("first data page", "second data page"):
             count = len(loads)
             view.render_html(f"<html><body tabindex='0'>{text}</body></html>")
-            assert _until(lambda count=count: len(loads) > count)
+            assert _until(lambda count=count: len(loads) > count, _LOAD_TIMEOUT_MS)
         assert _until(lambda: _escape_watch_ready(
-            view, "document.body && document.body.textContent === 'second data page'"))
+            view, "document.body && document.body.textContent === 'second data page'"),
+            _LOAD_TIMEOUT_MS)
         _press_escape(view)
         assert _until(lambda: reported == [7]), reported
     finally:
