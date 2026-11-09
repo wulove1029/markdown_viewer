@@ -305,3 +305,62 @@ def test_deleted_loader_still_disposes_transferred_document_on_gui(qapp, tmp_pat
     qapp.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert destroyed == [qapp.thread()]
+
+
+def test_destroying_loader_cancels_read_without_qt_teardown_on_worker(
+    qapp, tmp_path, monkeypatch
+):
+    # A finished runnable is released on its worker thread. Neither the
+    # broker's signals nor the loader's cancel flag may be tracked by Qt there:
+    # the flag used to sit behind a weakly tracked bound-method connection.
+    import gc
+    import weakref
+
+    from shiboken6 import delete
+
+    from app import text_loading
+
+    started, release, seen_cancel = threading.Event(), threading.Event(), []
+
+    def blocked_read(path, cancel):
+        started.set()
+        release.wait(5)
+        seen_cancel.append(cancel.is_set())
+        return None
+
+    monkeypatch.setattr(text_loading, "_read_cancelable", blocked_read)
+    brokers = []
+    original = text_loading._ReadSignals
+
+    def tracked_broker():
+        broker = original()
+        destroyed_on = []
+        broker.relay._bridge.destroyed.connect(
+            lambda *_: destroyed_on.append(threading.get_ident()),
+            Qt.ConnectionType.DirectConnection,
+        )
+        brokers.append(destroyed_on)
+        return broker
+
+    monkeypatch.setattr(text_loading, "_ReadSignals", tracked_broker)
+    path = tmp_path / "large.txt"
+    path.write_text("text\n" * 10, encoding="utf8")
+    loader = TextLoader()
+    failed, ready = [], []
+    loader.failed.connect(lambda *args: failed.append(args))
+    loader.ready.connect(lambda *args: ready.append(args))
+    loader.start(path, QFont())
+    assert started.wait(5)
+    cancel = loader._cancel
+    assert weakref.getweakrefcount(cancel) == 0
+    delete(loader)
+    assert cancel.is_set()
+    release.set()
+    assert QThreadPool.globalInstance().waitForDone(10000)
+    gc.collect()
+    assert seen_cancel == [True]
+    assert brokers == [[]]  # the worker released nothing Qt tracks
+    qapp.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert brokers == [[threading.get_ident()]]
+    assert failed == [] and ready == []

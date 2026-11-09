@@ -10,7 +10,6 @@ from PySide6.QtCore import (
     QCoreApplication,
     QObject,
     QRunnable,
-    Qt,
     QTimer,
     Signal,
     Slot,
@@ -21,6 +20,7 @@ from shiboken6 import delete
 
 from . import background_jobs
 from .md_converter import _decode_bytes
+from .worker_relay import CancelScope, WorkerRelay
 
 ASYNC_TEXT_BYTES = 256 * 1024
 _CHUNK_CHARS = 32 * 1024
@@ -83,13 +83,14 @@ def _read_cancelable(path, cancel):
 
 class _ReadSignals(QObject):
     done = Signal(int, object, object, object)
-    delivered = Signal(int, object, object, object)
 
     def __init__(self):
         # Outlive a cancelled/deleted loader until every moved document reaches
         # its GUI owner. Unclaimed documents are destroyed with this broker.
         super().__init__(QCoreApplication.instance())
-        self.delivered.connect(self._dispatch, Qt.ConnectionType.QueuedConnection)
+        # The worker reports through this relay, never through the broker
+        # itself, so no QObject is released on the worker thread.
+        self.relay = WorkerRelay(self, self._dispatch, queued=True)
 
     @Slot(int, object, object, object)
     def _dispatch(self, generation, path, payload, error):
@@ -100,10 +101,10 @@ class _ReadSignals(QObject):
 
 
 class _ReadText(QRunnable):
-    def __init__(self, generation, path, cancel, font, gui_thread):
+    def __init__(self, generation, path, cancel, font, gui_thread, report):
         super().__init__()
         self.generation, self.path, self.cancel = generation, path, cancel
-        self.signals = _ReadSignals()
+        self.report = report
         self.font = QFont(font)
         self.gui_thread = gui_thread
 
@@ -152,7 +153,7 @@ class _ReadText(QRunnable):
         finally:
             if document is not None:
                 delete(document)  # Still owned exclusively by this worker.
-            self.signals.delivered.emit(self.generation, self.path, payload, error)
+            self.report(self.generation, self.path, payload, error)
 
 
 class TextLoader(QObject):
@@ -162,8 +163,10 @@ class TextLoader(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._generation = 0
-        self._cancel = threading.Event()
-        self.destroyed.connect(self._cancel.set)
+        # Destroying the loader cancels the running read. The flag is shared
+        # with the worker, so it is never connected to a Qt signal itself.
+        self._cancel_scope = CancelScope(self)
+        self._cancel = self._cancel_scope.track(threading.Event())
         self._document = None
         self._building = False
         self._text = ""
@@ -185,13 +188,13 @@ class TextLoader(QObject):
 
     def start(self, path: Path, font):
         self.cancel()
-        self.destroyed.disconnect(self._cancel.set)
-        self._cancel = threading.Event()
-        self.destroyed.connect(self._cancel.set)
+        self._cancel = self._cancel_scope.track(threading.Event())
         self._path = path
         self._font = font
-        worker = _ReadText(self._generation, path, self._cancel, font, self.thread())
-        worker.signals.done.connect(self._read_done)
+        broker = _ReadSignals()
+        broker.done.connect(self._read_done)
+        worker = _ReadText(self._generation, path, self._cancel, font, self.thread(),
+                           broker.relay.emit)
         background_jobs.pool().start(worker, background_jobs.VISIBLE)
 
     def _read_done(self, generation, path, payload, error):
