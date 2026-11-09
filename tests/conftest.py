@@ -65,3 +65,9 @@ def isolated_relocation_journals(tmp_path, monkeypatch):
     from app import relocation_journal
     monkeypatch.setattr(relocation_journal, "default_journal_dir",
                         lambda: tmp_path.parent / (tmp_path.name + "-journals"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_aiwatch_home(tmp_path, monkeypatch):
+    """Never read the real ~/.aiwatch (no test may find a real install.json)."""
+    monkeypatch.setenv("AIWATCH_HOME", str(tmp_path.parent / (tmp_path.name + "-aiwatch")))

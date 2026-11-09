@@ -2,7 +2,9 @@
 
 Asynchronous polling (QNetworkAccessManager, never blocking the GUI thread),
 back-off, and OS toasts through a QSystemTrayIcon.  All decisions live in
-:mod:`app.agent_watchdog_state`.  The Watchdog is never started from here.
+:mod:`app.agent_watchdog_state`.  When the Watchdog cannot be reached it may be
+started as a hidden background process, but only through the registered
+install.json (see :mod:`app.agent_autostart`); it is never stopped from here.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from PySide6.QtNetwork import (
 )
 from PySide6.QtWidgets import QApplication, QStyle, QSystemTrayIcon
 
-from . import settings_store
+from . import agent_autostart, settings_store
 from .agent_watchdog_state import (
     BASELINE,
     INVALID,
@@ -53,13 +55,14 @@ LEGACY_REPROBE_S = 300.0          # legacy mode re-checks /api/events this often
 KEY_ENABLED = "watchdog/enabled"
 KEY_BASE_URL = "watchdog/base_url"
 KEY_START_BAT = "watchdog/start_bat"
+KEY_AUTOSTART = "watchdog/autostart"
 KEY_TOAST_WAITING = "watchdog/toast_waiting"
 KEY_TOAST_STUCK = "watchdog/toast_stuck"
 KEY_LAST_TOAST = "watchdog/last_toast"
 
 
 def default_endpoint_path() -> Path:
-    return Path.home() / ".aiwatch" / "endpoint.json"
+    return agent_autostart.aiwatch_home() / "endpoint.json"
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -78,6 +81,7 @@ class WatchdogConfig:
     toast_waiting: bool = True
     toast_stuck: bool = True
     last_toast: str = ""
+    autostart: bool = True
 
     @classmethod
     def load(cls) -> WatchdogConfig:
@@ -94,6 +98,7 @@ class WatchdogConfig:
             toast_waiting=_as_bool(store.value(KEY_TOAST_WAITING), True),
             toast_stuck=_as_bool(store.value(KEY_TOAST_STUCK), True),
             last_toast=str(store.value(KEY_LAST_TOAST, "") or ""),
+            autostart=_as_bool(store.value(KEY_AUTOSTART), True),
         )
 
 
@@ -115,10 +120,18 @@ class AgentWatcher(QObject):
         endpoint_path: Path | None = None,
         clock: Callable[[], float] | None = None,
         use_tray: bool = True,
+        launcher: Callable[[list[str], str], str] | None = None,
+        autostart_clock: Callable[[], float] | None = None,
     ) -> None:
         super().__init__(parent)
         self._endpoint_path = endpoint_path or default_endpoint_path()
         self._clock = clock
+        self._launcher = launcher or agent_autostart.spawn_detached
+        self._autostart_clock = autostart_clock or time.monotonic
+        self._policy = agent_autostart.AttemptPolicy()
+        self._fast_until = 0.0      # fast probing after a launch, until this time
+        self._http_seen = False     # an HTTP answer (not the contract) this round
+        self.autostart_message = ""  # why the Watchdog is (not) auto-started
         self._use_tray = use_tray
         self.config = WatchdogConfig.load()
         self.state = self._new_state()
@@ -165,6 +178,11 @@ class AgentWatcher(QObject):
     @property
     def base_url(self) -> str:
         return self._bases[self._base_index] if self._bases else self.config.base_url
+
+    @property
+    def _home(self) -> Path:
+        """install.json lives next to endpoint.json (AIWATCH_HOME / ~/.aiwatch)."""
+        return self._endpoint_path.parent
 
     @property
     def available(self) -> bool:
@@ -342,7 +360,7 @@ class AgentWatcher(QObject):
             return
         payload = self._json(reply) if status == 200 else None
         if payload is None:  # includes any 3xx (redirects are never followed)
-            self._failed()
+            self._failed(status)
             return
         was_legacy = self.state.legacy
         probe_state = (self.state.boot_id, self.state.seq)
@@ -353,7 +371,7 @@ class AgentWatcher(QObject):
             if was_legacy:
                 self.state.boot_id, self.state.seq = probe_state
             log.warning("Watchdog /api/events returned a malformed payload")
-            self._failed()
+            self._failed(status)
             return
         self._connected()
         if was_legacy:
@@ -378,7 +396,7 @@ class AgentWatcher(QObject):
         payload = self._json(reply) if status == 200 else None
         if payload is None:
             if reschedule:
-                self._failed()  # legacy mode: status is the only poll
+                self._failed(status)  # legacy mode: status is the only poll
             else:
                 # Reconciliation only: events decide availability.
                 log.warning("Watchdog /api/status reconciliation failed (%s)", status)
@@ -395,6 +413,9 @@ class AgentWatcher(QObject):
     def _connected(self) -> None:
         self._backoff.reset()
         self._failures = 0
+        self._http_seen = False
+        self._fast_until = 0.0
+        self._set_autostart_message("")
         if self.state.unavailable:
             self.state.set_unavailable(False)
             # Back from an outage: the service may have been upgraded or
@@ -421,8 +442,15 @@ class AgentWatcher(QObject):
         self.state.set_legacy(False)
         self._events_timer.start(0)
 
-    def _failed(self) -> None:
-        """One failed events (or legacy status) request."""
+    def _failed(self, http_status: int = 0) -> None:
+        """One failed events (or legacy status) request.
+
+        http_status is the HTTP status when the peer answered at all (0 for a
+        refused/timed-out connection): an answer that is not the contract means
+        another program owns the port.
+        """
+        if http_status:
+            self._http_seen = True
         if not self.state.unavailable:
             self._failures += 1
             if self._failures < FAILURES_BEFORE_UNAVAILABLE:
@@ -437,12 +465,70 @@ class AgentWatcher(QObject):
         self.state.set_unavailable(True)
         self._bases = self._discover_bases()
         self._base_index = 0
-        self._events_timer.start(int(self._backoff.next_delay() * 1000))
+        self._events_timer.start(self._next_probe_delay_ms())
         if was_available:
             self.changed.emit()
 
+    # --- auto-start -------------------------------------------------------
+
+    def _set_autostart_message(self, text: str) -> None:
+        if text == self.autostart_message:
+            return
+        self.autostart_message = text
+        if text:
+            log.warning("Watchdog auto-start: %s", text)
+        self.changed.emit()
+
+    def _next_probe_delay_ms(self) -> int:
+        """Delay before the next probe once every base has failed.
+
+        Decides on auto-start first: it resets the back-off and switches to the
+        fast probe.  Anything else keeps the normal back-off.
+        """
+        now = self._autostart_clock()
+        http_seen, self._http_seen = self._http_seen, False
+        if now < self._fast_until:
+            return agent_autostart.FAST_PROBE_INTERVAL_MS
+        if http_seen:
+            self._set_autostart_message(
+                "port 被佔用：有程式在回應，但不符合 Watchdog 的 /api/events 合約，"
+                "因此不自動啟動。請關掉佔用該 port 的程式後按「重新偵測」。")
+        elif self._try_autostart(now):
+            self._backoff.reset()
+            self._fast_until = now + agent_autostart.FAST_PROBE_WINDOW_S
+            return agent_autostart.FAST_PROBE_INTERVAL_MS
+        return int(self._backoff.next_delay() * 1000)
+
+    def _try_autostart(self, now: float) -> bool:
+        """True when a launch was made (fast probing should follow)."""
+        if not self.config.autostart:
+            self._set_autostart_message("已在設定關閉「自動啟動 Watchdog」。")
+            return False
+        verdict = self._policy.verdict(now)
+        if verdict == "exhausted":
+            self._set_autostart_message(
+                f"已自動啟動 {agent_autostart.MAX_ATTEMPTS} 次仍連不上 Watchdog，"
+                "已停止嘗試。請檢查 Watchdog（aiwatch.log）後按「重新偵測」重試。")
+            return False
+        if verdict == "cooldown":
+            return False
+        check = agent_autostart.load_install(self._home)
+        if not check.ok:
+            self._set_autostart_message("不自動啟動：" + check.reason)
+            return False
+        self._policy.record(now)
+        error = self._launcher(check.launch, check.cwd)
+        if error:
+            self._set_autostart_message(error)
+            return False
+        self._set_autostart_message("已嘗試自動啟動 Watchdog，等待回應中…")
+        return True
+
     def redetect(self) -> None:
-        """The panel's 'detect again' button."""
+        """The panel's 'detect again' button: also the manual auto-start retry."""
+        self._policy.reset()
+        self._fast_until = 0.0
+        self._set_autostart_message("")
         self.start()
 
     # --- toasts -----------------------------------------------------------

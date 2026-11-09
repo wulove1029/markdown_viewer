@@ -256,13 +256,18 @@ class AgentsDock(QDockWidget):
         text = f"{head}\n\n"
         if enabled or watcher is None:
             if bat:
-                text += (f"請自行執行下列啟動檔，再按「重新偵測」：\n{bat}\n\n"
-                         "本程式不會自動啟動 Watchdog。")
+                text += f"也可自行執行下列啟動檔，再按「重新偵測」：\n{bat}\n\n"
             else:
                 text += ("尚未指定 AI_Agent_Watchdog 的 start.bat。\n"
                          "請自行啟動 Watchdog 後按「重新偵測」，"
-                         "或在設定值 watchdog/start_bat 記錄 start.bat 路徑。\n\n"
-                         "本程式不會自動啟動 Watchdog。")
+                         "或在設定值 watchdog/start_bat 記錄 start.bat 路徑。\n\n")
+            note = getattr(watcher, "autostart_message", "") if watcher is not None else ""
+            if note:
+                text += f"自動啟動：{note}\n"
+            elif watcher is not None and getattr(watcher.config, "autostart", False):
+                text += "自動啟動：已開啟（依 Watchdog 登記的 install.json）。\n"
+            else:
+                text += "本程式不會自動啟動 Watchdog。\n"
         else:
             text += "請在「檢視」選單勾選「啟用 Agent 監看」。"
         self._info_label.setText(text)

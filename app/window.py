@@ -7036,6 +7036,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _build_agent_watch_menu(self, menu, act) -> None:
         from .agent_watchdog import (
+            KEY_AUTOSTART,
             KEY_ENABLED,
             KEY_TOAST_STUCK,
             KEY_TOAST_WAITING,
@@ -7064,6 +7065,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         menu.addAction(toggle(
             "可能卡住時通知（只在閱讀器開著時通知）",
             KEY_TOAST_STUCK, config.toast_stuck))
+        menu.addAction(toggle(
+            "連不到時自動啟動 Watchdog", KEY_AUTOSTART, config.autostart))
         menu.addAction(act("設定 Watchdog 位址…", self._edit_watchdog_url))
 
     def start_agent_watchdog(self) -> None:
