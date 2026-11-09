@@ -1101,3 +1101,87 @@ def test_deferred_close_still_clears_stale_cached_badge(
     finally:
         window._update_close_pending = False
         window.close()
+
+
+_QUIT_SCRIPT = r'''
+import sys, tempfile, time
+from pathlib import Path
+from PySide6.QtCore import QSettings, QTimer
+from PySide6.QtWidgets import QApplication, QMainWindow
+app = QApplication([])
+from app import update_flow
+from app.updater import UpdateCancelled, UpdateInfo
+
+ini = str(Path(tempfile.mkdtemp()) / "s.ini")
+update_flow.QSettings = lambda *a, **k: QSettings(ini, QSettings.Format.IniFormat)
+job = sys.argv[1]
+ran = []
+
+def slow_job(*_args, cancel=None, **_kwargs):
+    time.sleep(1.5)  # a leg the cancel cannot shorten, such as a DNS lookup
+    ran.append(cancel.is_set())
+    raise UpdateCancelled("cancelled")
+
+update_flow.check_for_update = slow_job
+update_flow.download_installer = slow_job
+
+class Win(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self._update_check_thread = None
+        self._update_download_thread = None
+        self._update_cancel_event = None
+
+    def _set_update_state(self, state, *, version=""):
+        pass
+
+    def closeEvent(self, event):
+        if update_flow.defer_close_until_updates_finish(self, event):
+            return
+        super().closeEvent(event)
+
+owner, other = Win(), Win()
+owner.show()
+other.show()
+if job == "check":
+    update_flow.check_for_updates(owner, manual=False)
+    thread = owner._update_check_thread
+else:
+    update_flow.download_update(owner, UpdateInfo(
+        True, "1.0.0", "1.1.0", "https://github.com/example/release",
+        asset_name="MarkdownViewerSetup.exe",
+        asset_url="https://github.com/example/MarkdownViewerSetup.exe",
+        asset_digest="sha256:" + "a" * 64,
+    ))
+    thread = owner._update_download_thread
+assert thread is not None and thread.isRunning()
+QTimer.singleShot(100, owner.close)  # deferred: hidden until its job ends
+QTimer.singleShot(300, other.close)  # the last visible window: the app quits
+app.exec()
+assert thread.isFinished(), "quit returned with the updater thread running"
+assert ran == [True], ran
+print("OK")
+sys.exit(0)
+'''
+
+
+@pytest.mark.parametrize("job", ["check", "download"])
+def test_quitting_while_an_updater_thread_runs_does_not_crash(tmp_path, job):
+    """A deferred close hides its window, so closing the last other window
+    quits the app while the updater QThread still runs. QApplication then
+    deleted that running child: "QThread: Destroyed while ... running"."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    script = tmp_path / "quit_probe.py"
+    script.write_text(_QUIT_SCRIPT, encoding="utf-8")
+    repo = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONPATH=str(repo))
+    proc = subprocess.run(
+        [sys.executable, "-B", "-X", "utf8", str(script), job],
+        cwd=repo, env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout
+    assert "QThread: Destroyed" not in proc.stderr

@@ -6,12 +6,14 @@ back from a worker is matched against the window's current request id, so a
 retry or a cancel can never be overwritten by the job it replaced.
 """
 
+import logging
 import threading
 import time
 import weakref
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QCoreApplication,
     QEvent,
     QObject,
     QProcess,
@@ -51,9 +53,18 @@ from .updater import (
 )
 from .version import VERSION
 
+log = logging.getLogger(__name__)
+
 #: Progress signals are throttled to this interval so a fast local transfer
 #: cannot flood the GUI thread with repaint work.
 PROGRESS_INTERVAL_MS = 150
+
+#: How long quitting waits for the updater threads it has just cancelled.
+#: Cancelling closes the socket at once; only a connect still in progress
+#: (updater.CHECK_TIMEOUT / DOWNLOAD_TIMEOUT, 15 s / 20 s) or a DNS lookup
+#: keeps one running longer.
+QUIT_WAIT_MS = 30_000
+_QUIT_HOOK_PROPERTY = "_updaterQuitHook"
 
 
 # --- small helpers ------------------------------------------------------
@@ -339,6 +350,41 @@ class UpdateDownloadThread(QThread):
             self.finished_download.emit(None, exc)
 
 
+_UPDATE_THREAD_TYPES = (UpdateCheckThread, UpdateDownloadThread)
+
+
+def _stop_update_threads_on_quit() -> None:
+    """Cancel and wait for updater threads before QApplication deletes them.
+
+    The threads are children of the application, and Qt aborts the process
+    when it destroys a running QThread. A window whose close is deferred is
+    hidden, so closing the last other window quits while its job still runs.
+    """
+    app = QCoreApplication.instance()
+    if app is None:
+        return
+    threads = [
+        child
+        for child in app.findChildren(QThread)
+        if isinstance(child, _UPDATE_THREAD_TYPES) and _thread_is_running(child)
+    ]
+    for thread in threads:
+        thread.cancel()
+    deadline = time.monotonic() + QUIT_WAIT_MS / 1000.0
+    for thread in threads:
+        remaining_ms = max(0, int((deadline - time.monotonic()) * 1000))
+        if not thread.wait(remaining_ms):
+            log.warning("An updater thread is still running at quit")
+
+
+def _stop_update_threads_at_quit(app) -> None:
+    """Connect the quit-time cleanup to *app*, once."""
+    if app is None or app.property(_QUIT_HOOK_PROPERTY):
+        return
+    app.setProperty(_QUIT_HOOK_PROPERTY, True)
+    app.aboutToQuit.connect(_stop_update_threads_on_quit)
+
+
 # --- check flow ---------------------------------------------------------
 
 
@@ -377,6 +423,7 @@ def check_for_updates(window, manual: bool):
         window.statusBar().showMessage("正在檢查更新...")
 
     thread = UpdateCheckThread(QApplication.instance() or window)
+    _stop_update_threads_at_quit(QApplication.instance())
     window._update_check_thread = thread
     window_ref = weakref.ref(window)
 
@@ -579,6 +626,7 @@ def download_update(window, update: UpdateInfo, *, dest_dir=None):
     thread = UpdateDownloadThread(
         update, QApplication.instance() or window, dest_dir=dest_dir
     )
+    _stop_update_threads_at_quit(QApplication.instance())
     window._update_download_thread = thread
     window._update_cancel_event = thread.cancel_event
     window._update_downloading_info = update
