@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from . import background_jobs
+from .worker_relay import WorkerRelay, call_on_destroyed
 
 
 class HtmlFileLease:
@@ -121,17 +122,15 @@ def _prepare_html_file(html: str, base_url: str, cancelled: threading.Event):
         raise
 
 
-class _Signals(QObject):
-    finished = Signal(object)
-
-
 class _PrepareWorker(QRunnable):
-    def __init__(self, request: _Request, html: str, base_url: str):
+    """Prepares one file; ``report(request)`` is the controller's relay emit."""
+
+    def __init__(self, request: _Request, html: str, base_url: str, report):
         super().__init__()
         self.request = request
         self.html = html
         self.base_url = base_url
-        self.signals = _Signals()
+        self.report = report
 
     def run(self) -> None:
         lease = None
@@ -143,7 +142,7 @@ class _PrepareWorker(QRunnable):
         finally:
             self.html = ""
         self.request.publish(lease, error)
-        self.signals.finished.emit(self.request)
+        self.report(self.request)
 
 
 class HtmlPreparation(QObject):
@@ -155,7 +154,11 @@ class HtmlPreparation(QObject):
         super().__init__(parent)
         self._pool = pool if pool is not None else background_jobs.pool()
         self._lifetime = _Lifetime()
-        self.destroyed.connect(self._lifetime.close)
+        # A closure, not the bound close method: PySide would otherwise track
+        # the lifetime object weakly. Workers report through a relay this
+        # controller owns, so they hold no Qt object.
+        call_on_destroyed(self, self._lifetime.close)
+        self._relay = WorkerRelay(self, self._finished)
 
     @property
     def files(self):
@@ -174,8 +177,7 @@ class HtmlPreparation(QObject):
             return
         request = _Request(self.serial, generation)
         self._lifetime.request = request
-        worker = _PrepareWorker(request, html, base_url)
-        worker.signals.finished.connect(self._finished)
+        worker = _PrepareWorker(request, html, base_url, self._relay.emit)
         if self._pool is background_jobs.pool():
             background_jobs.submit(
                 worker, priority=background_jobs.VISIBLE, key=(id(self), "html"),

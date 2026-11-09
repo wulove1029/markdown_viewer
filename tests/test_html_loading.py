@@ -129,6 +129,28 @@ def test_destroyed_controller_removes_result_that_has_not_reached_queued_gui_cal
     assert not path.exists()
 
 
+
+def test_worker_finishing_after_controller_is_destroyed_reports_nothing(qapp):
+    # The worker holds no Qt object (it is released on a pool thread), and the
+    # lifetime object is not tracked weakly through a bound-method connection.
+    import weakref
+
+    pool = _ManualPool()
+    controller = html_loading.HtmlPreparation(pool=pool)
+    ready = []
+    controller.ready.connect(lambda *args: ready.append(args))
+    assert weakref.getweakrefcount(controller._lifetime) == 0
+    controller.prepare("Late", "", 2)
+    worker = pool.workers[-1]
+    assert not any(isinstance(value, QObject) for value in vars(worker).values())
+    _dispose(controller)
+    thread = threading.Thread(target=worker.run)
+    thread.start()
+    thread.join(5)
+    qapp.processEvents()
+    assert ready == []
+    assert worker.request.take() is None
+
 def test_prepare_failure_reports_once_and_does_not_retain_a_file(qapp, monkeypatch):
     pool = _ManualPool()
     controller = html_loading.HtmlPreparation(pool=pool)
