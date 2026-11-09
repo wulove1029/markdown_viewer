@@ -141,10 +141,13 @@ def test_search_outliving_its_view_reports_nothing_and_holds_no_qt_object(
 
     monkeypatch.setattr(global_search, "search_document_files", blocked_search)
     (tmp_path / "note.md").write_text("needle", encoding="utf-8")
-    selected = []
+    reports = []
+    for name in ("_on_search_progress", "_on_search_finished"):
+        monkeypatch.setattr(GlobalSearchView, name,
+                            lambda _self, *args, name=name: reports.append((name, args)))
     view = GlobalSearchView(
         roots_provider=lambda: [tmp_path],
-        on_result_selected=lambda *args: selected.append(args),
+        on_result_selected=lambda *_args: None,
     )
     view._input.setText("needle")
     view._search_now()
@@ -158,5 +161,5 @@ def test_search_outliving_its_view_reports_nothing_and_holds_no_qt_object(
     release.set()
     assert QThreadPool.globalInstance().waitForDone(5000)
     gc.collect()
-    qapp.processEvents()  # a late report would touch the destroyed view here
-    assert selected == []
+    qapp.processEvents()  # a late report would reach the destroyed view here
+    assert reports == []
