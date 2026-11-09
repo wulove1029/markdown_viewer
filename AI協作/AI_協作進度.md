@@ -120,6 +120,40 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-09 16:10 — 測試程序原生當機不再跳「應用程式錯誤」視窗〔已實作＋已驗證〕
+**作者**：Claude（使用者另開的 session，不是本專案的指揮官 session）
+**類型**：實作
+
+- **起因**：使用者畫面不定時跳出「python.exe - 應用程式錯誤」（0xC0000005，讀取 0xC8），
+  不按確定程序就卡住。對到 Application 事件 2026-11-09 15:40:47：`Qt6WebEngineCore.dll`
+  6.11.0 +0x32a655。該程序是 `python -X utf8 -m pytest -q -p no:cacheprovider
+  tests/test_annotation_bridge.py …`（cwd `F:\markdown_viewer`、`RUN_WEBENGINE_TESTS=1`、
+  offscreen、`--disable-gpu`、已載入 pymupdf），由 VS Code 的 Claude Code 子代理啟動。
+- **視窗的成因**：從 PowerShell／cmd 啟動的 python，錯誤模式實測為 0x8001 或 0x1，不含
+  SEM_NOGPFAULTERRORBOX（0x0002），原生當機會跳視窗；從 Git Bash 啟動則是 0x3，不會跳。
+- **改動**：`tests/conftest.py:4-12`，win32 上執行
+  `SetErrorMode(GetErrorMode() | 0x0001 | 0x0002 | 0x8000)`，放在 `QT_QPA_PLATFORM`
+  （conftest.py:14）與 PySide6 import（conftest.py:17）之前。沒有加 `faulthandler.enable()`：
+  pytest 9.1.1 內建已啟用，`pytest.ini:4` 也設了 `faulthandler_timeout`。
+- **驗證**（fresh 子代理執行，非實作者）：
+  - `py -3 -B -X utf8 -m pytest --collect-only -q -p no:cacheprovider`：exit 0，2786 tests。
+  - PowerShell 啟動、`-p conftest` 載入後，探針測試內 `GetErrorMode()` = 0x8003，1 passed。
+  - 當機測試 `faulthandler._read_null()`：0.48 秒自行結束，exit -1073741819，輸出有
+    `Windows fatal exception: access violation` 與 Python 堆疊，沒有跳視窗，
+    Application Error 事件 0 筆。
+  - 另實測 QApplication → QWebEngineView → 載入頁面全程，錯誤模式不會被 QtWebEngine 改掉。
+- **副作用**：測試程序原生當機時，Windows 不再產生 WER 報告與
+  `%LOCALAPPDATA%\CrashDumps` 傾印（當機測試後確認沒有新傾印）。需要傾印時，
+  暫時註解 `tests/conftest.py:11-12` 再重現。此設定只在 pytest 載入這個 conftest 時生效。
+- **未做**：沒有 commit（本機 git 以 dubious ownership 拒絕操作此 repo，未更動 safe.directory）。
+  15:40 那次 QtWebEngine 當機的根因沒有處理。
+- **給追 15:40 當機的人的線索**：傾印檔 `%LOCALAPPDATA%\CrashDumps\python.exe.32064.dmp`。
+  當在主執行緒（CrBrowserMain），堆疊幾乎全在 Qt6WebEngineCore 內，經
+  Qt6Core／Qt6Widgets／QtWidgets.pyd 進入（事件處理途中），不是背景執行緒銷毀物件；
+  當時 `webengine_gui_thread_lifetime`（conftest.py:27）是啟用的。
+
+**→ 下一棒**：@Claude（指揮官 session）知悉 `tests/conftest.py` 已變動；15:40 當機根因待查。
+
 ### 2026-11-09｜1.37.0 發版分支 `release/1.37.0`
 
 作者：Claude｜狀態：分支已建立並在本機驗證；未合併 main、未 push、未打 tag

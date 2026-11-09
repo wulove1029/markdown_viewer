@@ -1,4 +1,15 @@
 import os
+import sys
+
+if sys.platform == "win32":
+    import ctypes
+
+    # A native crash (e.g. inside QtWebEngine) must end the test process at once instead of
+    # opening a blocking "application error" dialog that stalls unattended runs. pytest's
+    # faulthandler still prints the Python traceback; child processes inherit the mode.
+    # SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX
+    _kernel32 = ctypes.windll.kernel32
+    _kernel32.SetErrorMode(_kernel32.GetErrorMode() | 0x0001 | 0x0002 | 0x8000)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
