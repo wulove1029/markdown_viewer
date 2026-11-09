@@ -72,7 +72,11 @@ def _decode(path):
 
 
 def peek_source(path: Path, version: FileVersion) -> str | None:
-    """Use only a freshly validated version; this function performs no I/O."""
+    """Use only a freshly validated version.
+
+    Normally no source I/O; a file inside the racy window is read in full
+    to verify its content hash.
+    """
     return default_index.peek(path, version)
 
 

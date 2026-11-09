@@ -53,7 +53,11 @@ def _bytes(key: tuple, metadata: DocumentMetadata) -> int:
 
 
 def cached_metadata(path: Path) -> DocumentMetadata | None:
-    """Stat/cache lookup only; no source I/O, HTML parse or hashtag scan."""
+    """Stat/cache lookup only; no HTML parse or hashtag scan.
+
+    Normally no source I/O; a file inside the racy window is read in full to
+    compute its signature hash.
+    """
     try:
         key = signature(path)
     except OSError:
