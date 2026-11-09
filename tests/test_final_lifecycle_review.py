@@ -29,9 +29,11 @@ def test_help_diagnostics_action_invokes_explicit_export_for_current_window(
     window = make_window()
     exports = []
     monkeypatch.setattr(diagnostics, "export_dialog", exports.append)
+    # Look the menu up by title instead of QAction.menu(): on PySide6 6.11.0 the
+    # wrapper returned by QAction.menu() can already point at a deleted QMenu.
     help_menu = next(
-        action.menu() for action in window.menuBar().actions()
-        if action.text() == "說明(&H)"
+        menu for menu in window.menuBar().findChildren(QtWidgets.QMenu)
+        if menu.title() == "說明(&H)"
     )
     action = next(item for item in help_menu.actions() if item.text() == "匯出效能診斷…")
     assert action.isEnabled()
