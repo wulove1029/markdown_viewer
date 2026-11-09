@@ -107,9 +107,8 @@ def test_cancelled_pdf_metadata_does_not_open_document(qapp, tmp_path, monkeypat
     monkeypatch.setattr(pdf_view, "extract_outline", unexpected)
     monkeypatch.setattr(pdf_view, "extract_embedded_annotations", unexpected)
     for task_class in (pdf_view._PdfOutlineTask, pdf_view._PdfEmbeddedAnnotationsTask):
-        task = task_class(1, tmp_path / "closed.pdf", "")
-        task.cancel.set()
         results = []
-        task.signals.finished.connect(lambda *args: results.append(args))
+        task = task_class(1, tmp_path / "closed.pdf", "", lambda *args: results.append(args))
+        task.cancel.set()
         task.run()
         assert results == [(1, tmp_path / "closed.pdf", [])]

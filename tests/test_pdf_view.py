@@ -409,3 +409,43 @@ def test_wheel_without_ctrl_keeps_zoom_and_scrolls_normally(qapp, sample_pdf):
     finally:
         view._outline_tasks.clear()
         view.close()
+
+
+def test_pdf_readers_outliving_their_view_report_nothing(qapp, sample_pdf, monkeypatch):
+    """Outline and embedded-annotation tasks hold no Qt object of their own."""
+    import threading
+
+    from PySide6.QtCore import QObject
+    from shiboken6 import delete
+
+    started, reports = [], []
+
+    class _Pool:
+        def start(self, task, priority=0):
+            started.append(task)
+
+    for name in ("_on_outline_finished", "_on_embedded_annotations_finished"):
+        monkeypatch.setattr(PdfView, name,
+                            lambda _self, *args, name=name: reports.append((name, args)))
+    view = PdfView()
+    view._outline_pool = _Pool()
+    view._embedded_annotations_pool = _Pool()
+    assert view.load(sample_pdf) is True
+    assert view.request_outline() is True
+    assert view.request_embedded_annotations() is True
+    tasks = list(started)
+    assert len(tasks) == 2
+    for task in tasks:
+        assert not any(isinstance(value, QObject) for value in vars(task).values())
+    relays = (view._outline_relay, view._embedded_annotations_relay)
+    view._outline_tasks.clear()
+    view._embedded_annotations_tasks.clear()
+    view.close()
+    delete(view)
+    assert all(relay.closed for relay in relays)
+    for task in tasks:
+        thread = threading.Thread(target=task.run)
+        thread.start()
+        thread.join(10)
+    qapp.processEvents()
+    assert reports == []

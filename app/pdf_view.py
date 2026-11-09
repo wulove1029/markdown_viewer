@@ -34,7 +34,6 @@ from time import perf_counter
 from PySide6.QtCore import (
     QElapsedTimer,
     QEvent,
-    QObject,
     QPoint,
     QPointF,
     QRect,
@@ -76,6 +75,7 @@ from .pdf_render_cache import PdfRenderCache, PdfRenderMeta
 from .pdf_render_scheduler import PdfRenderScheduler, PdfRenderSpec
 from .pymupdf_loader import load_pymupdf as _pymupdf
 from .theme import LIGHT, Theme, menu_stylesheet
+from .worker_relay import WorkerRelay
 
 # Highlighter palette shared with the markdown annotation layer.
 PALETTE: list[tuple[str, str]] = [
@@ -125,28 +125,25 @@ def extract_outline(path, password: str = "") -> list[tuple[int, str, int]]:
     ]
 
 
-class _PdfOutlineSignals(QObject):
-    finished = Signal(int, object, object)
-
-
 class _PdfOutlineTask(QRunnable):
-    """Extract a PDF outline away from the GUI thread."""
+    """Extract a PDF outline away from the GUI thread.
 
-    def __init__(self, generation: int, path: Path, password: str):
+    ``report(generation, path, entries)`` is the view's ``WorkerRelay.emit``:
+    the task owns no Qt object for its pool thread to release, and a result
+    arriving after the view is destroyed is dropped.
+    """
+
+    def __init__(self, generation: int, path: Path, password: str, report):
         super().__init__()
         self.generation = generation
         self.path = path
         self.password = password
-        self.signals = _PdfOutlineSignals()
+        self.report = report
         self.cancel = Event()
 
     def run(self):
         entries = [] if self.cancel.is_set() else extract_outline(self.path, self.password)
-        self.signals.finished.emit(self.generation, self.path, entries)
-
-
-class _PdfEmbeddedAnnotationsSignals(QObject):
-    finished = Signal(int, object, object)
+        self.report(self.generation, self.path, entries)
 
 
 class _PdfEmbeddedAnnotationsTask(QRunnable):
@@ -154,26 +151,25 @@ class _PdfEmbeddedAnnotationsTask(QRunnable):
 
     Mirrors ``_PdfOutlineTask``: same generation-token + path-identity guard
     pattern so a result for a file the user has since navigated away from is
-    discarded rather than populating the wrong document's panel.
+    discarded rather than populating the wrong document's panel, and the same
+    relay ``report`` so the task owns no Qt object.
     """
 
-    def __init__(self, generation: int, path: Path, password: str):
+    def __init__(self, generation: int, path: Path, password: str, report):
         super().__init__()
         # Python (via PdfView._embedded_annotations_tasks) owns this task's
-        # lifetime, not Qt's thread pool: autoDelete's C++-side deletion can
-        # otherwise race the tail of run() emitting ``finished`` on a worker
-        # thread, deleting ``self.signals`` out from under the emit call.
+        # lifetime, not Qt's thread pool.
         self.setAutoDelete(False)
         self.generation = generation
         self.path = path
         self.password = password
-        self.signals = _PdfEmbeddedAnnotationsSignals()
+        self.report = report
         self.cancel = Event()
 
     def run(self):
         entries = ([] if self.cancel.is_set()
                    else extract_embedded_annotations(self.path, self.password))
-        self.signals.finished.emit(self.generation, self.path, entries)
+        self.report(self.generation, self.path, entries)
 
 
 class PdfView(QAbstractScrollArea):
@@ -246,6 +242,11 @@ class PdfView(QAbstractScrollArea):
         self._first_painted_generation = -1
         self._outline_requested_generation = -1
         self._outline_tasks: dict[int, _PdfOutlineTask] = {}
+        # Both readers report through relays this view owns, never through a
+        # signals object of their own that a pool thread would release.
+        self._outline_relay = WorkerRelay(self, self._on_outline_finished)
+        self._embedded_annotations_relay = WorkerRelay(
+            self, self._on_embedded_annotations_finished)
         from . import background_jobs
 
         self._outline_pool = background_jobs.pool()
@@ -2653,9 +2654,9 @@ class PdfView(QAbstractScrollArea):
         ):
             return False
         self._outline_requested_generation = generation
-        task = _PdfOutlineTask(generation, self._path, self._password)
+        task = _PdfOutlineTask(generation, self._path, self._password,
+                               self._outline_relay.emit)
         self._outline_tasks[generation] = task
-        task.signals.finished.connect(self._on_outline_finished)
         self._outline_pool.start(task, -1)
         return True
 
@@ -2686,9 +2687,9 @@ class PdfView(QAbstractScrollArea):
         ):
             return False
         self._embedded_annotations_requested_generation = generation
-        task = _PdfEmbeddedAnnotationsTask(generation, self._path, self._password)
+        task = _PdfEmbeddedAnnotationsTask(generation, self._path, self._password,
+                                           self._embedded_annotations_relay.emit)
         self._embedded_annotations_tasks[generation] = task
-        task.signals.finished.connect(self._on_embedded_annotations_finished)
         self._embedded_annotations_pool.start(task, -1)
         return True
 
