@@ -81,13 +81,6 @@ def test_batched_versions_match_direct_versions_and_support_multiple_buffers(tmp
         assert versions[name] == file_version(tmp_path / name)
 
 
-@pytest.mark.skipif(
-    os.environ.get("GITHUB_ACTIONS") == "true",
-    reason=(
-        "Fails consistently on GitHub Actions Windows runners but passes on local NTFS; "
-        "root cause still under investigation (tracked for 1.38)"
-    ),
-)
 def test_external_hardlink_write_with_restored_mtime_invalidates_cached_source(tmp_path):
     root = tmp_path / "library"
     root.mkdir()
