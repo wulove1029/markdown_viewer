@@ -120,7 +120,7 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
-### 2026-11-09 深夜 — 1.38 本機整合：五項修正與 Watchdog 自動啟動〔已實作＋已驗證，未 push〕
+### 2026-11-09 深夜 — 1.38 本機整合：六項修正與 Watchdog 自動啟動〔已實作＋已驗證，未 push〕
 **作者**：Claude（指揮官 session）；實作與驗收都派 Claude 子代理，每項由不同的 fresh 子代理驗收
 **類型**：實作＋驗收
 
@@ -149,6 +149,11 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
   - 規則：探測打 `/api/events`；只讀 install.json；啟動時不經過 shell，以分離程序啟動；啟動後每 2 秒探一次，最多 20 秒；兩次嘗試間隔 60 秒，最多 3 次；Viewer 結束時不殺 Watchdog。
   - 新增選單開關。
   - 實測：真實端到端，兩個客戶端同時啟動，最後只留下一個 Watchdog。
+- **資料夾改名後立刻關閉視窗會當機**（`app/file_browser.py`）：
+  - 根因：改名工作物件在背景執行緒釋放時，連帶拆掉了 Qt 追蹤的訊號物件和取消接線，主執行緒當時正好在銷毀 view。1.37.1 Release 第 1 次失敗就是這個原因。
+  - 修法：訊號物件改成 view 的子物件，透過 `_RenameRelay` 轉送。
+  - 實測：加入時序放大後，修改前 5/5 崩潰，修改後 20 次 0 崩潰。
+  - 待辦：同樣「工作物件自帶訊號物件」的寫法還有好幾處，例如 `app/text_loading.py:166/190`、`file_browser.py` 的 `_ScanJob`，排進下一輪全面盤點。
 - **測試**：`tests/test_final_lifecycle_review.py` 的 Help 選單改用 `findChildren` 查找。本機 PySide6 是 6.11.0，lock 是 6.11.2；在 6.11.0 上 `QAction.menu()` 會拿到已經刪除的物件。
 
 **驗證**：每一項都由不同的 fresh 子代理驗收，涵蓋實跑、修改前後對照與挑錯。整合後的全套結果寫在 CHANGELOG 1.38.0 的 Validation。
