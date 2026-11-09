@@ -315,8 +315,10 @@ class _WriteCheckTask(QRunnable):
     controller's ``WorkerRelay.emit``, so the task owns no Qt object."""
 
     def __init__(self, path, signature, report):
+        # Auto-deleted: QThreadPool.start() keeps the Python object alive until
+        # run() has returned, then releases it. With autoDelete off, PySide
+        # never releases it and every probe leaked.
         super().__init__()
-        self.setAutoDelete(False)
         self.path, self.signature = path, signature
         self.report = report
 

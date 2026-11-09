@@ -363,6 +363,58 @@ class TestStartTranslation:
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         assert destroyed_on == [threading.main_thread()]
 
+    def test_tasks_are_released_after_every_ending(self, qapp, monkeypatch):
+        """Finished and failed translations release their task: no leak.
+
+        A translation has no cancel path of its own; a superseded request is
+        dropped by its caller after delivery, so it ends like a finished one.
+        """
+        import gc
+        import time
+        import weakref
+
+        from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
+
+        alive, created = weakref.WeakSet(), []
+
+        class TrackedTask(tr.TranslateTask):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                created.append(self._id)
+                alive.add(self)
+
+        def outcome(text, **kw):
+            if text == "provider":
+                raise tr.TranslationError("服務不可用")
+            if text == "crash":
+                raise RuntimeError("kaboom")
+            return "譯文"
+
+        monkeypatch.setattr(tr, "TranslateTask", TrackedTask)
+        monkeypatch.setattr(tr, "translate", outcome)
+        seen = []
+        request_id = 0
+        for _ in range(5):
+            for text in ("ok", "provider", "crash"):
+                request_id += 1
+                expected = len(seen) + 1
+                tr.start_translation(
+                    request_id, text, provider="google", target="zh-TW",
+                    on_finished=lambda rid, r: seen.append(("ok", rid)),
+                    on_failed=lambda rid, m: seen.append(("failed", rid)),
+                )
+                deadline = time.time() + 5
+                while len(seen) < expected and time.time() < deadline:
+                    qapp.processEvents()
+                    time.sleep(0.005)
+        assert QThreadPool.globalInstance().waitForDone(5000)
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        gc.collect()
+        assert [kind for kind, _rid in seen] == ["ok", "failed", "failed"] * 5
+        assert len(created) == 15
+        assert len(alive) == 0
+        assert tr.inflight_count() == 0
+
     def test_unexpected_exception_is_reported_not_swallowed(self, qapp, monkeypatch):
         def boom(text, **kw):
             raise RuntimeError("kaboom")

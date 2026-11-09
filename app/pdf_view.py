@@ -157,9 +157,9 @@ class _PdfEmbeddedAnnotationsTask(QRunnable):
 
     def __init__(self, generation: int, path: Path, password: str, report):
         super().__init__()
-        # Python (via PdfView._embedded_annotations_tasks) owns this task's
-        # lifetime, not Qt's thread pool.
-        self.setAutoDelete(False)
+        # Auto-deleted like the outline task: QThreadPool.start() keeps the
+        # Python object alive until run() has returned, then releases it. With
+        # autoDelete off, PySide never releases it and every request leaked.
         self.generation = generation
         self.path = path
         self.password = password

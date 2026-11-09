@@ -287,3 +287,82 @@ def test_write_probe_reports_on_gui_thread_and_not_after_controller_dies(
     qapp.processEvents()
     assert len(window.reasons) == 1
     delete(window)
+
+
+def test_write_probe_tasks_are_released_after_every_ending(qapp, tmp_path, monkeypatch):
+    """Finished, failed and superseded probes all release their task: no leak."""
+    import gc
+    import threading
+    import time
+    import weakref
+
+    from PySide6.QtCore import QThreadPool
+    from shiboken6 import delete
+
+    class Window(QObject):
+        def __init__(self):
+            super().__init__()
+            self._current_kind = "pdf"
+            self._current_file = tmp_path / "a.pdf"
+            self._current_file.write_bytes(b"a")
+            self.reasons = []
+            self._pdf_view = self
+
+        def set_annotation_write_blocked(self, reason):
+            self.reasons.append(reason)
+
+    alive, created = weakref.WeakSet(), []
+
+    class TrackedTask(pdf_flow._WriteCheckTask):
+        def __init__(self, *args):
+            super().__init__(*args)
+            created.append(self.path)
+            alive.add(self)
+
+    release, mode = threading.Event(), {"value": "ok"}
+
+    def writable_reason(_path):
+        if mode["value"] == "block":
+            assert release.wait(5)
+        if mode["value"] == "fail":
+            raise OSError("locked")
+        return ""
+
+    monkeypatch.setattr(pdf_flow, "_WriteCheckTask", TrackedTask)
+    monkeypatch.setattr(pdf_flow.pdf_annotation_writer, "writable_reason", writable_reason)
+    window = Window()
+    controller = pdf_flow._WriteCheckController(window)
+    path = window._current_file
+
+    def wait_for(predicate):
+        deadline = time.monotonic() + 5
+        while not predicate() and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.002)
+        assert predicate()
+
+    def settle():
+        wait_for(lambda: controller.running is None and controller.pending is None)
+        assert QThreadPool.globalInstance().waitForDone(5000)
+
+    for _ in range(5):
+        mode["value"] = "ok"
+        controller.request(path)  # finishes normally
+        settle()
+        mode["value"] = "fail"
+        controller.request(path)  # the probe raises; reported as unreadable
+        settle()
+        release.clear()
+        mode["value"] = "block"
+        controller.request(path)
+        wait_for(lambda: controller.running is not None)
+        mode["value"] = "ok"
+        controller.request(path)  # supersedes the running probe
+        release.set()
+        settle()
+    gc.collect()
+    failed = "無法讀取此 PDF，無法寫入註解"
+    assert window.reasons == ["", failed, ""] * 5
+    assert len(created) == 20
+    assert len(alive) == 0
+    delete(window)

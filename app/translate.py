@@ -450,8 +450,7 @@ class TranslateTask(QRunnable):
             self._on_finished(self._id, result)
 
 
-# Running tasks, held until they report back (see inflight_count). The task is
-# not auto-deleted and must never be collected mid-flight.
+# Running tasks, held until they report back (see inflight_count).
 _INFLIGHT: set[TranslateTask] = set()
 
 
@@ -482,8 +481,9 @@ def start_translation(
         request_id, text, provider=provider, target=target, api_key=api_key,
         on_finished=receiver.finished.emit, on_failed=receiver.failed.emit,
     )
-    # Python owns the lifetime now; Qt must not delete it out from under us.
-    task.setAutoDelete(False)
+    # Auto-deleted: QThreadPool.start() keeps the Python object alive until
+    # run() has returned, then releases it. With autoDelete off, PySide never
+    # released it and every translation leaked.
     _INFLIGHT.add(task)
     QThreadPool.globalInstance().start(task)
 

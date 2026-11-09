@@ -313,6 +313,79 @@ def test_request_embedded_annotations_is_at_most_one_per_generation(qapp, annota
         view.close()
 
 
+def test_embedded_annotation_tasks_are_released_after_every_ending(
+    qapp, annotated_pdf, monkeypatch
+):
+    """Finished, cancelled and failed reads all release their task: no leak."""
+    import gc
+    import threading
+    import weakref
+
+    from PySide6.QtCore import QRunnable, QThreadPool
+
+    from app import pdf_embedded_annotations, pdf_view
+
+    alive, created = weakref.WeakSet(), []
+
+    class TrackedTask(pdf_view._PdfEmbeddedAnnotationsTask):
+        def __init__(self, *args):
+            super().__init__(*args)
+            created.append(self.generation)
+            alive.add(self)
+
+    class Blocker(QRunnable):
+        def __init__(self, release):
+            super().__init__()
+            self.release = release
+
+        def run(self):
+            self.release.wait(5)
+
+    class BrokenPdf:
+        @staticmethod
+        def open(*_args, **_kwargs):
+            raise RuntimeError("corrupt file")
+
+    monkeypatch.setattr(pdf_view, "_PdfEmbeddedAnnotationsTask", TrackedTask)
+    pool = QThreadPool()  # a real pool: the leak was in QThreadPool.start()
+    pool.setMaxThreadCount(1)
+    view = PdfView()
+    view._embedded_annotations_pool = pool
+    received = []
+    view.embedded_annotations_ready.connect(lambda *args: received.append(args[2]))
+
+    def request():
+        assert view.load(annotated_pdf) is True
+        assert view.request_embedded_annotations() is True
+
+    def settle():
+        assert pool.waitForDone(5000)
+        for _ in range(50):
+            qapp.processEvents()
+
+    try:
+        for _ in range(5):
+            request()  # finishes normally
+            settle()
+            release = threading.Event()
+            pool.start(Blocker(release))
+            request()
+            assert view.load(annotated_pdf) is True  # cancels the queued read
+            release.set()
+            settle()
+        monkeypatch.setattr(pdf_embedded_annotations, "_pymupdf", lambda: BrokenPdf)
+        for _ in range(5):
+            request()  # extraction fails and degrades to an empty list
+            settle()
+        gc.collect()
+        assert len(created) == 15
+        assert len(alive) == 0
+        assert view._embedded_annotations_tasks == {}
+        assert [bool(entries) for entries in received] == [True] * 5 + [False] * 5
+    finally:
+        view.close()
+
+
 # --------------------------------------------------------------------------
 # Window-level staleness guard (mirrors _on_pdf_outline_ready's checks)
 # --------------------------------------------------------------------------
