@@ -60,9 +60,12 @@ log = logging.getLogger(__name__)
 PROGRESS_INTERVAL_MS = 150
 
 #: How long quitting waits for the updater threads it has just cancelled.
-#: Cancelling closes the socket at once; only a connect still in progress
-#: (updater.CHECK_TIMEOUT / DOWNLOAD_TIMEOUT, 15 s / 20 s) or a DNS lookup
-#: keeps one running longer.
+#: A worker notices the cancel only when its pending connect or read
+#: returns: closing the response does not interrupt a read that is already
+#: blocked on the socket. A stalled server holds it until
+#: updater.CHECK_TIMEOUT / DOWNLOAD_TIMEOUT (15 s / 20 s), a trickling
+#: download until its current 64 KB read completes, and a check reads its
+#: whole body first, so this wait is not an upper bound on any of them.
 QUIT_WAIT_MS = 30_000
 _QUIT_HOOK_PROPERTY = "_updaterQuitHook"
 
@@ -271,14 +274,15 @@ def defer_close_until_updates_finish(window, event) -> bool:
     # that is about to be destroyed was observed wedging the Qt event loop
     # seconds later in a completely unrelated part of the app.
     #
-    # What bounds this wait is the cancellation above. Once bytes are flowing,
-    # cancelling closes the socket and the worker unwinds in milliseconds. The
-    # residual worst case is a cancel that lands while a connect is still
-    # outstanding: that is capped by updater.CHECK_TIMEOUT (15 s) and
-    # updater.DOWNLOAD_TIMEOUT (20 s), so 20 s is the honest upper bound -- not
-    # the 5 s an earlier draft claimed. The one leg neither timeout covers is
-    # the OS DNS lookup inside getaddrinfo. The QThread is never destroyed
-    # while running; it lives until its finished signal fires.
+    # The cancellation above shortens this wait only loosely. A worker notices
+    # it when its pending connect or read returns: closing the response does
+    # not interrupt a read already blocked on the socket. A stalled server
+    # holds the worker until updater.CHECK_TIMEOUT (15 s) or
+    # updater.DOWNLOAD_TIMEOUT (20 s) expires, a trickling download until its
+    # current 64 KB read completes, and a check reads its whole body before it
+    # looks at the cancel. The OS DNS lookup inside getaddrinfo is covered by
+    # neither timeout. The QThread is never destroyed while running; it lives
+    # until its finished signal fires.
     return True
 
 
