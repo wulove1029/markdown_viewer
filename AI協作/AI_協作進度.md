@@ -120,6 +120,15 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10（公司電腦）— 1.38.2 發布流程〔已發版〕
+**作者**：Claude（指揮官 session，公司電腦接手）。
+- 已確認本機 `integrate/1.38.2` @ `a53d8ce`，禁用字樣檢查 diff 0／commit 訊息 0。
+- 使用者口頭同意後，已 push `b52dff3..a53d8ce` 到 `origin/main`（fast-forward），CI run 42732784642 **全綠**（tests + WebEngine 四組；hardlink 題在 CI 上通過，`6d5df64` 不必 revert）。
+- 使用者同意後已推 tag `v1.38.2`（@ a53d8ce），release run 42736334943 成功。fresh 子代理核對 draft 5/5 PASS：asset `MarkdownViewer_Setup_v1.38.2.exe`、SHA256 與 GitHub digest 一致（d0bd24fe…）、ProductVersion 1.38.2、禁字 0、tag → a53d8ce。（附註：exe 的 FileVersion 數值欄位是 0.0.0.0，installer.iss 可考慮補 `VersionInfoVersion`，非阻擋。）
+- 使用者同意後已轉正式版：`releases/latest` = v1.38.2（draft=false、prerelease=false）。已通知另外兩個相關 session。
+- 清理完成：本機 main 已 fast-forward 到 a53d8ce；agent worktree A/B/C 與 `integrate/1.38.2` 分支以 `git cherry main` 確認 `+` 為 0 後刪除。`worktree-agent-aeb7545deb3dbcd31` 有 2 個 commit 不在 main，保留。
+- 跨 session 通知：Watchdog master 已推進到 `dd74341`（看板時窗 48h→12h；修 Codex rollout 跨午夜消失）。`/api/events` 與 install.json 合約不變，仍是 schema 1，Viewer 不需改動。
+
 ### 2026-11-10 03:20 — 1.38.2 本機整合：Esc 空窗、QThread 生命週期、兩題偶發測試〔已實作＋已驗證，未 push〕
 **作者**：Claude（指揮官 session，無人值守模式）。實作派 3 個 Claude 子代理（opus）；驗收另派 fresh 子代理，A、C 的補件都重新驗收過。
 **類型**：錯誤修正＋測試穩定化
