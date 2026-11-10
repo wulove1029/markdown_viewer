@@ -1,12 +1,11 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.39.0"
+VERSION = "1.39.1"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "內建 AI Agent 監看程式：不必另外安裝 Watchdog 或 Python，打開「AI Agents」面板就能看。",
-    "面板直接顯示新的辦公室頁面，深淺色跟隨主題；面板內為唯讀檢視。",
+    "「AI Agents」面板新增星圖檢視並設為預設；面板太窄時自動改顯示辦公室。",
+    "面板內仍為唯讀檢視；列表頁遇到很長的名稱會自動換行，不再出現水平捲軸。",
     "內建 Watchdog 未在沒有 Python 的乾淨 Windows 上實測，內建模式的 SSH 遠端監看也未實測。",
-    "解除安裝不會刪除 Watchdog 的資料資料夾（~/.aiwatch），因為它與自行安裝的 Watchdog 共用。",
 ]
 
 GITHUB_OWNER = "wulove1029"
