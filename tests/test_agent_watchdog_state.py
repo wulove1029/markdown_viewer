@@ -10,6 +10,7 @@ from app.agent_watchdog_state import (
     PANEL_KEY,
     PANEL_PATH_KEY,
     PANEL_PATH_MAX_LENGTH,
+    PANEL_READONLY_QUERY,
     PANEL_SCHEME_PARAM,
     RESYNC,
     Backoff,
@@ -384,7 +385,8 @@ def test_valid_panel_path_is_adopted(path):
 @pytest.mark.parametrize("path", [
     None, 7, True, 1.5, b"/office", ["/office"], {"path": "/office"},
     "", "office", "office/", "http://127.0.0.1/x", "//x", "//", "/a//b", "/a//",
-    "/a?b", "/a?scheme=dark", "/a#b", "/a b", " /a", "/a ", "/a\tb", "/a\nb",
+    "/a?b", "/a?scheme=dark", "/a?readonly=0", "/a&readonly=0",
+    "/a#b", "/a b", " /a", "/a ", "/a\tb", "/a\nb",
     "/a\x00b", "/a\x7fb", "/a　b", "/a\\b", "\\a",
     "/" + "x" * PANEL_PATH_MAX_LENGTH,
     "/%2f%2fevil.com", "/%2e%2e/x", "/a%20b", "/@evil.com", "/a:b@c", "/a:b",
@@ -415,7 +417,7 @@ def test_panel_path_from_non_dict_or_missing_key():
 
 def test_declared_root_counts_as_not_declared():
     assert panel_path_from_payload(declared("/")) is None
-    assert panel_url("http://127.0.0.1:8787", None, True) == "http://127.0.0.1:8787/"
+    assert panel_url("http://127.0.0.1:8787", None, True) == "http://127.0.0.1:8787/?readonly=1"
     state = WatchdogState(clock=Clock())
     state.apply_events(payload(latest=5) | declared("/office"))
     assert state.apply_events(payload(latest=5) | declared("/")) == OK
@@ -424,10 +426,23 @@ def test_declared_root_counts_as_not_declared():
 
 def test_panel_url_only_adds_the_scheme_to_a_declared_path():
     base = "http://127.0.0.1:8787"
-    assert panel_url(base, None, False) == base + "/"
-    assert panel_url(base, None, True) == base + "/"
-    assert panel_url(base, "/office", False) == f"{base}/office?{PANEL_SCHEME_PARAM}=light"
-    assert panel_url(base, "/office", True) == f"{base}/office?{PANEL_SCHEME_PARAM}=dark"
+    assert panel_url(base, None, False) == base + "/?readonly=1"
+    assert panel_url(base, None, True) == base + "/?readonly=1"
+    assert (panel_url(base, "/office", False)
+            == f"{base}/office?{PANEL_SCHEME_PARAM}=light&readonly=1")
+    assert (panel_url(base, "/office", True)
+            == f"{base}/office?{PANEL_SCHEME_PARAM}=dark&readonly=1")
+
+
+@pytest.mark.parametrize("path", [None, "/office", "/office/pixel", "/starmap"])
+@pytest.mark.parametrize("dark", [False, True])
+def test_every_panel_url_asks_for_a_read_only_page(path, dark):
+    from urllib.parse import parse_qs, urlsplit
+
+    assert PANEL_READONLY_QUERY == "readonly=1"
+    url = urlsplit(panel_url("http://127.0.0.1:18080", path, dark))
+    assert url.path == (path or "/")
+    assert parse_qs(url.query, strict_parsing=True)["readonly"] == ["1"]
 
 
 def test_state_tracks_the_declared_panel_path():

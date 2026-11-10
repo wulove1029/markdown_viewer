@@ -38,6 +38,10 @@ MERGE_WINDOW_SECONDS = 5.0  # toasts due this soon after the first ride along
 PANEL_KEY = "panel"
 PANEL_PATH_KEY = "path"
 PANEL_SCHEME_PARAM = "scheme"   # query parameter carrying the viewer's theme
+# The panel only shows what the agents are doing: every page it loads is asked
+# to leave out whatever would change the Watchdog's state.  A Watchdog that
+# does not know the parameter ignores it.
+PANEL_READONLY_QUERY = "readonly=1"
 PANEL_PATH_MAX_LENGTH = 200
 
 
@@ -77,11 +81,14 @@ def panel_path_from_payload(payload: object) -> str | None:
 
 
 def panel_url(base_url: str, path: str | None, dark: bool) -> str:
-    """URL the panel loads: the declared page with the theme, else plain "/"."""
+    """URL the panel loads: the declared page with the theme, else "/".
+
+    Either way the page is asked to be read-only.
+    """
     if path is None:
-        return base_url + "/"
+        return f"{base_url}/?{PANEL_READONLY_QUERY}"
     scheme = "dark" if dark else "light"
-    return f"{base_url}{path}?{PANEL_SCHEME_PARAM}={scheme}"
+    return f"{base_url}{path}?{PANEL_SCHEME_PARAM}={scheme}&{PANEL_READONLY_QUERY}"
 
 
 def _is_int(value: object) -> bool:

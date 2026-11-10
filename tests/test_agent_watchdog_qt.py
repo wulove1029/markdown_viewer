@@ -946,7 +946,7 @@ def test_info_page_stops_the_dashboard_and_page_is_frozen_on_hide(qapp, mock_dog
     try:
         dock.show()
         assert wait_until(qapp, lambda: dock.view.url().host() == "127.0.0.1")
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
         watcher.available = False
         dock.refresh()
         assert dock._loaded_url is None
@@ -1039,9 +1039,9 @@ def test_declared_panel_path_is_loaded_with_the_light_scheme(qapp, mock_dog, wat
         host.show()
         dock.show()
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         assert wait_until(qapp, lambda: dock.view.url().path() == "/office")
-        assert dock.view.url().query() == "scheme=light"
+        assert dock.view.url().query() == "scheme=light&readonly=1"
         assert dock._stack.currentWidget() is dock.view
     finally:
         _close_panel(qapp, host, dock)
@@ -1058,9 +1058,9 @@ def test_no_declaration_still_loads_the_plain_root(qapp, mock_dog, watchers):
         assert w.panel_path is None
         dock.show()
         assert wait_until(qapp, lambda: dock._loaded_url is not None)
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
         assert wait_until(qapp, lambda: dock.view.url().host() == "127.0.0.1")
-        assert dock.view.url().toString() == mock_dog.url + "/"
+        assert dock.view.url().toString() == mock_dog.url + "/?readonly=1"
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1080,7 +1080,7 @@ def test_unusable_declaration_loads_the_plain_root_and_keeps_polling(
         assert w.available and w.panel_path is None
         dock.show()
         assert wait_until(qapp, lambda: dock._loaded_url is not None)
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1100,12 +1100,12 @@ def test_dark_theme_and_theme_switch_reload_the_declared_page(qapp, mock_dog, wa
         assert dock._loaded_url is None and not dock._page_loaded
         host.show()
         dock.show()
-        dark_url = mock_dog.url + "/office?scheme=dark"
-        light_url = mock_dog.url + "/office?scheme=light"
+        dark_url = mock_dog.url + "/office?scheme=dark&readonly=1"
+        light_url = mock_dog.url + "/office?scheme=light&readonly=1"
         assert wait_until(qapp, lambda: dock._loaded_url == dark_url)
         dock.apply_theme(LIGHT)
         assert dock._loaded_url == light_url
-        assert wait_until(qapp, lambda: dock.view.url().query() == "scheme=light")
+        assert wait_until(qapp, lambda: dock.view.url().query() == "scheme=light&readonly=1")
         dock.apply_theme(LIGHT)                    # same theme: same URL, no reload
         assert dock._loaded_url == light_url
         # hidden: the frozen page is left alone, the next show catches up
@@ -1116,10 +1116,10 @@ def test_dark_theme_and_theme_switch_reload_the_declared_page(qapp, mock_dog, wa
         assert wait_until(qapp, lambda: _count(mock_dog, "/api/events") >= polls + 3)
         _settle(qapp, 0.1)                         # refreshes ran while hidden
         assert dock._loaded_url == light_url
-        assert dock.view.url().query() == "scheme=light"
+        assert dock.view.url().query() == "scheme=light&readonly=1"
         dock.show()
         assert wait_until(qapp, lambda: dock._loaded_url == dark_url)
-        assert wait_until(qapp, lambda: dock.view.url().query() == "scheme=dark")
+        assert wait_until(qapp, lambda: dock.view.url().query() == "scheme=dark&readonly=1")
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1138,15 +1138,15 @@ def test_theme_switch_on_the_plain_root_or_help_page_loads_nothing(qapp, mock_do
     try:
         dock.show()
         assert wait_until(qapp, lambda: dock.view.url().host() == "127.0.0.1")
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
         assert wait_until(qapp, lambda: _count(mock_dog, "/") == 1)
         dock.apply_theme(LIGHT)
         dock.apply_theme(DARK)
         _settle(qapp)
-        assert started == [mock_dog.url + "/"]
+        assert started == [mock_dog.url + "/?readonly=1"]
         assert _count(mock_dog, "/") == 1
-        assert dock._loaded_url == mock_dog.url + "/"
-        assert dock.view.url().toString() == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
+        assert dock.view.url().toString() == mock_dog.url + "/?readonly=1"
         watcher.available = False
         dock.refresh()                             # help page (about:blank)
         assert wait_until(qapp, lambda: dock.view.url().toString() == "about:blank")
@@ -1172,15 +1172,15 @@ def test_declaration_appearing_changing_and_vanishing_follows_on_refresh(
     try:
         w.start()
         dock.show()
-        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/")
+        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/?readonly=1")
         mock_dog.panel = {"path": "/office"}
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         mock_dog.panel = {"path": "/desk"}
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/desk?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/desk?scheme=light&readonly=1")
         mock_dog.panel = None
-        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/")
+        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/?readonly=1")
         assert not dock._loaded_declared
     finally:
         _close_panel(qapp, host, dock)
@@ -1196,14 +1196,14 @@ def test_falling_back_to_legacy_mode_returns_to_the_plain_root(
         w.start()
         dock.show()
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         mock_dog.events_status = 404               # replaced by an old service
         assert wait_until(qapp, lambda: w.state.legacy)
-        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/")
+        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/?readonly=1")
         assert w.available and w.panel_path is None
         mock_dog.events_status = 200               # upgraded again
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1216,7 +1216,7 @@ def test_unavailable_or_malformed_answers_drop_the_declaration(qapp, mock_dog, w
         w.start()
         dock.show()
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         mock_dog.events_override = {"schema": 2, "panel": {"path": "/office"}}
         assert wait_until(qapp, lambda: not w.available)
         assert w.panel_path is None and w.state.panel_path is None
@@ -1273,15 +1273,15 @@ def test_hidden_panel_still_follows_a_changed_path(qapp, mock_dog, watchers):
         w.start()
         dock.show()
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         dock.hide()
         qapp.processEvents()
         dock.apply_theme(DARK)
         mock_dog.panel = {"path": "/desk"}
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/desk?scheme=dark")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/desk?scheme=dark&readonly=1")
         mock_dog.panel = None
-        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/")
+        assert wait_until(qapp, lambda: dock._loaded_url == mock_dog.url + "/?readonly=1")
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1295,18 +1295,19 @@ def test_restart_on_another_base_forgets_the_declaration(
         w.start()
         dock.show()
         assert wait_until(
-            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light")
+            qapp, lambda: dock._loaded_url == mock_dog.url + "/office?scheme=light&readonly=1")
         agent_watchdog.save_setting(agent_watchdog.KEY_BASE_URL, other_dog.url)
         w.start()
         assert w.base_url == other_dog.url
         assert w.available and w.panel_path is None and w.state.panel_path is None
         dock.refresh()
-        assert dock._loaded_url == other_dog.url + "/"
+        assert dock._loaded_url == other_dog.url + "/?readonly=1"
         assert wait_until(qapp, lambda: _count(other_dog, "/api/status") >= 1)
         _settle(qapp, 0.2)
         assert w.panel_path is None
-        assert dock._loaded_url == other_dog.url + "/"
-        assert wait_until(qapp, lambda: dock.view.url().toString() == other_dog.url + "/")
+        assert dock._loaded_url == other_dog.url + "/?readonly=1"
+        assert wait_until(
+            qapp, lambda: dock.view.url().toString() == other_dog.url + "/?readonly=1")
     finally:
         _close_panel(qapp, host, dock)
 
@@ -1336,8 +1337,8 @@ def test_single_malformed_answer_keeps_the_declared_page(
     try:
         w.start()
         dock.show()
-        light_url = mock_dog.url + "/office?scheme=light"
-        dark_url = mock_dog.url + "/office?scheme=dark"
+        light_url = mock_dog.url + "/office?scheme=light&readonly=1"
+        dark_url = mock_dog.url + "/office?scheme=dark&readonly=1"
         assert wait_until(qapp, lambda: dock._loaded_url == light_url)
         mock_dog.events_override = {"schema": 2}
         assert wait_until(qapp, lambda: w._failures >= 2)   # malformed, retrying
@@ -1368,13 +1369,13 @@ def test_declared_root_loads_the_plain_root_without_a_scheme(qapp, mock_dog, wat
         assert w.panel_path is None
         dock.show()
         assert wait_until(qapp, lambda: dock._loaded_url is not None)
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
         assert not dock._loaded_declared
         assert wait_until(qapp, lambda: _count(mock_dog, "/") == 1)
         dock.apply_theme(LIGHT)
         _settle(qapp)
-        assert dock._loaded_url == mock_dog.url + "/"
+        assert dock._loaded_url == mock_dog.url + "/?readonly=1"
         assert _count(mock_dog, "/") == 1
-        assert dock.view.url().toString() == mock_dog.url + "/"
+        assert dock.view.url().toString() == mock_dog.url + "/?readonly=1"
     finally:
         _close_panel(qapp, host, dock)

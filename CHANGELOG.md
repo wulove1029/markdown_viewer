@@ -2,11 +2,11 @@
 
 ## [Unreleased]
 
-<!-- Draft for 1.39.0. Still open: the bundled Watchdog files are not in the
-     repository yet (and whether they include the star map view is not
-     decided), the installer has not been run for real, the version is not
-     bumped, and the Validation numbers below are from the development
-     branch without the final Watchdog files. -->
+<!-- Draft for 1.39.0. Still open: the tracked Watchdog files are 1.0.0
+     without the star map (the star map view comes in 1.39.1) and will be
+     replaced by the revision with the read-only mode, the installer has not
+     been run for real, the version is not bumped, and the Validation numbers
+     below are from the development branch. -->
 
 ### Added
 - 內建 AI Agent 監看程式（Watchdog）：安裝 Markdown Viewer 後，不必另外安裝 Watchdog 或 Python，打開「AI Agents」面板就能使用。
@@ -19,8 +19,8 @@
 - 「AI Agents」面板：
   - Watchdog 提供新的辦公室頁面時，面板一打開就直接顯示它；Watchdog 較舊、沒有新頁面時，照舊顯示列表頁。
   - 深淺色跟隨 Markdown Viewer 的主題，切換主題時面板會跟著換。
+  - 面板中的 Agent 監看為唯讀檢視：只顯示各個 AI agent 的狀態，不提供會改變 Watchdog 狀態的操作。
   - 內建的 Watchdog 啟動失敗時，顯示看得懂的原因、嘗試執行的指令與記錄檔位置，並可一鍵複製診斷資訊。診斷內容一律以純文字顯示，再長也不會把面板或主視窗撐寬。
-  <!-- 星圖檢視：視情況。只有內建的 Watchdog 檔案包含星圖時才寫這一行；面板顯示哪一頁由 Watchdog 決定，Viewer 程式不需要改。 -->
 
 ### Fixed
 - 「AI Agents」面板收起後，面板內的頁面現在會確實暫停；之前暫停的要求沒有生效，頁面仍在背景運作。
