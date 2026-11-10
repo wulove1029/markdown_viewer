@@ -120,6 +120,15 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11（家裡電腦）— 1.39.0：內建 Watchdog 檔案入庫、面板唯讀〔已實作＋已驗證，未 push〕
+**作者**：Claude（指揮官 session）。
+- **使用者決定**（在本 session 親口說）：星圖檢視延到 1.39.1；Viewer 面板裡的 Watchdog 頁面「完全唯讀」，連「我知道了／取消已確認／讓他離開」都不要出現；不需要像使用者專屬工具那樣點擊切換到 AI 的 session；同意把 Watchdog 檔案放進 repo 並在本機 commit（push 另問）。使用者已在 Watchdog 的 session 確認公開原始碼。
+- **試打包**（repo 外，Watchdog 1.0.0 不含星圖版）：Python 3.13.5 依 lock 打包 601 MB；沒有 Python 的環境下約 4.2 秒啟動，`/api/events`、`/`、`/office`、`/static/watchdog.js` 都回 200；`endpoint.json` 的 `embedded` 為 true，沒寫 `install.json`；`--agent-watchdog-stop` 0.82 秒；port 被佔時結束碼 3，`last_error.json` 七個鍵齊全（約 8.9 秒才結束，Watchdog 說明是刻意的）；`--export` HTML、PDF 正常。
+- **面板實測**（真的 QtWebEngine 面板）：隱藏 30 秒 0 個請求；300／350／400px 第一列都是 2 張卡；150px 沒有水平捲軸。
+- **`274aaf3`**：Watchdog 1.0.0（不含星圖）放進 `agent_watchdog/`，附 `MANIFEST.txt`；`.gitattributes` 讓這些檔案 checkout 時不轉換換行；Ruff 排除這個目錄；測試預設把 `MDV_AGENT_WATCHDOG_DIR` 指到不存在的目錄，避免找到 repo 內的副本；原本「私有原始碼不得入庫」的測試改成「repo 內副本與 MANIFEST 相符、正是打包會收的檔案」。全套 3380 passed／0 failed。
+- **`2dc16ae`**：面板網址一律帶 `readonly=1`（`/?readonly=1`、`/office?scheme=dark&readonly=1`）；Watchdog 不認得時忽略，宣告的路徑仍不能自帶 query。CHANGELOG 補「面板中的 Agent 監看為唯讀檢視」、拿掉星圖。全套 3390 passed／0 failed。
+- **還在等**：Watchdog 加了唯讀的修訂包 → 換掉 `agent_watchdog/`、逐檔比對 MANIFEST、重跑試打包，並在面板確認 `/`、`/office`、`/office/pixel` 帶 `readonly=1` 時沒有任何會改狀態的操作（含畫風選單）；然後版號、CHANGELOG 定稿、交付檢查。push 前 git 歷史裡兩版檔案都要是可公開的乾淨檔。
+
 ### 2026-11-10 晚（家裡電腦）— 1.39.0 第二輪驗收七項修正〔已實作＋已驗收＋已 commit，未 push〕
 **作者**：Claude（指揮官 session）。接手公司電腦中途停掉的修正；實作派 Claude 子代理（opus），另派 fresh 子代理（opus）驗收。commit `8fba8a0`。
 - **接手判斷**：工作區四個檔（`app/agent_stop.py`、`app/agents_panel.py`、`app/agent_bundle.py`、`tools/package_policy.py`）方向正確。六個相關測試檔跑出 575 passed／11 failed，失敗全在 `tests/test_agent_stop.py`，原因是第 4 項刻意改了語意（pid 無效或被重用時改成先確認服務），舊測試還沒跟著改，而且 `FakeHttp` 模擬不出「服務已停止」。所以補完，不還原。
