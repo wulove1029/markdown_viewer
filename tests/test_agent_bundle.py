@@ -666,6 +666,89 @@ def test_diagnostics_include_what_the_watchdog_reported(qapp, tmp_path, make, bu
     assert len(w.autostart_diagnostics.splitlines()) == 5  # silently skipped
 
 
+def _reported(tmp_path, **fields):
+    data = {"schema": 1, "at": 1767225600.5, "code": 3, "message": "m",
+            "watchdog_version": "2.1", **fields}
+    (tmp_path / ab.LAST_ERROR_NAME).write_text(json.dumps(data), encoding="utf-8")
+    return ab.read_last_error(tmp_path)
+
+
+@pytest.mark.parametrize("code, expected", [
+    (3, "預設的連接埠被其他程式佔用（不是 Agent 監看程式）。"),
+    (4, "內建的 Agent 監看檔案不完整，請重新安裝 Markdown Viewer。"),
+    (5, "無法寫入 Agent 監看的資料資料夾（{home}）。"),
+    (6, "內建啟動參數不正確，請回報此問題。"),
+    (7, "啟動時發生未預期的錯誤，請附上診斷資訊回報。"),
+])
+def test_known_exit_codes_are_explained_next_to_the_raw_report(tmp_path, code, expected):
+    assert sorted(ab.LAST_ERROR_HINTS) == [3, 4, 5, 6, 7]
+    report = _reported(tmp_path, code=code, message="raw text")
+    assert report.code == str(code) and report.number == code
+    hint = expected.replace("{home}", str(tmp_path))
+    assert ab.last_error_hint(report, tmp_path) == hint
+    lines = ab.last_error_lines(report, tmp_path)
+    assert lines[0] == f"Agent 監看回報（版本 2.1）：[{code}] raw text"  # raw, kept
+    assert lines[1] == f"結束碼 {code} 的說明：{hint}"
+    assert "{" not in lines[1]
+
+
+@pytest.mark.parametrize("code", [0, 1, 2, 8, 99, -3, "3", "5", "port_in_use", ""],
+                         ids=repr)
+def test_other_codes_are_shown_as_reported_without_explanation(tmp_path, code):
+    report = _reported(tmp_path, code=code, at=None)
+    assert ab.last_error_hint(report, tmp_path) == ""
+    assert ab.last_error_lines(report, tmp_path) == [
+        f"Agent 監看回報（版本 2.1）：[{code}] m"]
+
+
+def test_report_time_is_shown_in_local_time(tmp_path):
+    from datetime import datetime
+
+    report = _reported(tmp_path, code="x", at=1767225600.5)
+    expected = datetime.fromtimestamp(1767225600.5).strftime("%Y-%m-%d %H:%M:%S")
+    assert ab.last_error_time(report) == expected
+    assert ab.last_error_lines(report, tmp_path)[-1] == f"回報時間：{expected}"
+    assert ab.last_error_time(_reported(tmp_path, at=1767225600)) == expected  # int
+
+
+@pytest.mark.parametrize("at", [
+    None, "2026-01-01T00:00:00", "1767225600", True, [1], {"t": 1}, 1e300, -1e300,
+    float("nan"), float("inf"),
+], ids=repr)
+def test_unusable_report_time_is_left_out(tmp_path, at):
+    report = _reported(tmp_path, at=at)
+    assert report is not None and ab.last_error_time(report) == ""
+    lines = ab.last_error_lines(report, tmp_path)
+    assert len(lines) == 2 and lines[1].startswith("結束碼 3 的說明：")
+
+
+def test_missing_report_time_is_left_out(tmp_path):
+    (tmp_path / ab.LAST_ERROR_NAME).write_text(
+        json.dumps({"code": 4, "message": "m"}), encoding="utf-8")
+    report = ab.read_last_error(tmp_path)
+    assert report.at is None and len(ab.last_error_lines(report, tmp_path)) == 2
+
+
+def test_diagnostics_explain_a_known_exit_code(qapp, tmp_path, make, bundle):
+    from datetime import datetime
+
+    home = tmp_path / "home"
+    home.mkdir()
+    w = make(dead_url(), home)
+    two_failures(w)
+    w.clock.now += au.FAST_PROBE_WINDOW_S + 1
+    w._failed()  # timed out
+    (home / ab.LAST_ERROR_NAME).write_text(json.dumps(
+        {"schema": 1, "at": 1767225600.0, "code": 5, "message": "cannot write",
+         "watchdog_version": "2.1"}), encoding="utf-8")
+    when = datetime.fromtimestamp(1767225600.0).strftime("%Y-%m-%d %H:%M:%S")
+    assert w.autostart_diagnostics.splitlines()[5:] == [
+        "Agent 監看回報（版本 2.1）：[5] cannot write",
+        f"結束碼 5 的說明：無法寫入 Agent 監看的資料資料夾（{home}）。",
+        f"回報時間：{when}",
+    ]
+
+
 def test_registered_copy_never_shows_bundle_diagnostics(qapp, layout, make, bundle):
     home, _ = layout
     w = make(dead_url(), home)

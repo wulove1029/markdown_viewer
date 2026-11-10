@@ -600,8 +600,7 @@ class AgentWatcher(QObject):
         ]
         reported = bundle.read_last_error(home)
         if reported is not None:
-            version = f"（版本 {reported.version}）" if reported.version else ""
-            lines.append(f"Agent 監看回報{version}：[{reported.code}] {reported.message}")
+            lines.extend(bundle.last_error_lines(reported, home))
         return "\n".join(lines)
 
     @property

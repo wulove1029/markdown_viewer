@@ -35,6 +35,7 @@ import sys
 import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 BUNDLE_DIR_NAME = "agent_watchdog"
@@ -66,7 +67,17 @@ ERROR_LOG_NAME = "agent-watchdog-launch-error.log"
 #: Written by the Watchdog when it could not start; removed once it does.
 LAST_ERROR_NAME = "last_error.json"
 LAST_ERROR_MAX_BYTES = 64 * 1024
-LAST_ERROR_MAX_TEXT = 500
+LAST_ERROR_MAX_TEXT = 2000
+#: Plain-language explanations of the Watchdog's start-up exit codes, shown
+#: next to the raw code.  ``{home}`` is the resolved data directory.  Only
+#: integer codes are explained; anything else is shown as it was reported.
+LAST_ERROR_HINTS: dict[int, str] = {
+    3: "預設的連接埠被其他程式佔用（不是 Agent 監看程式）。",
+    4: "內建的 Agent 監看檔案不完整，請重新安裝 Markdown Viewer。",
+    5: "無法寫入 Agent 監看的資料資料夾（{home}）。",
+    6: "內建啟動參數不正確，請回報此問題。",
+    7: "啟動時發生未預期的錯誤，請附上診斷資訊回報。",
+}
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -258,6 +269,10 @@ class LastError:
     code: str
     message: str
     version: str = ""
+    #: The code as the integer it was reported as (None for a text code).
+    number: int | None = None
+    #: When it was reported, seconds since the epoch (None when unusable).
+    at: float | None = None
 
 
 def _one_line(value: str) -> str:
@@ -285,5 +300,42 @@ def read_last_error(home: Path) -> LastError | None:
     if not isinstance(message, str):
         return None
     version = data.get("watchdog_version")
+    at = data.get("at")
+    if isinstance(at, bool) or not isinstance(at, (int, float)):
+        at = None
     return LastError(_one_line(str(code)), _one_line(message),
-                     _one_line(version) if isinstance(version, str) else "")
+                     _one_line(version) if isinstance(version, str) else "",
+                     code if isinstance(code, int) else None,
+                     at)
+
+
+def last_error_hint(report: LastError, home: Path) -> str:
+    """The plain-language explanation of a reported code; "" when unknown."""
+    if report.number is None:
+        return ""
+    hint = LAST_ERROR_HINTS.get(report.number, "")
+    return hint.replace("{home}", str(home))
+
+
+def last_error_time(report: LastError) -> str:
+    """When the failure was reported, in local time; "" when unusable."""
+    if report.at is None:
+        return ""
+    try:
+        return datetime.fromtimestamp(report.at).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def last_error_lines(report: LastError, home: Path) -> list[str]:
+    """The diagnostics lines for *report*: the raw code and message first (for
+    bug reports), then the explanation and the time when there are any."""
+    version = f"（版本 {report.version}）" if report.version else ""
+    lines = [f"Agent 監看回報{version}：[{report.code}] {report.message}"]
+    hint = last_error_hint(report, home)
+    if hint:
+        lines.append(f"結束碼 {report.code} 的說明：{hint}")
+    when = last_error_time(report)
+    if when:
+        lines.append(f"回報時間：{when}")
+    return lines
