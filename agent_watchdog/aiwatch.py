@@ -22,7 +22,7 @@ nothing.
 
 #: The release of this program.  Not the same thing as /api/status `version`,
 #: which counts published snapshots and restarts from 1 with every process.
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 import argparse
 import hashlib
@@ -1519,6 +1519,11 @@ def hideable_session_id(session_id):
 OFFICE_FORMAT = 1
 OFFICE_STYLES = ("win", "card", "compute", "flat", "sprite")
 OFFICE_DEFAULT_STYLE = "win"
+#: The view a page offers first: view id -> page path.  Not chosen yet = None.
+OFFICE_VIEWS = {"starmap": "/starmap", "office": "/office", "list": "/"}
+#: What a page opens for somebody who never chose a view.
+OFFICE_DEFAULT_VIEW_PATH = OFFICE_VIEWS["starmap"]
+_KEEP_VIEW = object()                    # save_office(): leave the stored view alone
 #: Acks are only meaningful for these states (the ones that need the user).
 OFFICE_ACK_STATES = ("WAITING", "STUCK")
 MAX_OFFICE_STATE_LEN = 32
@@ -1559,6 +1564,27 @@ def _finite_number(value):
         return False
 
 
+def load_office_view():
+    """The chosen view id from office.json, or None (never chosen / unreadable)."""
+    with _office_lock:
+        try:
+            with open(str(office_file()), encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError, RecursionError):
+            return None
+        if isinstance(data, dict) and data.get("version") == OFFICE_FORMAT:
+            view = data.get("view")
+            if isinstance(view, str) and view in OFFICE_VIEWS:
+                return view
+        return None
+
+
+def office_panel_path():
+    """The page a host program should open: the chosen view, else the star map."""
+    view = load_office_view()
+    return OFFICE_VIEWS[view] if view else OFFICE_DEFAULT_VIEW_PATH
+
+
 def load_office():
     """(style, acks) from office.json; unreadable or corrupt -> the defaults."""
     with _office_lock:
@@ -1570,10 +1596,16 @@ def load_office():
         return _clean_office(data)
 
 
-def save_office(style, acks):
-    """Atomic write (temp + rename); False if it failed."""
+def save_office(style, acks, view=_KEEP_VIEW):
+    """Atomic write (temp + rename); False if it failed.
+
+    The stored view is kept unless `view` is given (a view id, or None to clear)."""
     with _office_lock:
+        if view is _KEEP_VIEW:
+            view = load_office_view()
         payload = {"version": OFFICE_FORMAT, "style": style, "acks": dict(acks)}
+        if view is not None:
+            payload["view"] = view
         path = office_file()
         tmp = Path(str(path) + ".tmp")
         try:
@@ -2048,7 +2080,7 @@ def events_since(since=None):
             "oldest_seq": oldest, "truncated": truncated, "events": events,
             "machine": machine_identity(),
             # Additive: which page a host app should open for us.
-            "panel": {"path": "/office"},
+            "panel": {"path": office_panel_path()},
             # Additive: the release (not a format number: that is `schema`)
             # and whether a host program ships this copy.
             "watchdog_version": __version__, "embedded": embedded_mode()}
@@ -2189,6 +2221,8 @@ STATIC_ROUTES = {          # whitelist: a request path never builds a file path
     "/office": "office.html",
     "/office.html": "office.html",
     "/office/pixel": "office-pixel.html",
+    "/starmap": "starmap.html",
+    "/starmap.html": "starmap.html",
     "/static/watchdog.js": "static/watchdog.js",
 }
 CONTENT_TYPES = {".html": "text/html; charset=utf-8",
@@ -2478,7 +2512,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/office":
             # Prunes first, so a page never sees an ack the session has outlived.
             style, acks = prune_office_acks(current_snapshot().get("sessions", []))
-            body = json.dumps({"schema": 1, "style": style, "acks": acks},
+            body = json.dumps({"schema": 1, "style": style, "acks": acks,
+                               "view": load_office_view()},
                               ensure_ascii=False).encode("utf-8")
             self.respond(body, "application/json; charset=utf-8",
                          headers=(("Cache-Control", "no-store"),))
@@ -2504,7 +2539,7 @@ class Handler(BaseHTTPRequestHandler):
                      headers=(("Cache-Control", "no-store"),))
 
     def handle_office_post(self, route, body):
-        """/api/office/{style,ack,unack}; the common POST guards already passed."""
+        """/api/office/{style,view,ack,unack}; the common POST guards already passed."""
         if route == "/api/office/style":
             style = body.get("style")
             if not (isinstance(style, str) and style in OFFICE_STYLES):
@@ -2516,6 +2551,18 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_error(500, "could not save office.json")
                     return
             self.reply_json({"ok": True, "style": style})
+            return
+        if route == "/api/office/view":
+            view = body.get("view")
+            if not (isinstance(view, str) and view in OFFICE_VIEWS):
+                self.send_error(400, "unknown view")
+                return
+            with _office_lock:
+                style, acks = load_office()
+                if not save_office(style, acks, view):
+                    self.send_error(500, "could not save office.json")
+                    return
+            self.reply_json({"ok": True, "view": view})
             return
         session_id = body.get("id")
         if not (isinstance(session_id, str) and session_id
@@ -2608,7 +2655,8 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/unhide":
             with _hidden_lock:
                 save_hidden({})
-        elif route in ("/api/office/style", "/api/office/ack", "/api/office/unack"):
+        elif route in ("/api/office/style", "/api/office/view",
+                       "/api/office/ack", "/api/office/unack"):
             self.handle_office_post(route, body)
             return
         elif route == "/api/shutdown":
@@ -3370,10 +3418,26 @@ def write_last_error(code, message, port=None):
         return False
 
 
-def clear_last_error():
-    """A start succeeded, so last_error.json no longer describes anything."""
+def clear_last_error(port=None):
+    """A start on `port` succeeded: remove the failure record that describes it.
+
+    Same rule as sweep_stale_last_error(): a record for another port, or one
+    without a port, belongs to somebody else and stays; one that cannot be read
+    goes.  Without a port nothing is known to match, so only unreadable files go."""
+    path = aiwatch_home() / LAST_ERROR_NAME
     try:
-        (aiwatch_home() / LAST_ERROR_NAME).unlink()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not an object")
+        except (ValueError, UnicodeDecodeError):
+            data = None
+        if data is not None:
+            theirs = data.get("port")
+            if (port is None or isinstance(theirs, bool)
+                    or not isinstance(theirs, int) or theirs != port):
+                return
+        path.unlink()
     except FileNotFoundError:
         pass
     except OSError as exc:
@@ -3697,7 +3761,7 @@ def _serve(args):
             "cannot listen on 127.0.0.1:%d (%s), and whatever holds the port does "
             "not answer like a watchdog" % (args.port, exc),
             args.port or None)
-    clear_last_error()
+    clear_last_error(server.server_address[1])
     migrate_legacy_data()
     if args.events_log:
         EVENTS_LOG_PATH = args.events_log

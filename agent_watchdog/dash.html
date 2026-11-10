@@ -30,10 +30,47 @@ h1{font-size:20px;margin:0 0 4px}
 .views a{padding:3px 12px;color:#a9b3c6;text-decoration:none;font-size:13px}
 .views a+a{border-left:1px solid #2a2f3d}
 .views a.current{background:#2a3550;color:#dde2ea;font-weight:600}
+[hidden]{display:none!important}
+/* 「需要你」與「已確認」：三個檢視共用同一份元件（static/watchdog.js），這裡只有外觀 */
+.notice{padding:6px 10px;border-radius:6px;background:#3a2a16;color:#dde2ea;font-size:13px;
+        overflow-wrap:anywhere;margin-bottom:10px}
+.btn{flex:none;border:1px solid #3a4152;background:#2a2f3d;color:#dde2ea;border-radius:6px;
+     padding:3px 10px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:#7fb0ff}
+.need{display:grid;gap:10px;padding:12px;border:1px solid #2a2f3d;border-radius:10px;
+      background:#1c1f28;min-width:0;margin-bottom:14px}
+.need-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.need-head h2{font-size:14px;font-weight:700;margin:0}
+.need-count{color:#e8c34a;font-weight:700;font-variant-numeric:tabular-nums}
+.need-none{color:#8a93a5;font-size:13px;margin:0}
+.need-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+           grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:8px;padding:0;margin:0;list-style:none}
+.need-item{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-width:0;padding:8px 10px;
+           border-radius:8px;background:#242013}
+.need-item.stuck{background:#251616}
+.need-dot{flex:none;width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 3px #0000001a}
+.need-text{display:grid;flex:1 1 90px;min-width:0}
+.need-text strong{font-weight:600;overflow-wrap:anywhere}
+.need-text small{color:#8a93a5;font-size:12px;overflow-wrap:anywhere}
+.need-more{justify-self:start}
+.acked{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#8a93a5;font-size:12px}
+.acked-list{display:contents}
+.acked button{border:1px dashed #3a4152;border-radius:999px;padding:2px 10px;background:none;color:#8a93a5;
+              font-size:12px;overflow-wrap:anywhere;text-align:left;cursor:pointer;max-width:100%}
+.acked button:hover{border-color:#7fb0ff;color:#dde2ea}
+.acked .acked-name{border:1px solid #3a4152;border-radius:999px;padding:2px 10px;overflow-wrap:anywhere;max-width:100%;cursor:default}
 </style></head><body>
 <h1>🐕 AI Agent Watchdog</h1>
 <nav id="views" class="views" aria-label="檢視切換"></nav>
 <div id="meta"></div>
+<div id="notice" class="notice" role="status" hidden></div>
+<section id="need" class="need" aria-labelledby="needTitle">
+  <div class="need-head"><h2 id="needTitle">需要你</h2><span id="needCount" class="need-count" hidden></span></div>
+  <p id="needNone" class="need-none">載入中…</p>
+  <ul id="needList" class="need-list" hidden></ul>
+  <button id="needMore" class="btn need-more" type="button" data-act="more" aria-controls="needList" aria-expanded="false" hidden></button>
+  <div id="acked" class="acked" hidden><span>已確認（狀態一變就會自動回來）：</span><span id="ackedList" class="acked-list"></span></div>
+</section>
 <div id="attn"><h2 id="attnHead" style="display:none">⚠ 需要你注意</h2><div id="attnList"></div></div>
 <div id="list"></div>
 <div id="empty" class="empty" style="display:none">目前沒有偵測到任何 AI session</div>
@@ -41,6 +78,13 @@ h1{font-size:20px;margin:0 0 4px}
 <script>
 'use strict';
 let cur=null;
+let needRooms=[];
+const needPanel=createNeedPanel({rooms:()=>needRooms,icon:needDotIcon()});
+/* 「需要你」只看 /api/status 與確認紀錄；下面的卡片完全不受影響。 */
+function paintNeed(){
+  needRooms=cur?buildRooms(cur,office.acks):[];
+  needPanel.paint();
+}
 const attnHead=document.getElementById('attnHead'),
       attnList=document.getElementById('attnList'),
       listBox=document.getElementById('list'),
@@ -120,6 +164,7 @@ function render(d){
   const rest=d.sessions.filter(s=>!shown.has(s.logical_id||s.file));
   syncCards(listBox,rest.map(s=>item(s,'',true,key(s))));
   emptyBox.style.display=(attn.length||rest.length)?'none':'';
+  officeAfterStatus();
 }
 
 /* 移除只認 logical_id：後端每輪都會依 (state, age_s) 重排，用陣列 index 會殺錯人。
@@ -144,5 +189,6 @@ document.addEventListener('click',ev=>{
   hideS(btn.getAttribute('data-hide'),Number(btn.getAttribute('data-mtime')));
 });
 renderViewSwitch(document.getElementById('views'),'list');
+startOfficeSync({repaint:paintNeed,desks:()=>needRooms.flatMap(r=>r.desks),need:needPanel});
 startWatchdog(render);
 </script></body></html>

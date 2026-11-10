@@ -1,0 +1,1443 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Agent Watchdog — Agent 星圖</title>
+<script src="/static/watchdog.js"></script>
+<script>applyScheme();</script>
+<style>
+/* 頁面外框跟淺色／深色（?scheme= 由 applyScheme() 寫進 data-scheme，蓋過 prefers-color-scheme）；
+   星圖畫布本身在兩種配色下都是深色夜空。 */
+:root{color-scheme:light;
+  --bg:#ffffff;--bg-secondary:#f7f7f5;--bg-overlay:#ffffff;--bg-hover:rgba(55,53,47,.06);
+  --bg-selected:rgba(35,131,226,.14);
+  --text:rgb(55,53,47);--text-secondary:rgba(55,53,47,.65);
+  --border:rgba(55,53,47,.09);--border-strong:rgba(55,53,47,.16);
+  --accent:#2383e2;--text-on-accent:#ffffff;
+  --c-gray:#787774;--c-orange:#d9730d;--c-green:#448361;--c-blue:#337ea9;--c-red:#d44c47;
+  --c-gray-bg:#f1f1ef;--c-orange-bg:#fbecdd;--c-green-bg:#edf3ec;--c-blue-bg:#e7f3f8;--c-red-bg:#fdebec;}
+@media (prefers-color-scheme:dark){:root:not([data-scheme="light"]){color-scheme:dark;
+  --bg:#191919;--bg-secondary:#202020;--bg-overlay:#252525;--bg-hover:rgba(255,255,255,.055);
+  --bg-selected:rgba(35,131,226,.28);
+  --text:rgba(255,255,255,.81);--text-secondary:rgba(255,255,255,.55);
+  --border:rgba(255,255,255,.075);--border-strong:rgba(255,255,255,.13);
+  --accent:#2383e2;--text-on-accent:#ffffff;
+  --c-gray:#9b9b9b;--c-orange:#c77d48;--c-green:#529584;--c-blue:#5e87c9;--c-red:#ff7369;
+  --c-gray-bg:#2f2f2f;--c-orange-bg:#5c3b23;--c-green-bg:#243d30;--c-blue-bg:#143a4e;--c-red-bg:#522e2a;}}
+:root[data-scheme="dark"]{color-scheme:dark;
+  --bg:#191919;--bg-secondary:#202020;--bg-overlay:#252525;--bg-hover:rgba(255,255,255,.055);
+  --bg-selected:rgba(35,131,226,.28);
+  --text:rgba(255,255,255,.81);--text-secondary:rgba(255,255,255,.55);
+  --border:rgba(255,255,255,.075);--border-strong:rgba(255,255,255,.13);
+  --accent:#2383e2;--text-on-accent:#ffffff;
+  --c-gray:#9b9b9b;--c-orange:#c77d48;--c-green:#529584;--c-blue:#5e87c9;--c-red:#ff7369;
+  --c-gray-bg:#2f2f2f;--c-orange-bg:#5c3b23;--c-green-bg:#243d30;--c-blue-bg:#143a4e;--c-red-bg:#522e2a;}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+/* 捲軸出現與否不改變內容寬度：星圖不會因為自己長高而重排 */
+html{scrollbar-gutter:stable}
+body{margin:0 auto;padding:16px;min-width:0;overflow-wrap:anywhere;max-width:1180px;background:var(--bg);color:var(--text);
+     font:14px/1.45 'Segoe UI',system-ui,'Microsoft JhengHei',sans-serif}
+h1,h2,p,ul,dl,dd{margin:0}
+button{font:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-bottom:4px}
+.top h1{font-size:19px;font-weight:700}
+.views{display:inline-flex;flex-wrap:wrap;border:1px solid var(--border-strong);border-radius:7px;overflow:hidden}
+.views a{padding:3px 12px;color:var(--text);text-decoration:none;font-size:13px}
+.views a+a{border-left:1px solid var(--border-strong)}
+.views a:hover{background:var(--bg-hover)}
+.views a.current{background:var(--accent);color:var(--text-on-accent);font-weight:600}
+#meta{color:var(--text-secondary);font-size:12px;margin-bottom:12px;overflow-wrap:anywhere}
+#meta a{color:var(--accent);text-decoration:none}
+
+.starmap{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0}
+.notice{padding:6px 10px;border-radius:6px;background:var(--c-orange-bg);color:var(--text);font-size:13px;overflow-wrap:anywhere}
+.btn{flex:none;border:1px solid var(--border-strong);background:var(--bg-overlay);color:var(--text);border-radius:6px;
+     padding:3px 10px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+
+/* 「需要你」：與辦公室同一套規則與外觀；超過兩列收合成「還有 N 位」 */
+.need{display:grid;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-secondary);min-width:0}
+.need-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.need-head h2{font-size:14px;font-weight:700}
+.need-count{color:var(--c-orange);font-weight:700;font-variant-numeric:tabular-nums}
+.need-none{color:var(--text-secondary);font-size:13px}
+.need-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+           grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:8px;padding:0;list-style:none}
+.need-item{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-width:0;padding:8px 10px;border-radius:8px;background:var(--c-orange-bg)}
+.need-item.stuck{background:var(--c-red-bg)}
+.need-dot{flex:none;width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 3px #0000001a}
+.need-text{display:grid;flex:1 1 90px;min-width:0}
+.need-text strong{font-weight:600;overflow-wrap:anywhere}
+.need-text small{color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
+.need-more{justify-self:start}
+.acked{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px}
+.acked-list{display:contents}
+.acked button{border:1px dashed var(--border-strong);border-radius:999px;padding:2px 10px;background:none;color:var(--text-secondary);
+              font-size:12px;overflow-wrap:anywhere;text-align:left;cursor:pointer;max-width:100%}
+.acked button:hover{border-color:var(--accent);color:var(--text)}
+.acked .acked-name{border:1px solid var(--border);border-radius:999px;padding:2px 10px;overflow-wrap:anywhere;max-width:100%;cursor:default}
+
+/* 夜空：固定深色。canvas 只畫圖；名稱、太陽名、電腦編號是疊在上面的 DOM */
+.sky{position:relative;min-width:0;border:1px solid #1d2a44;border-radius:10px;overflow:hidden;
+     background:radial-gradient(ellipse at 42% 45%,#0c1426,#04060c 80%);color:#dfe7f7}
+.sky:focus-visible{outline:2px solid #7dd8ff;outline-offset:2px}
+.sky canvas{display:block;width:100%;height:220px}
+.sky.pointing canvas{cursor:pointer}
+.overlay{position:absolute;inset:0;pointer-events:none;overflow:hidden;font-size:11px;line-height:15px}
+.overlay>*{position:absolute;left:0;top:0;will-change:transform}
+.lbl{max-width:min(140px,45%);padding:0 4px;border-radius:3px;background:#05080fb3;color:#dfe7f7;white-space:nowrap;
+     overflow:hidden;text-overflow:ellipsis;visibility:hidden}
+.lbl[data-shown]{visibility:visible}
+.lbl.wait{color:#ffd27a}
+.lbl.stuck{color:#ff9a90}
+.lbl.idle,.lbl.off{color:#b9c5dd}
+.lbl.on{max-width:min(280px,90%);white-space:normal;overflow-wrap:anywhere;background:#05080fe0;color:#ffffff;z-index:2}
+.lbl.on small{font-size:11px;color:#aab6cf}
+.lbl[data-focus="dim"]{opacity:.3}
+.sun-lbl{display:grid;justify-items:center;text-align:center;color:#f2f5fb;line-height:16px;white-space:nowrap}
+.sun-lbl b{font-size:13px;font-weight:600}
+.sun-lbl small{font-size:11px;color:#aab6cf}
+.badge{width:16px;height:16px;border:1px solid #5a6e96;border-radius:50%;background:#0b1222;color:#c9d6f2;font-size:10px;
+       line-height:14px;text-align:center;font-weight:600}
+.badge[data-focus="lit"]{border-color:#9cb8ff;background:#2a3f6e;color:#ffffff}
+.badge[data-focus="dim"]{opacity:.3}
+.sky-note{position:absolute;left:16px;right:16px;top:50%;transform:translateY(-50%);text-align:center;color:#c9d6f2;font-size:13px;
+          overflow-wrap:anywhere}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* 點星星後的資訊（欄位與辦公室相同） */
+.detail{padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-overlay);font-size:13px;min-width:0}
+.detail-hint{color:var(--text-secondary)}
+.detail-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.detail-name{font-size:15px;font-weight:700;overflow-wrap:anywhere;min-width:0}
+.detail-age{color:var(--text-secondary);font-size:12px}
+.detail-actions{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+             grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr));gap:6px 16px;margin-top:8px}
+.detail-grid div{min-width:0}
+.detail-grid dt{color:var(--text-secondary);font-size:12px}
+.detail-grid dd{overflow-wrap:anywhere;white-space:pre-wrap}
+.detail-msg{margin-top:6px;color:var(--c-red);font-size:12px}
+.detail-msg:empty{display:none}
+.chip{display:inline-block;max-width:100%;border-radius:4px;padding:1px 7px;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.chip-working{background:var(--c-green-bg);color:var(--c-green)}
+.chip-tool,.chip-background{background:var(--c-blue-bg);color:var(--c-blue)}
+.chip-waiting{background:var(--c-orange-bg);color:var(--c-orange);font-weight:600}
+.chip-stuck{background:var(--c-red-bg);color:var(--c-red);font-weight:600}
+.chip-idle,.chip-unknown{background:var(--c-gray-bg);color:var(--c-gray)}
+.chip-offline{background:var(--bg-hover);color:var(--text)}
+.chip-acked{background:var(--bg-hover);color:var(--text-secondary);border:1px dashed var(--border-strong)}
+
+/* 電腦清單：編號＝弧上的編號 */
+.machines{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;font-size:12px}
+.machines-title{font-weight:700}
+.machine-list{display:contents}
+.machine{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px 6px;min-width:0;max-width:100%;padding:3px 10px 3px 4px;
+         border:1px solid var(--border-strong);border-radius:14px;background:var(--bg-overlay);color:var(--text);font-size:12px;
+         text-align:left;cursor:pointer}
+.machine:hover{border-color:var(--accent)}
+.machine[aria-pressed="true"]{border-color:var(--accent);background:var(--bg-selected)}
+.machine.offline{border-style:dashed}
+.machine-num{display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:50%;
+             background:#0b1222;color:#c9d6f2;font-size:11px;font-weight:700}
+.machine-name{min-width:0;font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-weight:700;overflow-wrap:anywhere}
+.machine-count{color:var(--text-secondary)}
+.machines-hint{flex-basis:100%;color:var(--text-secondary)}
+.tag{display:inline-block;border-radius:4px;padding:0 7px;font-size:12px;line-height:1.6}
+.tag-live{background:var(--c-green-bg);color:var(--c-green)}
+.tag-off{background:var(--c-red-bg);color:var(--c-red);font-weight:600}
+
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;color:var(--text-secondary);font-size:12px;min-width:0}
+.legend span{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.legend i{display:inline-block;flex:none;width:9px;height:9px;border-radius:50%}
+.legend .clock{width:9px;height:9px;border:1.5px solid #8fc8ff;background:conic-gradient(#8fc8ff 0 25%,transparent 0)}
+
+@media (max-width:640px){body{padding:12px}}
+@media (max-width:300px){body{padding:8px}.need{padding:8px}.detail{padding:8px 10px}}
+</style></head><body>
+<header class="top">
+  <h1>✨ Agent 星圖</h1>
+  <nav id="views" class="views" aria-label="檢視切換"></nav>
+</header>
+<div id="meta">載入中…</div>
+<main id="starmap" class="starmap">
+  <div id="notice" class="notice" role="status" hidden></div>
+  <section id="need" class="need" aria-labelledby="needTitle">
+    <div class="need-head"><h2 id="needTitle">需要你</h2><span id="needCount" class="need-count" hidden></span></div>
+    <p id="needNone" class="need-none">載入中…</p>
+    <ul id="needList" class="need-list" hidden></ul>
+    <button id="needMore" class="btn need-more" type="button" data-act="more" aria-controls="needList" aria-expanded="false" hidden></button>
+    <div id="acked" class="acked" hidden><span>已確認（狀態一變就會自動回來）：</span><span id="ackedList" class="acked-list"></span></div>
+  </section>
+  <div id="sky" class="sky">
+    <canvas id="cv" aria-hidden="true"></canvas>
+    <div id="overlay" class="overlay" aria-hidden="true"></div>
+    <div id="options" class="sr-only"></div>
+    <p id="skyNote" class="sky-note">載入中…</p>
+  </div>
+  <div id="detail" class="detail" aria-live="polite"></div>
+  <div id="machines" class="machines" hidden>
+    <span class="machines-title">電腦</span><span id="machineList" class="machine-list"></span>
+    <span id="machinesHint" class="machines-hint" hidden>同一台電腦的 session 在太陽周圍排成同一段弧，弧上的數字對照這裡；滑過或點一下電腦會強調它的星星。</span>
+  </div>
+  <div id="legend" class="legend">
+    <span>太陽＝模型（session 越多越大；C＝Claude、X＝Codex、A＝Antigravity）</span>
+    <span><i style="background:#5ff0c0"></i>執行中：最靠近太陽，線上有光點流向星星</span>
+    <span><i style="background:#ffc24d"></i>等你回覆：虛線、外圈一圈圈擴散</span>
+    <span><i style="background:#ff5a52"></i>可能卡住：紅色、外圈擴散</span>
+    <span><i style="background:#7f93b8"></i>閒置（含已按「我知道了」的）：離太陽較遠、線很淡</span>
+    <span><i style="background:#4a556b"></i>離線或連不上：最外圈、暗灰，滑過或選取才標名字</span>
+    <span>繞著星星轉的小點＝小助手（subagent），最多畫 3 個</span>
+    <span><i class="clock"></i>時鐘記號＝有背景工作</span>
+  </div>
+</main>
+<script>
+'use strict';
+/* Agent 星圖：每種模型一顆太陽（Claude、Codex、Antigravity；其他種類合成一顆「其他」，最多 4 顆），
+   每個 session 一顆星，用一條曲線連到它的太陽。
+   - 離太陽多遠＝狀態：執行中最近，再來是等你回覆／可能卡住、閒置（含已確認），離線最外圈。
+   - 在太陽周圍哪一段弧＝哪台電腦：同一台的星星排在同一段弧上，弧上的編號對照畫布下方的電腦清單。
+   - 同一段弧裡依房內座位序（專案 → agent → host → id），不依狀態：狀態變了只沿半徑移動。
+   名稱是疊在畫布上的 DOM 標籤，放得下才顯示；滑過、選取或從「需要你」指到的一定顯示「名稱 · 電腦名」。
+   配置是純函式（buildRooms → starModel → layoutStarmap → placeLabels），可以單獨測試；繪圖只讀狀態、數量與位置。
+   全頁一個時鐘（最快約 15 fps）；頁面隱藏、畫布捲出畫面外時不重畫；prefers-reduced-motion 時整張圖靜止。 */
+
+const READONLY=isReadonly();             // ?readonly=1：唯讀，不畫任何會寫入伺服器的控制項
+const MAX_HELPERS_DRAWN=3;
+const CALM_FRAME_MS=200;                 // 只剩慢慢旋轉時
+const TWEEN_MS=700;                      // 資料改變時滑到新位置的時間（一定會結束）
+const STAR_KINDS=['claude','codex','antigravity','other'];
+const KIND_NAMES={claude:'Claude',codex:'Codex',antigravity:'Antigravity',other:'其他'};
+/* 每種一個字母、互不相同（Claude 與 Codex 都是 C 開頭，所以 Codex 是 X） */
+const KIND_LETTERS={claude:'C',codex:'X',antigravity:'A',other:'·'};
+const KIND_COLORS={claude:'#e8834a',codex:'#4ac0e8',antigravity:'#a06ae8',other:'#8bd48b'};
+const STAR_COLORS={work:'#5ff0c0',wait:'#ffc24d',stuck:'#ff5a52',idle:'#7f93b8',off:'#4a556b'};
+const STAR_BAND={work:0,wait:1,stuck:1,idle:2,off:3};   // 軌道帶，由內往外
+const BAND_COUNT=4;
+const STAR_RADIUS={work:5.5,wait:5,stuck:5,idle:4,off:3};
+const MAX_STAR_RADIUS=5.5;
+/* 很慢的旋轉（rad/ms，約 9 分鐘一圈），各太陽方向交錯 */
+const STAR_SPIN={claude:1.2e-5,codex:-1.5e-5,antigravity:1.35e-5,other:-1.1e-5};
+const LABEL_RANK={stuck:0,wait:1,work:2,idle:3};       // 名稱先後；離線預設不標
+const REDUCED=typeof matchMedia==='function'&&!!matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+
+/* ================================================================ 純函式：星圖模型 */
+/* 電腦編號依名稱（再依 key），與連線狀態無關：一台電腦離線時編號不會變。 */
+function compareMachines(a,b){return cmpText(a.name,b.name)||(a.key<b.key?-1:a.key>b.key?1:0);}
+/* 太陽：session 多的在前（同數依 Claude、Codex、Antigravity、其他）；星星依電腦、再依座位序。 */
+function starModel(rooms){
+  const ordered=(Array.isArray(rooms)?rooms:[]).slice().sort(compareMachines);
+  const machines=ordered.map((room,i)=>({room,number:i+1,sessions:room.desks.length}));
+  const byKind=new Map();
+  ordered.forEach((room,i)=>{
+    for(const desk of room.desks){
+      const kind=agentKind(desk.row.agent);
+      const state=Object.prototype.hasOwnProperty.call(STAR_BAND,desk.art)?desk.art:'idle';
+      const star={key:desk.key,desk,room,machineNumber:i+1,kind,state,
+                  helpers:Math.min(MAX_HELPERS_DRAWN,desk.helpers),background:desk.background};
+      if(!byKind.has(kind))byKind.set(kind,[]);
+      byKind.get(kind).push(star);
+    }
+  });
+  const systems=[...byKind].map(([kind,stars])=>({kind,stars,
+    busy:stars.filter(s=>s.state==='work').length,waiting:stars.filter(s=>s.desk.attention).length}));
+  systems.sort((a,b)=>b.stars.length-a.stars.length||STAR_KINDS.indexOf(a.kind)-STAR_KINDS.indexOf(b.kind));
+  return {machines,systems,total:systems.reduce((n,s)=>n+s.stars.length,0)};
+}
+/* 太陽順序在頁面開著的期間固定：見過的種類保持原位（數量相近的兩種不會換來換去）；
+   新種類接在後面，大的先。回傳依該順序排好的 systems 與要記住的順序。 */
+function orderSystems(systems,remembered){
+  const order=(remembered||[]).slice();
+  for(const s of systems)if(order.indexOf(s.kind)<0)order.push(s.kind);
+  return {systems:systems.slice().sort((a,b)=>order.indexOf(a.kind)-order.indexOf(b.kind)),order};
+}
+
+/* ================================================================ 純函式：配置 */
+const DEFAULT_WIDTH=880;
+const EDGE=10;
+const PACK_GAP=14;
+const ARC_GAP=0.14;
+const LABEL_GAP=4;
+const EMPTY_SKY_HEIGHT=220;
+const SUN_LABEL={w:130,h:32};
+/* 每顆太陽預留比目前多一點的空間：session 進出時太陽不必搬家。 */
+const SUN_ROOM=1.1;
+/* 先寬鬆；放不下就收緊間距，再縮小星星，直到每顆太陽都放得進寬度。 */
+const TIERS=[{scale:1,compact:false},{scale:1,compact:true},{scale:0.85,compact:true},{scale:0.72,compact:true},
+             {scale:0.6,compact:true},{scale:0.5,compact:true}];
+function sunCore(n){return Math.min(42,Math.max(20,17+3.2*Math.sqrt(n)));}
+
+/* 同一圈上相隔 lanes 格的兩顆星至少 chord 遠，最少要幾條 lane。 */
+function lanesFor(radius,slot,chord){
+  for(let lanes=1;lanes<24;lanes++)if(2*radius*Math.sin(Math.min(Math.PI,lanes*slot)/2)>=chord)return lanes;
+  return 24;
+}
+/* 一顆太陽的星星：第 i 顆在 -90° + i 格 + 前面每換一台電腦多一段間隙；同一帶裡的星星輪流放到不同 lane，
+   同一 lane 上相鄰兩顆至少隔 lanes 格，所以星體不會相碰。帶與帶、lane 與 lane 之間沿半徑也夠遠。 */
+function sunGeometry(system,label,scale,compact,withArcs){
+  const stars=system.stars,n=stars.length;
+  const rmax=MAX_STAR_RADIUS*scale;
+  const core=sunCore(n)*(compact?0.88:1);
+  const chord=2*rmax+(compact?4:7);
+  const laneStep=2*rmax+(compact?3:5);
+  const bandGap=Math.max(2*rmax+(compact?5:6),compact?0:17);
+  // 任何角度都離開太陽本體與下方的名稱（星星會轉）
+  const inner=Math.max(core+24,Math.hypot(label.w/2+2,core+LABEL_GAP+label.h)+rmax+4);
+  const segment=[];
+  stars.forEach((s,i)=>{segment.push(i===0?0:segment[i-1]+(s.machineNumber!==stars[i-1].machineNumber?1:0));});
+  const groups=n?segment[n-1]+1:0;
+  const gap=groups>1?Math.min(ARC_GAP,Math.PI/(2*groups)):0;
+  const band=stars.map(s=>STAR_BAND[s.state]);
+  const count=new Array(BAND_COUNT).fill(0);
+  const position=band.map(b=>count[b]++);
+  let reserve=1,slot=2*Math.PI,starts=[],lanes=[];
+  for(let pass=0;pass<16;pass++){
+    slot=n>1?(2*Math.PI-groups*gap)/(n+reserve-1):2*Math.PI;
+    starts=[];lanes=[];
+    let radius=inner,need=1;
+    for(let b=0;b<BAND_COUNT;b++){
+      const l=n>1?lanesFor(radius,slot,chord):1;
+      starts.push(radius);lanes.push(l);
+      if(count[b]>l)need=Math.max(need,l);
+      radius+=(Math.max(1,Math.min(l,count[b]))-1)*laneStep+bandGap;
+    }
+    if(need<=reserve)break;
+    reserve=need;
+  }
+  const angleOf=i=>-Math.PI/2+slot*i+gap*segment[i];
+  // 離線帶只有這顆太陽有離線星星時才留；其他帶一律保留（狀態改變只動自己那顆）
+  const last=count[BAND_COUNT-1]>0?BAND_COUNT-1:BAND_COUNT-2;
+  const outer=starts[last]+(Math.max(1,Math.min(lanes[last],count[last]))-1)*laneStep+rmax;
+  const rim=withArcs?outer+10:0;
+  const arcs=[];
+  if(withArcs){
+    const pad=Math.min(slot*0.45,0.3);
+    for(let i=0;i<n;i++){
+      if(i>0&&segment[i]===segment[i-1])arcs[arcs.length-1].end=angleOf(i)+pad;
+      else arcs.push({number:stars[i].machineNumber,start:angleOf(i)-pad,end:angleOf(i)+pad});
+    }
+  }
+  return {core,rim,slot,gap,bands:starts,arcs,reach:withArcs?rim+9:outer+6,
+    stars:stars.map((s,i)=>{
+      const lane=position[i]%lanes[band[i]];
+      return {angle:angleOf(i),radius:starts[band[i]]+lane*laneStep,size:STAR_RADIUS[s.state]*scale,band:band[i],lane};
+    })};
+}
+/* 半徑 r 的圓從上方落下，停在最高的那一欄（同高時離 anchor 最近），與 others 至少隔 PACK_GAP。 */
+function dropSpot(r,others,width,anchor){
+  const lo=EDGE+r,hi=width-EDGE-r,columns=[];
+  if(hi>=lo){for(let x=lo;x<hi;x+=4)columns.push(x);columns.push(hi);}else columns.push(width/2);
+  let best=null;
+  for(const x of columns){
+    let y=EDGE+r;
+    for(const p of others){
+      const d=p.r+r+PACK_GAP,dx=Math.abs(x-p.x);
+      if(dx<d)y=Math.max(y,p.y+Math.sqrt(d*d-dx*dx));
+    }
+    const pull=anchor===null?0:Math.abs(x-anchor);
+    if(!best||y<best.y-0.5||(Math.abs(y-best.y)<=0.5&&pull<best.pull))best={x,y,pull};
+  }
+  return best;
+}
+function roomFor(reach,width){return Math.max(reach,Math.min((width-2*EDGE)/2,reach*SUN_ROOM));}
+/* 第一次（或寬度改變、或有太陽長大到超出預留空間）：大的先，一顆顆落下，整組置中，第一顆往中間移。 */
+function packFresh(reaches,width){
+  const out=[];
+  for(const reach of reaches){
+    const r=roomFor(reach,width);
+    const at=dropSpot(r,out,width,out.length?out[0].x:null);
+    out.push({x:at.x,y:at.y,r});
+  }
+  const left=Math.min(...out.map(p=>p.x-p.r)),right=Math.max(...out.map(p=>p.x+p.r));
+  const shift=width/2-(left+right)/2;
+  for(const p of out)p.x+=shift;
+  const height=Math.max(...out.map(p=>p.y+p.r))+EDGE;
+  if(out.length>1){
+    const first=out[0];
+    const fits=y=>y+first.r<=height-EDGE+0.01
+      &&out.slice(1).every(p=>Math.hypot(p.x-first.x,p.y-y)>=p.r+first.r+PACK_GAP-0.01);
+    for(let y=height/2;y>first.y;y-=2)if(fits(y)){first.y=y;break;}
+  }
+  return out;
+}
+/* 太陽位置：沿用上次的位置（slots，依寬度記），只要每顆現有太陽都還放得進自己預留的空間；
+   新出現的種類落在空位上（離開的種類位置保留，回來時回原位），其他太陽不動。
+   只有寬度改變、有太陽長大超出預留空間、或畫面上沒有任何太陽有舊位置時才重新排。
+   畫面頂端空出來（最上面那顆離開了）時整組往上收，彼此相對位置不變。 */
+function packSuns(kinds,reaches,width,slots){
+  const kept=slots&&slots.width===width&&slots.items?slots.items:null;
+  const known=kept?kinds.filter(k=>kept[k]&&kept[k].y-kept[k].r>=EDGE-0.01):[];
+  let items=null;
+  if(known.length&&kinds.every((k,i)=>known.indexOf(k)<0||reaches[i]<=kept[k].r+0.01)){
+    items={};
+    const taken=[];
+    for(const k of Object.keys(kept)){items[k]=Object.assign({},kept[k]);taken.push(items[k]);}
+    // 位置失效（被往上收而出界）的舊種類當新的
+    for(const k of kinds)if(known.indexOf(k)<0&&items[k]){taken.splice(taken.indexOf(items[k]),1);delete items[k];}
+    const anchor=items[known[0]].x;
+    kinds.forEach((k,i)=>{
+      if(items[k])return;
+      const r=roomFor(reaches[i],width);
+      const at=dropSpot(r,taken,width,anchor);
+      items[k]={x:at.x,y:at.y,r};taken.push(items[k]);
+    });
+    const top=Math.min(...kinds.map(k=>items[k].y-items[k].r));
+    if(top>EDGE+0.5)for(const k of Object.keys(items))items[k].y-=top-EDGE;
+  }else{
+    const fresh=packFresh(reaches,width);
+    items={};
+    kinds.forEach((k,i)=>{items[k]=fresh[i];});
+  }
+  const centers=kinds.map(k=>({x:items[k].x,y:items[k].y,r:items[k].r}));
+  const height=Math.max(...centers.map(c=>c.y+c.r))+EDGE;
+  return {centers,height,slots:{width,items}};
+}
+/* 每顆太陽、星星與電腦弧的位置（星星在旋轉 0 的位置；畫的時候各太陽的星星再依 STAR_SPIN 轉）。
+   options：width（0＝還沒量到：用預設寬度）、sunLabel(system)→{w,h}、arcs（預設：兩台以上電腦有 session）、
+   memory：{order, slots} 上一次回傳的 memory（讓太陽順序與位置在頁面開著的期間固定）。 */
+function layoutStarmap(model,options){
+  const o=options||{};
+  const width=o.width>0?o.width:DEFAULT_WIDTH;
+  const memory=o.memory||{};
+  const ordered=orderSystems(model.systems,memory.order||[]);
+  const systems=ordered.systems;
+  if(!systems.length)return {width,height:EMPTY_SKY_HEIGHT,scale:1,suns:[],stars:[],arcs:[],order:[],
+                             memory:{order:ordered.order,slots:memory.slots||null}};
+  const withArcs=o.arcs===undefined?model.machines.filter(m=>m.sessions>0).length>1:!!o.arcs;
+  const labels=systems.map(s=>(typeof o.sunLabel==='function'&&o.sunLabel(s))||SUN_LABEL);
+  let tier=TIERS[0],shapes=[];
+  for(const next of TIERS){
+    tier=next;
+    shapes=systems.map((s,i)=>sunGeometry(s,labels[i],next.scale,next.compact,withArcs));
+    if(shapes.every(sh=>2*sh.reach<=width-2*EDGE))break;
+  }
+  const packed=packSuns(systems.map(s=>s.kind),shapes.map(sh=>sh.reach),width,memory.slots||null);
+  const suns=shapes.map((sh,i)=>{
+    const c=packed.centers[i];
+    return {kind:systems[i].kind,x:c.x,y:c.y,core:sh.core,reach:sh.reach,room:c.r,rim:sh.rim,slot:sh.slot,gap:sh.gap,bands:sh.bands,
+            label:{x:c.x-labels[i].w/2,y:c.y+sh.core+LABEL_GAP,w:labels[i].w,h:labels[i].h}};
+  });
+  const stars=[],arcs=[];
+  shapes.forEach((sh,i)=>{
+    const sun=suns[i];
+    sh.stars.forEach((p,j)=>{
+      stars.push({key:systems[i].stars[j].key,sun:i,angle:p.angle,radius:p.radius,size:p.size,band:p.band,lane:p.lane,
+                  x:sun.x+Math.cos(p.angle)*p.radius,y:sun.y+Math.sin(p.angle)*p.radius});
+    });
+    for(const a of sh.arcs)arcs.push({sun:i,number:a.number,start:a.start,end:a.end});
+  });
+  return {width,height:packed.height,scale:tier.scale,suns,stars,arcs,order:stars.map(s=>s.key),
+          memory:{order:ordered.order,slots:packed.slots}};
+}
+/* ←→↑↓：下一顆或上一顆（繞圈）；沒有星星時 null。 */
+function stepSelection(order,current,step){
+  if(!order.length)return null;
+  const at=current===null||current===undefined?-1:order.indexOf(current);
+  if(at<0)return step>0?order[0]:order[order.length-1];
+  return order[(at+step+order.length)%order.length];
+}
+/* 兩個角度的最小差（0..π） */
+function angleDistance(a,b){
+  const d=Math.abs(a-b)%(2*Math.PI);
+  return d>Math.PI?2*Math.PI-d:d;
+}
+
+/* ================================================================ 純函式：名稱擺放 */
+const SIDES=['out','below','above','right','left','below-right','below-left','above-right','above-left'];
+/* 強調的名稱（選取、滑過、從「需要你」指到）旁邊都會蓋到東西時，最多往外推這麼遠（px），並畫引線。 */
+const FORCED_OFFSETS=[0,8,16,26,38,52,70,92,118,150,190,240,300,380,480];
+const WRAP_FACTORS=[0.75,0.6,0.48];   // 折行時的寬度比例
+const WRAP_MIN_W=72;
+const WRAP_LINE_H=15;
+const FREE_STEP=8;       // 往外推也找不到不蓋東西的位置時，在整個夜空裡逐格找，格距（px）
+const COVER_COST=100;    // 蓋住星體或太陽
+const LINE_COST=20;      // 引線穿過別的星體
+const CAPTION_GAP=4;     // 夜空放不下強調名稱時，名稱改排在夜空正下方（一列一個），與夜空、彼此的間距（px）
+function boxesOverlap(a,b,pad){
+  const p=pad||0;
+  return a.x<b.x+b.w+p&&b.x<a.x+a.w+p&&a.y<b.y+b.h+p&&b.y<a.y+a.h+p;
+}
+function boxHitsCircle(box,c,pad){
+  const nx=Math.max(box.x,Math.min(c.x,box.x+box.w)),ny=Math.max(box.y,Math.min(c.y,box.y+box.h));
+  return (c.x-nx)**2+(c.y-ny)**2<(c.r+(pad||0))**2;
+}
+function segmentHitsCircle(ax,ay,bx,by,c,pad){
+  const dx=bx-ax,dy=by-ay,len=dx*dx+dy*dy;
+  const t=len?Math.max(0,Math.min(1,((c.x-ax)*dx+(c.y-ay)*dy)/len)):0;
+  const px=ax+dx*t-c.x,py=ay+dy*t-c.y;
+  return px*px+py*py<(c.r+(pad||0))**2;
+}
+/* 引線：從星體邊緣到名稱框上最近的一點。 */
+function leaderLine(box,star){
+  const nx=Math.max(box.x,Math.min(star.x,box.x+box.w)),ny=Math.max(box.y,Math.min(star.y,box.y+box.h));
+  const d=Math.hypot(nx-star.x,ny-star.y)||1;
+  return {x1:star.x+(nx-star.x)/d*(star.r+3),y1:star.y+(ny-star.y)/d*(star.r+3),x2:nx,y2:ny};
+}
+function labelCandidate(q,side,extra){
+  const x=q.x,y=q.y,r=q.r,w=q.w,h=q.h;
+  const d=r*0.75+3+extra*0.7;
+  switch(side){
+    case 'out':{
+      if(q.dx===undefined||q.dy===undefined)return null;
+      const reach=r+4+extra+(Math.abs(q.dx)*w)/2+(Math.abs(q.dy)*h)/2;
+      return {x:x+q.dx*reach-w/2,y:y+q.dy*reach-h/2};
+    }
+    case 'below':return {x:x-w/2,y:y+r+3+extra};
+    case 'above':return {x:x-w/2,y:y-r-3-h-extra};
+    case 'right':return {x:x+r+5+extra,y:y-h/2};
+    case 'left':return {x:x-r-5-w-extra,y:y-h/2};
+    case 'below-right':return {x:x+d,y:y+d};
+    case 'below-left':return {x:x-d-w,y:y+d};
+    case 'above-right':return {x:x+d,y:y-d-h};
+    default:return {x:x-d-w,y:y-d-h};
+  }
+}
+function spotStillFree(box,circles,boxes,bounds){
+  if(box.x<bounds.x||box.y<bounds.y||box.x+box.w>bounds.x+bounds.w||box.y+box.h>bounds.y+bounds.h)return false;
+  for(const c of circles)if(boxHitsCircle(box,c,1))return false;
+  for(const b of boxes)if(boxesOverlap(box,b,1))return false;
+  return true;
+}
+/* 整個夜空裡不蓋任何星體、太陽、固定框的最近位置（先避開別的名稱，不行才與它們重疊；引線穿過的星體越少越好）。
+   找不到回 null。 */
+function freeSpot(q,circles,boxes,taken,bounds){
+  let best=null;
+  // 圓放進 CELL 格的索引：一個框只要比對它碰到的那幾格裡的圓
+  const CELL=32,index=new Map(),cols=Math.ceil(bounds.w/CELL)+2;
+  for(const c of circles){
+    const x0=Math.floor((c.x-c.r-1)/CELL),x1=Math.floor((c.x+c.r+1)/CELL);
+    const y0=Math.floor((c.y-c.r-1)/CELL),y1=Math.floor((c.y+c.r+1)/CELL);
+    for(let cy=Math.max(0,y0);cy<=y1;cy++)for(let cx=Math.max(0,x0);cx<=x1;cx++){
+      const k=cy*cols+cx;
+      if(!index.has(k))index.set(k,[]);
+      index.get(k).push(c);
+    }
+  }
+  const hits=box=>{
+    for(let cy=Math.max(0,Math.floor(box.y/CELL));cy<=Math.floor((box.y+box.h)/CELL);cy++){
+      for(let cx=Math.max(0,Math.floor(box.x/CELL));cx<=Math.floor((box.x+box.w)/CELL);cx++){
+        const list=index.get(cy*cols+cx);
+        if(list)for(const c of list)if(boxHitsCircle(box,c,1))return true;
+      }
+    }
+    return false;
+  };
+  const xs=bounds.x+2,xe=bounds.x+bounds.w-q.w-2,ys=bounds.y+2,ye=bounds.y+bounds.h-q.h-2;
+  for(let y=ys;y<=ye+FREE_STEP-1;y+=FREE_STEP){
+    for(let x=xs;x<=xe+FREE_STEP-1;x+=FREE_STEP){
+      const box={x:Math.min(x,xe),y:Math.min(y,ye),w:q.w,h:q.h};
+      if(box.x<xs-0.01||box.y<ys-0.01)continue;
+      const near=Math.hypot(q.x-Math.max(box.x,Math.min(q.x,box.x+box.w)),q.y-Math.max(box.y,Math.min(q.y,box.y+box.h)));
+      if(best&&near>=best.cost)continue;
+      let blocked=hits(box);
+      if(blocked)continue;
+      for(const b of boxes)if(boxesOverlap(box,b,1)){blocked=true;break;}
+      if(blocked)continue;
+      let cost=near;
+      for(const t of taken)if(boxesOverlap(box,t,1))cost+=40;
+      if(best&&cost>=best.cost)continue;
+      const line=leaderLine(box,q);
+      for(const c of circles)if(c.key!==q.key&&segmentHitsCircle(line.x1,line.y1,line.x2,line.y2,c,1))cost+=LINE_COST;
+      if(!best||cost<best.cost)best={x:box.x,y:box.y,w:box.w,h:box.h,cost};
+    }
+  }
+  return best;
+}
+/* 名稱依呼叫者給的順序（重要的先）：先往遠離太陽的方向，再試下、上、左右、四個斜角（上次的位置先試，
+   名稱才不會跟著旋轉跳來跳去），必須在夜空裡、不碰其他名稱、星體、太陽與固定框；沒有空位就不標。
+   forced 的名稱一定顯示，而且不蓋住任何星體或太陽：旁邊都會蓋到東西時往外推（畫引線），取最近的、不蓋星體且
+   引線不穿過別的星體的位置；推到底還是蓋到，就在整個夜空裡找離這顆星最近的空位；折行也找不到空位
+   （夜空太擠）就排到夜空正下方的說明區（caption:true，y 在 bounds 之外），仍用引線連回星星。 */
+function placeLabels(requests,obstacles,bounds,previous,memo){
+  const placed=new Map(),taken=[];
+  let captionTop=bounds.y+bounds.h+CAPTION_GAP;
+  const circles=obstacles.circles||[],boxes=obstacles.boxes||[];
+  for(const q of requests){
+    const before=previous&&previous.get(q.key);
+    const sides=before?[before].concat(SIDES.filter(s=>s!==before)):SIDES;
+    let best=null;
+    for(const offset of (q.forced?FORCED_OFFSETS:[0])){
+      for(const side of sides){
+        const raw=labelCandidate(q,side,offset);
+        if(!raw)continue;
+        const box={x:Math.max(bounds.x+2,Math.min(raw.x,bounds.x+bounds.w-q.w-2)),
+                   y:Math.max(bounds.y+2,Math.min(raw.y,bounds.y+bounds.h-q.h-2)),w:q.w,h:q.h};
+        let cost=0;
+        for(const t of taken)if(boxesOverlap(box,t,1))cost+=1;
+        for(const b of boxes)if(boxesOverlap(box,b,1))cost+=1;
+        for(const c of circles)if(boxHitsCircle(box,c,1))cost+=COVER_COST;
+        if(offset>0){
+          const line=leaderLine(box,q);
+          for(const c of circles)if(c.key!==q.key&&segmentHitsCircle(line.x1,line.y1,line.x2,line.y2,c,1))cost+=LINE_COST;
+        }
+        if(!best||cost<best.cost)best={box,side,cost,offset};
+        if(cost===0)break;
+      }
+      if(best&&(best.cost===0||(q.forced&&best.cost<LINE_COST)))break;
+    }
+    if(memo&&!(q.forced&&(!best||best.cost>=COVER_COST)))memo.delete(q.key);
+    if(q.forced&&(!best||best.cost>=COVER_COST)){
+      // 上一幀找到的空位只要還空著就沿用（整個夜空逐格找一次不便宜；星星只是慢慢轉）
+      const old=memo&&memo.get(q.key);
+      let free=old&&old.qw===q.w&&old.qh===q.h&&spotStillFree(old,circles,boxes,bounds)?old:null;
+      if(!free)free=freeSpot(q,circles,boxes,taken,bounds);
+      // 夜空太擠、整個放不下：把名稱折成較窄較高的框（頁面會把 max-width 設成這個寬度）
+      for(const f of WRAP_FACTORS){
+        if(free)break;
+        const w=Math.max(WRAP_MIN_W,Math.round(q.w*f));
+        if(w>=q.w)continue;
+        const lines=Math.ceil((q.h/WRAP_LINE_H)*(q.w-8)/(w-8))+1;
+        free=freeSpot(Object.assign({},q,{w,h:lines*WRAP_LINE_H}),circles,boxes,taken,bounds);
+      }
+      if(free)best={box:free,side:'out',cost:0,offset:1};
+      else{
+        const w=Math.min(q.w,bounds.w-4);
+        best={box:{x:Math.max(bounds.x+2,Math.min(q.x-w/2,bounds.x+bounds.w-w-2)),y:captionTop,w,h:q.h},
+              side:'caption',cost:0,offset:1,caption:true};
+        captionTop+=q.h+CAPTION_GAP;
+      }
+      if(memo){if(free)memo.set(q.key,Object.assign({qw:q.w,qh:q.h},free));else memo.delete(q.key);}
+    }
+    if(!best||(best.cost>0&&!q.forced))continue;
+    placed.set(q.key,{x:best.box.x,y:best.box.y,w:best.box.w,h:best.box.h,side:best.side,offset:best.offset,caption:!!best.caption});
+    if(!best.caption)taken.push(best.box);
+  }
+  return placed;
+}
+
+/* ================================================================ 繪圖（canvas 只畫圖，不畫任何 session 文字） */
+const LINK_ALPHA={work:0.55,wait:0.5,stuck:0.55,idle:0.22,off:0.08};
+function createSkyCache(){return {ratio:1,sprites:new Map(),sky:null,skyKey:''};}
+function noiseAt(a,b){const x=Math.sin(a*12.9898+b*78.233)*43758.5453;return x-Math.floor(x);}
+function makeCanvas(w,h){
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,w);c.height=Math.max(1,h);
+  return c;
+}
+/* 柔光貼圖：每種顏色、大小、像素比各做一次（每幀不用 shadowBlur）。 */
+function glowSprite(cache,color,r,strength){
+  const key=color+'|'+r.toFixed(1)+'|'+strength+'|'+cache.ratio;
+  const known=cache.sprites.get(key);
+  if(known)return known;
+  const size=Math.ceil(r*2*cache.ratio)+2;
+  const sprite=makeCanvas(size,size);
+  let g=null;
+  try{g=sprite.getContext('2d');}catch(e){g=null;}
+  if(!g)return null;
+  const c=size/2;
+  const gradient=g.createRadialGradient(c,c,0,c,c,c);
+  const hex=v=>Math.round(Math.max(0,Math.min(1,v))*255).toString(16).padStart(2,'0');
+  gradient.addColorStop(0,color+hex(strength));
+  gradient.addColorStop(0.35,color+hex(strength*0.35));
+  gradient.addColorStop(1,color+'00');
+  g.fillStyle=gradient;
+  g.fillRect(0,0,size,size);
+  if(cache.sprites.size>200)cache.sprites.clear();
+  cache.sprites.set(key,sprite);
+  return sprite;
+}
+function drawGlow(ctx,cache,color,x,y,r,strength){
+  const sprite=glowSprite(cache,color,r,strength===undefined?0.8:strength);
+  if(sprite)ctx.drawImage(sprite,x-r,y-r,r*2,r*2);
+}
+/* 夜空（漸層與淡淡的星塵），每種大小畫一次。 */
+function skyBackground(cache,width,height){
+  const key=width+'x'+height+'@'+cache.ratio;
+  if(cache.sky&&cache.skyKey===key)return cache.sky;
+  const canvas=makeCanvas(Math.round(width*cache.ratio),Math.round(height*cache.ratio));
+  let g=null;
+  try{g=canvas.getContext('2d');}catch(e){g=null;}
+  if(!g)return null;
+  g.scale(cache.ratio,cache.ratio);
+  const gradient=g.createRadialGradient(width*0.42,height*0.45,0,width*0.42,height*0.45,Math.max(width,height)*0.8);
+  gradient.addColorStop(0,'#0c1426');
+  gradient.addColorStop(1,'#04060c');
+  g.fillStyle=gradient;
+  g.fillRect(0,0,width,height);
+  const dust=Math.max(60,Math.min(260,Math.round(width*height/3500)));
+  g.fillStyle='#b8c8ee';
+  for(let i=0;i<dust;i++){
+    g.globalAlpha=0.12+0.45*noiseAt(i,3);
+    g.fillRect(noiseAt(i,1)*width,noiseAt(i,2)*height,1,1);
+  }
+  g.globalAlpha=1;
+  cache.sky=canvas;cache.skyKey=key;
+  return canvas;
+}
+/* 太陽到星星的曲線往一側微彎。 */
+function bend(s){return {mx:(s.sx+s.x)/2+(s.y-s.sy)*0.12,my:(s.sy+s.y)/2-(s.x-s.sx)*0.12};}
+/* 一幀。time（ms）讓光點、擴散圈、脈動、小助手動起來；still（減少動態）時畫同一張圖但什麼都不動。 */
+function drawStarmap(ctx,scene,time,still,cache){
+  const width=scene.width,height=scene.height;
+  const back=skyBackground(cache,width,height);
+  if(back)ctx.drawImage(back,0,0,width,height);
+  else{ctx.fillStyle='#050810';ctx.fillRect(0,0,width,height);}
+  ctx.lineCap='round';
+  // 電腦：每台在太陽外圍一段淡淡的弧
+  for(const a of scene.arcs){
+    ctx.strokeStyle=a.lit?'#9cb8ff':'#3d5078';
+    ctx.lineWidth=a.lit?3:1.5;
+    ctx.globalAlpha=a.dim?0.2:a.lit?1:0.55;
+    ctx.beginPath();ctx.arc(a.x,a.y,a.r,a.start,a.end);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  // 曲線（在太陽與星星下面）
+  for(const s of scene.stars){
+    const on=s.mark!=='none';
+    const b=bend(s);
+    ctx.beginPath();ctx.moveTo(s.sx,s.sy);ctx.quadraticCurveTo(b.mx,b.my,s.x,s.y);
+    ctx.strokeStyle=STAR_COLORS[s.state];
+    ctx.lineWidth=on?1.6:s.state==='work'?1.1:0.7;
+    ctx.globalAlpha=(on?0.95:LINK_ALPHA[s.state])*(s.dim?0.3:1);
+    ctx.setLineDash(s.state==='wait'?[4,5]:[]);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.globalAlpha=1;
+  // 執行中：光點從太陽沿曲線流向星星
+  if(!still){
+    for(const s of scene.stars){
+      if(s.state!=='work')continue;
+      const b=bend(s);
+      ctx.globalAlpha=s.dim?0.3:1;
+      for(let k=0;k<3;k++){
+        const u=(time/1400+k/3+s.phase)%1,a=1-u;
+        const x=a*a*s.sx+2*a*u*b.mx+u*u*s.x,y=a*a*s.sy+2*a*u*b.my+u*u*s.y;
+        drawGlow(ctx,cache,STAR_COLORS.work,x,y,5,0.9);
+        ctx.fillStyle='#eafff8';
+        ctx.beginPath();ctx.arc(x,y,1.6,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+  // 太陽
+  for(const sun of scene.suns){
+    const color=KIND_COLORS[sun.kind]||KIND_COLORS.other;
+    const pulse=still?0:Math.sin(time/700+sun.core)*1.5*(sun.busy?1:0.3);
+    const r=sun.core+pulse;
+    drawGlow(ctx,cache,color,sun.x,sun.y,sun.core*3.2,0.6);
+    const gradient=ctx.createRadialGradient(sun.x-r*0.3,sun.y-r*0.35,r*0.1,sun.x,sun.y,r);
+    gradient.addColorStop(0,'#fff6e8');
+    gradient.addColorStop(0.45,color);
+    gradient.addColorStop(1,color+'cc');
+    ctx.fillStyle=gradient;
+    ctx.beginPath();ctx.arc(sun.x,sun.y,r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#0a0e18';
+    ctx.font='700 '+Math.round(sun.core*0.95)+'px system-ui, sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(sun.letter,sun.x,sun.y+1);
+  }
+  // 星星
+  for(const s of scene.stars){
+    const color=STAR_COLORS[s.state],x=s.x,y=s.y,size=s.size;
+    ctx.globalAlpha=s.dim?0.35:1;
+    if(s.state!=='off')drawGlow(ctx,cache,color,x,y,size*(s.state==='work'?3.2:2.6),s.state==='idle'?0.45:0.8);
+    ctx.fillStyle=color;
+    ctx.beginPath();ctx.arc(x,y,size,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#ffffffcc';
+    ctx.beginPath();ctx.arc(x-size*0.3,y-size*0.3,size*0.3,0,Math.PI*2);ctx.fill();
+    if(s.state==='wait'||s.state==='stuck'){
+      const spread=still?0.25:(time/600+s.phase)%1;
+      ctx.globalAlpha=(still?0.6:1-spread)*(s.dim?0.35:1);
+      ctx.strokeStyle=color;ctx.lineWidth=1.2;
+      ctx.beginPath();ctx.arc(x,y,size+4+spread*8,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=s.dim?0.35:1;
+    }
+    for(let k=0;k<Math.min(s.helpers,MAX_HELPERS_DRAWN);k++){
+      const a=(still?0:time/500)+k*2.1+s.phase*6;
+      ctx.fillStyle=KIND_COLORS[s.kind]||KIND_COLORS.other;
+      ctx.beginPath();ctx.arc(x+Math.cos(a)*(size+7),y+Math.sin(a)*(size+7),1.6,0,Math.PI*2);ctx.fill();
+    }
+    if(s.background>0){
+      // 右上角的小時鐘＝背景工作
+      const cx=x+size+3.5,cy=y-size-3.5;
+      ctx.strokeStyle='#8fc8ff';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(cx,cy,3.2,0,Math.PI*2);
+      ctx.moveTo(cx,cy);ctx.lineTo(cx,cy-2.2);ctx.moveTo(cx,cy);ctx.lineTo(cx+1.8,cy);
+      ctx.stroke();
+    }
+    if(s.lit){
+      ctx.strokeStyle='#9cb8ff';ctx.lineWidth=1.4;
+      ctx.beginPath();ctx.arc(x,y,size+3.5,0,Math.PI*2);ctx.stroke();
+    }
+    if(s.mark!=='none'){
+      ctx.globalAlpha=1;
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=s.mark==='hover'?1:1.6;
+      ctx.beginPath();ctx.arc(x,y,size+4,0,Math.PI*2);ctx.stroke();
+      if(s.mark==='pointed'){
+        ctx.strokeStyle='#ffd27a';ctx.lineWidth=1.2;ctx.setLineDash([3,3]);
+        ctx.beginPath();ctx.arc(x,y,size+9,0,Math.PI*2);ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+
+/* ================================================================ 頁面狀態 */
+let snap=null;              // 最新一份 /api/status
+let lastRooms=[];
+let model=null;             // starModel(lastRooms)
+let starsByKey=new Map();
+let layout=null,layoutSig='',layoutData=null;
+let sunOrder=[];            // 太陽順序（頁面開著的期間固定）
+const sunSlots=new Map();   // 寬度 → 太陽位置
+let skyWidth=0;             // 量到的夜空寬度（0＝還沒量到：不畫）
+let selected=null,hover=null,pointed=null,machinePointed=null,machinePinned=null;
+let detailMessage=null;     // {key,text}
+let sceneSig='';
+const live={suns:new Map(),orbits:new Map(),positions:new Map(),placed:new Map(),sides:new Map(),sizes:new Map(),
+            cache:createSkyCache(),painter:null,stop:null,visible:true,dirty:true,moving:false,mount:clockNow(),
+            paints:0,layouts:0,spots:new Map(),captionH:0};
+const ui={suns:new Map(),badges:[],labels:new Map(),options:new Map(),machines:new Map()};
+let optionSeq=0;
+/* 「需要你」的共用元件（watchdog.js）：前面放狀態色圓點；滑過或聚焦一項就圈出它的星星並標上「名稱 · 電腦名」。 */
+const needPanel=createNeedPanel({
+  rooms:()=>lastRooms,
+  icon:needDotIcon(STAR_COLORS),
+  point:{
+    on(key){if(pointed!==key){pointed=key;focusChanged();}},
+    off(key){if(pointed===key){pointed=null;focusChanged();}},
+  },
+});
+
+function allDesks(){
+  const out=[];
+  for(const r of lastRooms)for(const d of r.desks)out.push(d);
+  return out;
+}
+function selectedStar(){return selected?starsByKey.get(selected)||null:null;}
+
+/* 文字寬度（CSS px）：有 canvas 就用頁面字型量，否則估計。 */
+let measureCtx;
+let pageFont=null;
+function textWidth(text,weight,size){
+  if(measureCtx===undefined){
+    try{measureCtx=document.createElement('canvas').getContext('2d')||null;}catch(e){measureCtx=null;}
+  }
+  if(measureCtx&&pageFont){
+    measureCtx.font=weight+' '+size+'px '+pageFont;
+    const w=Number(measureCtx.measureText(String(text)).width);
+    if(isFinite(w)&&w>0)return w;
+  }
+  let w=0;
+  for(const ch of String(text))w+=(ch.codePointAt(0)||0)>0x2e80?size:size*0.6;
+  return w;
+}
+function sunCountText(system){return system.stars.length+' 個 session · '+system.busy+' 執行中';}
+function sunLabelSize(system){
+  return {w:Math.ceil(Math.max(textWidth(KIND_NAMES[system.kind],'600',13),textWidth(sunCountText(system),'400',11)))+12,h:32};
+}
+/* 讀給螢幕閱讀器的一顆星：名稱、模型、電腦、狀態（已確認／最後一次的資料）、時間、小助手、背景工作。 */
+function describeStar(star){
+  const d=star.desk,row=d.row;
+  const stale=row.stale||star.room.offline;
+  const parts=[d.name,KIND_NAMES[star.kind],star.room.name,chipText(d)+(stale?'（最後一次的資料）':''),'最後活動 '+fmtAge(row.age_s)];
+  if(d.helpers)parts.push('小助手 '+d.helpers+' 個');
+  if(d.background)parts.push('背景工作 '+d.background+' 個');
+  return parts.join(' · ');
+}
+function isNamed(key){return key===selected||key===hover||key===pointed;}
+
+/* ================================================================ 量寬度 */
+function readSkyWidth(){
+  const w=Math.round(Number($('sky').clientWidth)||0);
+  if(w===skyWidth)return false;
+  skyWidth=w;
+  return true;
+}
+function measureSky(){
+  const changed=readSkyWidth();
+  if(changed&&skyWidth>0&&model)refreshSky();
+  return changed;
+}
+function onResize(){
+  measureSky();
+  if(lastRooms.length)needPanel.paint();
+}
+
+/* ================================================================ 配置 → 畫面 */
+function dataSignature(m,withArcs){
+  return [withArcs?1:0].concat(m.systems.map(s=>s.kind+':'+sunCountText(s)+'|'
+    +s.stars.map(st=>st.key+'/'+st.state+'/'+st.machineNumber).join(','))).join('\n');
+}
+/* 資料或寬度變了才重算配置；資料變了（同一個寬度）才平滑移動，第一次與寬度改變都直接到位。 */
+function relayout(){
+  if(!model||!skyWidth)return false;
+  const withArcs=model.machines.filter(m=>m.sessions>0).length>1;
+  const data=dataSignature(model,withArcs);
+  const sig=skyWidth+'\n'+(pageFont||'')+'\n'+data;
+  if(sig===layoutSig)return false;
+  const next=layoutStarmap(model,{width:skyWidth,sunLabel:sunLabelSize,arcs:withArcs,
+                                  memory:{order:sunOrder,slots:sunSlots.get(skyWidth)||null}});
+  live.layouts++;
+  sunOrder=next.memory.order;
+  if(next.memory.slots){
+    sunSlots.delete(skyWidth);sunSlots.set(skyWidth,next.memory.slots);
+    while(sunSlots.size>8)sunSlots.delete(sunSlots.keys().next().value);
+  }
+  const glide=!REDUCED&&layout!==null&&layoutData!==null&&layoutData!==data&&layout.width===next.width;
+  const now=clockNow();
+  const suns=new Map(),orbits=new Map();
+  for(const sun of next.suns){
+    const before=live.suns.get(sun.kind);
+    const p=before?progress(before,now):1;
+    suns.set(sun.kind,before&&glide
+      ?{a0:lerp(before.a0,before.a1,p),a1:sun.x,b0:lerp(before.b0,before.b1,p),b1:sun.y,start:now}
+      :{a0:sun.x,a1:sun.x,b0:sun.y,b1:sun.y,start:now-TWEEN_MS});
+  }
+  for(const st of next.stars){
+    const before=live.orbits.get(st.key);
+    const p=before?progress(before,now):1;
+    orbits.set(st.key,before&&glide
+      ?{a0:lerpAngle(before.a0,before.a1,p),a1:st.angle,b0:lerp(before.b0,before.b1,p),b1:st.radius,start:now}
+      :{a0:st.angle,a1:st.angle,b0:st.radius,b1:st.radius,start:now-TWEEN_MS});
+  }
+  live.suns=suns;live.orbits=orbits;
+  layout=next;layoutSig=sig;layoutData=data;
+  $('cv').style.height=layout.height+'px';
+  return true;
+}
+const easeOut=p=>1-(1-p)**3;
+function progress(tw,now){return now-tw.start>=TWEEN_MS?1:easeOut(Math.max(0,(now-tw.start)/TWEEN_MS));}
+function lerp(a,b,p){return a+(b-a)*p;}
+function lerpAngle(a,b,p){return a+((((b-a+Math.PI)%(2*Math.PI))+2*Math.PI)%(2*Math.PI)-Math.PI)*p;}
+
+/* 夜空上的 DOM：太陽名、電腦編號、星星名稱、給螢幕閱讀器的 option。 */
+function syncSkyDom(){
+  const overlay=$('overlay');
+  const systems=layout?layout.suns.map(s=>model.systems.find(x=>x.kind===s.kind)).filter(Boolean):[];
+  // 太陽名
+  const sunItems=systems.map(s=>({key:'sun:'+s.kind,system:s}));
+  syncKeyed(overlay,ui.suns,sunItems,()=>{
+    const d=el('div','sun-lbl');const b=el('b');const small=el('small');
+    d.appendChild(b);d.appendChild(small);
+    return {el:d,b,small,tf:''};
+  },(rec,it)=>{
+    const place=layout.suns.find(s=>s.kind===it.system.kind);
+    setText(rec.b,KIND_NAMES[it.system.kind]);
+    setText(rec.small,sunCountText(it.system));
+    rec.el.setAttribute('data-sun',it.system.kind);
+    if(place)rec.el.style.width=place.label.w+'px';
+  });
+  // 電腦編號（弧上）
+  const arcs=layout?layout.arcs:[];
+  while(ui.badges.length>arcs.length){const b=ui.badges.pop();if(b.el.parentNode)b.el.parentNode.removeChild(b.el);}
+  while(ui.badges.length<arcs.length){const b={el:el('span','badge'),tf:'',focus:null};overlay.appendChild(b.el);ui.badges.push(b);}
+  arcs.forEach((a,i)=>{setText(ui.badges[i].el,String(a.number));ui.badges[i].el.setAttribute('data-badge',String(a.number));});
+  // 星星名稱
+  const order=layout?layout.order:[];
+  const labelItems=order.map(k=>starsByKey.get(k)).filter(Boolean).map(s=>({key:s.key,star:s}));
+  for(const it of labelItems){
+    let rec=ui.labels.get(it.key);
+    if(!rec){
+      rec={el:el('span','lbl'),text:null,cls:'',tf:'',shown:false,focus:null};
+      rec.el.setAttribute('data-key',it.key);
+      overlay.appendChild(rec.el);
+      ui.labels.set(it.key,rec);
+    }
+    const s=it.star,named=isNamed(s.key);
+    const text=named?s.desk.name+'\u0000'+s.room.name:s.desk.name;
+    const cls='lbl '+s.state+(named?' on':'')+(s.key===selected?' selected':'');
+    if(rec.cls!==cls){rec.el.className=cls;rec.cls=cls;}
+    if(rec.text!==text){
+      rec.text=text;rec.el.textContent='';
+      rec.el.appendChild(document.createTextNode(s.desk.name));
+      if(named)rec.el.appendChild(el('small','',' · '+s.room.name));
+      rec.el.setAttribute('data-name',s.desk.name);
+      live.sizes.delete(s.key);
+      rec.mw='';rec.el.style.maxWidth='';   // 上一次折行的寬度限制不能影響這次量到的大小
+    }
+  }
+  const keep=new Set(labelItems.map(it=>it.key));
+  for(const [k,rec] of ui.labels)if(!keep.has(k)){
+    if(rec.el.parentNode)rec.el.parentNode.removeChild(rec.el);
+    ui.labels.delete(k);live.sizes.delete(k);live.sides.delete(k);
+  }
+  measureLabels();
+  // option：每顆星一個，順序＝鍵盤順序
+  syncKeyed($('options'),ui.options,labelItems,()=>{
+    const o=el('div');o.setAttribute('role','option');o.setAttribute('id','star-opt-'+(++optionSeq));
+    return {el:o};
+  },(rec,it)=>{
+    setAttr(rec.el,'aria-selected',it.key===selected?'true':'false');
+    rec.el.setAttribute('data-key',it.key);
+    setText(rec.el,describeStar(it.star));
+  });
+  syncSkyRole();
+}
+/* 名稱框的大小：文字或強調狀態改變時量一次（不是每幀）。 */
+function measureLabels(){
+  for(const [k,rec] of ui.labels){
+    const known=live.sizes.get(k);
+    if(known&&!known.guess)continue;
+    let w=Number(rec.el.offsetWidth)||0,h=Number(rec.el.offsetHeight)||0;
+    let guess=false;
+    if(!(w>0&&h>0)){
+      // 量不到（還沒排版、被藏起來）：先估，下次再量
+      const s=starsByKey.get(k);
+      const full=s?(isNamed(k)?s.desk.name+' · '+s.room.name:s.desk.name):'';
+      w=Math.min(isNamed(k)?280:140,Math.ceil(textWidth(full,'400',11))+8);
+      h=15;guess=true;
+    }
+    live.sizes.set(k,{w,h,guess});
+  }
+}
+/* 有星星時夜空是一個可聚焦的 listbox（每顆星一個 option）；沒有星星時只是一張圖加說明。 */
+function syncSkyRole(){
+  const sky=$('sky'),has=!!(layout&&layout.stars.length);
+  setAttr(sky,'role',has?'listbox':null);
+  setAttr(sky,'tabindex',has?'0':null);
+  setAttr(sky,'aria-roledescription',has?'星圖':null);
+  setAttr(sky,'aria-label',has?'Agent 星圖：每種模型是一顆太陽、每個 session 是一顆星。方向鍵 ←→↑↓ 輪流選取每個 session，Home／End 跳到第一顆／最後一顆，Esc 取消選取。':null);
+  const cur=selectedStar();
+  const rec=cur?ui.options.get(cur.key):null;
+  setAttr(sky,'aria-activedescendant',rec?rec.el.getAttribute('id'):null);
+  const h=hover?starsByKey.get(hover):null;
+  setAttr(sky,'title',h?h.desk.name+' · '+KIND_NAMES[h.kind]+' · '+h.room.name:null);
+  sky.classList.toggle('pointing',!!h);
+}
+function updateSkyNote(){
+  const note=$('skyNote');
+  if(!snap){setText(note,'載入中…');setHidden(note,false);return;}
+  const empty=!model||model.total===0;
+  setText(note,'目前沒有進行中的 session。agent 開始工作後，每種模型會是一顆太陽，它的 session 是周圍的星星。');
+  setHidden(note,!empty);
+}
+
+/* ================================================================ 繪製一幀 */
+function paintSky(time){
+  const cv=$('cv');
+  if(!layout||!skyWidth){live.dirty=true;return false;}
+  let ctx=null;
+  try{ctx=cv.getContext('2d');}catch(e){ctx=null;}
+  if(!ctx)return false;
+  const L=layout,still=REDUCED;
+  const ratio=Math.min(2,Math.max(1,Number(window.devicePixelRatio)||1));
+  const W=L.width,Hh=L.height;
+  const pw=Math.round(W*ratio),ph=Math.round(Hh*ratio);
+  if(cv.width!==pw||cv.height!==ph){cv.width=pw;cv.height=ph;}
+  if(live.cache.ratio!==ratio)live.cache=Object.assign(createSkyCache(),{ratio});
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+  const turn=still?0:time-live.mount;
+  let moving=false,busy=false;
+  const machine=machinePointed!==null?machinePointed:machinePinned;
+  const suns=L.suns.map(s=>{
+    const tw=live.suns.get(s.kind);
+    const p=tw&&!still?progress(tw,time):1;
+    if(p<1)moving=true;
+    return {place:s,x:tw?lerp(tw.a0,tw.a1,p):s.x,y:tw?lerp(tw.b0,tw.b1,p):s.y,spin:STAR_SPIN[s.kind]*turn};
+  });
+  const mark=k=>k===selected?'selected':k===pointed?'pointed':k===hover?'hover':'none';
+  const positions=new Map(),centers=new Map();
+  const skyStars=L.stars.map(place=>{
+    const star=starsByKey.get(place.key);
+    const sun=suns[place.sun];
+    const tw=live.orbits.get(place.key);
+    const p=tw&&!still?progress(tw,time):1;
+    if(p<1)moving=true;
+    const angle=(tw?lerpAngle(tw.a0,tw.a1,p):place.angle)+sun.spin;
+    const radius=tw?lerp(tw.b0,tw.b1,p):place.radius;
+    const x=sun.x+Math.cos(angle)*radius,y=sun.y+Math.sin(angle)*radius;
+    positions.set(place.key,{x,y,r:place.size});
+    centers.set(place.key,{x:sun.x,y:sun.y});
+    const state=star?star.state:'idle';
+    if(state!=='idle'&&state!=='off')busy=true;
+    if(star&&star.helpers)busy=true;
+    return {x,y,sx:sun.x,sy:sun.y,size:place.size,state,kind:star?star.kind:'other',helpers:star?star.helpers:0,
+            background:star?star.background:0,phase:(place.angle/(2*Math.PI)+1)%1,mark:mark(place.key),
+            dim:machine!==null&&!!star&&star.machineNumber!==machine,lit:machine!==null&&!!star&&star.machineNumber===machine};
+  });
+  const arcs=L.arcs.map(a=>{
+    const sun=suns[a.sun];
+    return {x:sun.x,y:sun.y,r:sun.place.rim,start:a.start+sun.spin,end:a.end+sun.spin,
+            dim:machine!==null&&a.number!==machine,lit:machine!==null&&a.number===machine};
+  });
+  const skySuns=suns.map(sun=>{
+    const system=model.systems.find(s=>s.kind===sun.place.kind);
+    return {kind:sun.place.kind,x:sun.x,y:sun.y,core:sun.place.core,busy:system?system.busy:0,letter:KIND_LETTERS[sun.place.kind]||'·'};
+  });
+  drawStarmap(ctx,{width:W,height:Hh,suns:skySuns,stars:skyStars,arcs},still?0:time,still,live.cache);
+  live.positions=positions;
+
+  // 太陽名在本體下方、電腦編號在弧的中點，然後是放得下的星星名稱
+  const boxes=[];
+  const circles=[...positions].map(([key,c])=>({key,x:c.x,y:c.y,r:c.r+1}));
+  for(const sun of suns){
+    circles.push({x:sun.x,y:sun.y,r:sun.place.core+3});
+    const box={x:sun.x-sun.place.label.w/2,y:sun.y+sun.place.core+LABEL_GAP,w:sun.place.label.w,h:sun.place.label.h};
+    boxes.push(box);
+    const rec=ui.suns.get('sun:'+sun.place.kind);
+    if(rec)moveTo(rec,box.x,box.y);
+  }
+  L.arcs.forEach((a,i)=>{
+    const sun=suns[a.sun];
+    const mid=(a.start+a.end)/2+sun.spin;
+    const x=sun.x+Math.cos(mid)*sun.place.rim,y=sun.y+Math.sin(mid)*sun.place.rim;
+    circles.push({x,y,r:9});
+    const rec=ui.badges[i];
+    if(rec){
+      moveTo(rec,x-8,y-8);
+      const focus=machine===null?null:a.number===machine?'lit':'dim';
+      if(rec.focus!==focus){rec.focus=focus;setAttr(rec.el,'data-focus',focus);}
+    }
+  });
+  const forced=[selected,pointed,hover].filter((k,i,all)=>k!==null&&positions.has(k)&&all.indexOf(k)===i);
+  const rest=L.stars.filter(p=>forced.indexOf(p.key)<0&&starsByKey.has(p.key)&&starsByKey.get(p.key).state in LABEL_RANK)
+    .sort((a,b)=>LABEL_RANK[starsByKey.get(a.key).state]-LABEL_RANK[starsByKey.get(b.key).state]);
+  const requests=forced.map(k=>({key:k,forced:true})).concat(rest.map(p=>({key:p.key,forced:false}))).map(q=>{
+    const at=positions.get(q.key),from=centers.get(q.key);
+    const size=live.sizes.get(q.key)||{w:60,h:15};
+    const away=Math.hypot(at.x-from.x,at.y-from.y)||1;
+    return {key:q.key,x:at.x,y:at.y,r:at.r,w:size.w,h:size.h,dx:(at.x-from.x)/away,dy:(at.y-from.y)/away,forced:q.forced};
+  });
+  const placed=placeLabels(requests,{circles,boxes},{x:0,y:0,w:W,h:Hh},live.sides,live.spots);
+  live.placed=placed;
+  // 被推出去的強調名稱：一條細引線連回它的星星
+  ctx.strokeStyle='#c9d6f2';ctx.lineWidth=1;ctx.globalAlpha=0.7;
+  for(const [key,box] of placed){
+    if(!box.offset)continue;
+    const line=leaderLine(box,positions.get(key));
+    ctx.beginPath();ctx.moveTo(line.x1,line.y1);ctx.lineTo(line.x2,line.y2);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  live.sides=new Map([...placed].filter(([k,b])=>!b.caption).map(([k,b])=>[k,b.side]));
+  // 夜空放不下的強調名稱排在夜空下方：夜空底部多留一塊（名稱仍在夜空的框裡、不被裁掉）
+  let captionH=0;
+  for(const b of placed.values())if(b.caption)captionH=Math.max(captionH,Math.ceil(b.y+b.h+CAPTION_GAP-Hh));
+  if(live.captionH!==captionH){live.captionH=captionH;$('sky').style.paddingBottom=captionH?captionH+'px':'';}
+  for(const [key,rec] of ui.labels){
+    const box=placed.get(key);
+    const star=starsByKey.get(key);
+    const focus=machine===null||!star?null:star.machineNumber===machine?'lit':'dim';
+    if(rec.focus!==focus){rec.focus=focus;setAttr(rec.el,'data-focus',focus);}
+    if(box){
+      moveTo(rec,box.x,box.y);
+      // 折行的強調名稱：框比量到的自然寬度窄，DOM 也要限到同樣的寬度
+      const nat=live.sizes.get(key),mw=nat&&box.w<nat.w-0.5?Math.round(box.w)+'px':'';
+      if(rec.mw!==mw){rec.mw=mw;rec.el.style.maxWidth=mw;}
+      if(!rec.shown){rec.shown=true;rec.el.setAttribute('data-shown','');}
+    }else if(rec.shown){rec.shown=false;rec.el.removeAttribute('data-shown');}
+  }
+  if(live.painter)live.painter.interval=moving||busy?ART_FRAME_MS:CALM_FRAME_MS;
+  live.moving=moving;
+  live.paints++;
+  return true;
+}
+/* transform 沒變就不寫（每幀都會跑到這裡）。 */
+function moveTo(rec,x,y){
+  const tf='translate('+x.toFixed(1)+'px,'+y.toFixed(1)+'px)';
+  if(rec.tf!==tf){rec.tf=tf;rec.el.style.transform=tf;}
+}
+/* 現在畫一次；不在畫面上（隱藏、捲出去）就記著，回來時補畫。 */
+function requestPaint(){
+  if(!live.visible||clockHidden()||!skyWidth||!layout){live.dirty=true;return false;}
+  live.dirty=false;
+  return paintSky(clockNow());
+}
+/* 會動才掛到時鐘：有星星、沒有減少動態、夜空在畫面上。 */
+function syncAnimation(){
+  const want=!REDUCED&&!!layout&&layout.stars.length>0&&live.visible&&skyWidth>0;
+  if(want&&!live.stop){
+    live.painter={interval:ART_FRAME_MS,paint:t=>{paintSky(t);}};
+    live.stop=startPainting(live.painter);
+  }else if(!want&&live.stop){
+    live.stop();live.stop=null;live.painter=null;
+  }
+}
+function setSkyVisible(v){
+  live.visible=!!v;
+  syncAnimation();
+  if(live.visible&&live.dirty)requestPaint();
+}
+/* 畫面內容的簽章：只有它變了（或配置變了）才在靜止模式下重畫。 */
+function sceneSignature(){
+  if(!model)return '';
+  return layoutSig+'\n'+model.systems.map(s=>s.stars.map(st=>st.key+'/'+st.helpers+'/'+st.background).join(',')).join('|');
+}
+/* 星圖整體：配置（必要時）、DOM、重畫。 */
+function refreshSky(){
+  const changed=relayout();
+  syncSkyDom();
+  const sig=sceneSignature();
+  syncAnimation();
+  if(changed||sig!==sceneSig){sceneSig=sig;requestPaint();}
+}
+function focusChanged(){
+  syncSkyDom();
+  requestPaint();
+}
+
+
+/* ================================================================ 資訊區（欄位與辦公室相同） */
+let detailSig='',detailParts=null;
+function updateDetail(){
+  const box=$('detail');
+  const star=selectedStar();
+  if(!star){
+    const hint='hint:'+(model&&model.total?1:0);
+    if(detailSig!==hint){
+      detailSig=hint;detailParts=null;box.textContent='';
+      box.removeAttribute('data-detail');
+      box.appendChild(el('p','detail-hint',model&&model.total
+        ?'點一顆星星看它的資訊；點選星圖後可用 ←→↑↓ 輪流選取每個 session、Home／End 跳到頭尾、Esc 取消。'
+        :'有 session 之後，點星星就會在這裡顯示它的資訊。'));
+    }
+    return;
+  }
+  const d=star.desk,row=d.row,room=star.room;
+  const fields=[
+    ['標題',row.title],['最後指令',row.last_prompt],['目前動作',row.label],
+    ['狀態',chipText(d)],['專案',row.project],['Agent',row.agent],['電腦',room.name],
+    ['分支',row.branch],['工作目錄',row.cwd],
+    ['小助手（subagent）',d.helpers?d.helpers+' 個進行中':'沒有'],
+    ['背景工作',d.background?d.background+' 個未完成':'沒有'],
+  ];
+  if(row.stale||room.offline)fields.push(['資料',row.stale?staleText(row):'這台電腦目前連不上，顯示的是最後一次的資料']);
+  const actions=[];
+  if(!READONLY){
+    if(d.attention)actions.push(['ack','我知道了']);
+    if(d.acked)actions.push(['unack','取消已確認']);
+    if(row.state==='OFFLINE')actions.push(['hide','🚪 讓他離開']);
+  }
+  const sig=JSON.stringify([d.key,d.name,chipClass(row,d.acked),fields,actions]);
+  box.setAttribute('data-detail',d.id);
+  if(sig!==detailSig){
+    detailSig=sig;
+    box.textContent='';
+    const head=el('div','detail-head');
+    const name=el('strong','detail-name');setBreakable(name,d.name);
+    const chip=el('span',chipClass(row,d.acked),chipText(d));
+    const age=el('span','detail-age');
+    const acts=el('span','detail-actions');
+    for(const [act,label] of actions){
+      const b=el('button','btn',label);
+      b.setAttribute('type','button');b.setAttribute('data-act',act);b.setAttribute('data-id',d.id);
+      if(act==='hide')b.setAttribute('title','移除；該專案下次有活動時會自動回來');
+      if(act==='ack')b.setAttribute('aria-label','我知道了：'+who(d));
+      if(act==='unack')b.setAttribute('aria-label','取消已確認：'+who(d));
+      acts.appendChild(b);
+    }
+    head.appendChild(name);head.appendChild(chip);head.appendChild(age);head.appendChild(acts);
+    const dl=el('dl','detail-grid');
+    for(const [k,v] of fields){
+      const item=el('div');
+      item.appendChild(el('dt','',k));
+      item.appendChild(el('dd','',v===null||v===undefined||v===''?'—':String(v)));
+      dl.appendChild(item);
+    }
+    const msg=el('p','detail-msg');msg.setAttribute('role','status');
+    box.appendChild(head);box.appendChild(dl);box.appendChild(msg);
+    detailParts={age,msg};
+  }
+  setText(detailParts.age,'最後活動 '+fmtAge(row.age_s));
+  setText(detailParts.msg,detailMessage&&detailMessage.key===d.key?detailMessage.text:'');
+}
+
+/* ================================================================ 電腦清單 */
+function syncMachines(){
+  const list=model?model.machines:[];
+  setHidden($('machines'),!list.length);
+  const withArcs=list.filter(m=>m.sessions>0).length>1;
+  syncKeyed($('machineList'),ui.machines,list.map(m=>({key:m.room.key,m})),makeMachine,
+            (rec,it)=>updateMachine(rec,it.m,withArcs));
+  setHidden($('machinesHint'),!withArcs);
+}
+function makeMachine(it){
+  const b=el('button','machine');
+  b.setAttribute('type','button');b.setAttribute('data-act','machine');
+  const num=el('b','machine-num');num.setAttribute('aria-hidden','true');
+  const name=el('span','machine-name');
+  const tag=el('span','tag');
+  const count=el('small','machine-count');
+  b.appendChild(num);b.appendChild(name);b.appendChild(tag);b.appendChild(count);
+  const rec={el:b,num,name,tag,count,nameText:null,number:0};
+  const on=()=>{if(machinePointed!==rec.number){machinePointed=rec.number;requestPaint();}};
+  const off=()=>{if(machinePointed===rec.number){machinePointed=null;requestPaint();}};
+  b.addEventListener('mouseenter',on);b.addEventListener('mouseleave',off);
+  b.addEventListener('focusin',on);b.addEventListener('focusout',off);
+  return rec;
+}
+function updateMachine(rec,m,withArcs){
+  const room=m.room;
+  rec.number=m.number;
+  rec.el.className='machine'+(room.offline?' offline':'');
+  rec.el.setAttribute('data-machine',room.key);
+  rec.el.setAttribute('data-number',String(m.number));
+  setAttr(rec.el,'aria-pressed',machinePinned===m.number?'true':'false');
+  setText(rec.num,String(m.number));
+  setHidden(rec.num,!withArcs);
+  if(rec.nameText!==room.name){rec.nameText=room.name;setBreakable(rec.name,room.name);}
+  rec.tag.className='tag '+(room.offline?'tag-off':'tag-live');
+  setText(rec.tag,room.offline?'離線':room.local?'本機・即時':'遠端・即時');
+  setAttr(rec.tag,'title',room.offline&&room.errors.length?room.errors.join(' / '):null);
+  setText(rec.count,m.sessions+' 個 session');
+  setAttr(rec.el,'aria-label',(withArcs?m.number+' 號 ':'')+room.name+'，'+(room.offline?'離線':'即時')+'，'+m.sessions+' 個 session');
+}
+function toggleMachine(n){
+  const v=Number(n);
+  if(!isFinite(v))return;
+  machinePinned=machinePinned===v?null:v;
+  syncMachines();
+  requestPaint();
+}
+
+/* ================================================================ 畫面更新 */
+function update(){
+  if(!snap)return;
+  readSkyWidth();
+  lastRooms=buildRooms(snap,office.acks);
+  model=starModel(lastRooms);
+  starsByKey=new Map();
+  for(const s of model.systems)for(const st of s.stars)starsByKey.set(st.key,st);
+  if(selected&&!starsByKey.has(selected)){selected=null;detailMessage=null;}
+  if(hover&&!starsByKey.has(hover))hover=null;
+  if(pointed&&!starsByKey.has(pointed))pointed=null;
+  if(machinePinned!==null&&machinePinned>model.machines.length)machinePinned=null;
+  if(machinePointed!==null&&machinePointed>model.machines.length)machinePointed=null;
+  needPanel.paint();
+  syncMachines();
+  updateSkyNote();
+  if(skyWidth>0)refreshSky();
+  else syncSkyRole();
+  updateDetail();
+}
+function select(key){
+  selected=key&&starsByKey.has(key)?key:null;
+  detailMessage=null;
+  focusChanged();
+  updateDetail();
+}
+
+/* 「讓他離開」：送 logical_id；mtime 以最新快照為準。後端沒點頭就不動畫面。 */
+async function hideSel(){
+  if(READONLY)return false;
+  const star=selectedStar();
+  if(!star||!star.desk.id)return false;
+  const d=star.desk;
+  const s=snap&&Array.isArray(snap.sessions)?snap.sessions.find(x=>x&&x.logical_id===d.id):null;
+  const when=s?s.mtime:d.row.mtime;
+  if(!isFinite(Number(when)))return false;
+  if(!await hideSession(d.id,when)){
+    detailMessage={key:d.key,text:'⚠ 沒能讓他離開，請確認 Watchdog service 還活著。'};
+    updateDetail();
+    return false;
+  }
+  if(selected===d.key)selected=null;
+  detailMessage=null;
+  showNotice('已請他離開；該專案下次有活動時會自動回來。');
+  update();
+  refresh();
+  return true;
+}
+function render(d){
+  snap=d;
+  setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新',hiddenLabel:'已離開'}));
+  officeAfterStatus();
+}
+
+/* ================================================================ 指標與鍵盤 */
+function pickStar(ev){
+  const cv=$('cv');
+  if(!layout||!live.positions.size)return null;
+  const rect=cv.getBoundingClientRect();
+  const x=(Number(ev.clientX)-rect.left)*(layout.width/(rect.width||layout.width));
+  const y=(Number(ev.clientY)-rect.top)*(layout.height/(rect.height||layout.height));
+  let best=null,dist=Infinity;
+  for(const [key,c] of live.positions){
+    const d=Math.hypot(c.x-x,c.y-y);
+    if(d<=Math.max(12,c.r+8)&&d<dist){best=key;dist=d;}
+  }
+  if(best)return best;
+  for(const [key,b] of live.placed)if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h)return key;
+  return null;
+}
+function onSkyKey(ev){
+  if(!layout||!layout.order.length)return;
+  const k=ev.key;
+  const step=k==='ArrowRight'||k==='ArrowDown'?1:k==='ArrowLeft'||k==='ArrowUp'?-1:0;
+  if(step){
+    if(ev.preventDefault)ev.preventDefault();
+    select(stepSelection(layout.order,selected,step));
+  }else if(k==='Home'||k==='End'){
+    if(ev.preventDefault)ev.preventDefault();
+    select(k==='Home'?layout.order[0]:layout.order[layout.order.length-1]);
+  }
+}
+
+document.addEventListener('click',ev=>{
+  const t=ev.target,b=t&&t.closest?t.closest('[data-act]'):null;
+  if(!b)return;
+  const act=b.getAttribute('data-act');
+  if(READONLY&&(act==='hide'||act==='ack'||act==='unack'))return;
+  if(act==='hide')hideSel();
+  else if(act==='machine')toggleMachine(b.getAttribute('data-number'));
+  else return;
+  if(ev.preventDefault)ev.preventDefault();
+});
+document.addEventListener('keydown',ev=>{
+  if(ev.key!=='Escape'||!selected)return;
+  select(null);
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden')return;
+  if(live.dirty)requestPaint();
+});
+
+(function init(){
+  if(guardView('starmap'))return;
+  renderViewSwitch($('views'),'starmap');
+  try{
+    if(typeof getComputedStyle==='function')pageFont=getComputedStyle(document.body).fontFamily||null;
+  }catch(e){pageFont=null;}
+  const cv=$('cv'),sky=$('sky');
+  cv.addEventListener('click',ev=>{
+    const key=pickStar(ev);
+    select(key===selected?null:key);
+  });
+  cv.addEventListener('mousemove',ev=>{
+    const key=pickStar(ev);
+    if(key!==hover){hover=key;focusChanged();}
+  });
+  cv.addEventListener('mouseleave',()=>{if(hover!==null){hover=null;focusChanged();}});
+  sky.addEventListener('keydown',onSkyKey);
+  if(typeof ResizeObserver==='function'){
+    new ResizeObserver(()=>onResize()).observe(sky);
+  }else if(typeof addEventListener==='function'){
+    addEventListener('resize',onResize);
+  }
+  if(typeof IntersectionObserver==='function'){
+    live.visible=false;
+    new IntersectionObserver(entries=>{setSkyVisible(entries.some(e=>e.isIntersecting));}).observe(sky);
+  }
+  measureSky();
+  updateDetail();
+  startOfficeSync({repaint:update,desks:allDesks,need:needPanel});
+  startWatchdog(render);
+})();
+
+/* 給測試與擷圖用的唯讀狀態（不改任何東西）。 */
+function starmapStats(){
+  const c=clockStats();
+  return {paints:live.paints,layouts:live.layouts,painters:c.painters,scheduled:c.scheduled,ticks:c.ticks,
+          animating:!!live.stop,interval:live.painter?live.painter.interval:null,visible:live.visible,dirty:live.dirty,
+          moving:live.moving,width:skyWidth,height:layout?layout.height:0,
+          canvas:{width:$('cv').width,height:$('cv').height},
+          selected,hover,pointed,machine:machinePointed!==null?machinePointed:machinePinned};
+}
+function starmapScene(){
+  if(!layout)return null;
+  return {width:layout.width,height:layout.height,scale:layout.scale,order:layout.order.slice(),
+    suns:layout.suns.map(s=>({kind:s.kind,letter:KIND_LETTERS[s.kind],x:s.x,y:s.y,core:s.core,reach:s.reach,label:s.label})),
+    stars:[...live.positions].map(([key,c])=>{
+      const s=starsByKey.get(key);
+      return {key,x:c.x,y:c.y,r:c.r,state:s?s.state:null,kind:s?s.kind:null,machine:s?s.machineNumber:null};
+    }),
+    labels:[...live.placed].map(([key,b])=>({key,x:b.x,y:b.y,w:b.w,h:b.h,offset:b.offset,caption:!!b.caption})),
+    arcs:layout.arcs.map(a=>({sun:a.sun,number:a.number}))};
+}
+</script></body></html>

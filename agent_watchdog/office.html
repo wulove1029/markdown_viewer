@@ -46,6 +46,7 @@ button{font:inherit}
 .views a+a{border-left:1px solid var(--border-strong)}
 .views a:hover{background:var(--bg-hover)}
 .views a.current{background:var(--accent);color:var(--text-on-accent);font-weight:600}
+.views a[aria-disabled="true"]{opacity:.5;cursor:not-allowed;background:none}
 #meta{color:var(--text-secondary);font-size:12px;margin-bottom:12px;overflow-wrap:anywhere}
 #meta a{color:var(--accent);text-decoration:none}
 
@@ -72,6 +73,7 @@ button{font:inherit}
 .need-item{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-width:0;padding:8px 10px;border-radius:8px;background:var(--c-orange-bg)}
 .need-item.stuck{background:var(--c-red-bg)}
 .need-item .art{flex:none}
+.need-more{justify-self:start}
 .need-text{display:grid;flex:1 1 90px;min-width:0}
 .need-text strong{font-weight:600;overflow-wrap:anywhere}
 .need-text small{color:var(--text-secondary);font-size:12px;overflow-wrap:anywhere}
@@ -206,6 +208,7 @@ button{font:inherit}
     <div class="need-head"><h2 id="needTitle">需要你</h2><span id="needCount" class="need-count" hidden></span></div>
     <p id="needNone" class="need-none">載入中…</p>
     <ul id="needList" class="need-list" hidden></ul>
+    <button id="needMore" class="btn need-more" type="button" data-act="more" aria-controls="needList" aria-expanded="false" hidden></button>
     <div id="acked" class="acked" hidden><span>已確認（狀態一變就會自動回來）：</span><span id="ackedList" class="acked-list"></span></div>
   </section>
   <div id="rooms" class="rooms"></div>
@@ -238,10 +241,7 @@ const MINI={w:48,h:42};                  // 「需要你」小卡的圖像
 const STYLE_CACHE_KEY='aiwatch:officeStyle';
 const ROOMS_KEY='aiwatch:officeRooms';
 const MAX_ROOM_CHOICES=100;
-const ALERT_STATES=['WAITING','STUCK'];
 const MAX_HELPERS_DRAWN=3;
-const ART_FRAME_MS=66;                   // 最快約 15 fps
-const NOTICE_MS=8000;
 const AGENT_COLORS={
   claude:{body:'#e8834a',arm:'#c9682f',hair:'#5a3b23'},
   codex:{body:'#4ac0e8',arm:'#2f97c9',hair:'#233d5a'},
@@ -255,34 +255,6 @@ const OFF_KIND='#7c8288';
 const REDUCED=typeof matchMedia==='function'&&!!matchMedia('(prefers-reduced-motion: reduce)').matches;
 const LIVE=!REDUCED;
 
-/* ================================================================ 純函式（資料） */
-function agentKind(agent){
-  const base=String(agent===null||agent===undefined?'':agent).split('@')[0].trim().toLowerCase();
-  if(base.indexOf('claude')===0)return 'claude';
-  if(base.indexOf('codex')===0)return 'codex';
-  if(base.indexOf('antigravity')===0)return 'antigravity';
-  return 'other';
-}
-function baseAgent(row){
-  const b=row&&(row.base_agent||String(row.agent||'').split('@')[0]);
-  return b?String(b):'?';
-}
-function helperCount(v){
-  const n=Math.floor(Number(v));
-  return isFinite(n)&&n>0?Math.min(99,n):0;
-}
-/* 圖像狀態。房間離線或該列 stale：什麼都不是即時的 → off。已確認的警示畫成 idle。
-   不認得的 state 一律當閒置（狀態是開放字串，不可以當掉）。 */
-function artState(row,acked,roomOffline){
-  if(roomOffline||(row&&row.stale))return 'off';
-  switch(row&&row.state){
-    case 'WORKING':case 'TOOL':case 'BACKGROUND':return 'work';
-    case 'WAITING':return acked?'idle':'wait';
-    case 'STUCK':return acked?'idle':'stuck';
-    case 'OFFLINE':return 'off';
-    default:return 'idle';
-  }
-}
 /* 多久要重畫一次（Infinity＝靜止畫面，不註冊到時鐘）。 */
 function artFrameInterval(style,state){
   if(state==='off'||state==='stuck')return Infinity;
@@ -297,117 +269,6 @@ function artSeed(id){
   let h=2166136261;
   for(const ch of String(id))h=Math.imul(h^(ch.codePointAt(0)||0),16777619)>>>0;
   return h%997;
-}
-/* 「我知道了」只比 state：acks[logical_id].state 等於目前 state 才算（伺服器負責清掉失效的）。 */
-function isAcked(row,acks){
-  if(!row||!acks||typeof acks.get!=='function')return false;
-  if(ALERT_STATES.indexOf(row.state)<0)return false;
-  const a=acks.get(String(row.logical_id||''));
-  return !!(a&&a.state===row.state);
-}
-function ackMapFrom(raw){
-  const out=new Map();
-  if(!raw||typeof raw!=='object'||Array.isArray(raw))return out;
-  for(const id of Object.keys(raw)){
-    const v=raw[id];
-    if(v&&typeof v==='object'&&typeof v.state==='string')
-      out.set(id,{state:v.state,mtime:Number(v.mtime),at:Number(v.at)});
-  }
-  return out;
-}
-function ackSig(m){
-  return JSON.stringify([...m.entries()].map(([k,v])=>[k,v.state]).sort());
-}
-/* remote_errors 每行是 "<遠端名>: <原因>"。先比對已知的遠端名（名字裡有冒號也不會切錯），
-   其他退回第一個 ": " 之前；poller 自己的錯誤不是某台電腦。 */
-function remoteErrorMap(errors,knownNames){
-  const out=new Map();
-  if(!Array.isArray(errors))return out;
-  const names=(knownNames||[]).slice().sort((a,b)=>b.length-a.length);
-  for(const e of errors){
-    if(typeof e!=='string')continue;
-    let name=null;
-    for(const n of names)if(e.indexOf(n+': ')===0){name=n;break;}
-    if(name===null){
-      const i=e.indexOf(': ');
-      if(i<=0)continue;
-      name=e.slice(0,i);
-      if(name==='remote poller 異常')continue;
-    }
-    if(!out.has(name))out.set(name,[]);
-    out.get(name).push(e.slice(name.length+2));
-  }
-  return out;
-}
-function cmpText(a,b){
-  return String(a===null||a===undefined?'':a).localeCompare(String(b===null||b===undefined?'':b));
-}
-/* 房內順序：專案 → agent → host → id。絕不依狀態排，狀態變了位置不動。 */
-function compareRows(a,b){
-  const ia=String(a.logical_id||''),ib=String(b.logical_id||'');
-  return cmpText(a.project,b.project)||cmpText(a.agent,b.agent)||cmpText(a.host,b.host)||(ia<ib?-1:ia>ib?1:0);
-}
-/* 同一台電腦同專案多個 session：名稱加 #n（依桌序），卡片與按鈕才分得出來。 */
-function sessionNames(rows){
-  const total=new Map();
-  for(const r of rows){const p=r.project||'—';total.set(p,(total.get(p)||0)+1);}
-  const seen=new Map();
-  return rows.map(r=>{
-    const p=r.project||'—';
-    if(total.get(p)<2)return p;
-    const n=(seen.get(p)||0)+1;seen.set(p,n);
-    return p+' #'+n;
-  });
-}
-/* 一台電腦一間房：本機（machine.name）＋每個遠端（row.remote）。在 remote_errors 裡、且沒有列或每列都 stale 的遠端是
-   離線房：整間畫成 off、不算警示。順序：本機 → 連得上的遠端 → 離線的遠端，同組依名稱。 */
-function buildRooms(d,acks){
-  const rows=Array.isArray(d&&d.sessions)?d.sessions:[];
-  const machine=d&&d.machine&&typeof d.machine==='object'?d.machine:null;
-  const localName=machine&&machine.name?String(machine.name):'本機';
-  const map=new Map();
-  const ensure=(key,name,local)=>{
-    let r=map.get(key);
-    if(!r){r={key,name,local,offline:false,errors:[],rows:[]};map.set(key,r);}
-    return r;
-  };
-  ensure('local',localName,true);
-  const remoteNames=[];
-  for(const s of rows){
-    if(!s||typeof s!=='object')continue;
-    const remote=typeof s.remote==='string'&&s.remote?s.remote:null;
-    if(remote&&remoteNames.indexOf(remote)<0)remoteNames.push(remote);
-    (remote?ensure('remote:'+remote,remote,false):ensure('local',localName,true)).rows.push(s);
-  }
-  for(const [name,msgs] of remoteErrorMap(d&&d.remote_errors,remoteNames)){
-    const r=ensure('remote:'+name,name,false);
-    r.errors=msgs;
-    /* 有錯誤訊息還不算離線（連線成功時也會有「時鐘偏移」警告）；真連不上時該遠端每列必為 stale。 */
-    r.offline=r.rows.every(x=>x&&x.stale);
-  }
-  const rooms=[...map.values()];
-  for(const room of rooms){
-    const sorted=room.rows.slice().sort(compareRows);
-    const names=sessionNames(sorted);
-    const used=new Map();
-    room.desks=sorted.map((row,i)=>{
-      const base=String(row.logical_id||row.file||'?');
-      const n=(used.get(base)||0)+1;used.set(base,n);
-      const uid=n>1?base+'#'+n:base;
-      const acked=isAcked(row,acks);
-      const alert=ALERT_STATES.indexOf(row.state)>=0&&!row.stale&&!room.offline;
-      return {key:room.key+'::'+uid,id:String(row.logical_id||''),row,room,name:names[i],
-              acked:alert&&acked,attention:alert&&!acked,
-              art:artState(row,alert&&acked,room.offline),
-              helpers:helperCount(row.subagents),background:helperCount(row.background_pending)};
-    });
-    room.waiting=room.desks.filter(x=>x.attention).length;
-    room.busy=room.desks.filter(x=>x.art==='work').length;
-    delete room.rows;
-  }
-  rooms.sort((a,b)=>(a.local?0:1)-(b.local?0:1)||(a.offline?1:0)-(b.offline?1:0)
-                   ||cmpText(a.name,b.name)||(a.key<b.key?-1:a.key>b.key?1:0));
-  return rooms;
 }
 /* 收合是 UI 偏好（不算確認）：手動選擇只在該電腦的離線狀態不變時有效，恢復連線就自動展開。 */
 function roomOpen(choice,offline){
@@ -683,58 +544,6 @@ function drawArt(c,style,input,t,scale){
   c.restore();
 }
 
-/* ================================================================ 全頁唯一的時鐘
-   所有會動的圖都註冊在這裡：同一時間最多一個 setTimeout 或一個 rAF，最快 ART_FRAME_MS；
-   只重畫自己間隔到了的圖。頁面隱藏就停（rAF 在隱藏的面板裡會停，setInterval 只會被節流），
-   回到可見再排程。沒有任何會動的圖時完全不排程。 */
-const clockEntries=new Set();
-let clockTimer=null,clockFrame=0,clockListening=false,clockTicks=0;
-function clockNow(){return typeof performance!=='undefined'&&performance.now?performance.now():Date.now();}
-function clockHidden(){return document.visibilityState==='hidden';}
-function clockCancel(){
-  if(clockTimer!==null){clearTimeout(clockTimer);clockTimer=null;}
-  if(clockFrame){cancelAnimationFrame(clockFrame);clockFrame=0;}
-}
-function clockSchedule(){
-  if(clockTimer!==null||clockFrame||!clockEntries.size||clockHidden())return;
-  const now=clockNow();
-  let due=Infinity;
-  for(const e of clockEntries)due=Math.min(due,e.last+e.painter.interval);
-  clockTimer=setTimeout(()=>{clockTimer=null;clockFrame=requestAnimationFrame(clockRun);},
-                        Math.max(ART_FRAME_MS,due-now));
-}
-function clockRun(time){
-  clockFrame=0;
-  if(clockHidden())return;
-  clockTicks++;
-  for(const e of [...clockEntries]){
-    if(!clockEntries.has(e)||time-e.last<e.painter.interval-8)continue;   // 8ms 抖動寬限
-    e.last=time;
-    try{e.painter.paint(time);}catch(err){clockEntries.delete(e);}
-  }
-  clockSchedule();
-}
-function onClockVisibility(){
-  if(clockHidden())clockCancel();
-  else clockSchedule();
-}
-function startPainting(painter){
-  if(!isFinite(painter.interval)||painter.interval<=0)return ()=>{};
-  const entry={painter,last:clockNow()};
-  clockEntries.add(entry);
-  if(!clockListening){document.addEventListener('visibilitychange',onClockVisibility);clockListening=true;}
-  if(clockTimer!==null){clearTimeout(clockTimer);clockTimer=null;}   // 新來的可能更早到期
-  clockSchedule();
-  return ()=>{
-    clockEntries.delete(entry);
-    if(clockEntries.size)return;
-    clockCancel();
-    if(clockListening){document.removeEventListener('visibilitychange',onClockVisibility);clockListening=false;}
-  };
-}
-function clockStats(){
-  return {painters:clockEntries.size,scheduled:clockTimer!==null||clockFrame!==0,ticks:clockTicks};
-}
 
 /* 一張 canvas：先同步畫一次；會動的才註冊到時鐘，而且只在進入畫面時（IntersectionObserver）。 */
 let artIO=null;
@@ -789,33 +598,26 @@ let snap=null;              // 最新一份 /api/status（不叫 status：會撞
 let lastRooms=[];
 let selected=null;          // 選取中的桌格 key（全頁只有一個）
 let detailMessage=null;     // {key,text}：資訊區裡的失敗訊息
-let noticeTimer=null;
-const office={style:readCachedStyle(),acks:new Map()};
-let officeReady=false,officeLoading=false,officeQueued=false,officeSeq=0,officeAskedAt=-1e12;
 let choices=readRoomChoices();
 let shownStyle=null;
-const ui={rooms:new Map(),need:new Map(),acked:new Map()};
+const ui={rooms:new Map()};
 let roomSeq=0;
+office.style=readCachedStyle();
+/* 「需要你」的共用元件（watchdog.js）；每項前面放一張目前畫風的小圖。 */
+const needPanel=createNeedPanel({
+  rooms:()=>lastRooms,
+  icon:{
+    make(){
+      const cv=document.createElement('canvas');cv.setAttribute('aria-hidden','true');
+      return {node:cv,art:makeArt(cv)};
+    },
+    update(rec,d){
+      setArt(rec.art,office.style,{kind:agentKind(d.row.agent),state:d.art,helpers:0,seed:artSeed(d.key)},MINI,false);
+    },
+    destroy(rec){stopArt(rec.art);},
+  },
+});
 
-const $=id=>document.getElementById(id);
-function el(tag,cls,text){
-  const e=document.createElement(tag);
-  if(cls)e.className=cls;
-  if(text!==undefined)e.textContent=text;
-  return e;
-}
-function setText(e,text){if(e.textContent!==text)e.textContent=text;}
-function setHidden(e,h){if(h)e.setAttribute('hidden','');else if(e.hasAttribute('hidden'))e.removeAttribute('hidden');}
-/* 長名稱優先在 _ - . / \ 之後換行（<wbr>），真的放不下才任意斷（CSS overflow-wrap）。 */
-function setBreakable(e,text){
-  e.textContent='';
-  let part='';
-  for(const ch of String(text)){
-    part+=ch;
-    if('_-./\\'.indexOf(ch)>=0){e.appendChild(document.createTextNode(part));e.appendChild(document.createElement('wbr'));part='';}
-  }
-  if(part)e.appendChild(document.createTextNode(part));
-}
 function readCachedStyle(){
   try{const v=localStorage.getItem(STYLE_CACHE_KEY);return isOfficeStyle(v)?v:DEFAULT_STYLE;}catch(e){return DEFAULT_STYLE;}
 }
@@ -838,48 +640,6 @@ function writeRoomChoices(){
     for(const [k,v] of [...choices.entries()].slice(-MAX_ROOM_CHOICES))obj[k]=v;
     localStorage.setItem(ROOMS_KEY,JSON.stringify(obj));
   }catch(e){/* 只是偏好 */}
-}
-function chipClass(row,acked){
-  if(acked)return 'chip chip-acked';
-  switch(row.state){
-    case 'WORKING':return 'chip chip-working';
-    case 'TOOL':return 'chip chip-tool';
-    case 'BACKGROUND':return 'chip chip-background';
-    case 'WAITING':return 'chip chip-waiting';
-    case 'STUCK':return 'chip chip-stuck';
-    case 'IDLE':return 'chip chip-idle';
-    case 'OFFLINE':return 'chip chip-offline';
-    default:return 'chip chip-unknown';
-  }
-}
-function stateText(row){
-  const zh=row.state_zh!==null&&row.state_zh!==undefined&&row.state_zh!==''?String(row.state_zh):'';
-  return zh||(row.state?String(row.state):'未知狀態');
-}
-function chipText(desk){return desk.acked?'已確認・'+stateText(desk.row):stateText(desk.row);}
-function who(desk){return desk.name+' · '+baseAgent(desk.row)+' · '+desk.room.name;}
-function showNotice(text){
-  const n=$('notice');
-  n.textContent=text;setHidden(n,false);
-  if(noticeTimer!==null)clearTimeout(noticeTimer);
-  noticeTimer=setTimeout(()=>{noticeTimer=null;setHidden(n,true);},NOTICE_MS);
-}
-/* 同一個容器裡的子節點以 key 對應：沒變就沿用（hover、焦點、canvas 都保得住），只調順序。 */
-function syncKeyed(box,map,items,make,update,destroy){
-  const seen=new Set();
-  items.forEach((it,i)=>{
-    seen.add(it.key);
-    let rec=map.get(it.key);
-    if(!rec){rec=make(it);map.set(it.key,rec);}
-    update(rec,it);
-    const at=box.children[i];
-    if(at!==rec.el)box.insertBefore(rec.el,at||null);
-  });
-  for(const [k,rec] of map)if(!seen.has(k)){
-    if(destroy)destroy(rec);
-    if(rec.el.parentNode)rec.el.parentNode.removeChild(rec.el);
-    map.delete(k);
-  }
 }
 function allDesks(){
   const out=[];
@@ -927,68 +687,10 @@ function paint(){
     const d=deskByKey(selected);
     if(!d||!d.room.open)selected=null;
   }
-  paintNeed(rooms);
+  needPanel.paint();
   syncKeyed($('rooms'),ui.rooms,rooms.map(r=>({key:r.key,room:r})),makeRoom,updateRoom,destroyRoom);
 }
 
-/* ---------- 「需要你」與「已確認」 ---------- */
-function paintNeed(rooms){
-  const need=[],acked=[];
-  for(const r of rooms)for(const d of r.desks){
-    if(d.attention)need.push(d);
-    else if(d.acked)acked.push(d);
-  }
-  const count=$('needCount');
-  setText(count,need.length?need.length+' 位':'');
-  setHidden(count,!need.length);
-  setText($('needNone'),'沒有人在等你。');
-  setHidden($('needNone'),need.length>0);
-  setHidden($('needList'),!need.length);
-  syncKeyed($('needList'),ui.need,need.map(d=>({key:d.key,desk:d})),makeNeed,updateNeed,rec=>stopArt(rec.art));
-  setHidden($('acked'),!acked.length);
-  syncKeyed($('ackedList'),ui.acked,acked.map(d=>({key:d.key,desk:d})),makeAckedBtn,updateAckedBtn);
-}
-function makeNeed(){
-  const li=el('li','need-item');
-  const cv=document.createElement('canvas');cv.setAttribute('aria-hidden','true');
-  const text=el('span','need-text');
-  const name=el('strong');const meta=el('small');
-  text.appendChild(name);text.appendChild(meta);
-  let btn=null;
-  if(!READONLY){                          // 唯讀：不畫按鈕
-    btn=el('button','btn','我知道了');
-    btn.setAttribute('type','button');btn.setAttribute('data-act','ack');
-    btn.setAttribute('title','確認沒事：不再算進「需要你」；這個 session 的狀態一變就會自動恢復。');
-  }
-  li.appendChild(cv);li.appendChild(text);if(btn)li.appendChild(btn);
-  return {el:li,art:makeArt(cv),name,meta,btn,nameText:null};
-}
-function updateNeed(rec,it){
-  const d=it.desk,row=d.row;
-  rec.el.className='need-item'+(row.state==='STUCK'?' stuck':'');
-  rec.el.setAttribute('data-need',d.id);
-  if(rec.nameText!==d.name){rec.nameText=d.name;setBreakable(rec.name,d.name);}
-  setText(rec.meta,d.room.name+' · '+baseAgent(row)+' · '+stateText(row)+' · '+fmtAge(row.age_s));
-  if(rec.btn){
-    rec.btn.setAttribute('data-id',d.id);
-    rec.btn.setAttribute('aria-label','我知道了：'+who(d));
-  }
-  setArt(rec.art,office.style,{kind:agentKind(row.agent),state:d.art,helpers:0,seed:artSeed(d.key)},MINI,false);
-}
-function makeAckedBtn(){
-  if(READONLY)return {el:el('span','acked-name')};   // 唯讀：只顯示已確認的名字，不能取消
-  const b=el('button');
-  b.setAttribute('type','button');b.setAttribute('data-act','unack');
-  b.setAttribute('title','取消「已確認」，重新算進警示。');
-  return {el:b};
-}
-function updateAckedBtn(rec,it){
-  const d=it.desk;
-  if(READONLY){setText(rec.el,d.name);return;}
-  rec.el.setAttribute('data-id',d.id);
-  rec.el.setAttribute('aria-label','取消已確認：'+who(d));
-  setText(rec.el,d.name+' · 取消');
-}
 
 /* ---------- 房間 ---------- */
 function makeRoom(){
@@ -1155,46 +857,6 @@ function toggleRoom(key){
   writeRoomChoices();
   paint();
 }
-/* 「我知道了」：畫面先降級（立即回饋），伺服器沒收下就退回並說出來。
-   409＝狀態已經變了：重新抓 /api/status 與 /api/office 再畫。 */
-async function ackSession(id){
-  if(READONLY)return false;
-  const d=allDesks().find(x=>x.id===id&&x.attention);
-  if(!d)return false;
-  const row=d.row;
-  officeSeq++;
-  const next=new Map(office.acks);
-  next.set(d.id,{state:row.state,mtime:Number(row.mtime),at:Date.now()/1000});
-  office.acks=next;
-  paint();
-  const r=await postOfficeAck(d.id,row.state,Number(row.mtime));
-  if(r.ok){loadOffice();return true;}
-  officeSeq++;
-  const back=new Map(office.acks);back.delete(d.id);office.acks=back;
-  if(r.status===409){
-    showNotice('這位的狀態剛剛變了，已重新整理。');
-    paint();refresh();loadOffice();
-    return false;
-  }
-  showNotice('⚠ 沒能記下「我知道了」，請確認 Watchdog service 還活著。');
-  paint();
-  return false;
-}
-async function unackSession(id){
-  if(READONLY)return false;
-  const prev=office.acks.get(id);
-  if(!prev)return false;
-  officeSeq++;
-  const next=new Map(office.acks);next.delete(id);office.acks=next;
-  paint();
-  const r=await postOfficeUnack(id);
-  if(r.ok){loadOffice();return true;}
-  officeSeq++;
-  const back=new Map(office.acks);back.set(id,prev);office.acks=back;
-  showNotice('⚠ 沒能取消確認，請確認 Watchdog service 還活著。');
-  paint();
-  return false;
-}
 async function setStyle(v){
   if(READONLY)return false;
   if(!isOfficeStyle(v)||v===office.style)return false;
@@ -1227,41 +889,10 @@ async function hideSel(){
   refresh();
   return true;
 }
-/* GET /api/office：畫風與確認紀錄。本機有尚未回音的改動時（officeSeq 變了）不拿舊回應蓋掉。 */
-function applyOffice(data){
-  if(!data||typeof data!=='object')return false;
-  let changed=false;
-  if(isOfficeStyle(data.style)&&data.style!==office.style){office.style=data.style;cacheStyle(data.style);changed=true;}
-  const acks=ackMapFrom(data.acks);
-  if(ackSig(acks)!==ackSig(office.acks)){office.acks=acks;changed=true;}
-  return changed;
-}
-let officeSkipped=false;
-async function loadOffice(){
-  if(document.visibilityState==='hidden'){officeSkipped=true;return;}   // 隱藏時完全不發請求
-  if(officeLoading){officeQueued=true;return;}
-  officeLoading=true;officeAskedAt=Date.now();
-  const seq=officeSeq;
-  let changed=false;
-  try{
-    const r=await fetchOffice();
-    if(r.ok&&seq===officeSeq)changed=applyOffice(r.data);
-  }finally{
-    officeLoading=false;
-    const first=!officeReady;
-    officeReady=true;
-    if(changed||first)paint();
-    if(officeQueued){officeQueued=false;loadOffice();}
-  }
-}
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='hidden'){officeSkipped=false;loadOffice();}
-});
 function render(d){
   snap=d;
   setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新',hiddenLabel:'已離開'}));
-  if(officeReady)paint();
-  if(Date.now()-officeAskedAt>=2000)loadOffice();
+  officeAfterStatus();
 }
 
 document.addEventListener('click',ev=>{
@@ -1269,9 +900,6 @@ document.addEventListener('click',ev=>{
   if(!b)return;
   const act=b.getAttribute('data-act');
   if(act==='desk')selectDesk(b.getAttribute('data-key'));
-  else if(READONLY&&(act==='ack'||act==='unack'||act==='hide'))return;
-  else if(act==='ack')ackSession(b.getAttribute('data-id'));
-  else if(act==='unack')unackSession(b.getAttribute('data-id'));
   else if(act==='hide')hideSel();
   else if(act==='toggle')toggleRoom(b.getAttribute('data-room'));
   else return;
@@ -1284,6 +912,7 @@ document.addEventListener('keydown',ev=>{
 });
 
 (function init(){
+  if(guardView('office'))return;
   renderViewSwitch($('views'),'office');
   $('pixelLink').setAttribute('href',viewHref('/office/pixel'));
   const sel=$('styleSel');
@@ -1300,7 +929,16 @@ document.addEventListener('keydown',ev=>{
     sel.addEventListener('change',()=>{setStyle(sel.value);});
   }
   syncStyle();
-  loadOffice();
+  startOfficeSync({
+    repaint:paint,
+    desks:allDesks,
+    need:needPanel,
+    apply:data=>{
+      if(!isOfficeStyle(data.style)||data.style===office.style)return false;
+      office.style=data.style;cacheStyle(data.style);
+      return true;
+    },
+  });
   startWatchdog(render);
 })();
 </script></body></html>
