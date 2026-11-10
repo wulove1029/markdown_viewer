@@ -1,12 +1,6 @@
 # Changelog
 
-## [Unreleased]
-
-<!-- Draft for 1.39.0. Still open: the tracked Watchdog files are 1.0.0
-     without the star map (the star map view comes in 1.39.1) and will be
-     replaced by the revision with the read-only mode, the installer has not
-     been run for real, the version is not bumped, and the Validation numbers
-     below are from the development branch. -->
+## [1.39.0] - 2026-11-11
 
 ### Added
 - 內建 AI Agent 監看程式（Watchdog）：安裝 Markdown Viewer 後，不必另外安裝 Watchdog 或 Python，打開「AI Agents」面板就能使用。
@@ -28,16 +22,19 @@
 ### Known limitations
 - 內建 Watchdog 未在「沒有安裝 Python 的乾淨 Windows」上實測；驗證方式是以正式版相同的 Python 3.13 打包後，在移除系統 Python 路徑的環境中執行。
 - 透過 SSH 監看遠端電腦的功能，在內建模式下未經實測。
+- 未以系統管理員權限實際安裝、升級或解除安裝；安裝程式由發布流程編譯，安裝前關閉內建 Watchdog 的步驟以不需提權的測試安裝檔驗證。
+- 唯讀檢視需要 Watchdog 1.0.0 以上：面板連到自行安裝的較舊 Watchdog 時，頁面仍會顯示它原有的操作按鈕。
 
 ### Validation
-<!-- Draft: replace with the numbers from the final branch with the bundled Watchdog files. -->
-- 完整測試 3378 passed／179 skipped、0 failed；Ruff、mypy 通過。
+- 完整測試 3390 passed／179 skipped、0 failed；Ruff、mypy 通過。
+- WebEngine 分組：Chromium 整合 145、security 180、WYSIWYG 28、office-commands 與貼上預覽 22、程式碼延後上色 6 項，全部通過。
 - 內建 Watchdog 的關閉：
   - 對一個慢速吐資料的服務實測，整個關閉流程最長 4.90 秒，在 5 秒上限內。
   - 記錄的程式編號無效、已被重用或啟動時間不合理時，都不會強制結束任何程式。
 - 面板的診斷資訊：兩萬字不含空白的診斷文字，面板仍可縮到 104 像素寬（修改前會被撐到 240018 像素）。
 - 打包：內建檔案中的符號連結與資料夾連結（junction）不會被收進安裝檔。
-- 以正式版相同的 Python 3.13 打包，在移除系統 Python 路徑的環境中，內建 Watchdog 2.55 秒內啟動，頁面與關閉流程正常（當時使用 Watchdog 的舊版檔案）。
+- 以正式版相同的 Python 3.13 打包（內建 Watchdog 1.0.0），在移除系統 Python 路徑、沒有 Python 的環境中：內建 Watchdog 約 4.2 秒啟動，各頁面回應正常，不會寫入 `install.json`；正常關閉 0.82 秒；連接埠被占用時回報結束碼 3 與診斷資訊；Markdown 匯出 HTML 與 PDF 正常。
+- 「AI Agents」面板實測：收起 30 秒內頁面送出 0 個請求；寬 300–400 像素時一列兩張卡片；寬 150 像素時沒有水平捲軸。
 - 每項修改都由獨立的驗收者做修改前後的對照實測。
 
 ## [1.38.2] - 2026-11-10
