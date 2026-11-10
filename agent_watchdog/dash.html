@@ -60,7 +60,7 @@ function cardHtml(s,cls,hideable){
   ${bgn>0&&state==='BACKGROUND'?
     `<span class="agent" title="背景工作，完成時會自動喚醒">⏳ ×${bgn}</span>`:''}
   <span class="age"></span>
-  ${state==='OFFLINE'&&hideable?`<button class="hidebtn" data-hide="${esc(s.logical_id)}"
+  ${state==='OFFLINE'&&hideable&&!isReadonly()?`<button class="hidebtn" data-hide="${esc(s.logical_id)}"
     data-mtime="${Number(s.mtime)}"
     title="移除；該專案下次有活動會自動回來">✕ 移除</button>`:''}</div>
   ${stale?`<div class="stale-note">⚠ ${esc(staleText(s))}</div>`:''}
@@ -125,6 +125,7 @@ function render(d){
 /* 移除只認 logical_id：後端每輪都會依 (state, age_s) 重排，用陣列 index 會殺錯人。
    mtime 以最新快照為準，找不到才退回按鈕上那份。 */
 async function hideS(id,mtime){
+  if(isReadonly())return false;
   const s=cur&&cur.sessions.find(x=>x.logical_id===id);
   const when=s?s.mtime:mtime;
   if(!id||!isFinite(Number(when)))return false;
@@ -136,6 +137,7 @@ async function hideS(id,mtime){
   return true;
 }
 document.addEventListener('click',ev=>{
+  if(isReadonly())return;
   const t=ev.target,btn=t&&t.closest?t.closest('button[data-hide]'):null;
   if(!btn)return;
   ev.preventDefault();

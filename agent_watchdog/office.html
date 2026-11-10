@@ -80,6 +80,7 @@ button{font:inherit}
 .acked button{border:1px dashed var(--border-strong);border-radius:999px;padding:2px 10px;background:none;color:var(--text-secondary);
               font-size:12px;overflow-wrap:anywhere;text-align:left;cursor:pointer;max-width:100%}
 .acked button:hover{border-color:var(--accent);color:var(--text)}
+.acked .acked-name{border:1px solid var(--border);border-radius:999px;padding:2px 10px;overflow-wrap:anywhere;max-width:100%;cursor:default}
 
 /* 房間：一台電腦一間 */
 .rooms{display:grid;gap:14px;min-width:0}
@@ -232,6 +233,7 @@ const STYLE_META={
        legend:'像素：打字＝執行中，zz＝閒置，舉手＝等你回覆，紅色「?」＝可能卡住，灰色＝離線或連不上'},
 };
 const DEFAULT_STYLE='win';
+const READONLY=isReadonly();             // ?readonly=1：唯讀，不畫任何會寫入伺服器的控制項
 const MINI={w:48,h:42};                  // 「需要你」小卡的圖像
 const STYLE_CACHE_KEY='aiwatch:officeStyle';
 const ROOMS_KEY='aiwatch:officeRooms';
@@ -891,7 +893,7 @@ function selectedDesk(){return selected?deskByKey(selected):null;}
 function syncStyle(){
   const style=office.style;
   const sel=$('styleSel');
-  if(sel.value!==style)sel.value=style;
+  if(sel&&sel.value!==style)sel.value=style;
   if(shownStyle===style)return;
   shownStyle=style;
   $('office').setAttribute('data-style',style);
@@ -952,10 +954,13 @@ function makeNeed(){
   const text=el('span','need-text');
   const name=el('strong');const meta=el('small');
   text.appendChild(name);text.appendChild(meta);
-  const btn=el('button','btn','我知道了');
-  btn.setAttribute('type','button');btn.setAttribute('data-act','ack');
-  btn.setAttribute('title','確認沒事：不再算進「需要你」；這個 session 的狀態一變就會自動恢復。');
-  li.appendChild(cv);li.appendChild(text);li.appendChild(btn);
+  let btn=null;
+  if(!READONLY){                          // 唯讀：不畫按鈕
+    btn=el('button','btn','我知道了');
+    btn.setAttribute('type','button');btn.setAttribute('data-act','ack');
+    btn.setAttribute('title','確認沒事：不再算進「需要你」；這個 session 的狀態一變就會自動恢復。');
+  }
+  li.appendChild(cv);li.appendChild(text);if(btn)li.appendChild(btn);
   return {el:li,art:makeArt(cv),name,meta,btn,nameText:null};
 }
 function updateNeed(rec,it){
@@ -964,11 +969,14 @@ function updateNeed(rec,it){
   rec.el.setAttribute('data-need',d.id);
   if(rec.nameText!==d.name){rec.nameText=d.name;setBreakable(rec.name,d.name);}
   setText(rec.meta,d.room.name+' · '+baseAgent(row)+' · '+stateText(row)+' · '+fmtAge(row.age_s));
-  rec.btn.setAttribute('data-id',d.id);
-  rec.btn.setAttribute('aria-label','我知道了：'+who(d));
+  if(rec.btn){
+    rec.btn.setAttribute('data-id',d.id);
+    rec.btn.setAttribute('aria-label','我知道了：'+who(d));
+  }
   setArt(rec.art,office.style,{kind:agentKind(row.agent),state:d.art,helpers:0,seed:artSeed(d.key)},MINI,false);
 }
 function makeAckedBtn(){
+  if(READONLY)return {el:el('span','acked-name')};   // 唯讀：只顯示已確認的名字，不能取消
   const b=el('button');
   b.setAttribute('type','button');b.setAttribute('data-act','unack');
   b.setAttribute('title','取消「已確認」，重新算進警示。');
@@ -976,6 +984,7 @@ function makeAckedBtn(){
 }
 function updateAckedBtn(rec,it){
   const d=it.desk;
+  if(READONLY){setText(rec.el,d.name);return;}
   rec.el.setAttribute('data-id',d.id);
   rec.el.setAttribute('aria-label','取消已確認：'+who(d));
   setText(rec.el,d.name+' · 取消');
@@ -1090,9 +1099,11 @@ function updateDetail(rec,room){
   ];
   if(row.stale||room.offline)fields.push(['資料',row.stale?staleText(row):'這台電腦目前連不上，顯示的是最後一次的資料']);
   const actions=[];
-  if(d.attention)actions.push(['ack','我知道了']);
-  if(d.acked)actions.push(['unack','取消已確認']);
-  if(row.state==='OFFLINE')actions.push(['hide','🚪 讓他離開']);
+  if(!READONLY){
+    if(d.attention)actions.push(['ack','我知道了']);
+    if(d.acked)actions.push(['unack','取消已確認']);
+    if(row.state==='OFFLINE')actions.push(['hide','🚪 讓他離開']);
+  }
   const sig=JSON.stringify([d.key,d.name,chipClass(row,d.acked),fields,actions]);
   setHidden(rec.detail,false);
   rec.detail.setAttribute('data-detail',d.id);
@@ -1147,6 +1158,7 @@ function toggleRoom(key){
 /* 「我知道了」：畫面先降級（立即回饋），伺服器沒收下就退回並說出來。
    409＝狀態已經變了：重新抓 /api/status 與 /api/office 再畫。 */
 async function ackSession(id){
+  if(READONLY)return false;
   const d=allDesks().find(x=>x.id===id&&x.attention);
   if(!d)return false;
   const row=d.row;
@@ -1169,6 +1181,7 @@ async function ackSession(id){
   return false;
 }
 async function unackSession(id){
+  if(READONLY)return false;
   const prev=office.acks.get(id);
   if(!prev)return false;
   officeSeq++;
@@ -1183,6 +1196,7 @@ async function unackSession(id){
   return false;
 }
 async function setStyle(v){
+  if(READONLY)return false;
   if(!isOfficeStyle(v)||v===office.style)return false;
   const prev=office.style;
   office.style=v;officeSeq++;cacheStyle(v);
@@ -1195,6 +1209,7 @@ async function setStyle(v){
 }
 /* 送出的是 logical_id；mtime 以最新快照為準。後端沒點頭就不動畫面。 */
 async function hideSel(){
+  if(READONLY)return false;
   const d=selectedDesk();
   if(!d||!d.id)return false;
   const s=snap&&Array.isArray(snap.sessions)?snap.sessions.find(x=>x&&x.logical_id===d.id):null;
@@ -1254,6 +1269,7 @@ document.addEventListener('click',ev=>{
   if(!b)return;
   const act=b.getAttribute('data-act');
   if(act==='desk')selectDesk(b.getAttribute('data-key'));
+  else if(READONLY&&(act==='ack'||act==='unack'||act==='hide'))return;
   else if(act==='ack')ackSession(b.getAttribute('data-id'));
   else if(act==='unack')unackSession(b.getAttribute('data-id'));
   else if(act==='hide')hideSel();
@@ -1271,13 +1287,18 @@ document.addEventListener('keydown',ev=>{
   renderViewSwitch($('views'),'office');
   $('pixelLink').setAttribute('href',viewHref('/office/pixel'));
   const sel=$('styleSel');
-  for(const k of OFFICE_STYLES){
-    const o=document.createElement('option');
-    o.value=k;o.setAttribute('value',k);o.textContent=STYLE_META[k].label;
-    sel.appendChild(o);
+  if(READONLY){                           // 唯讀：畫風選單整個不出現（畫風照伺服器的值顯示）
+    const box=sel.parentNode;
+    if(box&&box.parentNode)box.parentNode.removeChild(box);
+  }else{
+    for(const k of OFFICE_STYLES){
+      const o=document.createElement('option');
+      o.value=k;o.setAttribute('value',k);o.textContent=STYLE_META[k].label;
+      sel.appendChild(o);
+    }
+    sel.value=office.style;
+    sel.addEventListener('change',()=>{setStyle(sel.value);});
   }
-  sel.value=office.style;
-  sel.addEventListener('change',()=>{setStyle(sel.value);});
   syncStyle();
   loadOffice();
   startWatchdog(render);

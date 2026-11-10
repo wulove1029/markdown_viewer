@@ -516,7 +516,7 @@ cv.addEventListener('click',ev=>{
   if(best&&bd<60){selected=best;
     info.innerHTML=`<span class="proj">${esc(best.emoji)} ${esc(best.project)}</span>`+
       `<span style="color:#a9b3c6">${esc(best.agent)} ・ ${esc(best.state_zh)}</span>`+
-      (best.state==='OFFLINE'?` <button id="dismiss" onclick="hideSel()"
+      (best.state==='OFFLINE'&&!isReadonly()?` <button id="dismiss" onclick="hideSel()"
          style="margin-left:12px;background:#3a3040;color:#e0a0a0;border:1px solid #5a4050;
          border-radius:6px;font-size:12px;padding:3px 10px;cursor:pointer">🚪 讓他離開（下次有活動會自動回來）</button>`:'')+
       (best.stale?`<div class="stale">⚠ ${esc(staleText(best))}</div>`:'')+
@@ -528,7 +528,7 @@ cv.addEventListener('click',ev=>{
   }else{selected=null;info.textContent='點一下角色可以看他正在做什麼';}
 });
 /* 送出的是 logical_id；後端沒點頭就不要動本地狀態，不然下一輪角色又走回來。 */
-async function hideSel(){const c=selected;if(!c)return false;
+async function hideSel(){const c=selected;if(!c||isReadonly())return false;
   const info=document.getElementById('info');
   if(!await hideSession(c.logical_id||c.key,c.mtime)){
     info.textContent='⚠ 沒能讓他離開，請確認 Watchdog service 還活著。';

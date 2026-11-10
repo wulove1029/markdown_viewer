@@ -3,7 +3,11 @@
    每個頁面都先 <script src="/static/watchdog.js"></script>（絕對路徑：/office/pixel 也要載得到），
    再接自己的頁面專屬程式碼。
    這裡用 function 宣告的（unhideAll…）才會掛到 window，inline onclick 才叫得到；
-   用 let/const 宣告的（esc、refresh…）在同一個全域詞彙環境裡，兩個頁面都看得到。 */
+   用 let/const 宣告的（esc、refresh…）在同一個全域詞彙環境裡，兩個頁面都看得到。
+
+   唯讀模式（?readonly=1，值必須剛好是 "1"）：頁面不顯示會寫入伺服器的控制項。
+   這是介面層的唯讀，不是安全邊界：HTTP API 本身完全沒變，任何人直接打 API 照樣能寫。
+   唯讀時頁面不畫任何會寫入伺服器的控制項，下面的寫入函式也一律直接回傳失敗、不呼叫 fetch。 */
 
 /* 插進 HTML 的字串一律過這裡。單引號也要轉：屬性值用單引號寫時才不會被截斷。 */
 const ESC_MAP = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
@@ -35,7 +39,7 @@ function metaHtml(d,opts){
   return `更新於 ${esc(d.generated_at)} ・ ${Number(d.sessions.length)} ${esc(o.countLabel||'個 session')}`
     +(o.extra||'')
     +(hidden?` ・ ${esc(o.hiddenLabel||'已移除')} ${hidden} 位 `
-      +`<a href="#" onclick="unhideAll();return false">全部叫回</a>`:'')
+      +(isReadonly()?'':`<a href="#" onclick="unhideAll();return false">全部叫回</a>`):'')
     +(o.link||'')
     +((d.remote_errors||[]).length?
       `<div style="color:#e08a5a">⚠ 遠端連線問題: ${esc(d.remote_errors.join(' / '))}</div>`:'');
@@ -121,6 +125,7 @@ function startWatchdog(render,intervalMs){
 
 /* ---------------- 寫入類 API：一律檢查 response.ok，失敗不要靜默 ---------------- */
 async function postJson(path,payload){
+  if(isReadonly())return false;          // 唯讀：不碰網路
   try{
     const r=await fetch(path,{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -135,6 +140,7 @@ function hideSession(id,mtime){
 }
 
 async function unhideAll(){
+  if(isReadonly())return false;
   if(!await postJson('/api/unhide',{})){
     setMetaText('⚠ 叫回失敗，請確認 Watchdog service 還活著');
     return false;
@@ -160,8 +166,19 @@ function applyScheme(){
   return s;
 }
 
+/* ---------------- 唯讀：?readonly=1 ---------------- */
+function readonlyFrom(search){
+  try{
+    // 參數重複時只要任何一個值是 "1" 就算唯讀：在網址後面補上 readonly=1 一定生效。
+    return new URLSearchParams(search||'').getAll('readonly').indexOf('1')>=0;
+  }catch(e){return false;}
+}
+function isReadonly(){
+  try{return readonlyFrom(location.search);}catch(e){return false;}
+}
+
 /* ---------------- 檢視切換：全站只有這一份清單 ----------------
-   之後加「星圖」只要在這裡多一筆。每個連結都保留目前的 ?scheme=。
+   之後加「星圖」只要在這裡多一筆。每個連結都保留目前的 ?scheme= 與 ?readonly=1。
    minWidth＝該檢視的最小舒適寬度（px，省略＝不限）；太窄時 effectiveView 退回 FALLBACK_VIEW。 */
 const FALLBACK_VIEW='office';
 const VIEWS=[
@@ -176,8 +193,12 @@ function effectiveView(width,requested){
   return v.id;
 }
 function viewHref(path,search){
-  const s=schemeFrom(search===undefined?location.search:search);
-  return s?path+'?scheme='+s:path;
+  const q=search===undefined?location.search:search;
+  const parts=[];
+  const s=schemeFrom(q);
+  if(s)parts.push('scheme='+s);
+  if(readonlyFrom(q))parts.push('readonly=1');
+  return parts.length?path+'?'+parts.join('&'):path;
 }
 function viewLinks(current,search){
   return VIEWS.map(v=>({id:v.id,label:v.label,icon:v.icon,
@@ -204,6 +225,8 @@ const OFFICE_STYLES=['win','card','compute','flat','sprite'];
 const API_TIMEOUT_MS=10000;
 function isOfficeStyle(v){return OFFICE_STYLES.indexOf(v)>=0;}
 async function apiCall(path,init){
+  const method=String((init&&init.method)||'GET').toUpperCase();
+  if(method!=='GET'&&isReadonly())return {ok:false,status:0,data:null};   // 唯讀：只准 GET
   let timer=null;
   const ctrl=typeof AbortController==='function'?new AbortController():null;
   const opts=Object.assign({cache:'no-store'},init||{});
@@ -223,6 +246,7 @@ async function apiCall(path,init){
   }
 }
 function postApi(path,payload){
+  if(isReadonly())return Promise.resolve({ok:false,status:0,data:null});
   return apiCall(path,{method:'POST',headers:{'Content-Type':'application/json'},
                        body:JSON.stringify(payload)});
 }
