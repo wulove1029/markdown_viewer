@@ -23,7 +23,7 @@
 - 內建 Watchdog 未在「沒有安裝 Python 的乾淨 Windows」上實測；驗證方式是以正式版相同的 Python 3.13 打包後，在移除系統 Python 路徑的環境中執行。
 - 透過 SSH 監看遠端電腦的功能，在內建模式下未經實測。
 - 未以系統管理員權限實際安裝、升級或解除安裝；安裝程式由發布流程編譯，安裝前關閉內建 Watchdog 的步驟以不需提權的測試安裝檔驗證。
-- 唯讀檢視需要 Watchdog 1.0.0 以上：面板連到自行安裝的較舊 Watchdog 時，頁面仍會顯示它原有的操作按鈕。
+- 唯讀檢視需要 Watchdog 支援：面板連到不支援唯讀模式的自行安裝 Watchdog 時，頁面仍會顯示它原有的操作按鈕。內建的 Watchdog 已支援。
 
 ### Validation
 - 完整測試 3390 passed／179 skipped、0 failed；Ruff、mypy 通過。
