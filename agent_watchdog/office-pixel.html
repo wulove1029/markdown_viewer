@@ -1,0 +1,543 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<title>AI Agent Watchdog — 像素辦公室（舊版）</title>
+<style>
+body{background:#12141a;color:#dde2ea;font-family:'Segoe UI',system-ui,sans-serif;
+     margin:0;padding:18px;display:flex;flex-direction:column;align-items:center}
+h1{font-size:18px;margin:0 0 2px;align-self:flex-start}
+#top{width:100%;max-width:1000px}
+#meta{color:#8a93a5;font-size:12px;margin-bottom:10px}
+#meta a{color:#7fb0ff;text-decoration:none;margin-left:12px}
+canvas{width:100%;max-width:1000px;border-radius:12px;border:1px solid #2a2f3d;
+       image-rendering:pixelated;cursor:pointer}
+#info{width:100%;max-width:1000px;min-height:52px;margin-top:10px;background:#1c1f28;
+      border:1px solid #2a2f3d;border-radius:10px;padding:10px 16px;font-size:13px;
+      color:#aeb7c8;box-sizing:border-box}
+#info .proj{font-weight:600;color:#dde2ea;margin-right:8px}
+#info .dim{color:#6f7a90;font-size:12px;margin-top:3px}
+#info .stale{color:#e08a5a;font-size:12px;margin-top:3px}
+/* 檢視切換（清單在 static/watchdog.js 的 VIEWS） */
+.views{display:inline-flex;flex-wrap:wrap;border:1px solid #2a2f3d;border-radius:7px;overflow:hidden;margin:4px 0 8px}
+.views a{padding:3px 12px;color:#a9b3c6;text-decoration:none;font-size:13px}
+.views a+a{border-left:1px solid #2a2f3d}
+.views a.current{background:#2a3550;color:#dde2ea;font-weight:600}
+</style></head><body>
+<div id="top"><h1>🏢 AI Agent 辦公室
+<select id="themeSel" style="float:right;background:#1c1f28;color:#dde2ea;border:1px solid #2a2f3d;
+ border-radius:8px;font-size:13px;padding:4px 8px"></select></h1>
+<nav id="views" class="views" aria-label="檢視切換"></nav>
+<div id="meta">載入中…</div></div>
+<canvas id="cv" width="1000" height="620"></canvas>
+<div id="info">點一下角色可以看他正在做什麼</div>
+<script src="/static/watchdog.js"></script>
+<script>
+'use strict';
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+const W=cv.width,H=cv.height;
+/* 靜態層：牆／地板／家具／地毯／標籤只在換主題時畫一次，每幀只 drawImage 一次。 */
+const staticCv=document.createElement('canvas');
+staticCv.width=W;staticCv.height=H;
+const sctx=staticCv.getContext('2d');
+/* 桌子的靜態幾何（桌面／桌腳／螢幕外框／螢幕座）六張桌子長得一模一樣，
+   烘焙成一張 100x56 的小圖重複使用；每幀每張桌子只剩 drawImage ＋螢幕那一格。
+   小圖的原點對應桌子的 (d.x, d.y+6)。 */
+const deskCv=document.createElement('canvas');
+deskCv.width=100;deskCv.height=56;
+const dctx=deskCv.getContext('2d');
+let g=ctx;                 // rect()/zoneLabel() 目前的畫布：烘焙靜態層時暫時指向 sctx
+let bakedKey=null;         // 已烘焙的主題；null 代表下一幀要重畫
+const AGENT={Claude:{body:'#e8834a',arm:'#c9682f',hair:'#5a3b23'},
+             Codex:{body:'#4ac0e8',arm:'#2f97c9',hair:'#233d5a'},
+             Antigravity:{body:'#a06ae8',arm:'#7d4bc4',hair:'#3a2a55'}};
+const STALE_STYLE={body:'#6e747f',arm:'#585d67',hair:'#3b3f47'};   // 遠端斷線：灰階
+
+/* ---------- 主題 ---------- */
+const THEMES={
+ wood:{name:'🪵 溫馨木質',wall:'#4a3a2c',wallEdge:'#3a2d20',floorA:'#8a6f4d',floorB:'#93785a',
+  winGlass:'#2b3f57',winFrame:'#1d2c3e',winStyle:null,
+  desk:'#6b4c30',deskLeg:'#54391f',couch:'#7a4a3a',couchBack:'#8f5847',couchArm:'#6b4032',
+  door:'#3a2d20',doorIn:'#241b12',glow:false,lanterns:false,
+  zoneWork:'rgba(0,0,0,.08)',zoneRest:'rgba(60,160,150,.15)',zoneWait:'rgba(200,170,40,.12)',
+  zoneBug:'rgba(200,60,50,.12)',zoneOff:'rgba(0,0,0,.18)',label:'rgba(255,255,255,.45)'},
+ tech:{name:'🌃 深色科技風',wall:'#141824',wallEdge:'#0b0e15',floorA:'#1e222d',floorB:'#232836',
+  winGlass:'#0c1526',winFrame:'#090d16',winStyle:'city',
+  desk:'#2c3242',deskLeg:'#1c212e',couch:'#31405a',couchBack:'#3c4e6e',couchArm:'#273246',
+  door:'#0b0e15',doorIn:'#04060a',glow:true,lanterns:false,
+  zoneWork:'rgba(110,160,255,.06)',zoneRest:'rgba(80,200,190,.10)',zoneWait:'rgba(232,195,74,.10)',
+  zoneBug:'rgba(224,85,72,.10)',zoneOff:'rgba(0,0,0,.30)',label:'rgba(150,180,240,.55)'},
+ space:{name:'🚀 太空站',wall:'#2a303c',wallEdge:'#1a1e26',floorA:'#3a4150',floorB:'#424b5d',
+  winGlass:'#04060f',winFrame:'#5a6478',winStyle:'stars',
+  desk:'#4a5468',deskLeg:'#343c4c',couch:'#3f5a6e',couchBack:'#4d6d85',couchArm:'#33495a',
+  door:'#1a1e26',doorIn:'#0a0d14',glow:true,lanterns:false,
+  zoneWork:'rgba(120,180,255,.07)',zoneRest:'rgba(80,200,190,.12)',zoneWait:'rgba(232,195,74,.12)',
+  zoneBug:'rgba(224,85,72,.12)',zoneOff:'rgba(0,0,0,.30)',label:'rgba(170,200,255,.6)'},
+ sanguo:{name:'⚔️ 三國智謀團',wall:'#4c2a24',wallEdge:'#331b16',floorA:'#8a7a5e',floorB:'#94846b',
+  winGlass:'#e8c886',winFrame:'#5a3a28',winStyle:'lattice',
+  desk:'#6e3f2a',deskLeg:'#4c2a1a',couch:'#7a5230',couchBack:'#8a6038',couchArm:'#5e3f24',
+  door:'#331b16',doorIn:'#1e0f0c',glow:false,lanterns:true,
+  zoneWork:'rgba(0,0,0,.08)',zoneRest:'rgba(90,160,90,.14)',zoneWait:'rgba(220,180,60,.15)',
+  zoneBug:'rgba(200,60,50,.13)',zoneOff:'rgba(0,0,0,.20)',label:'rgba(255,235,200,.6)'}
+};
+const qTheme=new URLSearchParams(location.search).get('theme');
+let themeKey=(qTheme&&THEMES[qTheme])?qTheme:(localStorage.getItem('aiwatch_theme')||'wood');
+if(!THEMES[themeKey])themeKey='wood';
+let T=THEMES[themeKey];
+const sel=document.getElementById('themeSel');
+for(const k in THEMES){const o=document.createElement('option');o.value=k;o.textContent=THEMES[k].name;sel.appendChild(o);}
+sel.value=themeKey;
+sel.onchange=()=>{themeKey=sel.value;T=THEMES[themeKey];localStorage.setItem('aiwatch_theme',themeKey);
+  bakedKey=null;};                                           // 換主題才重畫靜態層
+
+/* ---------- 地圖佈局 ---------- */
+const DESKS=[];           // 工作區 3x2
+for(let r=0;r<2;r++)for(let c=0;c<3;c++)
+  DESKS.push({x:80+c*180,y:170+r*130});
+const SLOTS={
+  WORK:DESKS.map(d=>({x:d.x+50,y:d.y+6})),                 // 站在桌後
+  WAIT:[0,1,2,3,4,5].map(i=>({x:110+i*78,y:520})),         // 等待區（門口櫃檯）
+  REST:[0,1,2,3,4,5].map(i=>({x:775+(i%3)*55,y:250+Math.floor(i/3)*95})), // 休息區沙發
+  STUCK:[0,1,2,3].map(i=>({x:765+i*55,y:520})),            // Bug 區
+  OFF:[0,1,2,3,4,5,6,7].map(i=>({x:70+i*70,y:606}))        // 下班長廊
+};
+/* BACKGROUND（回合結束但背景工作還在跑，完成時會自動喚醒）留在工作區、電腦開著，
+   絕不能進等待區：那裡代表「在等你」。不認得的狀態一律去下班長廊。 */
+function zoneOf(st){return st==='WORKING'||st==='TOOL'||st==='BACKGROUND'?'WORK':
+  st==='WAITING'?'WAIT':st==='IDLE'?'REST':st==='STUCK'?'STUCK':'OFF';}
+
+/* ---------- 角色管理 ---------- */
+const chars=new Map();    // key=logical_id（舊版 API 才 fallback 到 file）
+/* 選取狀態只有這一份，直接存角色物件本身。以前還另外有一個 window._sel，
+   兩份靠手動同步，漏一次賦值就會變成「畫面高亮的人」和「真的被移除的人」不同一位。 */
+let selected=null;
+let loadedOnce=false;
+function assignSlots(){
+  const used={};for(const z in SLOTS)used[z]=new Set();
+  // 同專案排在一起，看起來像同桌討論
+  const gkey=c=>((c.cwd||c.project||'')+'|'+c.agent).toLowerCase();
+  const list=[...chars.values()].sort((a,b)=>gkey(a)<gkey(b)?-1:1);
+  for(const c of list){                       // 先保留原位
+    let z=zoneOf(c.state);
+    if(c.zone&&z!==c.zone){                   // 防抖：連續兩輪同區才搬家
+      if(c.zoneCand===z)c.zoneVotes=(c.zoneVotes||0)+1;
+      else{c.zoneCand=z;c.zoneVotes=1;}
+      if(c.zoneVotes<2)z=c.zone;
+      else{c.zoneCand=null;c.zoneVotes=0;}
+    }else{c.zoneCand=null;c.zoneVotes=0;}
+    if(c.zone===z&&c.slot!=null&&!used[z].has(c.slot)&&c.slot<SLOTS[z].length){used[z].add(c.slot);continue;}
+    c.zone=z;c.slot=null;
+  }
+  const over={};
+  for(const c of list){
+    if(c.slot!=null)continue;
+    const z=c.zone,n=SLOTS[z].length;
+    for(let i=0;i<n;i++)if(!used[z].has(i)){c.slot=i;used[z].add(i);break;}
+    if(c.slot==null){over[z]=(over[z]||0)+1;c.slot=n+over[z]-1;} // 溢位往後排
+  }
+  for(const c of chars.values()){
+    const z=c.zone,n=SLOTS[z].length;
+    const s=c.slot<n?SLOTS[z][c.slot]:{x:SLOTS[z][n-1].x+40*(c.slot-n+1),y:SLOTS[z][n-1].y};
+    c.tx=s.x;c.ty=s.y;
+  }
+}
+function render(d){
+  const now=Date.now(),initialLoad=!loadedOnce;
+  const seen=new Set();
+  for(const s of d.sessions){
+    const key=s.logical_id||s.file;
+    if(!key)continue;
+    seen.add(key);
+    let c=chars.get(key);
+    if(!c){
+      // 舊版 API 更新後第一次收到 logical_id 時，也不讓同一角色重走進場。
+      const old=[...chars.entries()].find(([,v])=>v.file===s.file);
+      if(old){                          // 換 key 不影響選取：selected 存的是物件本身
+        const [oldKey,oldChar]=old;
+        c=oldChar;chars.delete(oldKey);c.key=key;chars.set(key,c);
+      }else{
+        c={key,file:s.file,x:480,y:640,tx:480,ty:640,zone:null,slot:null};
+        chars.set(key,c);
+      }
+    }
+    Object.assign(c,{project:s.project,agent:s.agent,state:s.state,
+      state_zh:s.state_zh,label:s.label,title:s.title,last_prompt:s.last_prompt,
+      age_s:s.age_s,emoji:s.emoji,mtime:s.mtime,subagents:Number(s.subagents)||0,
+      background_pending:Number(s.background_pending)||0,
+      cwd:s.cwd,file:s.file,logical_id:s.logical_id,
+      stale:!!s.stale,last_activity:s.last_activity,misses:0,lastSeenAt:now});
+  }
+  for(const [k,c] of chars)if(!seen.has(k)){
+    c.misses=(c.misses||0)+1;
+    // 單次漏掃一定保留；連續漏掃三次，或已兩次且超過 15 秒才移除。
+    if(c.misses>=3||(c.misses>=2&&now-(c.lastSeenAt||now)>=15000))chars.delete(k);
+  }
+  assignSlots();buildChatGroups();
+  if(initialLoad||location.search.includes('fast'))
+    for(const c of chars.values()){c.x=c.tx;c.y=c.ty;}
+  loadedOnce=true;
+  if(location.search.includes('minidemo'))               // 視覺測試用
+    for(const c of chars.values())if(c.zone==='WORK')c.subagents=4;
+  const attn=Number(d.attention.length);
+  setMeta(metaHtml(d,{countLabel:'位同事在辦公室',
+    extra:attn?` ・ <span style="color:#e8c34a">⚠ ${attn} 位需要你注意</span>`:'',
+    hiddenLabel:'已離開',link:` <a href="${esc(viewHref('/office'))}">↩ 新版辦公室</a>`}));
+  startLoop();                                          // 資料進來了就確保迴圈活著
+}
+
+/* ---------- 同專案討論群 ---------- */
+let chatGroups=[];
+function buildChatGroups(){
+  const byProj={};
+  for(const c of chars.values()){
+    if(c.state==='OFFLINE')continue;
+    const k=(c.cwd||c.project||'').toLowerCase();
+    if(!k)continue;
+    (byProj[k]=byProj[k]||[]).push(c);
+  }
+  chatGroups=Object.values(byProj).filter(g=>g.length>=2)
+    .map(g=>g.sort((a,b)=>a.agent<b.agent?-1:1));
+  if(location.search.includes('chatdemo')){                  // 視覺測試用
+    const all=[...chars.values()].filter(c=>c.state!=='OFFLINE');
+    if(all.length>=2)chatGroups=[all.sort((a,b)=>a.agent<b.agent?-1:1)];
+  }
+}
+
+/* ---------- 繪圖 ---------- */
+function rect(x,y,w,h,c){g.fillStyle=c;g.fillRect(x,y,w,h);}
+/* 靜態層：不含任何跟 t 有關的東西（窗戶閃燈／星星閃爍另外每幀疊上去）。 */
+function bakeRoom(){
+  g=sctx;
+  try{
+    rect(0,0,W,H,T.wall);                                      // 牆
+    for(let y=64;y<H;y+=32)for(let x=0;x<W;x+=32)               // 地板
+      rect(x,y,32,32,((x+y)/32)%2?T.floorA:T.floorB);
+    rect(0,60,W,6,T.wallEdge);
+    for(let i=0;i<4;i++){const wx=120+i*240;
+      rect(wx,12,90,40,T.winGlass);                             // 窗
+      if(T.winStyle==='city'){                                  // 夜景城市燈
+        for(let j=0;j<9;j++){const lx=wx+8+(j*17+i*11)%76,ly=22+((j*13+i*7)%24);
+          rect(lx,ly,3,3,(j+i)%3?'#e8c86a':'#7fb0ff');}
+      }else if(T.winStyle==='stars'){                           // 舷窗星空（閃的那顆每幀補畫）
+        for(let j=0;j<12;j++){const sx=wx+4+(j*23+i*13)%82,sy=16+((j*19+i*5)%32);
+          rect(sx,sy,2,2,'#c8d4f0');}
+        if(i===1)planet(wx);
+      }else if(T.winStyle==='lattice'){                         // 木格窗
+        for(let gx=wx+14;gx<wx+90;gx+=15)rect(gx,12,3,40,T.winFrame);
+        rect(wx,30,90,3,T.winFrame);
+      }
+      rect(wx,12,90,4,T.winFrame);rect(wx+43,12,4,40,T.winFrame);}
+    if(T.lanterns)for(const lx of[70,320,560,800,945]){         // 紅燈籠
+      rect(lx,58,2,8,'#3a2318');
+      rect(lx-8,66,18,20,'#c23b2e');rect(lx-8,73,18,3,'#e8b64a');
+      rect(lx-10,66,2,20,'#a02c22');rect(lx+10,66,2,20,'#a02c22');
+      rect(lx-2,86,6,3,'#e8b64a');rect(lx,89,2,6,'#c23b2e');}
+    // 區域地毯與標示
+    rect(60,110,500,260,T.zoneWork);zoneLabel(60,96,'💻 工作區');
+    rect(715,150,255,300,T.zoneRest);zoneLabel(715,136,'🛋 休息區');
+    rect(70,470,480,90,T.zoneWait);zoneLabel(70,456,'🔔 等待區（在等你）');
+    rect(740,470,220,90,T.zoneBug);zoneLabel(740,456,'🐛 Bug 區');
+    rect(30,586,940,30,T.zoneOff);zoneLabel(30,582,'⚫ 已下班');
+    // 門
+    rect(455,584,90,36,T.door);rect(462,590,76,30,T.doorIn);
+    // 沙發（兩張加長沙發，各 3 位）
+    for(let i=0;i<2;i++){const sy=245+i*95;
+      rect(750,sy,170,34,T.couch);rect(750,sy-14,170,16,T.couchBack);
+      rect(744,sy-14,8,48,T.couchArm);rect(918,sy-14,8,48,T.couchArm);}
+    // 茶几
+    rect(790,428,90,14,T.desk);rect(798,442,6,8,T.deskLeg);rect(866,442,6,8,T.deskLeg);
+    // 盆栽
+    pot(722,162);pot(944,162);pot(30,100);
+    // Bug 區警示牌
+    rect(845,486,8,30,'#6b5a3a');g.font='16px sans-serif';g.fillText('⚠️',837,486);
+  }finally{g=ctx;}
+  bakeDesk();
+  bakedKey=themeKey;
+}
+/* 桌子的靜態層。螢幕座畫在螢幕外框之上、螢幕內容之下，而螢幕內容（y+9..y+27）
+   跟螢幕座（y+28..y+32）沒有交集，所以先烘焙螢幕座、每幀再蓋螢幕，畫面完全一樣。 */
+function bakeDesk(){
+  g=dctx;
+  try{
+    dctx.clearRect(0,0,100,56);
+    rect(0,24,100,16,T.desk);                                  // 桌面
+    rect(6,40,8,16,T.deskLeg);rect(86,40,8,16,T.deskLeg);      // 桌腳
+    rect(34,0,32,24,'#22262f');                                // 螢幕外框
+    rect(46,22,8,4,'#171a21');                                 // 螢幕座
+  }finally{g=ctx;}
+}
+function planet(wx){                                          // 遠方行星
+  g.fillStyle='#8a5ac0';g.beginPath();
+  g.arc(wx+64,40,9,0,7);g.fill();
+  g.fillStyle='#a878d8';g.fillRect(wx+52,37,24,2);
+}
+/* 窗戶的低頻動畫，疊在靜態層上。原本畫在星星之後的行星與窗框要照原順序補回去，
+   蓋住關係才會跟舊版一模一樣。 */
+function drawWindowFx(t){
+  if(T.winStyle!=='city'&&T.winStyle!=='stars')return;
+  for(let i=0;i<4;i++){const wx=120+i*240;
+    if(T.winStyle==='city'){
+      if(Math.floor(t/900)%7===i%7)rect(wx+40,16,2,34,'rgba(160,200,255,.15)'); // 上緣本來就被窗框蓋住
+    }else{
+      let twinkled=false;
+      for(let j=0;j<12;j++){
+        if(Math.floor(t/700+j+i)%9!==0)continue;
+        const sx=wx+4+(j*23+i*13)%82,sy=16+((j*19+i*5)%32);
+        rect(sx,sy,3,3,'#ffffff');twinkled=true;
+      }
+      if(twinkled){
+        if(i===1)planet(wx);
+        rect(wx,12,90,4,T.winFrame);rect(wx+43,12,4,40,T.winFrame);
+      }
+    }
+  }
+}
+function pot(x,y){rect(x,y,18,14,'#8a4a33');rect(x+3,y-16,12,18,'#3f7a3a');rect(x+6,y-24,6,10,'#4f9648');}
+function zoneLabel(x,y,txt){g.font='12px "Segoe UI"';g.fillStyle=T.label;g.fillText(txt,x+4,y+10);}
+function drawDesk(d,occ,t){
+  // 螢幕內容依使用者狀態
+  const bg=occ&&occ.state==='BACKGROUND';
+  const scr=occ?(occ.state==='TOOL'?(Math.floor(t/180)%2?'#59d98c':'#2f8a55'):
+                 occ.state==='WORKING'?'#6aa7ff':bg?'#35506b':'#22262f'):'#171a21';
+  if(T.glow&&occ&&(occ.state==='WORKING'||occ.state==='TOOL'||bg)){   // 螢幕光暈
+    ctx.fillStyle=occ.state==='TOOL'?'rgba(90,220,140,.10)':
+                  bg?'rgba(110,170,255,.06)':'rgba(110,170,255,.10)';
+    ctx.fillRect(d.x+22,d.y-6,56,48);
+  }
+  ctx.drawImage(deskCv,d.x,d.y+6);                            // 桌面／桌腳／外框／螢幕座
+  rect(d.x+37,d.y+9,26,18,scr);                               // 螢幕：唯一每幀會變的部分
+  if(occ&&(occ.state==='WORKING'||occ.state==='TOOL'))                  // 螢幕字
+    for(let i=0;i<3;i++)rect(d.x+39,d.y+11+i*5,10+((t/300+i)%3)*5,2,'rgba(255,255,255,.5)');
+  if(bg){                                                     // 背景工作：電腦開著，進度條慢慢跑
+    rect(d.x+40,d.y+16,20,3,'rgba(255,255,255,.18)');
+    rect(d.x+40,d.y+16,Math.floor(t/400)%21,3,'#9fd0ff');
+  }
+}
+function agentStyle(c){
+  if(c&&c.stale)return STALE_STYLE;                           // 資料凍結的人一律灰
+  return AGENT[(c.agent||'').split('@')[0]]||{body:'#8bd48b',arm:'#5fae5f',hair:'#2d4d2d'};
+}
+function drawMinis(c,t){
+  const a=agentStyle(c);
+  const n=Math.min(3,c.subagents);
+  const cx=Math.round(c.x),cy=Math.round(c.y);
+  for(let i=0;i<n;i++){
+    const mx=cx+(i===0?-36:i===1?36:-52);       // 圍在桌子前
+    const my=cy+56;
+    const bob=Math.floor(t/220+i)%2?1:0;
+    rect(mx-5,my-2,10,3,'rgba(0,0,0,.2)');       // 影子
+    if(themeKey==='sanguo'){                     // 書僮
+      rect(mx-4,my-12+bob,8,12,a.body);          // 小長袍
+      rect(mx-4,my-8+bob,8,2,'#d9b25a');         // 腰帶
+      rect(mx-3,my-19+bob,6,7,'#f2c9a0');        // 頭
+      rect(mx-3,my-19+bob,6,2,a.hair);           // 髮
+      rect(mx-4,my-21+bob,2,3,a.hair);rect(mx+2,my-21+bob,2,3,a.hair); // 雙髻
+    }else{
+      rect(mx-3,my-5,2,5,'#39404f');rect(mx+1,my-5,2,5,'#39404f'); // 腿
+      rect(mx-4,my-12+bob,8,8,a.body);           // 身體
+      rect(mx-3,my-19+bob,6,7,'#f2c9a0');        // 頭
+      rect(mx-3,my-19+bob,6,2,a.hair);           // 髮
+    }
+    rect(mx-2,my-16+bob,1,1,'#26292e');rect(mx+1,my-16+bob,1,1,'#26292e'); // 眼
+  }
+  if(c.subagents>0){                             // 數量徽章
+    ctx.font='10px "Segoe UI"';
+    const txt='🤖×'+c.subagents,w=ctx.measureText(txt).width+8;
+    ctx.fillStyle='rgba(10,12,16,.72)';ctx.fillRect(cx-w/2,cy-72,w,13);
+    ctx.fillStyle='#9fd0ff';ctx.fillText(txt,cx-w/2+4,cy-62);
+  }
+}
+function drawChar(c,t){
+  const a=agentStyle(c);
+  const x=Math.round(c.x),y=Math.round(c.y);
+  const moving=Math.hypot(c.tx-c.x,c.ty-c.y)>2;
+  const step=Math.floor(t/140)%2===0;
+  const bob=(c.state==='WORKING'||c.state==='TOOL')&&Math.floor(t/280)%2?2:0;
+  ctx.save();
+  if(c.stale)ctx.globalAlpha=.5;                               // 資料凍結：半透明＋灰階
+  else if(c.state==='OFFLINE')ctx.globalAlpha=.35;
+  rect(x-8,y-3,16,5,'rgba(0,0,0,.25)');                       // 影子
+  if(themeKey==='sanguo'){                                     // 謀士造型
+    rect(x-4+(moving&&step?-2:0),y-2,4,2,'#2e241c');           // 鞋尖
+    rect(x+1+(moving&&!step?2:0),y-2,4,2,'#2e241c');
+    rect(x-8,y-28,16,26,a.body);                               // 長袍
+    rect(x-10,y-6,20,6,a.body);                                // 袍擺
+    rect(x-1,y-24,2,22,a.arm);                                 // 衣襟
+    rect(x-8,y-17,16,3,'#d9b25a');                             // 腰帶
+    rect(x-12,y-26+bob,4,11,a.arm);rect(x+8,y-26+bob,4,11,a.arm); // 寬袖
+    rect(x-7,y-41,14,13,'#f2c9a0');                            // 頭
+    rect(x-8,y-43,16,6,a.hair);                                // 綸巾
+    rect(x-3,y-47,6,5,a.hair);                                 // 頂髻
+    rect(x-8,y-37,2,5,a.hair);rect(x+6,y-37,2,5,a.hair);       // 側垂帶
+    rect(x-1,y-28,3,3,'#4a3a30');                              // 山羊鬍
+    if(c.state==='WORKING'||c.state==='TOOL'){                 // 羽扇
+      const fb=Math.floor(t/280)%2?2:0;
+      rect(x+11,y-34+fb,7,9,'#ece8dc');rect(x+12,y-36+fb,5,2,'#ece8dc');
+      rect(x+13,y-25+fb,2,5,'#8a6f4d');
+    }
+  }else{
+    rect(x-6,y-13,5,13-(moving&&step?4:0),'#39404f');          // 腿
+    rect(x+1,y-13,5,13-(moving&&!step?4:0),'#39404f');
+    rect(x-8,y-28,16,15,a.body);                               // 身體
+    rect(x-11,y-26+bob,3,9,a.arm);rect(x+8,y-26+bob,3,9,a.arm);// 手
+    rect(x-7,y-41,14,13,'#f2c9a0');                            // 頭
+    rect(x-7,y-41,14,5,a.hair);                                // 髮
+  }
+  if(c.state==='IDLE'||c.state==='OFFLINE'){                   // 閉眼
+    rect(x-4,y-33,3,1,'#333');rect(x+2,y-33,3,1,'#333');
+  }else{rect(x-4,y-34,3,3,'#26292e');rect(x+2,y-34,3,3,'#26292e');}
+  ctx.restore();
+  // 名牌（遠端加主機名；資料凍結時直接標在名牌上）
+  ctx.font='11px "Segoe UI"';
+  const host=(c.agent||'').includes('@')?(c.agent||'').split('@')[1]:null;
+  const base=host?c.project+' @'+host:c.project;
+  const name=c.stale?base+' ⏸ 停在 '+(c.last_activity||'?'):base,
+        w=ctx.measureText(name).width+14;
+  ctx.fillStyle=c.stale?'rgba(30,26,22,.82)':'rgba(10,12,16,.72)';
+  ctx.fillRect(x-w/2,y-58,w,15);
+  ctx.fillStyle=a.body;ctx.fillRect(x-w/2+4,y-53,5,5);
+  ctx.fillStyle=c.stale?'#c2a98f':'#e8ecf3';ctx.fillText(name,x-w/2+11,y-47);
+  // 狀態氣泡
+  if(c.state==='WAITING'){
+    const b=Math.abs(Math.sin(t/280))*6;
+    ctx.fillStyle='#f2cf4a';ctx.fillRect(x+10,y-66-b,16,16);
+    ctx.fillStyle='#3a3010';ctx.font='bold 13px sans-serif';ctx.fillText('!',x+16,y-53-b);
+  }else if(c.state==='STUCK'){
+    const s=Math.sin(t/50)*2;
+    ctx.fillStyle='#e05548';ctx.fillRect(x+10+s,y-68,22,16);
+    ctx.fillStyle='#fff';ctx.font='bold 12px sans-serif';ctx.fillText('?!',x+14+s,y-56);
+  }else if(c.state==='IDLE'){
+    ctx.fillStyle='rgba(200,210,230,.7)';ctx.font='11px sans-serif';
+    const ph=(t/500)%3;
+    ctx.fillText('z',x+10,y-52-ph*4);if(ph>1)ctx.fillText('z',x+15,y-58-ph*3);
+  }else if(c.state==='BACKGROUND'){                           // 不用等你：完成時會自己醒來
+    ctx.font='10px "Segoe UI"';
+    const n=c.background_pending,txt='⏳ 背景執行中'+(n>1?' ×'+n:''),
+          tw=ctx.measureText(txt).width+8;
+    ctx.fillStyle='rgba(10,12,16,.72)';ctx.fillRect(x-tw/2,y-74,tw,13);
+    ctx.fillStyle='#9fd0ff';ctx.fillText(txt,x-tw/2+4,y-64);
+  }
+  if(selected===c){ctx.strokeStyle='#7fb0ff';ctx.lineWidth=2;
+    ctx.strokeRect(x-14,y-64,28,68);}
+}
+let lastT=null;
+function fitText(txt,maxW){
+  ctx.font='11px "Segoe UI"';
+  if(ctx.measureText(txt).width<=maxW)return txt;
+  while(txt.length>1&&ctx.measureText(txt+'…').width>maxW)txt=txt.slice(0,-1);
+  return txt+'…';
+}
+function drawChatBubbles(t){
+  for(const g2 of chatGroups){
+    const speaker=Math.floor(t/3800)%g2.length;
+    for(let i=0;i<g2.length;i++){
+      const c=g2[i],x=Math.round(c.x),yTop=Math.round(c.y)-88;
+      if(i===speaker&&c.label){
+        const txt=fitText(c.label.replace(/[#*`>]/g,''),210);
+        const w=ctx.measureText(txt).width+16;
+        let bx=x-w/2;bx=Math.max(4,Math.min(W-w-4,bx));
+        ctx.fillStyle='rgba(248,246,238,.95)';
+        ctx.fillRect(bx,yTop,w,20);
+        ctx.beginPath();ctx.moveTo(x-5,yTop+20);ctx.lineTo(x+5,yTop+20);
+        ctx.lineTo(x,yTop+26);ctx.closePath();ctx.fill();
+        ctx.fillStyle='#2a2620';ctx.fillText(txt,bx+8,yTop+14);
+      }else{
+        // 其他成員：小小的「…」表示準備接話
+        const dots=1+Math.floor(t/600+i)%3;
+        ctx.fillStyle='rgba(248,246,238,.7)';
+        ctx.fillRect(x+12,yTop+4,22,14);
+        ctx.fillStyle='#4a443a';
+        for(let d=0;d<dots;d++)ctx.fillRect(x+16+d*5,yTop+12,3,3);
+      }
+    }
+  }
+}
+/* 有人在動、有人有狀態動畫、有討論氣泡才需要 60fps；否則降到 10fps。 */
+const IDLE_FRAME_MS=100;
+function animating(){
+  if(chatGroups.length)return true;
+  for(const c of chars.values()){
+    if(c.state!=='OFFLINE')return true;
+    if(Math.hypot(c.tx-c.x,c.ty-c.y)>2)return true;
+  }
+  return false;
+}
+let rafId=null,lastDraw=-1e9;
+function tick(t){
+  rafId=null;
+  if(document.visibilityState==='hidden')return;              // 分頁不可見就停迴圈
+  if(t-lastDraw<(animating()?0:IDLE_FRAME_MS)){               // 全靜止時省下這幀
+    rafId=requestAnimationFrame(tick);
+    return;
+  }
+  lastDraw=t;
+  const dt=lastT==null?16:Math.min(200,t-lastT);lastT=t;
+  const sp=140*dt/1000;                                       // px/sec，與幀率無關
+  for(const c of chars.values()){                             // 移動
+    const dx=c.tx-c.x,dy=c.ty-c.y,d=Math.hypot(dx,dy);
+    if(d>2){const mv=Math.min(sp,d);c.x+=dx/d*mv;c.y+=dy/d*mv;}
+  }
+  if(bakedKey!==themeKey)bakeRoom();
+  ctx.drawImage(staticCv,0,0);                                // 房間：一次 drawImage
+  drawWindowFx(t);
+  const occ={};                                               // 桌位對應
+  for(const c of chars.values())
+    if(c.zone==='WORK'&&c.slot<DESKS.length&&Math.hypot(c.tx-c.x,c.ty-c.y)<4)occ[c.slot]=c;
+  /* 深度排序：沒人坐的桌子要用「桌子自己的 y」一起排進來。留到角色都畫完才補畫，
+     角色走過空工作區時會被空桌子整個蓋掉。有人坐的桌子仍然緊接在該位角色之後畫，
+     維持「站在桌子後面」的遮擋關係，小夥伴再疊上去。 */
+  const order=[];
+  for(const c of chars.values())order.push({y:c.y,c:c,d:null});
+  DESKS.forEach((d,i)=>{if(!occ[i])order.push({y:d.y+6,c:null,d:d});});
+  order.sort((a,b)=>a.y-b.y||(a.c?0:1)-(b.c?0:1));            // 同 y 時角色先畫、桌子蓋上去
+  for(const o of order){
+    if(!o.c){drawDesk(o.d,null,t);continue;}
+    const c=o.c;
+    drawChar(c,t);
+    if(occ[c.slot]===c)drawDesk(DESKS[c.slot],c,t);
+    if(c.subagents>0&&(c.state==='WORKING'||c.state==='TOOL'))drawMinis(c,t);
+  }
+  drawChatBubbles(t);
+  rafId=requestAnimationFrame(tick);
+}
+function startLoop(){
+  if(rafId!==null||document.visibilityState==='hidden')return;
+  lastT=null;                                                 // 回到分頁時不要讓角色瞬移
+  rafId=requestAnimationFrame(tick);
+}
+document.addEventListener('visibilitychange',startLoop);
+cv.addEventListener('click',ev=>{
+  const r=cv.getBoundingClientRect();
+  const mx=(ev.clientX-r.left)*W/r.width,my=(ev.clientY-r.top)*H/r.height;
+  let best=null,bd=1e9;
+  for(const c of chars.values()){
+    const d=Math.hypot(c.x-mx,c.y-(my+28));
+    if(d<bd){bd=d;best=c;}
+  }
+  const info=document.getElementById('info');
+  if(best&&bd<60){selected=best;
+    info.innerHTML=`<span class="proj">${esc(best.emoji)} ${esc(best.project)}</span>`+
+      `<span style="color:#a9b3c6">${esc(best.agent)} ・ ${esc(best.state_zh)}</span>`+
+      (best.state==='OFFLINE'?` <button id="dismiss" onclick="hideSel()"
+         style="margin-left:12px;background:#3a3040;color:#e0a0a0;border:1px solid #5a4050;
+         border-radius:6px;font-size:12px;padding:3px 10px;cursor:pointer">🚪 讓他離開（下次有活動會自動回來）</button>`:'')+
+      (best.stale?`<div class="stale">⚠ ${esc(staleText(best))}</div>`:'')+
+      `<div class="dim">${esc(best.label||'')}</div>`+
+      (best.subagents&&(best.state==='WORKING'||best.state==='TOOL')?
+        `<div class="dim">🤖 ${Number(best.subagents)} 個 subagent 進行中</div>`:'')+
+      (best.title?`<div class="dim">📌 ${esc(best.title)}</div>`:'')+
+      (best.last_prompt?`<div class="dim">💬 ${esc(best.last_prompt)}</div>`:'');
+  }else{selected=null;info.textContent='點一下角色可以看他正在做什麼';}
+});
+/* 送出的是 logical_id；後端沒點頭就不要動本地狀態，不然下一輪角色又走回來。 */
+async function hideSel(){const c=selected;if(!c)return false;
+  const info=document.getElementById('info');
+  if(!await hideSession(c.logical_id||c.key,c.mtime)){
+    info.textContent='⚠ 沒能讓他離開，請確認 Watchdog service 還活著。';
+    return false;}
+  chars.delete(c.key);                                      // 明確離開不套用漏掃寬限
+  selected=null;
+  info.textContent='已請他離開辦公室；該專案下次有活動時會自動回來。';
+  refresh();
+  return true;}
+renderViewSwitch(document.getElementById('views'),'office');
+startWatchdog(render);startLoop();
+</script></body></html>

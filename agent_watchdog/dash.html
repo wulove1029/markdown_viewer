@@ -1,0 +1,146 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<title>AI Agent Watchdog</title>
+<style>
+body{background:#12141a;color:#dde2ea;font-family:'Segoe UI',system-ui,sans-serif;
+     margin:0;padding:24px;max-width:960px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}
+#meta{color:#8a93a5;font-size:12px;margin-bottom:18px}
+.card{background:#1c1f28;border:1px solid #2a2f3d;border-radius:10px;
+      padding:14px 18px;margin-bottom:10px}
+.card.attn{border-color:#c9a227;background:#242013}
+.card.stuck{border-color:#b3403c;background:#251616}
+.card.stale{border-style:dashed;border-color:#4a5062;background:#171a20;
+            filter:grayscale(.85);opacity:.72}
+.stale-note{color:#9aa3b5;font-size:12px;margin-top:6px}
+.row1{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.proj{font-weight:600;font-size:15px}
+.agent{font-size:12px;padding:1px 8px;border-radius:99px;background:#2a2f3d;color:#a9b3c6}
+.state{font-size:13px}
+.age{margin-left:auto;color:#8a93a5;font-size:12px}
+.label{color:#aeb7c8;font-size:13px;margin-top:6px}
+.title{color:#6f7a90;font-size:12px;margin-top:2px}
+#attn h2{font-size:14px;color:#e8c34a;margin:0 0 8px}
+#meta a{color:#7fb0ff;text-decoration:none}
+.hidebtn{margin-left:10px;background:#2a2f3d;color:#8a93a5;border:1px solid #3a4152;
+         border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer}
+.hidebtn:hover{background:#3a3040;color:#e0a0a0;border-color:#5a4050}
+.empty{color:#5c6577;text-align:center;padding:40px 0}
+/* 檢視切換（清單在 static/watchdog.js 的 VIEWS） */
+.views{display:inline-flex;flex-wrap:wrap;border:1px solid #2a2f3d;border-radius:7px;overflow:hidden;margin:4px 0 8px}
+.views a{padding:3px 12px;color:#a9b3c6;text-decoration:none;font-size:13px}
+.views a+a{border-left:1px solid #2a2f3d}
+.views a.current{background:#2a3550;color:#dde2ea;font-weight:600}
+</style></head><body>
+<h1>🐕 AI Agent Watchdog</h1>
+<nav id="views" class="views" aria-label="檢視切換"></nav>
+<div id="meta"></div>
+<div id="attn"><h2 id="attnHead" style="display:none">⚠ 需要你注意</h2><div id="attnList"></div></div>
+<div id="list"></div>
+<div id="empty" class="empty" style="display:none">目前沒有偵測到任何 AI session</div>
+<script src="/static/watchdog.js"></script>
+<script>
+'use strict';
+let cur=null;
+const attnHead=document.getElementById('attnHead'),
+      attnList=document.getElementById('attnList'),
+      listBox=document.getElementById('list'),
+      emptyBox=document.getElementById('empty');
+
+/* 卡片 HTML 刻意不含「最後活動」文字：age 每 5 秒都在動，抽出來單獨寫 textContent，
+   其他內容沒變的卡片就完全不用重建（選取中的文字、hover 中的按鈕都保得住）。
+   所有插值一律 esc()／Number()，包含 emoji、agent、state_zh 這些後端常數。 */
+function cardHtml(s,cls,hideable){
+  const state=String(s.state||''),stale=!!s.stale,subs=Number(s.subagents)||0,bgn=Number(s.background_pending)||0;
+  const klass=['card',cls,stale?'stale':''].filter(Boolean).join(' ');
+  return `<div class="${klass}"><div class="row1">
+  <span>${esc(s.emoji)}</span><span class="proj">${esc(s.project)}</span>
+  <span class="agent">${esc(s.agent)}</span><span class="state">${esc(s.state_zh)}</span>
+  ${subs>0&&(state==='WORKING'||state==='TOOL')?
+    `<span class="agent" title="進行中的 subagent">🤖 ×${subs}</span>`:''}
+  ${bgn>0&&state==='BACKGROUND'?
+    `<span class="agent" title="背景工作，完成時會自動喚醒">⏳ ×${bgn}</span>`:''}
+  <span class="age"></span>
+  ${state==='OFFLINE'&&hideable?`<button class="hidebtn" data-hide="${esc(s.logical_id)}"
+    data-mtime="${Number(s.mtime)}"
+    title="移除；該專案下次有活動會自動回來">✕ 移除</button>`:''}</div>
+  ${stale?`<div class="stale-note">⚠ ${esc(staleText(s))}</div>`:''}
+  ${s.label?`<div class="label">${esc(s.label)}</div>`:''}
+  ${s.title?`<div class="title">📌 ${esc(s.title)}</div>`:''}
+  ${s.last_prompt?`<div class="title">💬 ${esc(s.last_prompt)}</div>`:''}</div>`;
+}
+
+/* 以 key 做最小化更新：html 沒變就留著原本的節點，只補 age 文字，再調整順序。 */
+const boxNodes=new Map();
+function syncCards(box,items){
+  let nodes=boxNodes.get(box);
+  if(!nodes){nodes=new Map();boxNodes.set(box,nodes);}
+  const seen=new Set();
+  items.forEach((it,i)=>{
+    seen.add(it.key);
+    let n=nodes.get(it.key);
+    if(!n||n.html!==it.html){
+      const holder=document.createElement('div');
+      holder.innerHTML=it.html;
+      const el=holder.firstElementChild;
+      if(n&&n.el.parentNode===box)box.replaceChild(el,n.el);
+      n={el:el,html:it.html};
+      nodes.set(it.key,n);
+    }
+    n.el.querySelector('.age').textContent=it.age;
+    const at=box.children[i];
+    if(at!==n.el)box.insertBefore(n.el,at||null);
+  });
+  for(const [k,n] of nodes)if(!seen.has(k)){
+    if(n.el.parentNode===box)box.removeChild(n.el);
+    nodes.delete(k);
+  }
+}
+
+/* logical_id 理論上唯一；萬一後端給了重複的，加序號才不會讓卡片互相蓋掉。 */
+function keyer(){
+  const used=new Map();
+  return s=>{
+    const base=s.logical_id||s.file||'?';
+    const n=(used.get(base)||0)+1;
+    used.set(base,n);
+    return n>1?base+'#'+n:base;
+  };
+}
+function item(s,cls,hideable,key){
+  return {key:key,html:cardHtml(s,cls,hideable),age:'最後活動 '+fmtAge(s.age_s)};
+}
+
+function render(d){
+  cur=d;
+  setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新'}));   // 換頁改由上方的檢視切換（會保留 ?scheme=）
+  const attn=d.attention||[],key=keyer();
+  attnHead.style.display=attn.length?'':'none';
+  syncCards(attnList,attn.map(s=>item(s,s.state==='STUCK'?'stuck':'attn',false,key(s))));
+  const shown=new Set(attn.map(s=>s.logical_id||s.file));
+  const rest=d.sessions.filter(s=>!shown.has(s.logical_id||s.file));
+  syncCards(listBox,rest.map(s=>item(s,'',true,key(s))));
+  emptyBox.style.display=(attn.length||rest.length)?'none':'';
+}
+
+/* 移除只認 logical_id：後端每輪都會依 (state, age_s) 重排，用陣列 index 會殺錯人。
+   mtime 以最新快照為準，找不到才退回按鈕上那份。 */
+async function hideS(id,mtime){
+  const s=cur&&cur.sessions.find(x=>x.logical_id===id);
+  const when=s?s.mtime:mtime;
+  if(!id||!isFinite(Number(when)))return false;
+  if(!await hideSession(id,when)){
+    setMetaText('⚠ 移除失敗，請確認 Watchdog service 還活著');   // 失敗就不動畫面
+    return false;
+  }
+  refresh();
+  return true;
+}
+document.addEventListener('click',ev=>{
+  const t=ev.target,btn=t&&t.closest?t.closest('button[data-hide]'):null;
+  if(!btn)return;
+  ev.preventDefault();
+  hideS(btn.getAttribute('data-hide'),Number(btn.getAttribute('data-mtime')));
+});
+renderViewSwitch(document.getElementById('views'),'list');
+startWatchdog(render);
+</script></body></html>

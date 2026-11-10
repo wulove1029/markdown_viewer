@@ -1217,9 +1217,44 @@ def test_installer_ends_only_this_installations_bundled_copy():
     assert "Pos(" not in code
 
 
-def test_gitignore_keeps_private_sources_out_of_version_control():
-    lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
-    assert "/agent_watchdog/" in lines
+def _tracked_manifest() -> dict[str, str]:
+    """{relative path: sha256} as listed in the tracked bundle's MANIFEST.txt."""
+    listed = {}
+    for line in (ROOT / ab.BUNDLE_DIR_NAME / "MANIFEST.txt").read_text(
+            encoding="utf-8").splitlines():
+        fields = line.split("\t")
+        if len(fields) == 3 and len(fields[2]) == 64:
+            listed[fields[0]] = fields[2]
+    return listed
+
+
+def test_tracked_bundle_is_exactly_what_its_manifest_lists():
+    import hashlib
+
+    folder = ROOT / ab.BUNDLE_DIR_NAME
+    listed = _tracked_manifest()
+    assert "aiwatch.py" in listed
+    present = sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*")
+                     if p.is_file() and "__pycache__" not in p.parts)
+    assert present == sorted([*listed, "MANIFEST.txt"])
+    for name, digest in listed.items():
+        assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, name
+
+
+def test_tracked_bundle_is_what_packaging_ships():
+    source = pp.agent_bundle_source(ROOT, {})
+    assert source == ROOT / ab.BUNDLE_DIR_NAME
+    shipped = sorted(Path(src).relative_to(source).as_posix()
+                     for src, _dest in pp.agent_bundle_datas(source))
+    assert shipped == sorted(_tracked_manifest())
+
+
+def test_tracked_bundle_is_never_converted_on_checkout():
+    # A converted line ending would no longer match the manifest's hashes.
+    lines = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert "agent_watchdog/** -text" in lines
+    ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert not any(line.strip("/") == ab.BUNDLE_DIR_NAME for line in ignored)
 
 
 # --- 6. the hidden panel's page is frozen -------------------------------------------
