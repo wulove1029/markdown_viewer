@@ -7,8 +7,10 @@ at (and ends) a child this test started itself.
 
 import json
 import os
+import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -62,21 +64,28 @@ class FakeProcesses(st.Processes):
 
 
 class FakeHttp:
-    def __init__(self, processes, boot=BOOT, obeys=True, accepts=True):
+    """The recorded service.  With *leaves* it no longer answers once it has
+    obeyed a shutdown request; by default it keeps answering (only its
+    process goes away)."""
+
+    def __init__(self, processes, boot=BOOT, obeys=True, accepts=True, leaves=False):
         self.processes = processes
         self.boot = boot
         self.obeys = obeys
         self.accepts = accepts
+        self.leaves = leaves
+        self.gone = False
         self.calls = []
 
     def boot_id(self, base):
         self.calls.append(("boot_id", base))
-        return self.boot
+        return None if self.gone else self.boot
 
     def shutdown(self, base):
         self.calls.append(("shutdown", base))
         if self.accepts and self.obeys:
             self.processes.table.pop(PID, None)
+            self.gone = self.leaves
         return self.accepts
 
 
@@ -106,13 +115,14 @@ def write(home, content):
     return path
 
 
-def run(home, processes=None, http=None, own_exe=OWN, own_pid=1):
+def run(home, processes=None, http=None, own_exe=OWN, own_pid=1, now=None):
     processes = FakeProcesses() if processes is None else processes
     http = FakeHttp(processes) if http is None else http
     clock = Clock()
+    extra = {} if now is None else {"now": now}
     code = st.stop_embedded(home, own_exe=own_exe, http=http, processes=processes,
                             clock=clock, sleep=clock.sleep, own_pid=own_pid,
-                            embedded_command=st.first_argument_is_flag)
+                            embedded_command=st.first_argument_is_flag, **extra)
     return code, processes, http, clock
 
 
@@ -145,33 +155,108 @@ def test_only_embedded_true_is_ever_touched(tmp_path, embedded):
     assert PID in processes.table
 
 
-@pytest.mark.parametrize("pid", [..., None, "4321", True, 0, -5, 4321.0, 2**40])
-def test_unusable_pid_is_a_noop(tmp_path, pid):
-    write(tmp_path, endpoint(pid=pid))
-    code, processes, http, _ = run(tmp_path)
-    assert code == st.STOPPED and http.calls == [] and processes.kills == []
-
-
 def test_never_stops_itself(tmp_path):
     write(tmp_path, endpoint())
     code, processes, http, _ = run(tmp_path, own_pid=PID)
     assert code == st.STOPPED and http.calls == [] and processes.kills == []
 
 
-def test_stale_record_of_a_dead_process_is_a_noop(tmp_path):
-    write(tmp_path, endpoint())
-    processes = FakeProcesses()
-    processes.table.clear()
-    code, _, http, _ = run(tmp_path, processes)
-    assert code == st.STOPPED and http.calls == [] and processes.kills == []
+# --- a record that names no usable process ---------------------------------------
+#
+# No valid pid, a process that is gone, or a pid now owned by a younger
+# process.  Nothing is ever ended by force then; only the service at the
+# recorded address, if it still answers with the recorded boot_id, is asked
+# to leave.  The process table always holds PID as this application's own
+# Watchdog, so a wrong use of the pid would end it.
+
+NO_PROCESS_PIDS = {"pid-missing": ..., "pid-null": None, "pid-string": "4321",
+                   "pid-bool": True, "pid-zero": 0, "pid-negative": -5,
+                   "pid-float": 4321.0, "pid-huge": 2**40}
+NO_PROCESS = [*NO_PROCESS_PIDS, "dead", "reused"]
 
 
-def test_reused_pid_of_a_younger_process_is_left_alone(tmp_path):
-    write(tmp_path, endpoint(started_at=1002.5))
-    processes = FakeProcesses(created=1002.5 + st.START_SLACK_S + 60)  # same exe!
+def no_process(kind, **changes):
+    """(record, process table) for a record of the *kind* above."""
+    if kind in NO_PROCESS_PIDS:
+        return endpoint(pid=NO_PROCESS_PIDS[kind], **changes), FakeProcesses()
+    if kind == "dead":
+        processes = FakeProcesses()
+        processes.table.clear()
+        return endpoint(**changes), processes
+    # the pid now belongs to a younger process, with the very same executable
+    changes.setdefault("started_at", 1002.5)
+    return endpoint(**changes), FakeProcesses(created=1002.5 + st.START_SLACK_S + 60)
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+def test_no_usable_process_and_nothing_answering_is_a_noop(tmp_path, kind):
+    record, processes = no_process(kind)
+    write(tmp_path, record)
+    alive = PID in processes.table
+    code, _, http, _ = run(tmp_path, processes, FakeHttp(processes, boot=None))
+    assert code == st.STOPPED
+    assert http.calls == [("boot_id", URL)]  # no shutdown request
+    assert processes.kills == [] and (PID in processes.table) == alive
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+def test_no_usable_process_but_its_service_answers_it_is_asked_to_leave(tmp_path, kind):
+    record, processes = no_process(kind)
+    write(tmp_path, record)
+    code, _, http, _ = run(tmp_path, processes, FakeHttp(processes, leaves=True))
+    assert http.calls[:2] == [("boot_id", URL), ("shutdown", URL)]
+    # stopped means: that boot_id no longer answers there
+    assert http.calls[2:] == [("boot_id", URL)]
+    assert code == st.STOPPED and processes.kills == []
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+@pytest.mark.parametrize("http_kwargs", [{"obeys": False}, {"accepts": False}],
+                         ids=["ignores-shutdown", "refuses-shutdown"])
+def test_no_usable_process_and_a_service_that_stays_is_reported(
+        tmp_path, kind, http_kwargs):
+    record, processes = no_process(kind)
+    write(tmp_path, record)
+    alive = PID in processes.table
+    code, _, http, clock = run(tmp_path, processes, FakeHttp(processes, **http_kwargs))
+    assert code == st.FAILED
+    assert http.calls.count(("shutdown", URL)) == 1
+    assert clock.now >= st.EXIT_WAIT_S  # it was waited for until the end
+    assert processes.kills == [] and (PID in processes.table) == alive
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+def test_no_usable_process_and_another_service_is_never_asked(tmp_path, kind):
+    record, processes = no_process(kind)
+    write(tmp_path, record)
+    alive = PID in processes.table
+    http = FakeHttp(processes, boot="another-boot")
+    code, _, _, _ = run(tmp_path, processes, http)
+    assert http.calls == [("boot_id", URL)]
+    assert code == st.STOPPED  # nothing of ours answers there
+    assert processes.kills == [] and (PID in processes.table) == alive
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+def test_no_usable_process_and_an_unclear_answer_is_reported(tmp_path, kind):
+    record, processes = no_process(kind)
+    write(tmp_path, record)
+    http = FakeHttp(processes, boot=st.NO_REPLY)
+    code, _, _, _ = run(tmp_path, processes, http)
+    assert http.calls == [("boot_id", URL)]  # never asked to leave
+    assert code == st.FAILED and processes.kills == []
+
+
+@pytest.mark.parametrize("kind", NO_PROCESS)
+@pytest.mark.parametrize("changes", [{"boot_id": ...}, {"url": "http://192.168.1.5:18080"}],
+                         ids=["no-boot-id", "not-loopback"])
+def test_no_usable_process_and_no_address_to_ask_is_a_noop(tmp_path, kind, changes):
+    record, processes = no_process(kind, **changes)
+    write(tmp_path, record)
+    alive = PID in processes.table
     code, _, http, _ = run(tmp_path, processes)
-    assert code == st.STOPPED and http.calls == [] and processes.kills == []
-    assert PID in processes.table
+    assert code == st.STOPPED and http.calls == []
+    assert processes.kills == [] and (PID in processes.table) == alive
 
 
 def test_endpoint_file_is_only_read(tmp_path):
@@ -210,6 +295,36 @@ def test_only_a_loopback_address_is_ever_contacted(tmp_path, url):
 @pytest.mark.parametrize("url", ["http://127.0.0.1:18080", "http://localhost:18080/"])
 def test_loopback_addresses_are_accepted(url):
     assert st.is_loopback_url(url)
+
+
+def _digits(zero, text="18080"):
+    """*text* written with the digits whose zero is the code point *zero*."""
+    return "".join(chr(zero + int(digit)) for digit in text)
+
+
+@pytest.mark.parametrize("port", [
+    _digits(0xFF10), _digits(0x0660), _digits(0x0966), _digits(0x1D7CE),
+    "1" + _digits(0xFF10, "8080"),
+], ids=["full-width", "arabic-indic", "devanagari", "mathematical-bold", "mixed"])
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+def test_a_port_counts_only_in_ascii_digits(tmp_path, host, port):
+    """int() reads every kind of decimal digit, and so did a "\\d" pattern."""
+    url = f"http://{host}:{port}"
+    assert not st.is_loopback_url(url) and st.connect_target(url) is None
+    write(tmp_path, endpoint(url=url))
+    _, _, http, _ = run(tmp_path)
+    assert http.calls == []
+
+
+def test_connections_always_go_to_127_0_0_1():
+    """"localhost" would be resolved to ::1 first, and that attempt waited for."""
+    assert st.connect_target("http://localhost:18080") == (
+        "127.0.0.1", 18080, "localhost:18080")
+    assert st.connect_target("http://127.0.0.1:18080/") == (
+        "127.0.0.1", 18080, "127.0.0.1:18080")
+    for base in ("http://[::1]:18080", "http://0.0.0.0:18080", "http://localhost:0",
+                 "http://localhost", "https://localhost:18080", None):
+        assert st.connect_target(base) is None
 
 
 @pytest.mark.parametrize("url", [
@@ -337,6 +452,37 @@ def test_no_force_without_a_usable_start_time(tmp_path, started, obeys):
     assert code == st.FAILED
 
 
+WALL = 2000.0  # the wall clock of the start-time tests
+
+
+@pytest.mark.parametrize("started", [
+    float("nan"), float("inf"), float("-inf"), 1e308, 10**400,
+    WALL + st.START_SLACK_S + 1,
+], ids=["nan", "infinity", "minus-infinity", "huge", "beyond-float", "future"])
+@pytest.mark.parametrize("obeys", [False, None], ids=["ignores-shutdown", "not-asked"])
+def test_no_force_with_a_start_time_that_proves_nothing(tmp_path, started, obeys):
+    """NaN is neither older nor younger than anything, and a start in the
+    future is "older" than every process: either would let a reused pid pass
+    as the recorded process.  (json reads NaN and Infinity back.)"""
+    record = endpoint(started_at=started)
+    if obeys is None:
+        record.pop("boot_id")  # the service is never asked
+    write(tmp_path, record)
+    processes = FakeProcesses(created=1000.0)
+    http = FakeHttp(processes, obeys=False)
+    code, _, _, _ = run(tmp_path, processes, http, now=lambda: WALL)
+    assert processes.kills == [] and PID in processes.table
+    assert code == st.FAILED
+
+
+def test_start_time_within_the_slack_of_now_still_proves_the_age(tmp_path):
+    write(tmp_path, endpoint(started_at=WALL + st.START_SLACK_S - 1))
+    processes = FakeProcesses(created=1000.0)
+    http = FakeHttp(processes, obeys=False)
+    code, _, _, _ = run(tmp_path, processes, http, now=lambda: WALL)
+    assert processes.kills == [PID] and code == st.STOPPED
+
+
 def test_no_force_when_the_process_start_time_is_unknown(tmp_path):
     write(tmp_path, endpoint())
     processes = FakeProcesses(created=None)
@@ -459,13 +605,201 @@ def test_main_swallows_everything(monkeypatch):
 
 
 def test_real_http_helper_fails_quietly_on_a_dead_port():
-    import socket
-
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         base = f"http://127.0.0.1:{sock.getsockname()[1]}"
     http = st.Http()
     assert http.boot_id(base) is None and http.shutdown(base) is False
+
+
+# --- real requests, to a server of this test only ------------------------------------
+
+DRIP_GAP_S = 0.05
+#: Far beyond any bound: a stop that waited for such a reply would fail.
+DRIP_FOR_S = 30.0
+
+
+def http_reply(body, status="200 OK"):
+    head = (f"HTTP/1.1 {status}\r\nContent-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n")
+    return head.encode("ascii") + body
+
+
+BOOT_REPLY = http_reply(json.dumps({"boot_id": BOOT}).encode("ascii"))
+#: A reply whose header never ends, and one whose body never ends.
+DRIP_HEAD = ("drip", b"HTTP/1.1 200 OK\r\nX-Pad: ")
+DRIP_BODY = ("drip", b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+
+
+class LoopbackServer:
+    """A raw HTTP server on a random 127.0.0.1 port, for one test.
+
+    ``reply(index, request_line)`` decides the answer to each connection in
+    turn: bytes are sent at once; a DRIP_* reply sends its head and then one
+    byte every DRIP_GAP_S, for DRIP_FOR_S or until the server is closed.
+    """
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.requests = []  # (request line without the version, Host header)
+        self._count = 0
+        self._closed = threading.Event()
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen(8)
+        self._sock.settimeout(0.1)
+        self.url = f"http://127.0.0.1:{self._sock.getsockname()[1]}"
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self):
+        while not self._closed.is_set():
+            try:
+                conn, _ = self._sock.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            index, self._count = self._count, self._count + 1
+            threading.Thread(target=self._handle, args=(conn, index), daemon=True).start()
+
+    def _handle(self, conn, index):
+        with conn:
+            try:
+                conn.settimeout(5)
+                data = b""
+                while b"\r\n\r\n" not in data:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        return
+                    data += chunk
+                lines = data.split(b"\r\n\r\n", 1)[0].decode("latin-1").split("\r\n")
+                host = next((line.split(":", 1)[1].strip() for line in lines[1:]
+                             if line.lower().startswith("host:")), None)
+                self.requests.append((lines[0].rsplit(" ", 1)[0], host))
+                answer = self.reply(index, lines[0])
+                if isinstance(answer, tuple):
+                    conn.sendall(answer[1])
+                    end = time.monotonic() + DRIP_FOR_S
+                    while time.monotonic() < end and not self._closed.wait(DRIP_GAP_S):
+                        conn.sendall(b"a")
+                else:
+                    conn.sendall(answer)
+            except OSError:
+                pass  # the client gave up
+
+    def close(self):
+        self._closed.set()
+        self._sock.close()
+        self._thread.join(5)
+
+
+@pytest.fixture
+def loopback_server():
+    servers = []
+
+    def start(reply):
+        server = LoopbackServer(reply)
+        servers.append(server)
+        return server
+
+    yield start
+    for server in servers:
+        server.close()
+
+
+@pytest.mark.parametrize("drip", [DRIP_HEAD, DRIP_BODY], ids=["head", "body"])
+@pytest.mark.parametrize("kind", ["process", "no-process"])
+def test_a_slowly_answering_service_cannot_stretch_the_stop(
+        tmp_path, loopback_server, drip, kind):
+    """It confirms its boot_id at once and then sends every other reply one
+    byte at a time: a timeout per socket operation never runs out on that."""
+    server = loopback_server(lambda index, line: BOOT_REPLY if index == 0 else drip)
+    changes = {"url": server.url}
+    if kind == "no-process":
+        changes["pid"] = None
+    write(tmp_path, endpoint(**changes))
+    processes = FakeProcesses(dies_on_kill=False)  # never goes: the longest way
+    started = time.monotonic()
+    code = st.stop_embedded(tmp_path, own_exe=OWN, processes=processes, own_pid=1,
+                            embedded_command=st.first_argument_is_flag)
+    elapsed = time.monotonic() - started
+    assert elapsed <= st.MAX_TOTAL_S + 0.5
+    assert code == st.FAILED
+    assert [line for line, _ in server.requests[:2]] == [
+        "GET " + st.EVENTS_PATH, "POST " + st.SHUTDOWN_PATH]
+    assert processes.kills == ([PID] if kind == "process" else [])
+
+
+@pytest.mark.parametrize("drip", [DRIP_HEAD, DRIP_BODY], ids=["head", "body"])
+def test_one_request_ends_at_its_deadline_however_slow_the_reply(loopback_server, drip):
+    server = loopback_server(lambda index, line: drip)
+    started = time.monotonic()
+    assert st.Http().boot_id(server.url) is st.NO_REPLY
+    assert time.monotonic() - started < st.HTTP_TIMEOUT_S + 0.5
+    # the deadline of the whole stop wins over the time of one request
+    started = time.monotonic()
+    assert st.Http(deadline=time.monotonic() + 0.2).shutdown(server.url) is False
+    assert time.monotonic() - started < 0.2 + 0.4
+    # and once it has passed nothing is sent at all
+    count = len(server.requests)
+    assert st.Http(deadline=time.monotonic() - 1).boot_id(server.url) is st.NO_REPLY
+    assert st.Http(deadline=time.monotonic() - 1).shutdown(server.url) is False
+    time.sleep(0.2)
+    assert len(server.requests) == count
+
+
+def test_an_oversized_reply_is_no_answer(loopback_server):
+    body = json.dumps({"boot_id": BOOT}).encode("ascii")
+    exact = body + b" " * (st.EVENTS_MAX_BYTES - len(body))  # still valid JSON
+    replies = [http_reply(exact), http_reply(exact + b" "),
+               http_reply(b"{}" + b" " * st.SHUTDOWN_MAX_BYTES)]
+    server = loopback_server(lambda index, line: replies[index])
+    http = st.Http()
+    assert http.boot_id(server.url) == BOOT              # exactly at the limit
+    assert http.boot_id(server.url) is st.NO_REPLY       # one byte more
+    assert http.shutdown(server.url) is False            # a confirmation that long
+    assert len(server.requests) == 3
+
+
+def test_localhost_is_reached_at_127_0_0_1_without_trying_ipv6(loopback_server):
+    server = loopback_server(lambda index, line: BOOT_REPLY)
+    port = server.url.rsplit(":", 1)[1]
+    started = time.monotonic()
+    assert st.Http().boot_id(f"http://localhost:{port}") == BOOT
+    assert time.monotonic() - started < 0.5  # no attempt at ::1 waited for first
+    assert server.requests == [("GET " + st.EVENTS_PATH, f"localhost:{port}")]
+
+
+def test_a_data_folder_that_does_not_answer_is_given_up_on(tmp_path, monkeypatch):
+    release = threading.Event()
+    monkeypatch.setattr(st, "MAX_TOTAL_S", 0.3)
+    monkeypatch.setattr(st, "read_endpoint",
+                        lambda home: release.wait(DRIP_FOR_S) and endpoint())
+    processes = FakeProcesses()
+    http = FakeHttp(processes)
+    started = time.monotonic()
+    try:
+        code = st.stop_embedded(tmp_path, own_exe=OWN, http=http, processes=processes,
+                                own_pid=1, embedded_command=st.first_argument_is_flag)
+        assert time.monotonic() - started < 0.3 + 0.5
+    finally:
+        release.set()
+    assert code == st.FAILED and http.calls == [] and processes.kills == []
+
+
+def test_main_gives_up_on_a_stop_that_hangs(monkeypatch):
+    """The installer waits for --agent-watchdog-stop without a limit of its own."""
+    release = threading.Event()
+    monkeypatch.setattr(st, "MAX_TOTAL_S", 0.2)
+    monkeypatch.setattr(st, "stop_embedded",
+                        lambda: st.STOPPED if release.wait(DRIP_FOR_S) else st.STOPPED)
+    started = time.monotonic()
+    try:
+        assert st.main() == st.FAILED
+        assert time.monotonic() - started < 0.2 + st.MAIN_GRACE_S + 0.5
+    finally:
+        release.set()
 
 
 # --- the real process table, on a child of this test only -----------------------------

@@ -30,6 +30,7 @@ import ast
 import importlib
 import json
 import os
+import re
 import runpy
 import sys
 import traceback
@@ -181,6 +182,10 @@ def _is_port(text: str) -> bool:
 
 
 def _is_seconds(text: str) -> bool:
+    # As strict as _is_port: float() alone would also take full-width digits
+    # and digit-group underscores ("1_0").
+    if not text.isascii() or "_" in text:
+        return False
     try:
         value = float(text)
     except ValueError:
@@ -275,8 +280,19 @@ class LastError:
     at: float | None = None
 
 
+#: What is dropped from reported text: the C0 and C1 control characters that
+#: are not white space (white space becomes a plain space, NEL U+0085
+#: included), DEL, the marks that change the direction text is shown in, and
+#: lone surrogates (a JSON "\ud800" escape), which no text widget can show.
+_UNPRINTABLE = re.compile(
+    "[\x00-\x08\x0e-\x1b\x7f-\x84\x86-\x9f"
+    "\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069"
+    "\ud800-\udfff]")
+
+
 def _one_line(value: str) -> str:
-    return " ".join(value.split())[:LAST_ERROR_MAX_TEXT]
+    """*value* on one line, without control or text-direction characters."""
+    return " ".join(_UNPRINTABLE.sub("", value).split())[:LAST_ERROR_MAX_TEXT]
 
 
 def read_last_error(home: Path) -> LastError | None:

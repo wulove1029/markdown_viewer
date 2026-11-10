@@ -1237,6 +1237,8 @@ def test_window_hands_the_theme_to_the_agents_dock(qapp, tmp_path, monkeypatch):
     iso = lambda *a, **k: QSettings(str(ini), QSettings.Format.IniFormat)  # noqa: E731
     monkeypatch.setattr(window_mod, "QSettings", iso)
     monkeypatch.setattr(session_state, "QSettings", iso)
+    # Never the real settings: they belong to the viewer installed on this machine.
+    monkeypatch.setattr(settings_store, "settings", iso)
     store = settings_store.settings()
     store.setValue("watchdog/enabled", False)
     store.sync()

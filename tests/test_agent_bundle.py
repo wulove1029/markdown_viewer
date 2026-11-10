@@ -342,6 +342,8 @@ REFUSED_ARGS = [
     ["--idle-exit", "-1"], ["--idle-exit", "nan"], ["--idle-exit", "inf"],
     ["--idle-exit", "--stop"], ["serve"], ["-h"], ["--help"], [""], ["--serve="],
     ["--SERVE"], ["--background=1"], [None], ["--port", None],
+    ["--idle-exit", "１０"], ["--idle-exit=１０"], ["--idle-exit", "1_0"],
+    ["--idle-exit=1_0"], ["--idle-exit", "١٠"],
 ]
 
 
@@ -353,6 +355,21 @@ def test_serving_arguments_are_allowed(args):
 @pytest.mark.parametrize("args", REFUSED_ARGS, ids=lambda a: " ".join(map(str, a)) or "empty")
 def test_every_other_argument_is_refused(args):
     assert not ab.arguments_allowed(args)
+
+
+@pytest.mark.parametrize("text", [
+    "１０", "١٠", "1０", "1_0", "1_000", "0.5_0", "1e1_0",
+], ids=["full-width", "arabic-indic", "mixed", "underscore", "grouped", "fraction",
+        "exponent"])
+def test_seconds_are_plain_ascii_without_underscores(text):
+    """float() takes these too; the port check never did."""
+    assert float(text) >= 0  # what made them pass before
+    assert not ab._is_seconds(text)
+
+
+@pytest.mark.parametrize("text", ["0", "10", "0.5", "600", "1e3"])
+def test_plain_seconds_are_still_accepted(text):
+    assert ab._is_seconds(text)
 
 
 def test_refused_arguments_run_nothing(bundle, in_process, monkeypatch, tmp_path):
@@ -651,6 +668,36 @@ def test_last_error_as_a_directory_is_ignored(tmp_path):
     assert ab.read_last_error(tmp_path) is None
 
 
+#: Dropped from reported text: C0 and C1 controls that are not white space,
+#: DEL, every mark that changes the text direction, and lone surrogates.
+UNPRINTABLE = ([chr(c) for c in range(0x00, 0x09)] + [chr(c) for c in range(0x0E, 0x1C)]
+               + [chr(c) for c in range(0x7F, 0xA0) if c != 0x85]
+               + ["\u061c", "\u200e", "\u200f"]
+               + [chr(c) for c in range(0x202A, 0x202F)]
+               + [chr(c) for c in range(0x2066, 0x206A)]
+               + ["\ud800", "\udbff", "\udc00", "\udfff"])
+
+
+@pytest.mark.parametrize("char", UNPRINTABLE, ids=lambda c: f"U+{ord(c):04X}")
+def test_reported_text_drops_control_and_direction_characters(tmp_path, char):
+    report = _reported(tmp_path, code=f"c{char}d", message=f"port{char}8787",
+                       watchdog_version=f"2{char}.1")
+    assert (report.code, report.message, report.version) == ("cd", "port8787", "2.1")
+
+
+def test_reported_text_keeps_what_can_be_shown(tmp_path):
+    """White space of any kind (NEL and the line separators included) becomes
+    one space; everything printable stays, astral characters too."""
+    message = "a\tb\nc\r\nd\x0be\x0cf\x1cg\x1fh\x85i j k　l 中文 \U0001f600"
+    report = _reported(tmp_path, message=message)
+    assert report.message == "a b c d e f g h i j k l 中文 \U0001f600"
+
+
+def test_reversed_text_cannot_disguise_a_report(tmp_path):
+    report = _reported(tmp_path, message="\u202eexe.lmth\u202c ok \u2067x\u2069")
+    assert report.message == "exe.lmth ok x"
+
+
 def test_diagnostics_include_what_the_watchdog_reported(qapp, tmp_path, make, bundle):
     home = tmp_path / "home"
     home.mkdir()
@@ -916,6 +963,86 @@ def test_info_text_from_a_real_watcher_using_the_bundle(qapp, tmp_path, make, bu
         host.deleteLater()
         qapp.processEvents()
     assert text == "Agent 監看尚未就緒\n\n正在啟動內建的 Agent 監看，等待回應中…\n"
+
+
+#: What a report may carry: a path or a token without a single space.
+LONG_RUN = "x" * 5000
+
+
+def _reporting_watcher(diagnostics):
+    return _failed_watcher(autostart_message="內建的 Agent 監看啟動失敗。", uses_bundled=True,
+                           bundled_available=True, autostart_diagnostics=diagnostics)
+
+
+def _docked_panel(qapp, watcher):
+    """The panel docked in a main window the way the application docks it."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+
+    host, dock = _panel_dock(watcher)
+    host.setCentralWidget(QWidget())
+    host.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+    dock.show()
+    qapp.processEvents()
+    return host, dock
+
+
+def _min_widths(qapp, host, dock):
+    qapp.processEvents()
+    return dock.minimumSizeHint().width(), host.minimumSizeHint().width()
+
+
+def test_long_diagnostics_never_widen_the_panel_or_the_window(qapp):
+    """A label makes an unbreakable run its minimum width: the dock, and with
+    it the main window, could no longer be narrower than the whole run."""
+    watcher = _reporting_watcher("原因：short")
+    host, dock = _docked_panel(qapp, watcher)
+    try:
+        dock._show_info()
+        before = _min_widths(qapp, host, dock)
+        watcher.autostart_diagnostics = "原因：" + LONG_RUN
+        dock._show_info()
+        assert LONG_RUN in dock._info_label.text()
+        assert _min_widths(qapp, host, dock) == before
+        assert before[1] < 1000
+        host.resize(700, 500)
+        qapp.processEvents()
+        assert host.width() == 700 and dock.width() < 700
+        # the run is wrapped inside the panel instead (and scrolls when tall)
+        label = dock._info_label
+        assert label.sizeHint().height() > 5 * label.fontMetrics().lineSpacing()
+        assert label.minimumSizeHint().height() <= 3 * label.fontMetrics().lineSpacing()
+    finally:
+        dock.shutdown()
+        host.close()
+        host.deleteLater()
+        qapp.processEvents()
+
+
+def test_reported_text_is_shown_as_plain_text(qapp):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    diagnostics = ("原因：<b>bold</b> <a href=\"https://example.com/\">link</a>"
+                   " <img src=\"file:///c:/x.png\"> &amp;")
+    host, dock = _docked_panel(qapp, _reporting_watcher(diagnostics))
+    try:
+        dock._show_info()
+        label = dock._info_label
+        assert label.textFormat() == Qt.TextFormat.PlainText
+        assert diagnostics in label.text()
+        assert diagnostics in label.document().toPlainText()  # nothing was parsed
+        html = label.document().toHtml()
+        assert "&lt;b&gt;bold&lt;/b&gt;" in html and "&amp;amp;" in html
+        assert "<a " not in html and "<img " not in html and "font-weight:700" not in html
+        QApplication.clipboard().clear()
+        dock._copy_diagnostics.click()
+        assert QApplication.clipboard().text() == diagnostics
+    finally:
+        dock.shutdown()
+        host.close()
+        host.deleteLater()
+        qapp.processEvents()
 
 
 # --- 5. packaging -------------------------------------------------------------------

@@ -50,23 +50,35 @@ def agent_bundle_source(root, environ=None):
     return source if (source / AGENT_BUNDLE_SCRIPT).is_file() else None
 
 
+def _agent_link(path):
+    """True for a symbolic link or a directory junction: what it points to
+    may lie outside the directory, so it is never followed or shipped."""
+    import os
+
+    is_junction = getattr(os.path, "isjunction", None)  # Python 3.12+
+    return os.path.islink(path) or bool(is_junction and is_junction(path))
+
+
 def _agent_bundle_files(source):
     import os
     from pathlib import Path
 
     source = Path(source)
     for entry in sorted(source.iterdir(), key=lambda p: p.name):
-        if (entry.is_file() and not _agent_hidden(entry.name)
+        if (entry.is_file() and not _agent_link(entry)
+                and not _agent_hidden(entry.name)
                 and entry.suffix.lower() in _AGENT_TOP_SUFFIXES):
             yield entry
     static = source / _AGENT_STATIC_DIR
-    if not static.is_dir():
+    if not static.is_dir() or _agent_link(static):
         return
     for folder, dirs, files in os.walk(static):
-        dirs[:] = sorted(d for d in dirs if not _agent_hidden(d))
+        dirs[:] = sorted(d for d in dirs if not _agent_hidden(d)
+                         and not _agent_link(os.path.join(folder, d)))
         for name in sorted(files):
-            if not _agent_hidden(name):
-                yield Path(folder) / name
+            path = Path(folder) / name
+            if not _agent_hidden(name) and not _agent_link(path):
+                yield path
 
 
 def agent_bundle_datas(source):

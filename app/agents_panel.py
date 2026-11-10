@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import math
+
 import shiboken6
-from PySide6.QtCore import QRect, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtCore import QRect, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QTextOption
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
+    QFrame,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -172,6 +177,71 @@ class _DashboardPage(QWebEnginePage):
         return False
 
 
+class _InfoText(QTextEdit):
+    """The help page's text: looks like a word-wrapped label, but never asks
+    for more width than it is given.
+
+    Part of the text comes from outside the application (what the Watchdog
+    reported about a failed start), so it is shown as plain text only, and a
+    long run without spaces is broken wherever the line ends: a label would
+    make that run its minimum width and push the dock and the main window
+    apart.  Text that does not fit the height scrolls.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("agentInfoText")
+        self.setReadOnly(True)
+        self.setAcceptRichText(False)
+        self.setUndoRedoEnabled(False)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.document().setDocumentMargin(0)
+        self.viewport().setAutoFillBackground(False)
+        # The application style sheet draws every text box as an input field.
+        self.setStyleSheet(
+            "QTextEdit#agentInfoText, QTextEdit#agentInfoText:hover,"
+            " QTextEdit#agentInfoText:focus { background: transparent;"
+            " border: none; padding: 0; min-height: 0; }")
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._measured: tuple[int, int] | None = None  # (width, text height)
+
+    def setText(self, text: str) -> None:  # noqa: N802
+        self.setPlainText(text)  # never interpreted as rich text
+        self._measured = None
+        self.updateGeometry()
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def textFormat(self) -> Qt.TextFormat:  # noqa: N802
+        return Qt.TextFormat.PlainText
+
+    def _text_height(self) -> int:
+        width = max(self.width(), 1)
+        if self._measured is None or self._measured[0] != width:
+            document = self.document().clone()
+            document.setTextWidth(width)
+            self._measured = (width, math.ceil(document.size().height()))
+            document.deleteLater()
+        return self._measured[1]
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(0, self._text_height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        # A few lines stay visible; the rest scrolls.
+        return QSize(0, min(self._text_height(), 3 * self.fontMetrics().lineSpacing()))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self.updateGeometry()  # the height the text needs follows the width
+
+
 class AgentsDock(QDockWidget):
     def __init__(self, parent: QWidget | None = None, theme: Theme = LIGHT) -> None:
         super().__init__("AI Agents", parent)
@@ -194,11 +264,7 @@ class AgentsDock(QDockWidget):
 
         self._info = QWidget()
         layout = QVBoxLayout(self._info)
-        self._info_label = QLabel()
-        self._info_label.setWordWrap(True)
-        self._info_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self._info_label = _InfoText()
         self._redetect = QPushButton("重新偵測")
         self._redetect.clicked.connect(self._on_redetect)
         self._diagnostics = ""
