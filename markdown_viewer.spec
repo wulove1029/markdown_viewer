@@ -1,9 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from PyInstaller.utils.hooks import collect_data_files
-from tools.package_policy import filter_webengine_locales
+from tools.package_policy import (
+    agent_bundle_datas,
+    agent_bundle_source,
+    filter_webengine_locales,
+    stdlib_imports,
+)
 
 block_cipher = None
+
+EXCLUDES = ['tkinter', 'unittest']
+
+# Optional bundled Agent Watchdog (agent_watchdog/aiwatch.py). It is shipped as
+# data and run by this executable (--agent-watchdog), so PyInstaller cannot see
+# what it imports: its standard-library imports become hidden imports. Without
+# the directory both lists are empty and the build is unchanged.
+_agent_source = agent_bundle_source(SPECPATH)
+_agent_datas = agent_bundle_datas(_agent_source)
+_agent_hiddenimports = stdlib_imports(_agent_source, excludes=EXCLUDES)
 
 a = Analysis(
     ['main.py'],
@@ -12,7 +27,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),   # 帶入 CSS 檔案
         ('ICON/icon.ico', 'ICON'),
-    ] + collect_data_files('pptx') + collect_data_files('docx'),
+    ] + collect_data_files('pptx') + collect_data_files('docx') + _agent_datas,
     hiddenimports=[
         'app.render_service',
         'app.render_worker',
@@ -37,11 +52,11 @@ a = Analysis(
         'PySide6.QtWebEngineWidgets',
         'PySide6.QtSvg',
         'shiboken6',
-    ],
+    ] + _agent_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'unittest'],
+    excludes=EXCLUDES,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

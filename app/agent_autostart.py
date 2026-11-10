@@ -5,6 +5,10 @@ logic, no Qt: the watcher (:mod:`app.agent_watchdog`) decides *when*, this
 module decides *whether* (install.json validation, attempt budget) and *how*
 (detached spawn).  install.json is only ever read, never written.  The
 spawned process is never tracked, killed or asked to shut down.
+
+When the registration cannot be used and the application ships its own copy
+(:mod:`app.agent_bundle`), :func:`resolve_launch` falls back to that copy,
+unless install.json explicitly turned auto-start off.
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any
+
+from . import agent_bundle
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +56,7 @@ class InstallCheck:
     reason: str = ""
     launch: list[str] = field(default_factory=list)
     cwd: str = ""
+    opted_out: bool = False  # install.json says "autostart": false
 
 
 def _bad(reason: str) -> InstallCheck:
@@ -76,6 +83,14 @@ def load_install(home: Path) -> InstallCheck:
         return _bad(f"無法讀取 {path}（檔案損毀）。請重新執行 aiwatch.py --register。")
     if not isinstance(data, dict):
         return _bad("install.json 格式不符（不是物件）。")
+    check = _validate_install(data)
+    # Whatever else is wrong with the file, an explicit "off" is the user's
+    # decision; it also keeps the bundled copy from being started.
+    check.opted_out = data.get("autostart") is False
+    return check
+
+
+def _validate_install(data: dict[str, Any]) -> InstallCheck:
     schema = data.get("schema")
     # Strictly the integer 1, like the Watchdog: 1.0, True and "1" are refused.
     if not (type(schema) is int and schema == SUPPORTED_SCHEMA):
@@ -165,6 +180,36 @@ def spawn_detached(
             del proc
         return ""
     return f"無法啟動 Watchdog：{last}"
+
+
+@dataclass
+class LaunchPlan:
+    """What to start, or why nothing is started (``launch`` empty)."""
+
+    launch: list[str] = field(default_factory=list)
+    cwd: str = ""
+    bundled: bool = False  # the copy shipped with the application
+    reason: str = ""
+
+
+def resolve_launch(home: Path) -> LaunchPlan:
+    """The user's registered copy first, else the bundled one.
+
+    1. A valid install.json wins: the copy the user registered.
+    2. install.json with ``"autostart": false`` starts nothing at all.
+    3. Anything else (missing, corrupt, wrong shape, a launch outside the
+       contract, files that are gone) starts the bundled copy when there is one.
+    4. No bundled copy: nothing is started and the registration's problem is
+       the reason, exactly as without this fallback.
+    """
+    check = load_install(home)
+    if check.ok:
+        return LaunchPlan(list(check.launch), check.cwd)
+    bundled = None if check.opted_out else agent_bundle.bundled_launch()
+    if bundled is None:
+        return LaunchPlan(reason=check.reason)
+    launch, cwd = bundled
+    return LaunchPlan(launch, cwd, bundled=True)
 
 
 class AttemptPolicy:

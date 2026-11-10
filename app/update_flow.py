@@ -24,10 +24,11 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QCursor, QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
 from shiboken6 import isValid
 
+from . import agent_stop
 from .settings_store import APP as _APP
 from .settings_store import ORG as _ORG
 from .toolbar_utilities import (
@@ -901,6 +902,15 @@ def install_ready_update(window) -> None:
     _after_snapshot()
 
 
+def _call_if_present(window, name: str) -> None:
+    method = getattr(window, name, None)
+    if callable(method):
+        try:
+            method()
+        except Exception:
+            log.exception("%s failed", name)
+
+
 def _launch_installer(window) -> None:
     path = getattr(window, "_update_ready_installer", None)
     digest = getattr(window, "_update_ready_digest", None)
@@ -918,9 +928,25 @@ def _launch_installer(window) -> None:
     if _closing(window):
         return
 
+    # The bundled Agent Watchdog is this executable running in the background:
+    # it would keep the installation folder locked. Stop watching first, so the
+    # watcher does not start it again while the installer runs.
+    _call_if_present(window, "_agent_watch_pause")
+    # Bounded (agent_stop.MAX_TOTAL_S) but it runs on the GUI thread: show
+    # that the application is busy rather than hung.
+    QGuiApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+    try:
+        stopped = agent_stop.stop_embedded() == agent_stop.STOPPED
+    finally:
+        QGuiApplication.restoreOverrideCursor()
+    if not stopped:
+        log.warning("The bundled Agent Watchdog is still running; the installer "
+                    "will stop it")
+
     result = QProcess.startDetached(str(path))
     started = result[0] if isinstance(result, tuple) else bool(result)
     if not started:
+        _call_if_present(window, "_agent_watch_resume")
         # Keep the app usable and the verified file around so the user can
         # simply try again. A successful startDetached is not proof that the
         # installer ran or that UAC was granted either.

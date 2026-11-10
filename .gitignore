@@ -36,3 +36,7 @@ test_tmp_*/
 AI協作/status.json
 .codex_verify/
 .codex_test_support/
+
+# Private Agent Watchdog sources placed here for local bundling tests. Remove
+# this entry once clean, publishable files are delivered and meant to be tracked.
+/agent_watchdog/

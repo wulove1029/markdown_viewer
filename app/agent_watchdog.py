@@ -3,14 +3,16 @@
 Asynchronous polling (QNetworkAccessManager, never blocking the GUI thread),
 back-off, and OS toasts through a QSystemTrayIcon.  All decisions live in
 :mod:`app.agent_watchdog_state`.  When the Watchdog cannot be reached it may be
-started as a hidden background process, but only through the registered
-install.json (see :mod:`app.agent_autostart`); it is never stopped from here.
+started as a hidden background process: the copy registered in install.json,
+or else the one shipped with the application (see :mod:`app.agent_autostart`);
+it is never stopped from here.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -138,6 +140,10 @@ class AgentWatcher(QObject):
         self._fast_until = 0.0      # fast probing after a launch, until this time
         self._http_seen = False     # an HTTP answer (not the contract) this round
         self.autostart_message = ""  # why the Watchdog is (not) auto-started
+        self.uses_bundled = False   # the last auto-start used the bundled copy
+        self._bundled_failure = ""  # plain reason the bundled copy is not up
+        self._last_launch: list[str] = []  # what the last auto-start executed
+        self._last_cwd = ""
         self._use_tray = use_tray
         self.config = WatchdogConfig.load()
         self.state = self._new_state()
@@ -436,6 +442,7 @@ class AgentWatcher(QObject):
         self._failures = 0
         self._http_seen = False
         self._fast_until = 0.0
+        self._bundled_failure = ""
         self._set_autostart_message("")
         if self.state.unavailable:
             self.state.set_unavailable(False)
@@ -511,6 +518,14 @@ class AgentWatcher(QObject):
         http_seen, self._http_seen = self._http_seen, False
         if now < self._fast_until:
             return agent_autostart.FAST_PROBE_INTERVAL_MS
+        if self.uses_bundled and self._fast_until:
+            # The fast-probe window after a bundled launch ran out unanswered.
+            self._fast_until = 0.0
+            seconds = int(agent_autostart.FAST_PROBE_WINDOW_S)
+            self._bundled_failed(
+                f"啟動後 {seconds} 秒內沒有回應（逾時）",
+                f"內建的 Agent 監看已啟動，但 {seconds} 秒內沒有回應。"
+                "稍後會自動再試，也可以按「重新偵測」立即重試。")
         if http_seen:
             self._set_autostart_message(
                 "port 被佔用：有程式在回應，但不符合 Watchdog 的 /api/events 合約，"
@@ -528,28 +543,78 @@ class AgentWatcher(QObject):
             return False
         verdict = self._policy.verdict(now)
         if verdict == "exhausted":
-            self._set_autostart_message(
-                f"已自動啟動 {agent_autostart.MAX_ATTEMPTS} 次仍連不上 Watchdog，"
-                "已停止嘗試。請檢查 Watchdog（aiwatch.log）後按「重新偵測」重試。")
+            if self.uses_bundled:
+                self._bundled_failed(
+                    f"已達重試上限（{agent_autostart.MAX_ATTEMPTS} 次），每次啟動後都沒有回應",
+                    f"已嘗試啟動內建的 Agent 監看 {agent_autostart.MAX_ATTEMPTS} 次"
+                    "仍連不上，已停止嘗試。請按「重新偵測」重試。")
+            else:
+                self._set_autostart_message(
+                    f"已自動啟動 {agent_autostart.MAX_ATTEMPTS} 次仍連不上 Watchdog，"
+                    "已停止嘗試。請檢查 Watchdog（aiwatch.log）後按「重新偵測」重試。")
             return False
         if verdict == "cooldown":
             return False
-        check = agent_autostart.load_install(self._home)
-        if not check.ok:
-            self._set_autostart_message("不自動啟動：" + check.reason)
+        plan = agent_autostart.resolve_launch(self._home)
+        if not plan.launch:
+            self.uses_bundled = False
+            self._set_autostart_message("不自動啟動：" + plan.reason)
             return False
+        self.uses_bundled = plan.bundled
+        self._bundled_failure = ""
+        self._last_launch, self._last_cwd = list(plan.launch), plan.cwd
         self._policy.record(now)
-        error = self._launcher(check.launch, check.cwd)
+        error = self._launcher(plan.launch, plan.cwd)
         if error:
-            self._set_autostart_message(error)
+            if plan.bundled:
+                self._bundled_failed(
+                    f"無法執行啟動命令（{error}）",
+                    "內建的 Agent 監看啟動失敗：無法執行啟動命令。"
+                    "請按「重新偵測」重試。")
+            else:
+                self._set_autostart_message(error)
             return False
-        self._set_autostart_message("已嘗試自動啟動 Watchdog，等待回應中…")
+        if plan.bundled:
+            self._set_autostart_message("正在啟動內建的 Agent 監看，等待回應中…")
+        else:
+            self._set_autostart_message("已嘗試自動啟動 Watchdog，等待回應中…")
         return True
+
+    def _bundled_failed(self, reason: str, message: str) -> None:
+        self._bundled_failure = reason
+        self._set_autostart_message(message)
+
+    @property
+    def autostart_diagnostics(self) -> str:
+        """Copyable details of a failed bundled start; "" when there is none."""
+        if not (self.uses_bundled and self._bundled_failure):
+            return ""
+        home = self._home
+        bundle = agent_autostart.agent_bundle
+        lines = [
+            f"原因：{self._bundled_failure}",
+            f"命令列：{subprocess.list2cmdline(self._last_launch)}",
+            f"工作目錄：{self._last_cwd}",
+            f"記錄檔：{home / 'aiwatch.log'}",
+            f"啟動錯誤記錄：{home / bundle.ERROR_LOG_NAME}",
+        ]
+        reported = bundle.read_last_error(home)
+        if reported is not None:
+            version = f"（版本 {reported.version}）" if reported.version else ""
+            lines.append(f"Agent 監看回報{version}：[{reported.code}] {reported.message}")
+        return "\n".join(lines)
+
+    @property
+    def bundled_available(self) -> bool:
+        """The application ships its own Watchdog copy."""
+        return agent_autostart.agent_bundle.bundled_script() is not None
 
     def redetect(self) -> None:
         """The panel's 'detect again' button: also the manual auto-start retry."""
         self._policy.reset()
         self._fast_until = 0.0
+        self.uses_bundled = False
+        self._bundled_failure = ""
         self._set_autostart_message("")
         self.start()
 

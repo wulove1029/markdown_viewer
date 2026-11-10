@@ -120,6 +120,18 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10 晚（公司電腦）— 內建 Watchdog：Viewer 端的啟動、關閉、打包〔已實作，驗收中，未 commit〕
+**作者**：Claude（指揮官 session）。實作派 Claude 子代理；fresh 子代理驗收進行中。分支 `feat/bundled-watchdog`（疊在 `feat/agents-panel-office` 上）。
+- **起因**：沒裝 Watchdog 的使用者打開面板只看到「未啟動／找不到 install.json」。使用者決定 Viewer 內建 Watchdog，與新面板合成 1.39.0 一起發。
+- **使用者決定（經統籌 session 轉達）**：Watchdog 原始碼清乾淨後放進本 repo；授權維持現狀（不加授權檔）；不在乾淨電腦上實測就發版，release 說明要如實寫明。
+- **做法**：內建目錄 `agent_watchdog`（repo 內目前不存在；開發／建置可用 `MDV_AGENT_WATCHDOG_DIR` 指到 repo 外）。`main.py --agent-watchdog` 用 Viewer 自己的執行檔跑它；`--agent-watchdog-stop` 只在 `endpoint.json` 標明 `embedded: true` 時請它正常關閉，逾時且執行檔相符才強制結束。
+- **啟動順序**：已在回應的 → 使用者登記且合法的 install.json → 明確關閉 autostart 時不啟動 → 其餘啟動內建。install.json 一律唯讀。內建不存在時行為不變。
+- **新檔**：`app/agent_bundle.py`、`app/agent_stop.py`、`installer_agent_watchdog.iss`、`tests/test_agent_bundle.py`、`tests/test_agent_stop.py`。改動：`main.py`、`app/agent_autostart.py`、`app/agent_watchdog.py`、`app/agents_panel.py`（診斷資訊與複製按鈕）、`app/update_flow.py`、`markdown_viewer.spec`、`tools/package_policy.py`、`installer.iss`、`tests/conftest.py`。
+- **實作者回報的驗證**：全套 3057 passed／178 skipped／0 failed；ruff、mypy 通過。開發模式與凍結模式（Python 3.14，正式版為 3.13）都實跑起來，凍結版在 PATH 只剩系統目錄的環境下可運作。`installer.iss` 只驗到編譯通過與非提權的模擬安裝，未做提權實裝。
+- **新面板的實物驗證（已完成）**：對 Watchdog 的測試服務，面板依宣告載入 `/office?scheme=…`，切換主題重新載入一次並變色；320／520／900px 無水平捲動。擷圖在本機暫存區，未入 repo。
+- **另外發現的既有問題**：面板隱藏時要求的 `Frozen` 實測沒有生效（頁面維持 Active），待修。
+- **待辦**：驗收結果與修正；Watchdog 端的配合改動（`main(argv)`、內嵌模式不寫 install.json、`endpoint.json` 加 `embedded`、寫入改到資料目錄、資源路徑、清字樣、版本號）；Watchdog 交付檔案後放入 repo（須使用者當面確認）；星圖檢視的窄面板門檻；版號、CHANGELOG、交付檢查、發布。
+
 ### 2026-11-10 傍晚（公司電腦）— AI Agents 面板：依宣告載入新辦公室頁、傳遞主題〔已實作＋已驗證，未 commit、未發版〕
 **作者**：Claude（指揮官 session）。實作派 Claude 子代理；驗收另派 fresh 子代理（發現 1 項必須修，已修）。分支 `feat/agents-panel-office`。
 - **合約（與 Watchdog 定案，純附加）**：`/api/events` 最上層可選鍵 `"panel": {"path": "/office"}`，schema 維持 1。主題用查詢參數 `scheme=light|dark`。偏好由 Watchdog 伺服器端保存，面板 profile 不動。

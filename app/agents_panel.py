@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QPainter
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QLabel,
     QPushButton,
@@ -19,6 +20,10 @@ from PySide6.QtWidgets import (
 from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher
 from .agent_watchdog_state import is_loopback_url, panel_url
 from .theme import CONTROL_RADIUS, HIT_TARGET, LIGHT, Theme
+
+# The page is frozen once the view really is hidden (see _on_visibility).
+_FREEZE_RETRIES = 20
+_FREEZE_RETRY_MS = 50
 
 
 def badge_kind(watcher: AgentWatcher | None) -> str:
@@ -196,14 +201,24 @@ class AgentsDock(QDockWidget):
         )
         self._redetect = QPushButton("重新偵測")
         self._redetect.clicked.connect(self._on_redetect)
+        self._diagnostics = ""
+        self._copy_diagnostics = QPushButton("複製診斷資訊")
+        self._copy_diagnostics.clicked.connect(self._on_copy_diagnostics)
+        self._copy_diagnostics.setVisible(False)
         layout.addWidget(self._info_label)
         layout.addWidget(self._redetect)
+        layout.addWidget(self._copy_diagnostics)
         layout.addStretch(1)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._info)
         self._stack.addWidget(self._view)
         self.setWidget(self._stack)
+        # Freezing is deferred: see _on_visibility().
+        self._freeze_timer = QTimer(self)
+        self._freeze_timer.setSingleShot(True)
+        self._freeze_timer.timeout.connect(self._freeze_if_hidden)
+        self._freeze_retries = 0
         self.visibilityChanged.connect(self._on_visibility)
 
     def set_watcher(self, watcher: AgentWatcher | None) -> None:
@@ -228,14 +243,38 @@ class AgentsDock(QDockWidget):
             self._watcher.redetect()
         self.refresh()
 
+    def _on_copy_diagnostics(self) -> None:
+        if self._diagnostics:
+            QApplication.clipboard().setText(self._diagnostics)
+
     def _on_visibility(self, visible: bool) -> None:
         self._shown = visible
         if visible:
+            self._freeze_timer.stop()  # a pending freeze is void now
             self._ever_shown = True
             self._set_lifecycle(QWebEnginePage.LifecycleState.Active)
             self.refresh()
         else:
-            self._set_lifecycle(QWebEnginePage.LifecycleState.Frozen)
+            # visibilityChanged(False) is emitted while the dock is being
+            # hidden, before its children are: the view, and so the page, still
+            # counts as visible, and Qt refuses to freeze a visible page (the
+            # request is dropped without an error). Freeze on the next turn of
+            # the event loop instead; showing again cancels it.
+            self._freeze_retries = 0
+            self._freeze_timer.start(0)
+
+    def _freeze_if_hidden(self) -> None:
+        if self._shown or self._shut_down or not self._page_loaded:
+            return
+        try:
+            still_visible = self._page.isVisible()
+        except RuntimeError:
+            return
+        if still_visible and self._freeze_retries < _FREEZE_RETRIES:
+            self._freeze_retries += 1
+            self._freeze_timer.start(_FREEZE_RETRY_MS)
+            return
+        self._set_lifecycle(QWebEnginePage.LifecycleState.Frozen)
 
     def _set_lifecycle(self, state: QWebEnginePage.LifecycleState) -> None:
         if not self._page_loaded and state != QWebEnginePage.LifecycleState.Active:
@@ -270,24 +309,40 @@ class AgentsDock(QDockWidget):
         watcher = self._watcher
         enabled = watcher is not None and watcher.config.enabled
         bat = watcher.config.start_bat if watcher is not None else DEFAULT_START_BAT
-        head = "AI_Agent_Watchdog 未啟動" if enabled or watcher is None else "Agent 監看已停用"
-        text = f"{head}\n\n"
-        if enabled or watcher is None:
+        active = enabled or watcher is None
+        note = getattr(watcher, "autostart_message", "") if watcher is not None else ""
+        # The copy shipped with the application: nothing for the user to
+        # install, register or locate, so the text must not send them there.
+        uses_bundled = bool(getattr(watcher, "uses_bundled", False))
+        has_bundle = bool(getattr(watcher, "bundled_available", False))
+        diagnostics = ""
+        if active and uses_bundled and note:
+            text = f"Agent 監看尚未就緒\n\n{note}\n"
+            diagnostics = str(getattr(watcher, "autostart_diagnostics", "") or "")
+            if diagnostics:
+                text += f"\n診斷資訊（回報問題時請一併附上）：\n{diagnostics}\n"
+        elif active:
+            text = "AI_Agent_Watchdog 未啟動\n\n"
             if bat:
                 text += f"也可自行執行下列啟動檔，再按「重新偵測」：\n{bat}\n\n"
-            else:
+            elif not has_bundle:
                 text += ("尚未指定 AI_Agent_Watchdog 的 start.bat。\n"
                          "請自行啟動 Watchdog 後按「重新偵測」，"
                          "或在設定值 watchdog/start_bat 記錄 start.bat 路徑。\n\n")
-            note = getattr(watcher, "autostart_message", "") if watcher is not None else ""
             if note:
                 text += f"自動啟動：{note}\n"
             elif watcher is not None and getattr(watcher.config, "autostart", False):
-                text += "自動啟動：已開啟（依 Watchdog 登記的 install.json）。\n"
+                if has_bundle:
+                    text += ("自動啟動：已開啟（優先使用已登記的 Watchdog，"
+                             "否則啟動本程式內建的 Agent 監看）。\n")
+                else:
+                    text += "自動啟動：已開啟（依 Watchdog 登記的 install.json）。\n"
             else:
                 text += "本程式不會自動啟動 Watchdog。\n"
         else:
-            text += "請在「檢視」選單勾選「啟用 Agent 監看」。"
+            text = "Agent 監看已停用\n\n請在「檢視」選單勾選「啟用 Agent 監看」。"
+        self._diagnostics = diagnostics
+        self._copy_diagnostics.setVisible(bool(diagnostics))
         self._info_label.setText(text)
         self._redetect.setVisible(enabled)
         if self._loaded_url is not None:
@@ -304,6 +359,7 @@ class AgentsDock(QDockWidget):
         if self._shut_down:
             return
         self._shut_down = True
+        self._freeze_timer.stop()
         try:
             self._view.stop()
             self._view.setPage(None)

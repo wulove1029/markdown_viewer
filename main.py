@@ -11,7 +11,22 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--packaged-benchmark":
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--agent-watchdog":
+    # Run the bundled Agent Watchdog with this interpreter (a packaged build
+    # has no python.exe). Standard library only: no Qt, no QApplication, no
+    # single-instance IPC, no application settings.
+    from app.agent_bundle import run_bundled as _run_bundled_watchdog
+
+    raise SystemExit(_run_bundled_watchdog(sys.argv[2:]))
+elif (
+    __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--agent-watchdog-stop"
+):
+    # Run by the installer before an upgrade / uninstall: ask the bundled
+    # Agent Watchdog started by this application to exit. Headless as above.
+    from app.agent_stop import main as _stop_bundled_watchdog
+
+    raise SystemExit(_stop_bundled_watchdog())
+elif __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--packaged-benchmark":
     # Establish isolated settings before application modules capture QSettings.
     from tools.benchmark_file_switching import main as _benchmark_main
 

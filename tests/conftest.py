@@ -71,3 +71,5 @@ def isolated_relocation_journals(tmp_path, monkeypatch):
 def isolated_aiwatch_home(tmp_path, monkeypatch):
     """Never read the real ~/.aiwatch (no test may find a real install.json)."""
     monkeypatch.setenv("AIWATCH_HOME", str(tmp_path.parent / (tmp_path.name + "-aiwatch")))
+    # ... nor a Watchdog copy a developer pointed the application at.
+    monkeypatch.delenv("MDV_AGENT_WATCHDOG_DIR", raising=False)

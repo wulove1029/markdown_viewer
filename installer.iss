@@ -59,3 +59,8 @@ Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#MyAppE
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即啟動 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Stops this installation's bundled Agent Watchdog (a background process that
+// keeps files in {app} locked) before an upgrade or an uninstall.
+#include "installer_agent_watchdog.iss"
