@@ -120,6 +120,19 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10 傍晚（公司電腦，交接前）— 1.39.0 第二輪獨立驗收與交接〔修正進行中〕
+**作者**：Claude（指揮官 session）。使用者要回家繼續，完整交接寫在外部的交接頁；本節是 repo 內的摘要。
+- **已 commit**：`4483599`（面板依宣告載入新頁、傳主題）、`dab6d68`（內建 Watchdog 的啟動／關閉／打包／診斷、面板隱藏時凍結頁面）、`c2cb430`（結束碼白話說明）。
+- **Python 3.13 打包實測**：依 lock（PySide6 6.11.2、PyInstaller 6.22.3）凍結，在 PATH 只剩系統目錄的環境下，內建 Watchdog 2.55 秒內起來，頁面與關閉流程正常，匯出正常。用的是 Watchdog 的舊檔案。
+- **第二輪獨立驗收**（`c2cb430`）：12 項中 9 項通過，全套 3180 passed／178 skipped／0 failed。兩項沒過：
+  - `app/agent_stop.py` 的 `stop_embedded` 沒有真正的總時限（伺服器慢速吐資料時超過 30 秒）。
+  - `app/agents_panel.py` 的診斷文字未明確設為純文字，且長而無空白的字串會把視窗最小寬度撐到兩萬多像素。
+- **另外五項建議修**：`started_at` 要求有限數值；pid 無效或被判重用時先確認服務是否仍在；loopback 正規式 `\d` 改 `[0-9]`；打包排除符號連結與 junction；`_is_seconds` 收嚴。
+- **交接時狀態**：修正這七項的子代理還在跑，工作區可能有未 commit 或改到一半的內容。接手先跑 `tests/test_agent_stop.py tests/test_agent_bundle.py tests/test_agent_watchdog_qt.py tests/test_agent_autostart.py tests/test_package_policy.py tests/test_window_integration.py`，確認七項都做了，再派 fresh 子代理驗收後 commit。
+- **CHANGELOG**：`[Unreleased]` 有 1.39.0 草稿，待定稿。
+- **仍在等**：Watchdog 交付清乾淨的檔案（須使用者在 Watchdog 的 session 確認公開）、Watchdog 的獨立驗收、星圖檢視。
+- **已知的無關問題**：`tests/test_cli_export.py::test_export_each_format[docx]` 在磁碟負載高時偶發失敗。
+
 ### 2026-11-10 晚（公司電腦）— 內建 Watchdog：Viewer 端的啟動、關閉、打包〔已實作，驗收中，未 commit〕
 **作者**：Claude（指揮官 session）。實作派 Claude 子代理；fresh 子代理驗收進行中。分支 `feat/bundled-watchdog`（疊在 `feat/agents-panel-office` 上）。
 - **起因**：沒裝 Watchdog 的使用者打開面板只看到「未啟動／找不到 install.json」。使用者決定 Viewer 內建 Watchdog，與新面板合成 1.39.0 一起發。

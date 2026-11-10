@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+<!-- Draft for 1.39.0. Still open: the bundled Watchdog files are not in the
+     repository yet, the installer has not been run for real, and the
+     Validation numbers below are from the development branch. -->
+
+### Added
+- 內建 AI Agent 監看程式（Watchdog）：安裝 Markdown Viewer 後，不必另外安裝 Watchdog 或 Python，打開「AI Agents」面板就能使用。
+  - 已經在執行的 Watchdog、以及你自己安裝並登記的 Watchdog 仍然優先；兩者都沒有時才啟動內建的。
+  - 在 `install.json` 把自動啟動關閉的人，內建的也不會啟動。Markdown Viewer 不會寫入或修改 `install.json`。
+  - 關閉 Markdown Viewer 不會結束內建的 Watchdog，其他使用它的程式可以繼續用；它閒置一段時間後會自己結束。
+  - 升級、解除安裝、以及程式內更新開始安裝之前，會先請內建的 Watchdog 正常關閉。只有標示為內建的那一份會被關閉，你自己安裝的不受影響。
+  - 解除安裝不會刪除 Watchdog 的資料資料夾（預設 `~/.aiwatch`），因為它與自行安裝的 Watchdog 共用。
+- 「AI Agents」面板：
+  - Watchdog 提供新的辦公室頁面時，面板一打開就直接顯示它；Watchdog 較舊、沒有新頁面時，照舊顯示列表頁。
+  - 深淺色跟隨 Markdown Viewer 的主題，切換主題時面板會跟著換。
+  - 內建的 Watchdog 啟動失敗時，顯示看得懂的原因、嘗試執行的指令與記錄檔位置，並可一鍵複製診斷資訊。
+
+### Fixed
+- 「AI Agents」面板收起後，面板內的頁面現在會確實暫停；之前暫停的要求沒有生效，頁面仍在背景運作。
+
+### Known limitations
+- 內建 Watchdog 未在「沒有安裝 Python 的乾淨 Windows」上實測；驗證方式是以正式版相同的 Python 3.13 打包後，在移除系統 Python 路徑的環境中執行。
+- 透過 SSH 監看遠端電腦的功能，在內建模式下未經實測。
+
 ## [1.38.2] - 2026-11-10
 
 ### Fixed
