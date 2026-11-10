@@ -120,6 +120,24 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10 傍晚（公司電腦）— AI Agents 面板：依宣告載入新辦公室頁、傳遞主題〔已實作＋已驗證，未 commit、未發版〕
+**作者**：Claude（指揮官 session）。實作派 Claude 子代理；驗收另派 fresh 子代理（發現 1 項必須修，已修）。分支 `feat/agents-panel-office`。
+- **合約（與 Watchdog 定案，純附加）**：`/api/events` 最上層可選鍵 `"panel": {"path": "/office"}`，schema 維持 1。主題用查詢參數 `scheme=light|dark`。偏好由 Watchdog 伺服器端保存，面板 profile 不動。
+- **行為**：有合法宣告 → 載入 `base_url + path + "?scheme=…"`；沒有或不合法 → 與原本完全相同的 `base_url + "/"`。宣告在舊版模式、不可用、重新 `start()`、換 base 時清掉；單次壞回應保留。切換主題時以新 scheme 重新載入，面板隱藏時延到下次顯示。
+- **路徑驗證**：白名單（ASCII 英數與 `. _ ~ - /`），單一 `/` 開頭、不含 `//`、不含 `.`／`..` 路徑段、長度 ≤ 200；`"/"` 視為沒有宣告。驗收者以 55 組輸入實測，沒有任何一組能離開 loopback。
+- **改動**：`app/agent_watchdog_state.py`（純函式與 state）、`app/agent_watchdog.py`、`app/agents_panel.py`、`app/window.py`（主題接線）、兩個測試檔。
+- **驗證**：全套 2884 passed／178 skipped／0 failed；ruff、mypy 通過。驗收者另在真實 MainWindow 實測主題切換。
+- **已知的小空窗**：在同一個位址重新 `start()`（例如切換通知開關）後、下一次回應前，若剛好切主題或開關面板，會短暫載入 `/` 再跳回。
+- **待辦**：等 Watchdog 新頁完成，用實際的 Watchdog 在面板內擷圖驗證；之後版號、CHANGELOG、交付檢查，再請使用者確認發布（須與 Watchdog 同步）。
+
+### 2026-11-10 下午（公司電腦）— AI Agents 面板：新辦公室頁面的相容性調查〔只調查，未改程式〕
+**作者**：Claude（指揮官 session）。起因：使用者要面板跟上新的 Agent 辦公室設計；畫面由 Watchdog 改，Viewer 配合調查。
+- **引擎**：本機 PySide6／QtWebEngine 6.11.0 = Chromium 140.0.7339.225（6.11.2 未另測）。canvas `roundRect`、IntersectionObserver、ResizeObserver、grid auto-fill、`color-scheme`、`:has()` 均支援。
+- **實測**：以真正的 `AgentsDock`（同 profile、同 page 類別）在真實視窗載入示意頁，12 個 canvas 都有畫出、console 無錯誤；320／520／900px 版面正常，150px 會水平捲動。offscreen 平台下頁面被當成不可見，量不到版面，要用 `QT_QPA_PLATFORM=windows`。
+- **面板條件**：右側 dock，無最小寬度（可壓到約 134–150px），可浮動。隱藏時 `visibilitychange` 會觸發、rAF 停止、`setInterval` 節流到約每秒一次；`Frozen` 不是每次都成立（兩次測試一次成立、一次仍 Active）。Viewer 主題不會傳給頁面，頁面跟系統的 `prefers-color-scheme`。profile 是 off-the-record，localStorage 重開即清空。
+- **路徑評估（未改）**：改動點只有 `app/agents_panel.py:244`；`tests/test_agent_watchdog_qt.py:945` 斷言載入 `"/"`，要一併改。風險是舊版 Watchdog 無法從狀態碼分辨新舊頁，建議由 Watchdog 在 status／events 加可選欄位宣告新頁路徑，沒有就照舊載入 `"/"`。
+- **待使用者決定**：是否改成一開面板就顯示新辦公室；是否把 Viewer 主題傳給頁面；偏好是否要跨重開保存。
+
 ### 2026-11-10（公司電腦）— 1.38.2 發布流程〔已發版〕
 **作者**：Claude（指揮官 session，公司電腦接手）。
 - 已確認本機 `integrate/1.38.2` @ `a53d8ce`，禁用字樣檢查 diff 0／commit 訊息 0。

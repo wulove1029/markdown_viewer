@@ -195,6 +195,13 @@ class AgentWatcher(QObject):
         return not self.state.unavailable
 
     @property
+    def panel_path(self) -> str | None:
+        """Panel page declared by /api/events; None means the plain "/"."""
+        if self.state.unavailable or self.state.legacy:
+            return None
+        return self.state.panel_path
+
+    @property
     def running(self) -> bool:
         return self._running
 
@@ -219,6 +226,7 @@ class AgentWatcher(QObject):
         self._bases = self._discover_bases()
         self._base_index = 0
         self.state.reset_stream()
+        self.state.clear_panel()  # the bases were rediscovered: ask again
         self.state.set_legacy(False)
         self.state.clear_pending()  # a woken window must not replay stale toasts
         self._failures = 0
@@ -453,6 +461,7 @@ class AgentWatcher(QObject):
         self._failures = 0
         self.state.reset_stream()
         self.state.set_legacy(False)
+        self.state.clear_panel()  # the other base may be a different service
         self._events_timer.start(0)
 
     def _failed(self, http_status: int = 0) -> None:

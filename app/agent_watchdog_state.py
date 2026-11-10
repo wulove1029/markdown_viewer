@@ -33,6 +33,56 @@ INVALID = "invalid"        # malformed payload: treat as one failed request
 
 MERGE_WINDOW_SECONDS = 5.0  # toasts due this soon after the first ride along
 
+# Optional top-level declaration in /api/events: {"panel": {"path": "/x"}} names
+# the page the panel should show instead of "/".
+PANEL_KEY = "panel"
+PANEL_PATH_KEY = "path"
+PANEL_SCHEME_PARAM = "scheme"   # query parameter carrying the viewer's theme
+PANEL_PATH_MAX_LENGTH = 200
+
+
+_PANEL_PATH_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-/"
+)
+
+
+def valid_panel_path(path: object) -> bool:
+    """True for a plain absolute URL path made of unreserved ASCII only.
+
+    No query, fragment, escapes, empty segments or "." / ".." segments.
+    """
+    if not isinstance(path, str) or not 0 < len(path) <= PANEL_PATH_MAX_LENGTH:
+        return False
+    if not path.startswith("/") or "//" in path:
+        return False
+    if not _PANEL_PATH_CHARS.issuperset(path):
+        return False
+    return not any(segment in (".", "..") for segment in path.split("/"))
+
+
+def panel_path_from_payload(payload: object) -> str | None:
+    """The declared panel path of an /api/events body, or None.
+
+    Anything missing or unacceptable is simply "not declared"; it never makes
+    the payload itself invalid.  Unknown keys inside the declaration are fine.
+    A declared "/" is the default page, so it counts as not declared too.
+    """
+    if not isinstance(payload, dict):
+        return None
+    panel = payload.get(PANEL_KEY)
+    if not isinstance(panel, dict):
+        return None
+    path = panel.get(PANEL_PATH_KEY)
+    return path if valid_panel_path(path) and path != "/" else None
+
+
+def panel_url(base_url: str, path: str | None, dark: bool) -> str:
+    """URL the panel loads: the declared page with the theme, else plain "/"."""
+    if path is None:
+        return base_url + "/"
+    scheme = "dark" if dark else "light"
+    return f"{base_url}{path}?{PANEL_SCHEME_PARAM}={scheme}"
+
 
 def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
@@ -128,6 +178,8 @@ class WatchdogState:
         self.seq: int | None = None
         self.legacy = False
         self.unavailable = True
+        # Declared by the latest valid /api/events answer; None = not declared.
+        self.panel_path: str | None = None
         # logical_id -> {"state", "project", "agent", "host"}
         self.attention: dict[str, dict[str, Any]] = {}
         # logical_id -> (due_time, kind)
@@ -140,12 +192,19 @@ class WatchdogState:
         """Pending toasts survive an outage: due_toasts() holds them back while
         unavailable and re-checks the session when the Watchdog is back."""
         self.unavailable = unavailable
+        if unavailable:
+            self.panel_path = None
 
     def set_legacy(self, legacy: bool) -> None:
         """Old Watchdog without /api/events: badge only, never a toast."""
         self.legacy = legacy
         if legacy:
             self._pending.clear()
+            self.panel_path = None
+
+    def clear_panel(self) -> None:
+        """Forget the declared panel path (restart or switch to another base)."""
+        self.panel_path = None
 
     def clear_pending(self) -> None:
         self._pending.clear()
@@ -158,9 +217,15 @@ class WatchdogState:
     # --- inputs -----------------------------------------------------------
 
     def apply_events(self, payload: dict[str, Any]) -> str:
-        """Apply an /api/events payload; INVALID (state untouched) if malformed."""
+        """Apply an /api/events payload; INVALID if malformed.
+
+        A malformed payload leaves everything untouched, the declared panel
+        path included: one bad answer is retried, and the declaration is only
+        dropped once the Watchdog counts as unavailable, legacy or replaced.
+        """
         if not valid_events_payload(payload):
             return INVALID
+        self.panel_path = panel_path_from_payload(payload)
         boot_id = payload["boot_id"]
         latest = payload["latest_seq"]
         self.unavailable = False

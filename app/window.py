@@ -1379,7 +1379,8 @@ QLabel#editorModeBadge {{
         )
         self._tab_strip.apply_theme(self._theme)
         for agent_widget in (getattr(self, "_agent_badge", None),
-                             getattr(self, "_agent_toolbar_btn", None)):
+                             getattr(self, "_agent_toolbar_btn", None),
+                             getattr(self, "_agents_dock", None)):
             if agent_widget is not None:
                 agent_widget.apply_theme(self._theme)
         from .theme import apply_combo_popup_theme
@@ -7140,7 +7141,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
             from .agents_panel import AgentsDock
 
-            dock = AgentsDock(self)
+            dock = AgentsDock(self, self._theme)
             dock.set_watcher(self._agent_watcher)
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
             dock.visibilityChanged.connect(self._agents_panel_action.setChecked)

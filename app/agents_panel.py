@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher
-from .agent_watchdog_state import is_loopback_url
+from .agent_watchdog_state import is_loopback_url, panel_url
 from .theme import CONTROL_RADIUS, HIT_TARGET, LIGHT, Theme
 
 
@@ -168,13 +168,16 @@ class _DashboardPage(QWebEnginePage):
 
 
 class AgentsDock(QDockWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, theme: Theme = LIGHT) -> None:
         super().__init__("AI Agents", parent)
         self.setObjectName("agentsDock")
         self._watcher: AgentWatcher | None = None
+        self._theme = theme
         self._loaded_url: str | None = None
+        self._loaded_declared = False  # _loaded_url is a declared panel page
         self._page_loaded = False  # a page was ever loaded (even if replaced)
         self._ever_shown = False
+        self._shown = False  # last visibilityChanged value
 
         # Own off-the-record profile (no storage name): nothing touches disk,
         # and it is never the default profile nor a _DocumentPage.
@@ -210,6 +213,14 @@ class AgentsDock(QDockWidget):
         if self.isVisible():
             self.refresh()
 
+    def apply_theme(self, theme: Theme) -> None:
+        """Reload a declared panel page with the new scheme; "/" never reloads."""
+        self._theme = theme
+        # While hidden the page is frozen and refresh() skips a scheme-only
+        # change; the next show loads the page with the current scheme.
+        if self._loaded_declared and self._shown:
+            self.refresh()
+
     # --- state ------------------------------------------------------------
 
     def _on_redetect(self) -> None:
@@ -218,6 +229,7 @@ class AgentsDock(QDockWidget):
         self.refresh()
 
     def _on_visibility(self, visible: bool) -> None:
+        self._shown = visible
         if visible:
             self._ever_shown = True
             self._set_lifecycle(QWebEnginePage.LifecycleState.Active)
@@ -241,9 +253,15 @@ class AgentsDock(QDockWidget):
         if watcher is None or not watcher.available:
             self._show_info()
             return
-        url = watcher.base_url + "/"
-        if self._loaded_url != url:
+        path = getattr(watcher, "panel_path", None)
+        dark = self._theme.name == "dark"
+        url = panel_url(watcher.base_url, path, dark)
+        # Hidden and only the scheme differs: leave the frozen page alone.
+        scheme_only = (not self._shown and path is not None and self._loaded_url
+                       == panel_url(watcher.base_url, path, not dark))
+        if self._loaded_url != url and not scheme_only:
             self._loaded_url = url
+            self._loaded_declared = path is not None
             self._page_loaded = True
             self._view.load(QUrl(url))
         self._stack.setCurrentWidget(self._view)
@@ -278,6 +296,7 @@ class AgentsDock(QDockWidget):
             self._view.stop()
             self._view.load(QUrl("about:blank"))
         self._loaded_url = None
+        self._loaded_declared = False
         self._stack.setCurrentWidget(self._info)
 
     def shutdown(self) -> None:
