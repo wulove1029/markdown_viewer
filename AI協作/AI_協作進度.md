@@ -120,6 +120,14 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-10 晚（家裡電腦）— 1.39.0 第二輪驗收七項修正〔已實作＋已驗收＋已 commit，未 push〕
+**作者**：Claude（指揮官 session）。接手公司電腦中途停掉的修正；實作派 Claude 子代理（opus），另派 fresh 子代理（opus）驗收。commit `8fba8a0`。
+- **接手判斷**：工作區四個檔（`app/agent_stop.py`、`app/agents_panel.py`、`app/agent_bundle.py`、`tools/package_policy.py`）方向正確。六個相關測試檔跑出 575 passed／11 failed，失敗全在 `tests/test_agent_stop.py`，原因是第 4 項刻意改了語意（pid 無效或被重用時改成先確認服務），舊測試還沒跟著改，而且 `FakeHttp` 模擬不出「服務已停止」。所以補完，不還原。
+- **七項**：(1) `stop_embedded` 有真正的總時限（每個請求有絕對時限與回應大小上限，只連 127.0.0.1）；(2) 面板診斷文字改用 `_InfoText`，只顯示純文字、不會撐寬，`_one_line` 濾掉 C0／C1 控制字元與雙向控制字元；(3) `started_at` 不是有限數值或在未來時不強制結束；(4) pid 無效或被重用時，若記錄的位址上仍有 boot_id 相符的服務，照常請它關閉，並一律不強制結束（pid 等於自己時照舊不送請求）；(5) loopback 正規式用 `[0-9]`；(6) 打包排除符號連結與 junction；(7) `_is_seconds` 只收 ASCII、拒絕底線。
+- **順帶修正**：`tests/test_agent_watchdog_qt.py::test_window_hands_the_theme_to_the_agents_dock` 原本把 `watchdog/enabled=False` 寫進真正的 QSettings（登錄檔），已改用暫存 ini。開發機登錄檔裡現有的 `watchdog\enabled=false` 可能是它留下的，**是否刪除等使用者決定**。
+- **驗證**：六個測試檔 784 passed／1 skipped（symlink 測試因權限跳過）；全套 3378 passed／179 skipped／0 failed；ruff、mypy 通過；禁用字樣 0。fresh 驗收 12/12 PASS：慢速吐資料伺服器實測 stop 最長 4.90 秒；兩萬字無空白診斷文字時 dock 最小寬 104px（舊版 240018px）；`mklink /J` 實測 junction 被排除；新測試放到 `7ec9a5f` 上 182 個失敗。驗收建議把原始碼裡的雙向控制字元改成跳脫寫法，已改（AST 相同，ruff PLE2502 通過）。
+- **仍在等**：使用者在 Watchdog 的 session 確認公開原始碼；Watchdog 的星圖驗收（方向是盡量趕上 1.39.0 但不卡住，趕不上就帶不含星圖的版本，星圖延到 1.39.1）；星圖複擷與窄面板門檻。
+
 ### 2026-11-10 傍晚（公司電腦，交接前）— 1.39.0 第二輪獨立驗收與交接〔修正進行中〕
 **作者**：Claude（指揮官 session）。使用者要回家繼續，完整交接寫在外部的交接頁；本節是 repo 內的摘要。
 - **已 commit**：`4483599`（面板依宣告載入新頁、傳主題）、`dab6d68`（內建 Watchdog 的啟動／關閉／打包／診斷、面板隱藏時凍結頁面）、`c2cb430`（結束碼白話說明）。
