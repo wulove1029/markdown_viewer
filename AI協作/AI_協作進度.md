@@ -120,6 +120,14 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 02:22（家裡電腦）— 1.39.0 發布〔已發版〕
+**作者**：Claude（指揮官 session）。使用者 01:10 交辦：不再詢問、依專業判斷做到完成（含 push、tag、發布）。
+- **內容**：內建 Agent Watchdog 1.0.0（唯讀版，來源為 Watchdog 的 v1.0.0 tag，MANIFEST sha256 `4e3874…05f9`）、面板依宣告載入辦公室頁並跟隨主題、面板網址一律帶 `readonly=1`（唯讀檢視）、第二輪驗收七項修正。星圖檢視延到下一版。
+- **commit**：`5d3cf64` 換上唯讀版 Watchdog；`9c638f8`／`35c588b` 版號 1.39.0；`3d157ba`／`caeb720` CHANGELOG 定稿。main 由 `1d2f79e` fast-forward 到 `caeb720`；tag `v1.39.0` → `caeb720`。
+- **驗證**：本機全套 3390 passed／179 skipped／0 failed，WebEngine 五組（145／180／28／22／6）全過；repo 外以 Python 3.13 試打包，在沒有 Python 的環境下內建 Watchdog 3–5 秒啟動、約 0.9 秒關閉；真的 QtWebEngine 面板驗唯讀：三頁沒有寫入控制項，191 個請求 0 個非 GET，切換檢視保留 `readonly` 與 `scheme`。fresh 交付檢查 9/9 通過。main 的 CI 全綠；Release workflow 內測試 3392 passed，安裝檔收進恰好 8 個內建檔，draft 核對後轉正式版並設為 Latest。
+- **未做（已寫進發布說明與 CHANGELOG）**：沒有 Python 的乾淨 Windows 實測、內建模式 SSH 遠端監看、系統管理員權限的實際安裝／升級／解除安裝。
+- **下一步**：星圖檢視（Watchdog 1.1.0）→ 1.39.1。建議請當初回報「面板只顯示未啟動」的使用者安裝 1.39.0 並回報。
+
 ### 2026-11-11（家裡電腦）— 1.39.0：內建 Watchdog 檔案入庫、面板唯讀〔已實作＋已驗證，未 push〕
 **作者**：Claude（指揮官 session）。
 - **使用者決定**（在本 session 親口說）：星圖檢視延到 1.39.1；Viewer 面板裡的 Watchdog 頁面「完全唯讀」，連「我知道了／取消已確認／讓他離開」都不要出現；不需要像使用者專屬工具那樣點擊切換到 AI 的 session；同意把 Watchdog 檔案放進 repo 並在本機 commit（push 另問）。使用者已在 Watchdog 的 session 確認公開原始碼。
