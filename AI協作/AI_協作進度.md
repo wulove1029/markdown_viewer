@@ -120,6 +120,14 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 04:13（家裡電腦）— 1.39.1 發布：星圖檢視〔已發版〕
+**作者**：Claude（指揮官 session）。
+- **內容**：內建 Agent Watchdog 更新為 1.1.1（來源為 Watchdog 的 v1.1.1 tag，MANIFEST sha256 `c690b3…03b1`）。星圖檢視成為面板預設，面板寬度小於 370 像素時退回辦公室、400 像素以上回到星圖；四頁都支援唯讀；列表頁長名稱換行。Viewer 程式沒有改動（`panel.path` 由 Watchdog 宣告）。
+- **過程**：先拿到 1.1.0，在 repo 外試打包並驗真的 QtWebEngine 面板，10/10 通過：預設星圖、320／520 來回 5 次網址不變、385 停留 0 次切換、收起時 0 請求、四頁 258 個請求 0 個非 GET、換主題重載星圖。之後 Watchdog 交來 1.1.1，和 1.1.0 只差 `__version__` 與列表頁的換行 CSS，判斷可換，補驗版本字串、五頁回應、列表樣式與關閉。
+- **commit**：`8f58cd4` Watchdog 1.1.0、`06c83db` Watchdog 1.1.1、`b240236` 版號 1.39.1。main 從 `1ef993e` fast-forward 到 `b240236`；tag `v1.39.1` → `b240236`。
+- **驗證**：本機全套 3390 passed／0 failed；fresh 交付檢查 9/9；main CI 全綠；Release workflow 內 3392 passed、WebEngine 五組全過，安裝檔收進恰好 9 個內建檔（含 `starmap.html`）；draft 核對後轉正式並設為 Latest。
+- **未做**：與 1.39.0 相同（乾淨 Windows、SSH 遠端、提權實裝），已寫進發布說明與 CHANGELOG。
+
 ### 2026-11-11 02:22（家裡電腦）— 1.39.0 發布〔已發版〕
 **作者**：Claude（指揮官 session）。使用者 01:10 交辦：不再詢問、依專業判斷做到完成（含 push、tag、發布）。
 - **內容**：內建 Agent Watchdog 1.0.0（唯讀版，來源為 Watchdog 的 v1.0.0 tag，MANIFEST sha256 `4e3874…05f9`）、面板依宣告載入辦公室頁並跟隨主題、面板網址一律帶 `readonly=1`（唯讀檢視）、第二輪驗收七項修正。星圖檢視延到下一版。
