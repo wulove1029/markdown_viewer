@@ -9,8 +9,9 @@
    這是介面層的唯讀，不是安全邊界：HTTP API 本身完全沒變，任何人直接打 API 照樣能寫。
    唯讀時頁面不畫任何會寫入伺服器的控制項，下面的寫入函式也一律直接回傳失敗、不呼叫 fetch。
 
-   精簡模式（?compact=1，判定同 readonly）：給窄的嵌入面板用。連不上的電腦整台不顯示、
-   remote_errors 的文字一律不顯示（見 viewSnapshot）；沒帶時畫面完全照舊。 */
+   精簡模式（?compact=1，判定同 readonly）：給窄的嵌入面板用。只開放星圖：列表、辦公室、像素辦公室
+   一載入就換到 /starmap（compactLeave），星圖不畫檢視切換、再窄也不退回辦公室；連不上的電腦整台不顯示、
+   remote_errors 的文字一律不顯示（見 viewSnapshot）。沒帶時畫面完全照舊。 */
 
 /* 插進 HTML 的字串一律過這裡。單引號也要轉：屬性值用單引號寫時才不會被截斷。 */
 const ESC_MAP = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
@@ -190,6 +191,21 @@ function compactFrom(search){
 function isCompact(){
   try{return compactFrom(location.search);}catch(e){return false;}
 }
+/* compact 只開放星圖：列表、辦公室、像素辦公室在 init 的第一件事呼叫。compact 時 location.replace 到
+   /starmap（不留歷史紀錄），query 與 hash 原樣保留（scheme、readonly、compact 與其他參數，順序不變），
+   不看伺服器存的檢視偏好。回傳 true＝正在換頁，頁面就此結束（不抓資料、不畫、不寫任何東西）。
+   伺服器對這幾個網址本來就先回 302（aiwatch.py 的 compact_redirect），這裡是同一條規則的前端版。 */
+const COMPACT_PATH='/starmap';
+let compactMoved=false;
+function compactLeave(){
+  if(compactMoved)return true;
+  if(!isCompact())return false;
+  compactMoved=true;
+  let tail='';
+  try{tail=String(location.search||'')+String(location.hash||'');}catch(e){tail='';}
+  location.replace(COMPACT_PATH+tail);
+  return true;
+}
 
 /* ---------------- 檢視切換：全站只有這一份清單 ----------------
    順序就是切換列的順序。每個連結都保留目前的 ?scheme=、?readonly=1 與 ?compact=1。
@@ -229,9 +245,11 @@ function narrowHold(current,width,search){
   const from=VIEWS.find(x=>x.id===narrowFrom(search));
   return from&&w<=from.minWidth+RESTORE_MARGIN?from.id:null;
 }
-/* 用 DOM 建，不拼 HTML。目前所在的檢視仍是連結（像素辦公室也標「辦公室」，點了回新版）。 */
+/* 用 DOM 建，不拼 HTML。目前所在的檢視仍是連結（像素辦公室也標「辦公室」，點了回新版）。
+   compact：只有星圖，整個切換列從頁面拿掉（空的 nav 也不留）。 */
 function renderViewSwitch(el,current){
   if(!el)return;
+  if(isCompact()){if(el.parentNode)el.parentNode.removeChild(el);return;}
   el.textContent='';
   const held=()=>narrowHold(current,typeof innerWidth==='number'?innerWidth:NaN,location.search);
   const links=[];
@@ -266,7 +284,7 @@ function renderViewSwitch(el,current){
      保留 ?scheme=、?readonly=1、?compact=1，並帶 narrow=<原檢視> 記下「這是因太窄而退回」。
    - FALLBACK_VIEW 只有在帶著這個記號、而且寬度超過 minWidth＋RESTORE_MARGIN 時才換回去。
    - 使用者自己打開（或從切換列點進來）的頁面沒有記號：永遠不被改導。
-   寬度 0 或未知（面板被藏起來時常是 0）一律不動。 */
+   寬度 0 或未知（面板被藏起來時常是 0）一律不動。compact（只開放星圖）一律不動：再窄也留在星圖。 */
 const NARROW_PARAM='narrow';
 const RESTORE_MARGIN=30;
 function narrowFrom(search){
@@ -290,6 +308,7 @@ function narrowHref(path,from,search){
 function guardTarget(current,width,search){
   const w=Number(width);
   if(!(w>0))return null;
+  if(compactFrom(search===undefined?location.search:search))return null;
   const v=VIEWS.find(x=>x.id===current);
   if(v&&v.minWidth&&w<v.minWidth){
     const fb=VIEWS.find(x=>x.id===FALLBACK_VIEW);

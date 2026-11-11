@@ -190,7 +190,9 @@ document.addEventListener('click',ev=>{
   ev.preventDefault();
   hideS(btn.getAttribute('data-hide'),Number(btn.getAttribute('data-mtime')));
 });
-renderViewSwitch(document.getElementById('views'),'list');
-startOfficeSync({repaint:paintNeed,desks:()=>needRooms.flatMap(r=>r.desks),need:needPanel});
-startWatchdog(render);
+if(!compactLeave()){                     // ?compact=1 只開放星圖：這頁直接換到 /starmap，什麼都不做
+  renderViewSwitch(document.getElementById('views'),'list');
+  startOfficeSync({repaint:paintNeed,desks:()=>needRooms.flatMap(r=>r.desks),need:needPanel});
+  startWatchdog(render);
+}
 </script></body></html>

@@ -914,6 +914,7 @@ document.addEventListener('keydown',ev=>{
 });
 
 (function init(){
+  if(compactLeave())return;               // ?compact=1 只開放星圖：直接換到 /starmap
   if(guardView('office'))return;
   renderViewSwitch($('views'),'office');
   $('pixelLink').setAttribute('href',viewHref('/office/pixel'));

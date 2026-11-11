@@ -22,7 +22,7 @@ nothing.
 
 #: The release of this program.  Not the same thing as /api/status `version`,
 #: which counts published snapshots and restarts from 1 with every process.
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 import argparse
 import hashlib
@@ -2232,6 +2232,30 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8",
 #: KeyError inside read_static() is a 500 on a file that is sitting right there.
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
+#: ?compact=1 (narrow embedded panels) only offers the star map: these pages
+#: answer with a 302 to it, query string kept verbatim, whatever view is stored
+#: in office.json.  Never an /api/* route, and nothing changes without compact=1.
+#: static/watchdog.js does the same in the page (compactLeave) as a fallback.
+COMPACT_REDIRECT_ROUTES = frozenset(("/", "/index.html", "/office", "/office.html", "/office/pixel"))
+COMPACT_VIEW_PATH = "/starmap"
+
+
+def compact_requested(query):
+    """Same rule as compactFrom() in static/watchdog.js: any compact value exactly "1"."""
+    try:
+        return "1" in parse_qs(query or "", keep_blank_values=True).get("compact", [])
+    except ValueError:
+        return False
+
+
+def compact_redirect(path):
+    """Where a compact request for a non-star-map page goes (path + query), else None."""
+    route, _, query = (path or "").partition("?")
+    if route not in COMPACT_REDIRECT_ROUTES or not compact_requested(query):
+        return None
+    return COMPACT_VIEW_PATH + "?" + query
+
+
 #: A POST body big enough to matter is a mistake or an attack; the real ones are
 #: two short fields.  Declared lengths above this are refused before reading.
 MAX_POST_BYTES = 64 * 1024
@@ -2517,6 +2541,11 @@ class Handler(BaseHTTPRequestHandler):
                               ensure_ascii=False).encode("utf-8")
             self.respond(body, "application/json; charset=utf-8",
                          headers=(("Cache-Control", "no-store"),))
+            return
+        location = compact_redirect(self.path)
+        if location is not None:
+            self.respond(b"", "text/plain; charset=utf-8", code=302,
+                         headers=(("Location", location), ("Cache-Control", "no-store")))
             return
         if route not in STATIC_ROUTES:
             self.send_error(404)

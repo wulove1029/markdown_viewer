@@ -547,6 +547,8 @@ async function hideSel(){const c=selected;if(!c||isReadonly())return false;
   info.textContent='已請他離開辦公室；該專案下次有活動時會自動回來。';
   refresh();
   return true;}
-renderViewSwitch(document.getElementById('views'),'office');
-startWatchdog(render);startLoop();
+if(!compactLeave()){                     // ?compact=1 只開放星圖：直接換到 /starmap
+  renderViewSwitch(document.getElementById('views'),'office');
+  startWatchdog(render);startLoop();
+}
 </script></body></html>
