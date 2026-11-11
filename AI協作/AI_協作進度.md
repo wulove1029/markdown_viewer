@@ -120,6 +120,22 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 上午（公司電腦，分出的 session）— docx 匯出負載下偶發少圖：產品問題〔已修正＋已驗證，commit `61ff88b`〕
+**作者**：Claude（從主 session 分出、只負責這一題）。
+- **調查起點**：`tests/test_cli_export.py::test_export_each_format[docx]` 在負載下偶發少圖。結論是產品問題，不只是測試：電腦忙時，命令列與 App 內「匯出 Word」都會產出少了 Mermaid／數學式圖片的檔案；命令列結束碼仍是 0，App 內完全沒有提示。
+- **根因**：`app/fragment_render.py` 的離屏 QWebEnginePage 從未設為可見，renderer 被設為 IDLE 優先權、計時器每秒最多一次，忙碌時各步驟逾時用完。修好主因後又浮出 Mermaid 暫存 svg 的量測競態。
+- **修法**：第一次 setHtml 之後才 setVisible(True)（之前呼叫會被忽略）；改等 mdDiagrams.status() 完成；docx／pptx 的原始碼框標明「未能轉成圖片」；命令列的 warning 同時寫 stdout 與 `--log`；App 內每次匯出跳一個合併警告。逾時數字沒改，修正後各步驟餘裕至少 12 倍。
+- **驗證**：高負載（30 至 40 個 CPU 忙迴圈行程）匯出含 3 張圖的文件，修正前 7/7 與 3/3 少圖，修正後 20/20 與 3/3 完整；無負載時 renderer 由 Idle 改為 Normal，命令列匯出 7.8 秒降到 1.9 秒；匯出期間沒有可見視窗、不搶焦點。fresh 子代理驗收 9 項全 PASS，新測試在原碼上失敗、修正後通過。
+- **候選（未做）**：命令列的 PDF／HTML 匯出用的隱藏 RendererView 也是 Idle 優先權。失敗時以結束碼 4 明確報錯、不會靜默，但忙碌時可能撞到 120 秒逾時。
+
+### 2026-11-11 上午（公司電腦）— 1.39.2 整合：內建 Watchdog 1.3.0、面板只留星圖、最小寬度〔已實作，最終驗證中〕
+**作者**：Claude（markdown-viewer-03）。分支 `feat/compact-panel`，未 push。
+- **使用者決定**：Viewer 面板只開放星圖，辦公室與列表隱藏（只限 Viewer）；不要求星圖在窄面板重排，改由 Viewer 限制面板最小寬度，「早點完成」。
+- **內建 Watchdog 1.3.0**（commit `fc2897b`）：MANIFEST 九檔雜湊與大小全部相符。`compact=1` 時只有星圖、沒有切換、`/`、`/office`、`/office/pixel` 以 302 導到 `/starmap`、窄面板不退回辦公室；不帶 `compact` 時與 1.2.0 相同。
+- **面板最小寬度**（commit `6535bc1`）：設在網頁 view 本身，`PANEL_MIN_PAGE_WIDTH = 385`。Watchdog 實測：4 台電腦、40 個 session 下 365 以上不裁切、任何寬度都沒有水平捲動；385 多留餘裕、字也較大。repo 沒有 saveState／restoreState，不存在舊佈局記著較窄寬度的問題。
+- **真面板驗收**（對公司電腦 8787 上的 1.3.0，只送 GET）：拉到 260 被撐在 385；385／520／900px、深淺色都停在星圖，無水平捲動、無切換連結；直接載入三個舊路徑都落在 `/starmap` 且參數完整；不帶 `compact` 照舊；57 個請求全為 GET。
+- **兩個 session 並行的做法**：主 session 負責 1.39.2 與 CHANGELOG、本檔；分出的 session 只負責 docx 那題，commit 只 add 明確路徑，commit 前互相通知。
+
 ### 2026-11-11 上午（公司電腦）— 1.39.2：內建 Watchdog 1.2.0 與真面板驗收；等 1.3.0〔進行中〕
 **作者**：Claude（markdown-viewer-03）。分支 `feat/compact-panel`，未 push。另有一個分出來的 session 只負責 docx 匯出偶發失敗，CHANGELOG 與本檔由本 session 寫。
 - **內建 Watchdog 1.2.0**（commit `2025d7b`）：取自它的 v1.2.0 tag，MANIFEST 九檔雜湊與大小全部相符，禁用字樣與個人資訊 0。
