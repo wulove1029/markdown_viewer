@@ -223,17 +223,18 @@ button{font:inherit}
    畫風與「我知道了」存在 Watchdog（GET/POST /api/office…），localStorage 只是快取。 */
 
 /* ================================================================ 常數 */
+const OFF_LEGEND=isCompact()?'離線':'離線或連不上';   // compact 時連不上的電腦整台不顯示
 const STYLE_META={
   win:{label:'寫程式視窗',w:160,h:140,
-       legend:'寫程式視窗：打字＝執行中，變暗＝閒置，琥珀色輸入列與「!」＝等你回覆，紅色波浪線與「?」＝可能卡住，全黑＝離線或連不上'},
+       legend:'寫程式視窗：打字＝執行中，變暗＝閒置，琥珀色輸入列與「!」＝等你回覆，紅色波浪線與「?」＝可能卡住，全黑＝'+OFF_LEGEND},
   card:{label:'徽章（扁平）',w:96,h:84,
-       legend:'徽章：顏色與字母＝agent 種類；轉動的虛線圈＝執行中，黃圈「!」＝等你回覆，紅圈「?」＝可能卡住，灰色＝離線或連不上'},
+       legend:'徽章：顏色與字母＝agent 種類；轉動的虛線圈＝執行中，黃圈「!」＝等你回覆，紅圈「?」＝可能卡住，灰色＝'+OFF_LEGEND},
   compute:{label:'運算機櫃',w:96,h:84,
-       legend:'運算機櫃：燈陣快速流動＝執行中，緩慢呼吸＝閒置，黃燈交替＝等你回覆，紅燈定格＝可能卡住，全暗＝離線或連不上'},
+       legend:'運算機櫃：燈陣快速流動＝執行中，緩慢呼吸＝閒置，黃燈交替＝等你回覆，紅燈定格＝可能卡住，全暗＝'+OFF_LEGEND},
   flat:{label:'圓潤扁平',w:96,h:84,
-       legend:'圓潤扁平：打字＝執行中，zz＝閒置，舉手「!」＝等你回覆，「?」＝可能卡住，灰色＝離線或連不上'},
+       legend:'圓潤扁平：打字＝執行中，zz＝閒置，舉手「!」＝等你回覆，「?」＝可能卡住，灰色＝'+OFF_LEGEND},
   sprite:{label:'像素',w:96,h:84,
-       legend:'像素：打字＝執行中，zz＝閒置，舉手＝等你回覆，紅色「?」＝可能卡住，灰色＝離線或連不上'},
+       legend:'像素：打字＝執行中，zz＝閒置，舉手＝等你回覆，紅色「?」＝可能卡住，灰色＝'+OFF_LEGEND},
 };
 const DEFAULT_STYLE='win';
 const READONLY=isReadonly();             // ?readonly=1：唯讀，不畫任何會寫入伺服器的控制項
@@ -889,7 +890,8 @@ async function hideSel(){
   refresh();
   return true;
 }
-function render(d){
+function render(raw){
+  const d=viewSnapshot(raw);   // ?compact=1：連不上的電腦與 remote_errors 不顯示
   snap=d;
   setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新',hiddenLabel:'已離開'}));
   officeAfterStatus();

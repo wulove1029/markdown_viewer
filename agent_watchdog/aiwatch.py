@@ -22,7 +22,7 @@ nothing.
 
 #: The release of this program.  Not the same thing as /api/status `version`,
 #: which counts published snapshots and restarts from 1 with every process.
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 
 import argparse
 import hashlib

@@ -7,7 +7,10 @@
 
    唯讀模式（?readonly=1，值必須剛好是 "1"）：頁面不顯示會寫入伺服器的控制項。
    這是介面層的唯讀，不是安全邊界：HTTP API 本身完全沒變，任何人直接打 API 照樣能寫。
-   唯讀時頁面不畫任何會寫入伺服器的控制項，下面的寫入函式也一律直接回傳失敗、不呼叫 fetch。 */
+   唯讀時頁面不畫任何會寫入伺服器的控制項，下面的寫入函式也一律直接回傳失敗、不呼叫 fetch。
+
+   精簡模式（?compact=1，判定同 readonly）：給窄的嵌入面板用。連不上的電腦整台不顯示、
+   remote_errors 的文字一律不顯示（見 viewSnapshot）；沒帶時畫面完全照舊。 */
 
 /* 插進 HTML 的字串一律過這裡。單引號也要轉：屬性值用單引號寫時才不會被截斷。 */
 const ESC_MAP = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
@@ -177,8 +180,19 @@ function isReadonly(){
   try{return readonlyFrom(location.search);}catch(e){return false;}
 }
 
+/* ---------------- 精簡：?compact=1 ----------------
+   判定比照 readonly：任何一個 compact 的值剛好是 "1" 就成立。只影響畫面：不寫 localStorage、不送伺服器。 */
+function compactFrom(search){
+  try{
+    return new URLSearchParams(search||'').getAll('compact').indexOf('1')>=0;
+  }catch(e){return false;}
+}
+function isCompact(){
+  try{return compactFrom(location.search);}catch(e){return false;}
+}
+
 /* ---------------- 檢視切換：全站只有這一份清單 ----------------
-   順序就是切換列的順序。每個連結都保留目前的 ?scheme= 與 ?readonly=1。
+   順序就是切換列的順序。每個連結都保留目前的 ?scheme=、?readonly=1 與 ?compact=1。
    minWidth＝該檢視的最小舒適寬度（px，省略＝不限）；太窄時 effectiveView 退回 FALLBACK_VIEW。 */
 const FALLBACK_VIEW='office';
 const VIEWS=[
@@ -199,6 +213,7 @@ function viewHref(path,search){
   const s=schemeFrom(q);
   if(s)parts.push('scheme='+s);
   if(readonlyFrom(q))parts.push('readonly=1');
+  if(compactFrom(q))parts.push('compact=1');
   return parts.length?path+'?'+parts.join('&'):path;
 }
 function viewLinks(current,search){
@@ -248,7 +263,7 @@ function renderViewSwitch(el,current){
 /* ---------------- 太窄時改顯示辦公室（帶遲滯，不來回跳） ----------------
    以 innerWidth（面板的 CSS 寬度）判斷：
    - 有 minWidth 的檢視（星圖）寬度低於 minWidth：location.replace 到 FALLBACK_VIEW，
-     保留 ?scheme=，並帶 narrow=<原檢視> 記下「這是因太窄而退回」。
+     保留 ?scheme=、?readonly=1、?compact=1，並帶 narrow=<原檢視> 記下「這是因太窄而退回」。
    - FALLBACK_VIEW 只有在帶著這個記號、而且寬度超過 minWidth＋RESTORE_MARGIN 時才換回去。
    - 使用者自己打開（或從切換列點進來）的頁面沒有記號：永遠不被改導。
    寬度 0 或未知（面板被藏起來時常是 0）一律不動。 */
@@ -267,6 +282,7 @@ function narrowHref(path,from,search){
   const q=[];
   if(s)q.push('scheme='+s);
   if(readonlyFrom(src))q.push('readonly=1');
+  if(compactFrom(src))q.push('compact=1');
   if(from)q.push(NARROW_PARAM+'='+from);
   return q.length?path+'?'+q.join('&'):path;
 }
@@ -418,6 +434,30 @@ function remoteErrorMap(errors,knownNames){
   }
   return out;
 }
+function rowRemote(s){return s&&typeof s==='object'&&typeof s.remote==='string'&&s.remote?s.remote:null;}
+/* 連不上的遠端（＝buildRooms 的 room.offline）：在 remote_errors 裡、且沒有列或每列都 stale。
+   有錯誤訊息還不算（連線成功時也會有「時鐘偏移」警告）；真連不上時該遠端每列必為 stale。 */
+function offlineRemotes(d){
+  const rows=(Array.isArray(d&&d.sessions)?d.sessions:[]).filter(s=>s&&typeof s==='object');
+  const names=[];
+  for(const s of rows){const r=rowRemote(s);if(r&&names.indexOf(r)<0)names.push(r);}
+  const out=new Set();
+  for(const name of remoteErrorMap(d&&d.remote_errors,names).keys())
+    if(rows.every(s=>rowRemote(s)!==name||s.stale))out.add(name);
+  return out;
+}
+/* 頁面實際要畫的快照。沒帶 ?compact=1：原封不動。compact：拿掉連不上的電腦的列（sessions 與
+   attention），remote_errors 清空（連線錯誤與時鐘偏移之類的提醒都不顯示；原因仍在 /api/status）。
+   連得上的電腦的列原樣保留（含 stale 與已離線的）。不記任何狀態：電腦一連上，下一輪資料就有它。 */
+function viewSnapshot(d){
+  if(!isCompact()||!d||typeof d!=='object')return d;
+  const off=offlineRemotes(d);
+  const keep=s=>!off.has(rowRemote(s));
+  const out=Object.assign({},d,{remote_errors:[]});
+  if(Array.isArray(d.sessions))out.sessions=d.sessions.filter(keep);
+  if(Array.isArray(d.attention))out.attention=d.attention.filter(keep);
+  return out;
+}
 function cmpText(a,b){
   return String(a===null||a===undefined?'':a).localeCompare(String(b===null||b===undefined?'':b));
 }
@@ -438,8 +478,9 @@ function sessionNames(rows){
     return p+' #'+n;
   });
 }
-/* 一台電腦一間房：本機（machine.name）＋每個遠端（row.remote）。在 remote_errors 裡、且沒有列或每列都 stale 的遠端是
-   離線房：整間畫成 off、不算警示。順序：本機 → 連得上的遠端 → 離線的遠端，同組依名稱。 */
+/* 一台電腦一間房：本機（machine.name）＋每個遠端（row.remote）。offlineRemotes 認定連不上的遠端是
+   離線房：整間畫成 off、不算警示（compact 時 viewSnapshot 已先把它拿掉，不會有離線房）。
+   順序：本機 → 連得上的遠端 → 離線的遠端，同組依名稱。 */
 function buildRooms(d,acks){
   const rows=Array.isArray(d&&d.sessions)?d.sessions:[];
   const machine=d&&d.machine&&typeof d.machine==='object'?d.machine:null;
@@ -458,11 +499,11 @@ function buildRooms(d,acks){
     if(remote&&remoteNames.indexOf(remote)<0)remoteNames.push(remote);
     (remote?ensure('remote:'+remote,remote,false):ensure('local',localName,true)).rows.push(s);
   }
+  const offline=offlineRemotes(d);
   for(const [name,msgs] of remoteErrorMap(d&&d.remote_errors,remoteNames)){
     const r=ensure('remote:'+name,name,false);
     r.errors=msgs;
-    /* 有錯誤訊息還不算離線（連線成功時也會有「時鐘偏移」警告）；真連不上時該遠端每列必為 stale。 */
-    r.offline=r.rows.every(x=>x&&x.stale);
+    r.offline=offline.has(name);
   }
   const rooms=[...map.values()];
   for(const room of rooms){

@@ -140,7 +140,10 @@ function assignSlots(){
     c.tx=s.x;c.ty=s.y;
   }
 }
-function render(d){
+function render(raw){
+  // ?compact=1：連不上的電腦與 remote_errors 不顯示；那台電腦的角色不等漏掃寬限，馬上拿掉
+  const gone=isCompact()?offlineRemotes(raw):new Set();
+  const d=viewSnapshot(raw);
   const now=Date.now(),initialLoad=!loadedOnce;
   const seen=new Set();
   for(const s of d.sessions){
@@ -163,10 +166,15 @@ function render(d){
       state_zh:s.state_zh,label:s.label,title:s.title,last_prompt:s.last_prompt,
       age_s:s.age_s,emoji:s.emoji,mtime:s.mtime,subagents:Number(s.subagents)||0,
       background_pending:Number(s.background_pending)||0,
-      cwd:s.cwd,file:s.file,logical_id:s.logical_id,
+      cwd:s.cwd,file:s.file,logical_id:s.logical_id,remote:s.remote,
       stale:!!s.stale,last_activity:s.last_activity,misses:0,lastSeenAt:now});
   }
   for(const [k,c] of chars)if(!seen.has(k)){
+    if(gone.has(c.remote)){
+      chars.delete(k);
+      if(selected===c){selected=null;document.getElementById('info').textContent='點一下角色可以看他正在做什麼';}
+      continue;
+    }
     c.misses=(c.misses||0)+1;
     // 單次漏掃一定保留；連續漏掃三次，或已兩次且超過 15 秒才移除。
     if(c.misses>=3||(c.misses>=2&&now-(c.lastSeenAt||now)>=15000))chars.delete(k);

@@ -188,7 +188,7 @@ button{font:inherit}
     <span><i style="background:#ffc24d"></i>等你回覆：虛線、外圈一圈圈擴散</span>
     <span><i style="background:#ff5a52"></i>可能卡住：紅色、外圈擴散</span>
     <span><i style="background:#7f93b8"></i>閒置（含已按「我知道了」的）：離太陽較遠、線很淡</span>
-    <span><i style="background:#4a556b"></i>離線或連不上：最外圈、暗灰，滑過或選取才標名字</span>
+    <span id="legendOff"><i style="background:#4a556b"></i>離線或連不上：最外圈、暗灰，滑過或選取才標名字</span>
     <span>繞著星星轉的小點＝小助手（subagent），最多畫 3 個</span>
     <span><i class="clock"></i>時鐘記號＝有背景工作</span>
   </div>
@@ -225,7 +225,8 @@ const REDUCED=typeof matchMedia==='function'&&!!matchMedia('(prefers-reduced-mot
 
 
 /* ================================================================ 純函式：星圖模型 */
-/* 電腦編號依名稱（再依 key），與連線狀態無關：一台電腦離線時編號不會變。 */
+/* 電腦編號依名稱（再依 key），只編畫面上有的電腦。平常與連線狀態無關：一台電腦離線時編號不會變；
+   ?compact=1 時連不上的電腦整台不顯示、也不佔號，其餘照名稱連號（1..N，沒有空號）。 */
 function compareMachines(a,b){return cmpText(a.name,b.name)||(a.key<b.key?-1:a.key>b.key?1:0);}
 /* 太陽：session 多的在前（同數依 Claude、Codex、Antigravity、其他）；星星依電腦、再依座位序。 */
 function starModel(rooms){
@@ -1334,7 +1335,8 @@ async function hideSel(){
   refresh();
   return true;
 }
-function render(d){
+function render(raw){
+  const d=viewSnapshot(raw);   // ?compact=1：連不上的電腦與 remote_errors 不顯示
   snap=d;
   setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新',hiddenLabel:'已離開'}));
   officeAfterStatus();
@@ -1413,6 +1415,11 @@ document.addEventListener('visibilitychange',()=>{
   if(typeof IntersectionObserver==='function'){
     live.visible=false;
     new IntersectionObserver(entries=>{setSkyVisible(entries.some(e=>e.isIntersecting));}).observe(sky);
+  }
+  if(isCompact()){                         // compact：連不上的電腦不顯示，圖例只剩「離線」
+    const off=$('legendOff'),dot=off.firstElementChild;
+    off.textContent='';off.appendChild(dot);
+    off.appendChild(document.createTextNode('離線：最外圈、暗灰，滑過或選取才標名字'));
   }
   measureSky();
   updateDetail();

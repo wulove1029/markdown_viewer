@@ -155,7 +155,8 @@ function item(s,cls,hideable,key){
   return {key:key,html:cardHtml(s,cls,hideable),age:'最後活動 '+fmtAge(s.age_s)};
 }
 
-function render(d){
+function render(raw){
+  const d=viewSnapshot(raw);   // ?compact=1：連不上的電腦與 remote_errors 不顯示
   cur=d;
   setMeta(metaHtml(d,{extra:' ・ 每 5 秒自動刷新'}));   // 換頁改由上方的檢視切換（會保留 ?scheme=）
   const attn=d.attention||[],key=keyer();
