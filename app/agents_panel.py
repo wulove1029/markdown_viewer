@@ -26,6 +26,11 @@ from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher
 from .agent_watchdog_state import is_loopback_url, panel_url
 from .theme import CONTROL_RADIUS, HIT_TARGET, LIGHT, Theme
 
+# Narrowest page width (CSS px = logical px) at which the Watchdog's star map
+# shows without a horizontal scroll bar.  Inside the viewer the panel only
+# offers the star map, so the panel cannot be made narrower than this.
+PANEL_MIN_PAGE_WIDTH = 385
+
 # The page is frozen once the view really is hidden (see _on_visibility).
 _FREEZE_RETRIES = 20
 _FREEZE_RETRY_MS = 50
@@ -279,6 +284,11 @@ class AgentsDock(QDockWidget):
         self._stack = QStackedWidget()
         self._stack.addWidget(self._info)
         self._stack.addWidget(self._view)
+        # The star map needs this much page width; set on the view itself so
+        # the page gets it whatever the dock frame takes, docked or floating.
+        # The stack's minimum follows its widest page, so it holds for the
+        # help page too.
+        self._view.setMinimumWidth(PANEL_MIN_PAGE_WIDTH)
         self.setWidget(self._stack)
         # Freezing is deferred: see _on_visibility().
         self._freeze_timer = QTimer(self)

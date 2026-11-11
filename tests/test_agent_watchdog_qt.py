@@ -903,6 +903,38 @@ def _panel_dock(watcher):
     return host, dock
 
 
+def test_panel_never_gets_narrower_than_the_star_map_needs(qapp):
+    """Docked or floating, help page or dashboard: the page keeps its width."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+
+    from app.agents_panel import PANEL_MIN_PAGE_WIDTH
+
+    host, dock = _panel_dock(None)
+    try:
+        host.setCentralWidget(QWidget())
+        host.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        host.resize(1200, 600)
+        dock.show()
+        qapp.processEvents()
+        assert dock.minimumSizeHint().width() >= PANEL_MIN_PAGE_WIDTH
+        for page in (dock._info, dock._view):
+            dock._stack.setCurrentWidget(page)
+            host.resizeDocks([dock], [200], Qt.Orientation.Horizontal)
+            qapp.processEvents()
+            assert dock._stack.width() >= PANEL_MIN_PAGE_WIDTH
+        dock._stack.setCurrentWidget(dock._view)
+        dock.setFloating(True)
+        dock.resize(200, 400)
+        qapp.processEvents()
+        assert dock._view.width() >= PANEL_MIN_PAGE_WIDTH
+    finally:
+        dock.shutdown()
+        host.close()
+        host.deleteLater()
+        qapp.processEvents()
+
+
 def test_dashboard_page_navigation_allows_only_loopback_http(qapp, monkeypatch):
     from PySide6.QtCore import QUrl
     from PySide6.QtGui import QDesktopServices
