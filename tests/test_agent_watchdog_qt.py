@@ -910,6 +910,8 @@ def test_panel_never_gets_narrower_than_the_star_map_needs(qapp):
 
     from app.agents_panel import PANEL_MIN_PAGE_WIDTH
 
+    # Measured with the Watchdog: the star map needs 370 px at the least.
+    assert PANEL_MIN_PAGE_WIDTH == 385
     host, dock = _panel_dock(None)
     try:
         host.setCentralWidget(QWidget())
