@@ -120,6 +120,14 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 上午（公司電腦）— 1.39.2：內建 Watchdog 1.2.0 與真面板驗收；等 1.3.0〔進行中〕
+**作者**：Claude（markdown-viewer-03）。分支 `feat/compact-panel`，未 push。另有一個分出來的 session 只負責 docx 匯出偶發失敗，CHANGELOG 與本檔由本 session 寫。
+- **內建 Watchdog 1.2.0**（commit `2025d7b`）：取自它的 v1.2.0 tag，MANIFEST 九檔雜湊與大小全部相符，禁用字樣與個人資訊 0。
+- **真面板驗收**（對公司電腦 8787 上使用者自行安裝的 1.2.0，只送 GET）：260／320／520／900px、深淺色都不再出現連不上的電腦與連線錯誤；260px 無水平捲動；71 個請求全為 GET；不帶 `compact` 時照舊完整顯示。
+- **新需求（使用者在分出的 session 提出）**：Viewer 面板只開放星圖，辦公室與列表隱藏；同樣只限 Viewer。Watchdog 以 1.3.0 擴充 `compact=1` 的意義（只有星圖、沒有切換、窄面板不退回辦公室），預估 1.5 到 2 小時。Viewer 不必改參數；若星圖在 240px 擠不下，Watchdog 會回報最小寬度，屆時由 Viewer 設定 AI Agents dock 的最小寬度。
+- **決定**：1.39.2 等 1.3.0 一起發，1.2.0 屆時換掉。
+- **待辦**：換 1.3.0、真面板驗收（加「只有星圖」三項條件）、Python 3.13 試打包、全套與 WebEngine 測試（等分出的 session 的負載測試結束）、版號、CHANGELOG 定稿、交付檢查、問使用者後 push 與發版。
+
 ### 2026-11-11 上午（公司電腦）— 1.39.2 準備：面板精簡顯示、安裝檔版本〔Viewer 端已 commit，等 Watchdog 1.2.0〕
 **作者**：Claude（指揮官 session）。分支 `feat/compact-panel`，未 push。
 - **使用者需求**：AI Agents 面板只顯示在線上的電腦，不要任何連線錯誤或提醒（含「N 台電腦連不上」這種提示）。使用者特別更正：**只在 Markdown Viewer 裡這樣**，用瀏覽器直接開 Watchdog 頁面、以及統籌專案的桌面版都維持完整顯示。
