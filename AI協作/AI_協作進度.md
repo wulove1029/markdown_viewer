@@ -120,7 +120,7 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
-### 2026-11-11 上午（公司電腦，分出的 session）— docx 匯出負載下偶發少圖：產品問題〔已修正＋已驗證，commit `61ff88b`〕
+### 2026-11-11 上午（公司電腦，分出的 session）— docx 匯出負載下偶發少圖：產品問題〔已修正＋已驗證，commit `90ca806`〕
 **作者**：Claude（從主 session 分出、只負責這一題）。
 - **調查起點**：`tests/test_cli_export.py::test_export_each_format[docx]` 在負載下偶發少圖。結論是產品問題，不只是測試：電腦忙時，命令列與 App 內「匯出 Word」都會產出少了 Mermaid／數學式圖片的檔案；命令列結束碼仍是 0，App 內完全沒有提示。
 - **根因**：`app/fragment_render.py` 的離屏 QWebEnginePage 從未設為可見，renderer 被設為 IDLE 優先權、計時器每秒最多一次，忙碌時各步驟逾時用完。修好主因後又浮出 Mermaid 暫存 svg 的量測競態。
@@ -131,14 +131,14 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 ### 2026-11-11 上午（公司電腦）— 1.39.2 整合：內建 Watchdog 1.3.0、面板只留星圖、最小寬度〔已實作，最終驗證中〕
 **作者**：Claude（markdown-viewer-03）。分支 `feat/compact-panel`，未 push。
 - **使用者決定**：Viewer 面板只開放星圖，辦公室與列表隱藏（只限 Viewer）；不要求星圖在窄面板重排，改由 Viewer 限制面板最小寬度，「早點完成」。
-- **內建 Watchdog 1.3.0**（commit `fc2897b`）：MANIFEST 九檔雜湊與大小全部相符。`compact=1` 時只有星圖、沒有切換、`/`、`/office`、`/office/pixel` 以 302 導到 `/starmap`、窄面板不退回辦公室；不帶 `compact` 時與 1.2.0 相同。
-- **面板最小寬度**（commit `6535bc1`）：設在網頁 view 本身，`PANEL_MIN_PAGE_WIDTH = 385`。Watchdog 實測：4 台電腦、40 個 session 下 365 以上不裁切、任何寬度都沒有水平捲動；385 多留餘裕、字也較大。repo 沒有 saveState／restoreState，不存在舊佈局記著較窄寬度的問題。
+- **內建 Watchdog 1.3.0**（commit `cb6c1f9`）：MANIFEST 九檔雜湊與大小全部相符。`compact=1` 時只有星圖、沒有切換、`/`、`/office`、`/office/pixel` 以 302 導到 `/starmap`、窄面板不退回辦公室；不帶 `compact` 時與 1.2.0 相同。
+- **面板最小寬度**（commit `8b5d1b3`）：設在網頁 view 本身，`PANEL_MIN_PAGE_WIDTH = 385`。Watchdog 實測：4 台電腦、40 個 session 下 365 以上不裁切、任何寬度都沒有水平捲動；385 多留餘裕、字也較大。repo 沒有 saveState／restoreState，不存在舊佈局記著較窄寬度的問題。
 - **真面板驗收**（對公司電腦 8787 上的 1.3.0，只送 GET）：拉到 260 被撐在 385；385／520／900px、深淺色都停在星圖，無水平捲動、無切換連結；直接載入三個舊路徑都落在 `/starmap` 且參數完整；不帶 `compact` 照舊；57 個請求全為 GET。
 - **兩個 session 並行的做法**：主 session 負責 1.39.2 與 CHANGELOG、本檔；分出的 session 只負責 docx 那題，commit 只 add 明確路徑，commit 前互相通知。
 
 ### 2026-11-11 上午（公司電腦）— 1.39.2：內建 Watchdog 1.2.0 與真面板驗收；等 1.3.0〔進行中〕
 **作者**：Claude（markdown-viewer-03）。分支 `feat/compact-panel`，未 push。另有一個分出來的 session 只負責 docx 匯出偶發失敗，CHANGELOG 與本檔由本 session 寫。
-- **內建 Watchdog 1.2.0**（commit `2025d7b`）：取自它的 v1.2.0 tag，MANIFEST 九檔雜湊與大小全部相符，禁用字樣與個人資訊 0。
+- **內建 Watchdog 1.2.0**（commit `4476771`）：取自它的 v1.2.0 tag，MANIFEST 九檔雜湊與大小全部相符，禁用字樣與個人資訊 0。
 - **真面板驗收**（對公司電腦 8787 上使用者自行安裝的 1.2.0，只送 GET）：260／320／520／900px、深淺色都不再出現連不上的電腦與連線錯誤；260px 無水平捲動；71 個請求全為 GET；不帶 `compact` 時照舊完整顯示。
 - **新需求（使用者在分出的 session 提出）**：Viewer 面板只開放星圖，辦公室與列表隱藏；同樣只限 Viewer。Watchdog 以 1.3.0 擴充 `compact=1` 的意義（只有星圖、沒有切換、窄面板不退回辦公室），預估 1.5 到 2 小時。Viewer 不必改參數；若星圖在 240px 擠不下，Watchdog 會回報最小寬度，屆時由 Viewer 設定 AI Agents dock 的最小寬度。
 - **決定**：1.39.2 等 1.3.0 一起發，1.2.0 屆時換掉。
