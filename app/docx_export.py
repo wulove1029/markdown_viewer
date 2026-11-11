@@ -36,6 +36,7 @@ BODY_FONT = "Microsoft JhengHei"
 CODE_FONT = "Consolas"
 BODY_PT = 11
 CODE_PT = 9
+NOT_RENDERED_SUFFIX = " (could not be rendered as an image)"
 
 
 def _rfonts(run_or_style, font_name: str) -> None:
@@ -136,6 +137,10 @@ def _add_code(doc: Document, block: Code, base_dir, image_provider=None) -> None
 
     if block.lang in ("mermaid", "math"):
         label = "Mermaid diagram source" if block.lang == "mermaid" else "LaTeX math source"
+        if image_provider is not None:
+            # Rendering was attempted and failed: say so in the document, so
+            # the source box is never mistaken for the intended output.
+            label += NOT_RENDERED_SUFFIX
         label_para = doc.add_paragraph()
         label_run = label_para.add_run(label)
         label_run.italic = True
@@ -209,7 +214,8 @@ def export_markdown_to_docx(md_text: str, out_path, base_dir=None, image_provide
 
     Returns the number of parsed Markdown block elements rendered. Mermaid and
     math blocks are embedded as PNG images when *image_provider* succeeds;
-    otherwise their source text is kept in a code block.
+    otherwise their source text is kept in a code block, labelled as not
+    rendered when a provider was given.
     """
     elements = parse_elements(md_text)
     doc = Document()

@@ -398,6 +398,9 @@ _CODE_BG = RGBColor(0xF2, 0xF2, 0xF2)
 _CODE_FG = RGBColor(0x1A, 0x1A, 0x1A)
 _QUOTE_FG = RGBColor(0x55, 0x55, 0x55)
 _TITLE_FG = RGBColor(0x1F, 0x1F, 0x1F)
+# Appended to a Mermaid / math source label when rendering was attempted and
+# failed (the Word export does the same with its own wording).
+NOT_RENDERED_NOTE = "（未能轉成圖片）"
 REMOTE_IMAGE_TIMEOUT_SECONDS = 5
 REMOTE_IMAGE_MAX_TOTAL_BYTES = 8 * 1024 * 1024
 
@@ -579,6 +582,10 @@ def _render_block(
         tf.margin_bottom = Inches(0.06)
         if block.lang in ("mermaid", "math"):
             label = "Mermaid 圖（原始碼）" if block.lang == "mermaid" else "數學式（LaTeX）"
+            if image_provider is not None:
+                # Rendering was attempted and failed: say so on the slide, so
+                # the source box is never mistaken for the intended output.
+                label += NOT_RENDERED_NOTE
             head = tf.paragraphs[0]
             r = head.add_run()
             r.text = label

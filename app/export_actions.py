@@ -64,6 +64,47 @@ def _export_source_text(window) -> str | None:
     return result[0]
 
 
+def _fragment_provider(window, failed: list[str]):
+    """Build the Mermaid/math image provider for an Office export.
+
+    Returns ``(renderer, provider)``. Every fragment the provider could not
+    render (including when the renderer itself could not be built) is
+    appended to *failed*, so the export can tell the user instead of quietly
+    shipping source text where an image was expected.
+    """
+    renderer = None
+    try:
+        from .fragment_render import FragmentRenderer
+
+        renderer = FragmentRenderer(parent=window)
+    except Exception:
+        renderer = None
+    inner = getattr(renderer, "provide", None)
+
+    def provider(kind: str, source: str):
+        result = inner(kind, source) if inner is not None else None
+        if result is None:
+            failed.append(kind)
+        return result
+
+    return renderer, provider
+
+
+def _warn_unrendered_fragments(window, title: str, failed: list[str]) -> None:
+    if not failed:
+        return
+    parts = []
+    if failed.count("mermaid"):
+        parts.append(f"{failed.count('mermaid')} 個 Mermaid 圖表")
+    if failed.count("math"):
+        parts.append(f"{failed.count('math')} 個數學式")
+    QMessageBox.warning(
+        window, title,
+        f"{'、'.join(parts)}未能轉成圖片（電腦忙碌或內容有誤時可能發生），"
+        "文件中已改放標示為未轉換的原始碼。",
+    )
+
+
 def export_pdf(window):
     if (
         not window.current_file
@@ -127,18 +168,10 @@ def export_pptx(window):
         return
 
     window.exporting = True
-    renderer = None
-    provider = None
     # Render Mermaid / math fragments to images via the web engine; if that
     # module can't be built, export still works with source-code boxes.
-    try:
-        from .fragment_render import FragmentRenderer
-
-        renderer = FragmentRenderer(parent=window)
-        provider = renderer.provide
-    except Exception:
-        renderer = None
-        provider = None
+    failed: list[str] = []
+    renderer, provider = _fragment_provider(window, failed)
 
     try:
         from .pptx_export import export_markdown_to_pptx
@@ -163,6 +196,7 @@ def export_pptx(window):
     window.statusBar().showMessage(
         f"已匯出 {count} 張投影片至 {Path(path).name}", 5000
     )
+    _warn_unrendered_fragments(window, "匯出 PPT", failed)
     show_export_complete(window, path)
 
 
@@ -186,16 +220,8 @@ def export_docx(window):
         return
 
     window.exporting = True
-    renderer = None
-    provider = None
-    try:
-        from .fragment_render import FragmentRenderer
-
-        renderer = FragmentRenderer(parent=window)
-        provider = renderer.provide
-    except Exception:
-        renderer = None
-        provider = None
+    failed: list[str] = []
+    renderer, provider = _fragment_provider(window, failed)
 
     try:
         from .docx_export import export_markdown_to_docx
@@ -220,6 +246,7 @@ def export_docx(window):
     window.statusBar().showMessage(
         f"已匯出 Word 文件至 {Path(path).name}", 5000
     )
+    _warn_unrendered_fragments(window, "匯出 Word", failed)
     show_export_complete(window, path)
 
 

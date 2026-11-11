@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
 import time
 import zipfile
 from pathlib import Path
@@ -119,6 +120,171 @@ def test_export_each_format(sample, tmp_path, fmt):
     else:
         text = out.read_text(encoding="utf-8")
         assert "CLI Title" in text and "<base href=" in text
+
+
+# Mermaid/math fragments render in a never-shown page. Chromium treats a page
+# without a view as hidden: IDLE-priority renderer and timers throttled to one
+# wake-up per second, which a busy machine starves past every watchdog.
+_FRAGMENT_PRIORITY_EXPORT = textwrap.dedent("""\
+    import ctypes, json, sys
+    import app.fragment_render as fr
+    probe_path = sys.argv.pop(1)
+    seen = []
+    rasterize = fr.FragmentRenderer._rasterize
+
+    def _rasterize(self, pdf, kind):
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(0x1000, False, self._page.renderProcessPid())
+        priority = k32.GetPriorityClass(handle) if handle else 0
+        if handle:
+            k32.CloseHandle(handle)
+        seen.append({"kind": kind, "visible": self._page.isVisible(),
+                     "priorityClass": priority})
+        return rasterize(self, pdf, kind)
+
+    fr.FragmentRenderer._rasterize = _rasterize
+    from app.cli_export import main
+    try:
+        code = main(sys.argv[1:])
+    finally:
+        with open(probe_path, "w", encoding="utf-8") as fh:
+            json.dump(seen, fh)
+    raise SystemExit(code)
+""")
+
+# Simulates a renderer too slow to report "rendered" within its watchdog.
+_STARVED_FRAGMENT_EXPORT = textwrap.dedent("""\
+    import sys
+    import app.fragment_render as fr
+    fr._RENDER_MS = {"mermaid": 300, "math": 300}
+    fr.FragmentRenderer._arm_ready = lambda self, sel, finish, add_teardown: None
+    from app.cli_export import main
+    raise SystemExit(main(sys.argv[1:]))
+""")
+
+# Mermaid draws into a temporary svg inside the diagram element before it puts
+# the finished one there. Hold that state for a while, as a slow machine does,
+# and record whether the diagram loader had finished when the fragment was
+# measured for printing.
+_SLOW_MERMAID_EXPORT = textwrap.dedent("""\
+    import json, sys
+    import app.fragment_render as fr
+    probe_path = sys.argv.pop(1)
+    SLOW = (
+        "<script>(function(){var run=window.mermaid.run.bind(window.mermaid);"
+        "window.mermaid.run=function(options){var node=options.nodes[0];"
+        "var box=document.createElement('div');box.id='dmermaid-slow';"
+        "box.innerHTML='<svg id=\\\\'mermaid-slow\\\\' width=\\\\'100%\\\\'></svg>';"
+        "node.appendChild(box);"
+        "return new Promise(function(done){setTimeout(done,1500);})"
+        ".then(function(){box.remove();return run(options);});};})();</script>"
+    )
+    STATE = (
+        "(function(){var s=window.mdDiagrams&&window.mdDiagrams.status();"
+        "var n=document.querySelector('.mermaid svg');"
+        "return JSON.stringify({complete:!!(s&&s.complete),svg:n&&n.id});})()"
+    )
+    seen = []
+    build = fr.FragmentRenderer._build_html
+    measure = fr.FragmentRenderer._arm_measure
+
+    def _build_html(self, kind, source):
+        doc, sel = build(self, kind, source)
+        marker = "<script>window.__renderDone"
+        if kind == "mermaid":
+            doc = doc.replace(marker, SLOW + marker, 1)
+        return doc, sel
+
+    def _arm_measure(self, sel, finish, add_teardown):
+        def got(value):
+            seen.append(json.loads(value))
+            measure(self, sel, finish, add_teardown)
+
+        if sel == ".mermaid svg":
+            self._page.runJavaScript(STATE, got)
+        else:
+            measure(self, sel, finish, add_teardown)
+
+    fr.FragmentRenderer._build_html = _build_html
+    fr.FragmentRenderer._arm_measure = _arm_measure
+    from app.cli_export import main
+    try:
+        code = main(sys.argv[1:])
+    finally:
+        with open(probe_path, "w", encoding="utf-8") as fh:
+            json.dump(seen, fh)
+    raise SystemExit(code)
+""")
+
+_IDLE_PRIORITY_CLASS = 0x40
+
+
+def _run_script(script: str, args, timeout=240):
+    return subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", script, *map(str, args)],
+        cwd=ROOT, env=_env(), capture_output=True, text=True, encoding="utf-8",
+        timeout=timeout,
+    )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows priority classes")
+def test_fragment_renderer_is_not_backgrounded(sample, tmp_path):
+    out = tmp_path / "out.docx"
+    rj = tmp_path / "result.json"
+    probe = tmp_path / "probe.json"
+    result = _run_script(_FRAGMENT_PRIORITY_EXPORT,
+                         [probe, "--export", "docx", sample, out, "--result-json", rj])
+    _assert_ok(result, rj, "docx", sample, out)
+    seen = json.loads(probe.read_text(encoding="utf-8"))
+    assert [s["kind"] for s in seen] == ["mermaid", "math"], seen
+    for state in seen:
+        assert state["visible"] is True, seen
+        assert state["priorityClass"] not in (0, _IDLE_PRIORITY_CLASS), seen
+
+
+def test_slow_mermaid_is_measured_only_once_finished(sample, tmp_path):
+    out = tmp_path / "out.docx"
+    rj = tmp_path / "result.json"
+    probe = tmp_path / "probe.json"
+    result = _run_script(_SLOW_MERMAID_EXPORT,
+                         [probe, "--export", "docx", sample, out, "--result-json", rj])
+    _assert_ok(result, rj, "docx", sample, out)
+    seen = json.loads(probe.read_text(encoding="utf-8"))
+    assert seen and all(s["complete"] for s in seen), seen
+    assert all(s["svg"] != "mermaid-slow" for s in seen), seen
+    assert _read_json(rj)["warnings"] == []
+    with zipfile.ZipFile(out) as archive:
+        media = [n for n in archive.namelist() if "/media/" in n]
+    assert len(media) >= 3, media
+
+
+def test_unrendered_fragments_are_reported_not_silent(sample, tmp_path):
+    """Every image a slow machine could not render leaves a labelled source
+    box in the document and a warning in the result, the log and stdout."""
+    from docx import Document
+
+    out = tmp_path / "out.docx"
+    rj = tmp_path / "result.json"
+    log = tmp_path / "run.log"
+    result = _run_script(_STARVED_FRAGMENT_EXPORT, [
+        "--export", "docx", sample, out, "--result-json", rj, "--log", log,
+    ])
+    _assert_ok(result, rj, "docx", sample, out)
+    expected = [
+        "mermaid fragment not rendered; source text kept",
+        "math fragment not rendered; source text kept",
+    ]
+    assert _read_json(rj)["warnings"] == expected
+    log_text = log.read_text(encoding="utf-8")
+    for warning in expected:
+        assert f"warning: {warning}" in log_text
+        assert f"warning: {warning}" in result.stdout
+    text = "\n".join(p.text for p in Document(str(out)).paragraphs)
+    assert "Mermaid diagram source (could not be rendered as an image)" in text
+    assert "LaTeX math source (could not be rendered as an image)" in text
+    with zipfile.ZipFile(out) as archive:
+        media = [n for n in archive.namelist() if "/media/" in n]
+    assert len(media) == 1, media  # the relative-path image only
 
 
 CJK_MARKDOWN = """# 部首測試

@@ -19,8 +19,8 @@ Pipeline per fragment (one reused, never-shown ``QWebEnginePage``):
    sizes it physically (a small formula stays small), and save it.
 
 Every step has a watchdog; any failure returns ``None`` so the caller falls
-back to the labelled source box. QtWebEngine cannot run headless (it segfaults
-under offscreen), so this is verified by manual GUI runs only.
+back to the labelled source box and reports it. The page is marked visible
+(never shown) so Chromium does not deprioritize its renderer; see ``_arm_load``.
 """
 
 from __future__ import annotations
@@ -175,6 +175,9 @@ class FragmentRenderer:
         # Mermaid 11 emits <svg width="100%" viewBox=...>, which measures to ~0
         # inside a shrink-to-fit wrapper. Pin the svg to its intrinsic viewBox
         # size before measuring so the page is sized correctly.
+        # Mermaid first draws into a temporary svg inside the same element and
+        # only then puts the finished svg in its place, so an svg alone does
+        # not mean "done": wait until the diagram loader reports it rendered.
         normalize = "true" if kind == "mermaid" else "false"
         shim = (
             "<script>window.__renderDone=false;(function(){var NORM=%s;"
@@ -182,7 +185,10 @@ class FragmentRenderer:
             "if(vb&&vb.width){n.setAttribute('width',vb.width);"
             "n.setAttribute('height',vb.height);n.style.maxWidth='none';"
             "n.style.width=vb.width+'px';n.style.height=vb.height+'px';}}catch(e){}}"
-            "function c(){var n=document.querySelector(%s);"
+            "function drawn(){if(!NORM)return true;var d=window.mdDiagrams;"
+            "if(!d)return false;var s=d.status();"
+            "return s.complete&&s.total>0&&s.rendered===s.total;}"
+            "function c(){var n=drawn()&&document.querySelector(%s);"
             "if(n){norm(n);(document.fonts?document.fonts.ready:Promise.resolve())"
             ".then(function(){window.__renderDone=true;});}"
             "else{setTimeout(c,30);}}c();})();</script>" % (normalize, _js_str(sel))
@@ -229,6 +235,13 @@ class FragmentRenderer:
         self._page.loadFinished.connect(on_loaded)
         add_teardown(lambda: self._safe_disconnect(on_loaded))
         self._page.setHtml(doc, self._base)
+        # A page without a view counts as hidden to Chromium: its renderer
+        # process runs at IDLE priority and its timers wake at most once a
+        # second. On a busy machine that starves every step past its watchdog
+        # (minutes, not seconds), so mark the page visible. It is never shown;
+        # the page only accepts this once its first load has started.
+        if not self._page.isVisible():
+            self._page.setVisible(True)
 
     def _arm_ready(self, sel, finish, add_teardown):
         probe = (

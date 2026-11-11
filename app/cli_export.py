@@ -370,25 +370,36 @@ def _run_snapshot(text: str, src: Path, tmp: Path, pdf: bool, timeout_s: float) 
     return Job().run()
 
 
-def _run_office(fmt: str, text: str, src: Path, tmp: Path, warnings: list[str]) -> None:
+def _warn(warnings: list[str], log: _Log, message: str) -> None:
+    """Record a degraded-output warning in the result, the log and stdout."""
+    warnings.append(message)
+    log.write(f"warning: {message}")
+    _emit(f"warning: {message}")
+
+
+def _run_office(
+    fmt: str, text: str, src: Path, tmp: Path, warnings: list[str], log: _Log
+) -> None:
     """docx/pptx through the same exporters (and fragment renderer) the GUI uses."""
     renderer = None
-    provider: Callable[[str, str], Any] | None = None
+    inner: Callable[[str, str], Any] | None = None
     try:
         from .fragment_render import FragmentRenderer
 
         renderer = FragmentRenderer()
         inner = renderer.provide
-
-        def provider(kind: str, source: str) -> Any:
-            result = inner(kind, source)
-            if result is None:
-                warnings.append(f"{kind} fragment not rendered; source text kept")
-            return result
     except Exception as exc:
         renderer = None
-        provider = None
-        warnings.append(f"fragment renderer unavailable: {exc}")
+        _warn(warnings, log, f"fragment renderer unavailable: {exc}")
+
+    # Always pass a provider, so a fragment that could not be rendered is
+    # reported and labelled as such in the document, never silently dropped.
+    def provider(kind: str, source: str) -> Any:
+        result = inner(kind, source) if inner is not None else None
+        if result is None:
+            _warn(warnings, log, f"{kind} fragment not rendered; source text kept")
+        return result
+
     try:
         if fmt == "docx":
             from .docx_export import export_markdown_to_docx
@@ -424,7 +435,7 @@ def export_one(
         text = read[0]
         dst.parent.mkdir(parents=True, exist_ok=True)
         if fmt in ("docx", "pptx"):
-            _run_office(fmt, text, src, tmp, warnings)
+            _run_office(fmt, text, src, tmp, warnings, log)
         else:
             ok = _run_snapshot(text, src, tmp, fmt == "pdf", JOB_TIMEOUT_S)
             if not ok:

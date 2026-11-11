@@ -201,6 +201,17 @@ def test_image_provider_none_falls_back_to_source_box(tmp_path):
     assert "int_0^1" in _slide_text(slide)  # labelled source box
 
 
+def test_failed_render_is_labelled_on_the_slide(tmp_path):
+    from app.pptx_export import NOT_RENDERED_NOTE
+
+    md = "## D\n\n```mermaid\ngraph LR; X-->Y;\n```\n\n$$\nx^2\n$$\n"
+    out = tmp_path / "failed.pptx"
+    export_markdown_to_pptx(md, out, image_provider=lambda kind, src: None)
+    text = _slide_text(Presentation(str(out)).slides[0])
+    assert "Mermaid 圖（原始碼）" + NOT_RENDERED_NOTE in text
+    assert "數學式（LaTeX）" + NOT_RENDERED_NOTE in text
+
+
 def test_no_provider_keeps_source_box(tmp_path):
     md = "## D\n\n```mermaid\ngraph LR; X-->Y;\n```\n"
     out = tmp_path / "noprov.pptx"
@@ -208,6 +219,10 @@ def test_no_provider_keeps_source_box(tmp_path):
     slide = Presentation(str(out)).slides[0]
     assert not _has_picture(slide)
     assert "graph LR" in _slide_text(slide)
+    # Nothing was attempted, so nothing is reported as failed.
+    from app.pptx_export import NOT_RENDERED_NOTE
+
+    assert NOT_RENDERED_NOTE not in _slide_text(slide)
 
 
 def test_png_size_dpi_and_display_height(tmp_path):

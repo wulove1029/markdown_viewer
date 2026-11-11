@@ -11,6 +11,7 @@ from docx.shared import Inches
 from app.docx_export import (
     BODY_FONT,
     CODE_FONT,
+    NOT_RENDERED_SUFFIX,
     _content_width_emu,
     export_markdown_to_docx,
 )
@@ -148,6 +149,22 @@ def test_provider_none_falls_back_to_source_text(tmp_path):
     assert len(doc.inline_shapes) == 0
     assert "Mermaid diagram source" in _text(doc)
     assert "graph LR; X-->Y;" in _text(doc)
+
+
+def test_failed_fragment_label_says_it_was_not_rendered(tmp_path):
+    md = "```mermaid\ngraph LR; X-->Y;\n```\n\n$$x^2$$\n"
+    failed = tmp_path / "failed.docx"
+    plain = tmp_path / "plain.docx"
+
+    export_markdown_to_docx(md, failed, image_provider=lambda kind, source: None)
+    export_markdown_to_docx(md, plain)
+
+    text = _text(Document(str(failed)))
+    assert f"Mermaid diagram source{NOT_RENDERED_SUFFIX}" in text
+    assert f"LaTeX math source{NOT_RENDERED_SUFFIX}" in text
+    # Without a provider nothing was attempted, so nothing failed.
+    assert NOT_RENDERED_SUFFIX not in _text(Document(str(plain)))
+    assert "Mermaid diagram source" in _text(Document(str(plain)))
 
 
 def test_missing_image_falls_back_to_placeholder(tmp_path):
