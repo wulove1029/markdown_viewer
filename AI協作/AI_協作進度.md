@@ -120,6 +120,16 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 13:27（公司電腦）— 1.39.2 發布〔已發版〕
+**作者**：Claude（markdown-viewer-03 收尾；push、tag、發布由分出的 session 執行，使用者在那個 session 同意）。
+- **內容**：AI Agents 面板只保留星圖、只顯示在線上的電腦、沒有連線錯誤，面板最窄 385 像素（只限 Viewer，瀏覽器直開 Watchdog 照舊）；內建 Watchdog 更新為 1.3.0；電腦忙碌時匯出 Word／PowerPoint 不再默默少圖；安裝檔的檔案版本不再是 0.0.0.0。
+- **commit**：main 從 `7a1b883` fast-forward 到 `1b43bc5`；tag `v1.39.2`（lightweight）→ `1b43bc5`。發布前改寫過未 push 的歷史，把進度紀錄裡的遠端電腦名稱拿掉，公開歷史中沒有出現過。
+- **驗證**：main CI 全綠（3409 passed／177 skipped，WebEngine 五組全過，本機逾時的 PDF 快照測試在 CI 通過）；Release workflow 成功，安裝檔收進恰好 9 個內建 Watchdog 檔；fresh 子代理核對 draft 5/5：`MarkdownViewer_Setup_v1.39.2.exe` 168,309,758 bytes，SHA256 與 digest 一致（`8748ddc4…eb91517`），ProductVersion 1.39.2、FileVersion 1.39.2.0，發布說明無禁用字樣與個人資訊。轉正式並設為 Latest，GitHub 發布時間 05:27 UTC。
+- **偶發失敗（不影響發布）**：推 tag 觸發的那一輪 CI（run 42963007980）有 1 題失敗：`tests/test_wysiwyg_webengine.py::test_editor_theme_picker_is_hit_testable_with_real_pointer_input` 第 1005 行，工具列捲動後以原生點擊關閉主題面板，面板沒關。同一個 commit 在 main 的 CI 與 Release workflow 裡都通過（28/28），1.39.2 沒有改到 WYSIWYG 相關檔案，最近 15 次失敗的 CI 裡也沒出現過這題。判斷為偶發，列為候選。
+- **收尾**：本機分支 `feat/compact-panel`（已合併）與 `backup/pre-rewrite-1392`（改寫前的備份，內容 main 都有）已刪除。
+- **未做**：與 1.39.0 相同：沒有在乾淨 Windows 上實測、沒有實測 SSH 遠端、沒有做提權實裝。解開安裝檔抽查內建檔因為本機沒有解包工具而略過，改以 build log 確認收進的 9 個檔名。
+- **候選（下一版以後）**：小寫磁碟代號的工作目錄會讓 WysiwygView 一直重載、永遠不 ready（產品問題，只在測試環境踩到）；命令列 PDF／HTML 匯出的隱藏 RendererView 也是 Idle 優先權；上面那題偶發 WYSIWYG 測試；驗收者提醒安裝檔的發行者欄位是個人名字、安裝檔沒有簽章（都不是這次的問題）。
+
 ### 2026-11-11 上午（公司電腦，分出的 session）— docx 匯出負載下偶發少圖：產品問題〔已修正＋已驗證，commit `90ca806`〕
 **作者**：Claude（從主 session 分出、只負責這一題）。
 - **調查起點**：`tests/test_cli_export.py::test_export_each_format[docx]` 在負載下偶發少圖。結論是產品問題，不只是測試：電腦忙時，命令列與 App 內「匯出 Word」都會產出少了 Mermaid／數學式圖片的檔案；命令列結束碼仍是 0，App 內完全沒有提示。
