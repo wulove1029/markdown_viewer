@@ -39,7 +39,6 @@ a = Analysis(
         'mdit_py_plugins.deflist',
         'mdit_py_plugins.dollarmath',
         'linkify_it',
-        'uc_micro',
         'pymupdf',
         'pptx',
         'docx',
