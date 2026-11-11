@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- 「AI Agents」面板改為精簡顯示：連不上的遠端電腦不再出現，連線錯誤與遠端提醒也不再顯示；電腦重新連上後自動出現。這需要 Watchdog 1.2.0 以上，較舊的 Watchdog 照舊顯示。用瀏覽器直接開 Watchdog 的頁面時維持完整顯示。
+
 ## [1.39.1] - 2026-11-11
 
 ### Added

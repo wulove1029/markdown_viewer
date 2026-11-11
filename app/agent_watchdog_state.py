@@ -42,6 +42,11 @@ PANEL_SCHEME_PARAM = "scheme"   # query parameter carrying the viewer's theme
 # to leave out whatever would change the Watchdog's state.  A Watchdog that
 # does not know the parameter ignores it.
 PANEL_READONLY_QUERY = "readonly=1"
+# The panel is also a short glance: pages leave out machines that cannot be
+# reached and every connection error or notice about remote machines.  A
+# browser opened on the same page still shows all of it.
+PANEL_COMPACT_QUERY = "compact=1"
+_PANEL_QUERY = f"{PANEL_READONLY_QUERY}&{PANEL_COMPACT_QUERY}"
 PANEL_PATH_MAX_LENGTH = 200
 
 
@@ -83,12 +88,12 @@ def panel_path_from_payload(payload: object) -> str | None:
 def panel_url(base_url: str, path: str | None, dark: bool) -> str:
     """URL the panel loads: the declared page with the theme, else "/".
 
-    Either way the page is asked to be read-only.
+    Either way the page is asked to be read-only and compact.
     """
     if path is None:
-        return f"{base_url}/?{PANEL_READONLY_QUERY}"
+        return f"{base_url}/?{_PANEL_QUERY}"
     scheme = "dark" if dark else "light"
-    return f"{base_url}{path}?{PANEL_SCHEME_PARAM}={scheme}&{PANEL_READONLY_QUERY}"
+    return f"{base_url}{path}?{PANEL_SCHEME_PARAM}={scheme}&{_PANEL_QUERY}"
 
 
 def _is_int(value: object) -> bool:
