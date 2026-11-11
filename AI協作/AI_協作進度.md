@@ -120,6 +120,16 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-11 上午（公司電腦）— 1.39.2 準備：面板精簡顯示、安裝檔版本〔Viewer 端已 commit，等 Watchdog 1.2.0〕
+**作者**：Claude（指揮官 session）。分支 `feat/compact-panel`，未 push。
+- **使用者需求**：AI Agents 面板只顯示在線上的電腦，不要任何連線錯誤或提醒（含「N 台電腦連不上」這種提示）。使用者特別更正：**只在 Markdown Viewer 裡這樣**，用瀏覽器直接開 Watchdog 頁面、以及統籌專案的桌面版都維持完整顯示。
+- **做法**：面板載入的每一頁都多帶 `compact=1`（與 `readonly=1` 並列，`app/agent_watchdog_state.py` 的 `PANEL_COMPACT_QUERY`）。Watchdog 1.2.0 只在看到它時隱藏連不上的電腦與所有 remote_errors；舊版 Watchdog 會忽略它。API 合約不變，`/api/status` 的 `stale` 欄位保留。commit `a55df94`。
+- **順帶修正**（commit `b5b2b5f`）：安裝檔 `VersionInfoVersion` 跟著 `MyAppVersion`（原本檔案版本是 0.0.0.0；用 ISCC 試編確認 1.39.2 → 1.39.2.0）；spec 移除已不需要的 `uc_micro`（鎖定的 linkify-it-py 2.2.0 不再依賴它）；新增 `tests/test_installer_script.py`。
+- **使用者問的另外兩件事**：星圖打不開是因為面板只有約 260px，低於星圖的 370px 門檻（既定設計，拉寬或浮出面板即可）；紅字是公司電腦上自行安裝的 Watchdog 設定了兩台遠端，從公司連不上。
+- **調查中**：`tests/test_cli_export.py::test_export_each_format[docx]` 在負載下偶發少圖片，正在判斷是測試問題還是匯出真的會靜默少圖。
+- **待辦**：Watchdog 交付 1.2.0（含 MANIFEST 與 260／320／520px 自測）→ 換檔、真面板擷圖驗收（含 compact 生效與瀏覽器直開不受影響）→ Python 3.13 試打包 → 版號 1.39.2、CHANGELOG 定稿 → fresh 交付檢查 → 經使用者同意後 push、tag、發布。
+- **公司電腦現況**：安裝版 Viewer 1.39.1；自行安裝的 Watchdog 1.1.1；登錄檔 `watchdog\enabled` 為 true，沒有測試殘留。
+
 ### 2026-11-11 04:13（家裡電腦）— 1.39.1 發布：星圖檢視〔已發版〕
 **作者**：Claude（指揮官 session）。
 - **內容**：內建 Agent Watchdog 更新為 1.1.1（來源為 Watchdog 的 v1.1.1 tag，MANIFEST sha256 `c690b3…03b1`）。星圖檢視成為面板預設，面板寬度小於 370 像素時退回辦公室、400 像素以上回到星圖；四頁都支援唯讀；列表頁長名稱換行。Viewer 程式沒有改動（`panel.path` 由 Watchdog 宣告）。
