@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
 
+import shiboken6
 from PySide6.QtCore import (
     QCoreApplication,
     QEvent,
@@ -4438,6 +4439,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
 
     def _open_file(self, filepath: str):
         path = Path(filepath)
+        self._leave_agents_only()
         pending = getattr(self, "_pending_source_target", None)
         if pending and pending[0] != str(path):
             self._pending_source_target = None
@@ -7091,6 +7093,13 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._agents_panel_action = act("AI Agents 面板", self._toggle_agents_panel)
         self._agents_panel_action.setCheckable(True)
         menu.addAction(self._agents_panel_action)
+        spec = shortcut_by_id("view.agents_only")
+        self._agents_only_action = act(
+            f"只顯示 AI Agents	{spec.menu_hint}", self._toggle_agents_only)
+        self._agents_only_action.setCheckable(True)
+        self._agents_only_action.setData(spec.command_id)
+        self._agents_only_action.setProperty("commandId", spec.command_id)
+        menu.addAction(self._agents_only_action)
         self._agent_enable_action = toggle("啟用 Agent 監看", KEY_ENABLED, config.enabled)
         menu.addAction(self._agent_enable_action)
         menu.addAction(toggle(
@@ -7145,6 +7154,15 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             dock.set_watcher(self._agent_watcher)
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
             dock.visibilityChanged.connect(self._agents_panel_action.setChecked)
+            dock.visibilityChanged.connect(self._on_agents_dock_visibility)
+            dock.topLevelChanged.connect(self._on_agents_dock_floating)
+            # Floating the dock emits visibilityChanged(False) before
+            # topLevelChanged(True); judge a "hidden" dock only after the
+            # event loop has settled so a float is not mistaken for a close.
+            self._agents_hidden_timer = QTimer(self)
+            self._agents_hidden_timer.setSingleShot(True)
+            self._agents_hidden_timer.setInterval(0)
+            self._agents_hidden_timer.timeout.connect(self._settle_agents_only)
             QApplication.instance().aboutToQuit.connect(dock.shutdown)
             self._agents_dock = dock
         return self._agents_dock
@@ -7152,6 +7170,103 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _toggle_agents_panel(self, *_args) -> None:
         dock = self._ensure_agents_dock()
         dock.setVisible(not dock.isVisible())
+
+    # --- agents-only view: the AI Agents dock fills the window ---------------
+
+    def _agents_only_widgets(self) -> list:
+        from PySide6.QtWidgets import QDockWidget, QToolBar
+
+        widgets = [self.centralWidget(), self.statusBar()]
+        widgets += [
+            d for d in self.findChildren(QDockWidget) if d is not self._agents_dock
+        ]
+        widgets += self.findChildren(QToolBar)
+        return [w for w in widgets if w is not None]
+
+    def _toggle_agents_only(self, *_args) -> None:
+        if getattr(self, "_agents_only_state", None) is not None:
+            self._leave_agents_only()
+        else:
+            self._enter_agents_only()
+
+    def _enter_agents_only(self) -> None:
+        if getattr(self, "_agents_only_state", None) is not None:
+            return
+        if self._workspace_controls.focused:
+            self._workspace_controls.toggle_focus()
+        dock = self._ensure_agents_dock()
+        self._reading_tools.dock.setObjectName("readingToolsDock")
+        widgets = self._agents_only_widgets()
+        self._agents_only_state = {
+            "layout": self.saveState(),
+            "visible": [(w, not w.isHidden()) for w in widgets],
+            "dock_hidden": dock.isHidden(),
+            "dock_floating": dock.isFloating(),
+        }
+        self._agents_only_busy = True
+        try:
+            if dock.isFloating():
+                dock.setFloating(False)
+            dock.show()
+            for widget in widgets:
+                widget.hide()
+        finally:
+            self._agents_only_busy = False
+        self._agents_only_action.setChecked(True)
+
+    def _leave_agents_only(
+        self, *_args, keep_dock_hidden: bool = False,
+        keep_dock_floating: bool = False,
+    ) -> None:
+        state = getattr(self, "_agents_only_state", None)
+        if state is None:
+            self._agents_only_action.setChecked(False)
+            return
+        self._agents_only_state = None
+        dock = self._agents_dock
+        self._agents_only_busy = True
+        try:
+            self.restoreState(state["layout"])
+            for widget, visible in state["visible"]:
+                if shiboken6.isValid(widget):
+                    widget.setVisible(visible)
+            if keep_dock_floating:
+                # The user floated it on purpose: restoreState put it back in
+                # the dock area, so float it again (it keeps its own geometry).
+                dock.setFloating(True)
+                dock.show()
+            elif keep_dock_hidden or state["dock_hidden"]:
+                dock.hide()
+            else:
+                dock.show()
+        finally:
+            self._agents_only_busy = False
+        self._agents_only_action.setChecked(False)
+
+    def _on_agents_dock_floating(self, floating: bool) -> None:
+        if (
+            floating
+            and getattr(self, "_agents_only_state", None) is not None
+            and not getattr(self, "_agents_only_busy", False)
+        ):
+            self._leave_agents_only(keep_dock_floating=True)
+
+    def _on_agents_dock_visibility(self, _visible: bool) -> None:
+        if getattr(self, "_agents_only_state", None) is None:
+            return
+        if getattr(self, "_agents_only_busy", False):
+            return
+        if not self._agents_dock.isVisibleTo(self):
+            self._agents_hidden_timer.start()
+
+    def _settle_agents_only(self) -> None:
+        if getattr(self, "_agents_only_state", None) is None:
+            return
+        dock = self._agents_dock
+        if dock.isFloating():
+            self._leave_agents_only(keep_dock_floating=True)
+        elif not dock.isVisibleTo(self):
+            self._leave_agents_only(keep_dock_hidden=True)
 
     def _show_agents_panel(self) -> None:
         self._ensure_agents_dock().show()
@@ -7229,6 +7344,8 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
         self._shutdown_link_thread()
 
     def closeEvent(self, event):
+        # Never leave the agents-only layout behind (the window may only hide).
+        self._leave_agents_only()
         # The background scans stop only once the close is accepted below: a
         # "Cancel" in the save prompt keeps the rebuild (and never waits on it).
         if hasattr(self._tag_index, "flush"):

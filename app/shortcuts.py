@@ -40,6 +40,10 @@ WINDOW_SHORTCUTS: tuple[ShortcutSpec, ...] = (
         "主視窗", "_toggle_focus_workspace",
     ),
     ShortcutSpec(
+        "view.agents_only", "檢視與工具", "只顯示 AI Agents", ("Ctrl+Alt+A",),
+        "主視窗", "_toggle_agents_only",
+    ),
+    ShortcutSpec(
         "tools.command_palette", "檢視與工具", "命令搜尋", ("Ctrl+Alt+P",),
         "主視窗", "_show_command_palette",
     ),

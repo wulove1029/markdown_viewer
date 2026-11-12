@@ -226,6 +226,7 @@ class WorkspaceControls(QObject):
     def toggle_focus(self, _checked=False):
         window = self.window
         if not self.focused:
+            window._leave_agents_only()
             widgets = (window.menuBar(), window._toolbar, window._panel,
                        window._tab_strip, window._properties_dock,
                        window._reading_tools.dock, window.statusBar())
