@@ -1,8 +1,8 @@
-watchdog version: 1.3.0
-source: commit 7251e5e (tag v1.3.0)
+watchdog version: 1.4.0
+source: commit ce79653 (tag v1.4.0)
 
 file	bytes (LF-normalized)	sha256
-aiwatch.py	159219	d6b7a0468893dc30c2d0affeecebc23d53d96b800b63558251579f3cb299beb6
+aiwatch.py	184540	863c88c5eb6a1f5801a751c828c7cb0f6d8abd3a83bcdb55589c0b535f8ec3e9
 scanner_core.py	30024	9c4c76824c25e06d284940afeb009668fc53505b2feecaaa784a75ca05b466ea
 state_core.py	4690	96969968f4f790d25d491162998f9df24ea696824c44b7084a61abbfe54afad7
 remote_scan.py	1871	e76b235e292e6cec6bf586ed7a541cd28d8de926050161935a121f94fc5b66c5

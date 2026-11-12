@@ -12,6 +12,7 @@ costs the same as opening one.
 Usage:
     py -3 -X utf8 aiwatch.py --once      # print one snapshot to console
     py -3 -X utf8 aiwatch.py --serve     # dashboard at http://localhost:8787
+    py -3 -X utf8 aiwatch.py --set-port 6868   # remember another port, move to it
 
 Embedding (a host program such as a frozen desktop app): set the
 AIWATCH_* variables (AIWATCH_HOME, AIWATCH_RESOURCES, AIWATCH_EMBEDDED,
@@ -22,7 +23,7 @@ nothing.
 
 #: The release of this program.  Not the same thing as /api/status `version`,
 #: which counts published snapshots and restarts from 1 with every process.
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 import argparse
 import hashlib
@@ -33,6 +34,7 @@ import queue
 import re
 import signal
 import socket
+import socketserver
 import sys
 import threading
 import time
@@ -74,8 +76,8 @@ CODEX_SESSIONS = HOME / ".codex" / "sessions"
 #   shipped to remote hosts.  Read only.  By default the directory of this file;
 #   a host that unpacked them elsewhere names it with AIWATCH_RESOURCES.
 # * the data directory: everything written at run time (endpoint.json,
-#   install.json, aiwatch.log, last_error.json, hidden.json, office.json,
-#   events.jsonl).  AIWATCH_HOME, else ~/.aiwatch.  The resource directory may
+#   install.json, settings.json, aiwatch.log, last_error.json, hidden.json,
+#   office.json, events.jsonl).  AIWATCH_HOME, else ~/.aiwatch.  The resource directory may
 #   be read-only (Program Files), so nothing is ever written there.
 
 ENV_HOME = "AIWATCH_HOME"
@@ -2926,7 +2928,7 @@ def read_install_file():
     try:
         data = json.loads((aiwatch_home() / "install.json")
                           .read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):   # RecursionError: absurd nesting
         return None
     return data if isinstance(data, dict) else None
 
@@ -3052,6 +3054,195 @@ def install_file_problem(data):
     return None
 
 
+# ------------------------------------------------------------ Persisted port
+#
+# Before 1.4.0 the port was whatever the first starter passed with --port, else
+# 8787, so a port chosen in a host program never reached the copy the apps
+# start (install.json's launch carries no --port, by contract).  settings.json
+# in the data directory now remembers it for every copy that shares the data
+# directory, across restarts and reboots:
+#
+#     {"schema": 1, "port": 6868, "updated_at": "2026-11-12T10:00:00+08:00"}
+#
+# Readers (this file and host programs) use "port" whenever it is an int (not a
+# bool) in 1..65535, whatever the schema number says, and ignore every other
+# field: "port" keeps this meaning in every future schema.  Missing, unreadable
+# or invalid all mean "not set".  Only --set-port writes the file.
+
+SETTINGS_NAME = "settings.json"
+SETTINGS_SCHEMA = 1
+#: The first release whose registered copy reads settings.json (--set-port
+#: refuses to save a port an older registered copy would not use).
+SETTINGS_MIN_VERSION = (1, 4, 0)
+#: `__version__ = "x.y.z"` in an aiwatch.py, read as text (never imported).
+_VERSION_LINE_RE = re.compile(r"""^__version__\s*=\s*["']([0-9A-Za-z.+-]{1,32})["']""",
+                              re.M)
+
+
+def settings_file():
+    return aiwatch_home() / SETTINGS_NAME
+
+
+def _load_settings():
+    """(state, data, error) for settings.json.
+
+    state: "missing"; "unreadable" (it exists but could not be read: locked,
+    no access; error says why); "invalid" (read, but not a JSON object); "ok"
+    (data is the dict).  A UTF-8 BOM is accepted: PowerShell 5.1's
+    `-Encoding utf8` writes one.
+    """
+    try:
+        raw = settings_file().read_bytes()
+    except FileNotFoundError:
+        return "missing", None, None
+    except OSError as exc:
+        return "unreadable", None, exc
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+    except (ValueError, RecursionError):            # UnicodeDecodeError is a ValueError
+        return "invalid", None, None
+    return ("ok", data, None) if isinstance(data, dict) else ("invalid", None, None)
+
+
+def read_settings_file():
+    """settings.json as a dict, or None when it is missing, unreadable or not an object."""
+    state, data, _error = _load_settings()
+    return data if state == "ok" else None
+
+
+def valid_port(value):
+    """True for an int in 1..65535.  bool is not a port (True == 1 in Python)."""
+    return type(value) is int and 1 <= value <= 65535
+
+
+def persisted_port():
+    """The port settings.json remembers, or None when none is set."""
+    data = read_settings_file()
+    port = data.get("port") if data is not None else None
+    return port if valid_port(port) else None
+
+
+def effective_port(explicit):
+    """The port --serve binds: explicit --port (0 included) > settings.json > 8787."""
+    if explicit is not None:
+        return explicit
+    saved = persisted_port()
+    return DEFAULT_PORT if saved is None else saved
+
+
+def probe_port(explicit):
+    """Where --stop / --start / --restart / --set-port look for a running watchdog
+    besides endpoint.json: explicit --port, then the settings.json port.
+
+    Only when neither is set does the old rule apply: stopping is destructive, so
+    with AIWATCH_HOME pointing elsewhere (tests, a second copy) it must not fall
+    back to whatever happens to answer on 8787 (None: endpoint.json only).
+    """
+    if explicit is not None:
+        return explicit
+    saved = persisted_port()
+    if saved is not None:
+        return saved
+    return None if os.environ.get(ENV_HOME) else DEFAULT_PORT
+
+
+def write_settings_port(port):
+    """Remember `port` in settings.json.  None when written, else (exit code, reason).
+
+    Atomic (temporary file + os.replace), UTF-8 without BOM, LF.  The unknown
+    fields of an existing schema-1 file are kept; a file with a newer integer
+    schema belongs to a newer Watchdog and is never touched
+    (EXIT_SETTINGS_NEWER).  Only content that was read and found invalid (not
+    JSON, not an object, a schema that is not an integer) is replaced: a file
+    that exists but cannot be read right now (locked, no access) is left alone
+    and reported like a data directory that cannot be written
+    (EXIT_DATA_DIR_UNWRITABLE).  Never prints, never raises.
+    """
+    path = settings_file()
+    tmp = None
+    try:
+        state, previous, error = _load_settings()
+        if state == "unreadable":
+            return EXIT_DATA_DIR_UNWRITABLE, ("%s exists but cannot be read (%s: %s)"
+                                              % (path, type(error).__name__, error))
+        schema = _schema_int(previous)
+        if schema is not None and schema > SETTINGS_SCHEMA:
+            return EXIT_SETTINGS_NEWER, ("%s was written by a newer Watchdog (schema %d)"
+                                         % (path, schema))
+        payload = dict(previous) if schema == SETTINGS_SCHEMA else {}
+        payload.update(schema=SETTINGS_SCHEMA, port=port,
+                       updated_at=datetime.now().astimezone().isoformat(timespec="seconds"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name("%s.%d.tmp" % (SETTINGS_NAME, os.getpid()))
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        _replace_retrying(tmp, path)
+        return None
+    except Exception as exc:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        return EXIT_DATA_DIR_UNWRITABLE, ("%s cannot be written (%s: %s)"
+                                          % (path, type(exc).__name__, exc))
+
+
+def _version_tuple(text):
+    """(major, minor, patch) from "1.4.0" (or "1.4"), else None."""
+    match = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", text) if isinstance(text, str) else None
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def installed_version(data):
+    """`__version__` of the aiwatch.py that install.json `launch` names, read
+    from the file on disk (not from the running copy: a copy updated on disk
+    but still running the old code is restarted into the new code), or None."""
+    launch = data.get("launch") if isinstance(data, dict) else None
+    if not isinstance(launch, list):
+        return None
+    scripts = [a for a in launch[1:]
+               if isinstance(a, str) and a.lower().endswith("aiwatch.py")]
+    if not scripts:
+        return None
+    try:
+        with open(scripts[0], encoding="utf-8", errors="replace") as fh:
+            text = fh.read(4 * 1024 * 1024)
+    except OSError:
+        return None
+    match = _VERSION_LINE_RE.search(text)
+    return match.group(1) if match else None
+
+
+def installed_too_old(data):
+    """None when the registered copy reads settings.json (1.4.0 or later), else
+    how to name its version in a message ("older than 1.4.0" when unreadable)."""
+    version = installed_version(data)
+    parsed = _version_tuple(version)
+    if parsed is not None and parsed >= SETTINGS_MIN_VERSION:
+        return None
+    return version if parsed is not None else "older than %d.%d.%d" % SETTINGS_MIN_VERSION
+
+
+def port_bind_problem(port):
+    """None when 127.0.0.1:port can be bound exactly the way the server binds
+    it (WatchdogServer's address family and socket options), else why not."""
+    try:
+        probe = WatchdogServer(("127.0.0.1", port), Handler, bind_and_activate=False)
+    except OSError as exc:
+        return "%s: %s" % (type(exc).__name__, exc)
+    try:
+        # TCPServer's bind sets the same options as the real server; HTTPServer's
+        # adds only a reverse DNS lookup of the host name, which a probe can skip.
+        socketserver.TCPServer.server_bind(probe)
+        probe.server_activate()
+    except OSError as exc:
+        return "%s: %s" % (type(exc).__name__, exc)
+    finally:
+        probe.server_close()
+    return None
+
+
 def _spawn_detached(argv, cwd, env=None):
     """Start argv with no window, outside our process group (and job, if allowed)."""
     import subprocess
@@ -3071,37 +3262,78 @@ def _spawn_detached(argv, cwd, env=None):
         return subprocess.Popen(argv, creationflags=base, **kwargs)
 
 
-def start_registered_watchdog(port):
-    """--start: run the copy install.json names, unless one already answers."""
+def _registered_launch_env():
+    """The environment for the registered copy: None (inherit ours) normally.
+
+    Only --set-port starts the registered copy from an embedded process (the
+    host moving the user's installed watchdog).  The host's variables must not
+    reach that python.exe: AIWATCH_EMBEDDED / AIWATCH_SELF_LAUNCH would make it
+    act as the host's embedded copy, AIWATCH_RESOURCES would serve the host's
+    pages, and a frozen host's _MEI* / PYTHONHOME / PYTHONPATH break a plain
+    interpreter.  AIWATCH_HOME stays: it shares this data directory (and the
+    settings.json just written).
+    """
+    if not embedded_mode():
+        return None
+    host_only = {ENV_EMBEDDED, ENV_SELF_LAUNCH, ENV_RESOURCES}
+    return {k: v for k, v in os.environ.items()
+            if k.upper() not in host_only
+            and not k.upper().startswith(_FROZEN_ENV_PREFIXES)
+            and k.upper() not in _FROZEN_ENV_NAMES}
+
+
+def _report(line, quiet, notes, error=False):
+    """A start helper's message: printed unless quiet, and appended to notes (a
+    list) when given, so --set-port can put the reason into its single line."""
+    if notes is not None:
+        notes.append(line)
+    if not quiet:
+        if error:
+            print(line, file=sys.stderr)
+        else:
+            print(line)
+
+
+def start_registered_watchdog(port, quiet=False, notes=None):
+    """--start: run the copy install.json names, unless one already answers.
+
+    port is only where to look for it (the launch list never carries --port).
+    quiet: print nothing (--set-port prints its own single line); notes: a list
+    that receives the messages."""
     running = running_watchdog_url(port)
     if running is not None:
-        print("the watchdog at %s is already running" % running)
+        _report("the watchdog at %s is already running" % running, quiet, notes)
         return 0
     data = read_install_file()
     problem = install_file_problem(data)
     if problem:
-        print("cannot start: %s %s; run `aiwatch.py --register` in the copy to use"
-              % (aiwatch_home() / "install.json", problem), file=sys.stderr)
+        _report("cannot start: %s %s; run `aiwatch.py --register` in the copy to use"
+                % (aiwatch_home() / "install.json", problem), quiet, notes, error=True)
         return 1
+    env = _registered_launch_env()
     try:
-        _spawn_detached(data["launch"], data["cwd"])
+        if env is None:
+            _spawn_detached(data["launch"], data["cwd"])
+        else:
+            _spawn_detached(data["launch"], data["cwd"], env=env)
     except OSError as exc:
-        print("cannot start %s (%s)" % (data["launch"][0], exc), file=sys.stderr)
+        _report("cannot start %s (%s)" % (data["launch"][0], exc), quiet, notes,
+                error=True)
         return 1
-    return _await_started(port, data["cwd"])
+    return _await_started(port, data["cwd"], quiet=quiet, notes=notes)
 
 
-def _await_started(port, where):
+def _await_started(port, where, quiet=False, notes=None):
     """After a spawn: 0 once a watchdog answers, 1 if none does in STOP_WAIT_S."""
     deadline = _monotonic() + STOP_WAIT_S
     while _monotonic() < deadline:
         url = running_watchdog_url(port)
         if url is not None:
-            print("started the watchdog in %s: %s" % (where, url))
+            _report("started the watchdog in %s: %s" % (where, url), quiet, notes)
             return 0
         time.sleep(0.25)
-    print("started %s but nothing answers yet; see %s"
-          % (where, aiwatch_home() / "aiwatch.log"), file=sys.stderr)
+    _report("started %s but nothing answers yet; see %s"
+            % (where, aiwatch_home() / "aiwatch.log"), quiet, notes, error=True)
     return 1
 
 
@@ -3120,7 +3352,7 @@ def self_launch_command():
                       % ENV_SELF_LAUNCH)
     try:
         value = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None, "%s is not valid JSON" % ENV_SELF_LAUNCH
     if not (isinstance(value, list) and value
             and all(isinstance(a, str) and a for a in value)):
@@ -3147,19 +3379,27 @@ def _self_launch_env():
     return env
 
 
-def start_embedded_watchdog(port):
+def start_embedded_watchdog(port, quiet=False, probe=None, notes=None):
     """--start in embedded mode: run AIWATCH_SELF_LAUNCH + --serve --background.
 
     install.json is never consulted: it names the copy the user installed, not
     this one.  Same "one that answers wins" rule as start_registered_watchdog().
+    port: an explicit --port, passed on to the new copy.  probe: where to look
+    for a running copy when there is none (the settings.json port; the new copy
+    reads settings.json itself, so it is not passed on as --port).
+    quiet: print nothing (--set-port prints its own single line); notes: a list
+    that receives the messages.
     """
-    running = running_watchdog_url(port)
+    look = port if port else probe
+    running = running_watchdog_url(look)
     if running is not None:
-        print("the watchdog at %s is already running" % running)
+        _report("the watchdog at %s is already running" % running, quiet, notes)
         return 0
     launch, problem = self_launch_command()
     if problem:
-        return _startup_failed(EXIT_SELF_LAUNCH, problem, port or None)
+        if notes is not None:
+            notes.append(problem)
+        return _startup_failed(EXIT_SELF_LAUNCH, problem, look or None, quiet=quiet)
     argv = list(launch) + ["--serve", "--background"]
     if port:
         argv += ["--port", str(port)]
@@ -3172,14 +3412,52 @@ def start_embedded_watchdog(port):
     try:
         _spawn_detached(argv, cwd, env=_self_launch_env())
     except OSError as exc:
-        return _startup_failed(EXIT_SELF_LAUNCH, "cannot start %s (%s)"
-                               % (launch[0], exc), port or None)
-    return _await_started(port, launch[0])
+        why = "cannot start %s (%s)" % (launch[0], exc)
+        if notes is not None:
+            notes.append(why)
+        return _startup_failed(EXIT_SELF_LAUNCH, why, look or None, quiet=quiet)
+    return _await_started(look, launch[0], quiet=quiet, notes=notes)
 
 
 def _is_loopback_url(url):
     return isinstance(url, str) and re.match(
         r"^http://(127\.0\.0\.1|localhost):\d{1,5}/?$", url) is not None
+
+
+def _url_port(url):
+    """The port of a loopback watchdog URL ("http://127.0.0.1:8787"), or None."""
+    match = re.search(r":(\d{1,5})/?$", url) if isinstance(url, str) else None
+    return int(match.group(1)) if match else None
+
+
+def _events_reply(url, timeout=None):
+    """The /api/events object a watchdog at url answers with, or None."""
+    timeout = ALIVE_PROBE_TIMEOUT_S if timeout is None else timeout
+    try:
+        with _local_http.open(url.rstrip("/") + "/api/events",
+                              timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def running_watchdog_embedded(url):
+    """Whether the watchdog answering at url is an embedded copy: True, False,
+    or None when nothing says.
+
+    endpoint.json `embedded` when that file describes this very watchdog, else
+    /api/events `embedded`.  None (/api/events did not answer, or a release
+    without the field) is never guessed into "installed": restarting the
+    registered copy in place of a host's embedded one would be worse than
+    leaving it where it is.
+    """
+    record = _endpoint_record()
+    if record.get("url") == url and isinstance(record.get("embedded"), bool):
+        return record["embedded"]
+    events = _events_reply(url) or {}
+    embedded = events.get("embedded")
+    return embedded if isinstance(embedded, bool) else None
 
 
 def watchdog_alive(url, timeout=None):
@@ -3199,7 +3477,7 @@ def _endpoint_record():
     try:
         data = json.loads((aiwatch_home() / "endpoint.json")
                           .read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):   # RecursionError: absurd nesting
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -3238,13 +3516,31 @@ def running_watchdog_url(port):
     return None
 
 
-def stop_running_watchdog(port):
-    """--stop: ask the running copy to exit and wait for its cleanup.  0 = ok."""
-    url = running_watchdog_url(port)
+def stop_running_watchdog(port, quiet=False, url=None):
+    """--stop: ask the running copy to exit and wait for its cleanup.  0 = ok.
+
+    url: the watchdog to stop when the caller already found it (--set-port);
+    otherwise it is looked up the usual way.  quiet: print nothing.
+    """
     if url is None:
-        print("no watchdog is running")
+        url = running_watchdog_url(port)
+    if url is None:
+        if not quiet:
+            print("no watchdog is running")
         return 0
-    pid = _endpoint_record().get("pid")
+    record = _endpoint_record()
+    # Wait for the endpoint.json pid to change only when that file describes the
+    # very instance being stopped: same url AND the boot_id it answers with.  A
+    # copy found on --port (another data directory) never touches our
+    # endpoint.json, and a stale file of ours (a copy killed without its
+    # cleanup) may even name the same url once the port is reused; waiting for
+    # either to change took STOP_WAIT_S and then reported a watchdog that had
+    # stopped as "still running".
+    pid = None
+    if record.get("url") == url and record.get("boot_id"):
+        answer = _events_reply(url) or {}
+        if answer.get("boot_id") == record.get("boot_id"):
+            pid = record.get("pid")
     request = urllib.request.Request(
         url.rstrip("/") + "/api/shutdown", data=b"{}", method="POST",
         headers={"Content-Type": "application/json"})
@@ -3252,18 +3548,21 @@ def stop_running_watchdog(port):
         with _local_http.open(request, timeout=5) as resp:
             resp.read()
     except Exception as exc:
-        print("could not stop the watchdog at %s (%s)" % (url, exc), file=sys.stderr)
+        if not quiet:
+            print("could not stop the watchdog at %s (%s)" % (url, exc), file=sys.stderr)
         return 1
     deadline = _monotonic() + STOP_WAIT_S
     while _monotonic() < deadline:
         # endpoint.json is removed at the very end of the cleanup
         if (not watchdog_alive(url, timeout=1.0)
                 and (pid is None or _endpoint_record().get("pid") != pid)):
-            print("stopped the watchdog at %s" % url)
+            if not quiet:
+                print("stopped the watchdog at %s" % url)
             return 0
         time.sleep(0.25)
-    print("the watchdog at %s was asked to stop but is still running" % url,
-          file=sys.stderr)
+    if not quiet:
+        print("the watchdog at %s was asked to stop but is still running" % url,
+              file=sys.stderr)
     return 1
 
 
@@ -3363,25 +3662,43 @@ def _open_background_log():
 # ------------------------------------------------------------------ Exit codes
 #
 # Exit codes of the service commands.  0 and 2 keep the meaning they always had.
+# --set-port uses only 0, 1, 2, 3, 5, 6, 7, 8, 9 and 10, and each of them means
+# one thing on its own (a windowed host may lose the output line): see set_port().
 
 EXIT_OK = 0
 #: --register / --autostart / --stop / --start (--restart) did not succeed.
+#: --set-port: N saved, but a watchdog is still running on another port (it
+#: could not be stopped, was not stopped, or came back elsewhere).
 EXIT_FAILED = 1
 #: --serve could not bind its port.  With --background only when a watchdog
 #: answers on that port: another copy won a simultaneous start, not a failure.
+#: Also every usage error (argparse), --set-port's included.
 EXIT_PORT_TAKEN = 2
 #: --background: the port is held by something that does not answer like a
-#: watchdog (or cannot be bound at all).
+#: watchdog (or cannot be bound at all).  --set-port: N cannot be bound
+#: (nothing saved, nothing stopped).
 EXIT_PORT_UNAVAILABLE = 3
 #: --background: the resource directory lacks a page or a scanner source.
 EXIT_RESOURCES_MISSING = 4
-#: --background: the data directory cannot be created or written.
+#: --background: the data directory cannot be created or written.  --set-port:
+#: settings.json cannot be read or written (nothing saved, nothing stopped).
 EXIT_DATA_DIR_UNWRITABLE = 5
 #: Embedded mode: AIWATCH_SELF_LAUNCH is missing or unusable (--background,
-#: --start, --restart).
+#: --start, --restart).  --set-port: N saved; the running embedded copy was NOT
+#: stopped because this process cannot start it again.
 EXIT_SELF_LAUNCH = 6
-#: --background: any other error before the server started.
+#: --background: any other error before the server started.  --set-port: an
+#: unexpected error, state unknown (one line, no traceback).
 EXIT_STARTUP_ERROR = 7
+#: --set-port: the registered copy on disk is older than 1.4.0 (or its version
+#: cannot be read) and would not use a saved port; nothing saved or stopped.
+EXIT_INSTALLED_TOO_OLD = 8
+#: --set-port: settings.json was written by a newer Watchdog (integer schema >
+#: 1); nothing saved, nothing stopped.
+EXIT_SETTINGS_NEWER = 9
+#: --set-port: N saved and the watchdog stopped, but it could not be started on
+#: N; no watchdog is running now.
+EXIT_RESTART_FAILED = 10
 
 #: Why the last start failed, in the data directory; removed by a start that
 #: succeeds.  {"schema": 1, "at": float, "code": int, "message": str,
@@ -3525,17 +3842,19 @@ def _append_log_line(line):
             pass
 
 
-def _startup_failed(code, message, port=None):
+def _startup_failed(code, message, port=None, quiet=False):
     """Report a start that did not happen and return its exit code.
 
     One line in aiwatch.log (a --background copy already sends stderr there)
     and last_error.json, so a host program without a console can say why.
     With the data directory unwritable neither can be written: the exit code
-    is then all there is.
+    is then all there is.  quiet: not on stderr (--set-port prints its own
+    single line); the log line and last_error.json are still written.
     """
     message = " ".join(str(message).split())[:LAST_ERROR_MESSAGE_MAX]   # one line
     line = "startup failed (exit %d): %s" % (code, message)
-    print(line, file=sys.stderr)
+    if not quiet:
+        print(line, file=sys.stderr)
     log = _background_log
     if log is None or sys.stderr is not log:
         _append_log_line(line)
@@ -3612,12 +3931,50 @@ def _port_answers_as_watchdog(port, budget=None):
 
 
 class _Parser(argparse.ArgumentParser):
+    #: main() sets it for a --set-port command line, which always prints
+    #: exactly one line (a host shows it as is): no usage block on errors.
+    one_line_errors = False
+
     def error(self, message):
         # An embedding host has no console: leave the reason where it looks.
         # The exit code stays 2.
         if embedded_mode():
             write_last_error(EXIT_PORT_TAKEN, "bad command line: " + message)
+        if self.one_line_errors:
+            _print_one_line("%s: error: %s" % (self.prog, message), ok=False)
+            self.exit(EXIT_PORT_TAKEN)
         super().error(message)
+
+
+#: Options --set-port cannot be combined with (attribute name, as written).
+_SET_PORT_CONFLICTS = (("serve", "--serve"), ("background", "--background"),
+                       ("once", "--once"), ("stop", "--stop"), ("start", "--start"),
+                       ("restart", "--restart"), ("register", "--register"),
+                       ("autostart", "--autostart"), ("port", "--port"))
+
+
+def _set_port_number(text):
+    """argparse type of --set-port: an int in 1..65535."""
+    try:
+        value = int(text, 10)
+    except (TypeError, ValueError):
+        value = None
+    if value is None or not valid_port(value):
+        raise argparse.ArgumentTypeError(
+            "N must be an integer in 1..65535, not %s" % ascii(text))
+    return value
+
+
+def _mentions_set_port(argv):
+    """True when a command line uses --set-port (or an abbreviation argparse
+    accepts for it: "--set" is the shortest that is not also --serve)."""
+    for arg in argv:
+        if arg == "--":
+            break
+        name = arg.split("=", 1)[0]
+        if len(name) >= len("--set") and "--set-port".startswith(name):
+            return True
+    return False
 
 
 def _build_parser():
@@ -3625,8 +3982,10 @@ def _build_parser():
     ap.add_argument("--once", action="store_true", help="print one snapshot and exit")
     ap.add_argument("--serve", action="store_true", help="run web dashboard")
     ap.add_argument("--port", type=int, default=None,
-                    help="port to serve on (default 8787); with --stop, only "
-                         "this port is tried besides endpoint.json")
+                    help="port to serve on for this run only (default: the port "
+                         "settings.json in the data directory remembers, else "
+                         "8787; see --set-port); with --stop/--start/--restart, "
+                         "the port tried besides endpoint.json")
     ap.add_argument("--events-log", nargs="?", const=str(aiwatch_home() / "events.jsonl"),
                     default=None, metavar="PATH",
                     help="--serve only: append state events to a JSONL file "
@@ -3646,12 +4005,19 @@ def _build_parser():
     ap.add_argument("--autostart", choices=("on", "off"),
                     help="let the apps start the watchdog (on) or not (off), then exit")
     ap.add_argument("--stop", action="store_true",
-                    help="ask the running watchdog to exit, then exit")
+                    help="ask the running watchdog to exit, then exit (looks at "
+                         "endpoint.json, then --port, else the settings.json port; "
+                         "8787 only when AIWATCH_HOME is not set)")
     ap.add_argument("--start", action="store_true",
                     help="start the copy install.json names in the background, unless "
                          "one already runs, then exit")
     ap.add_argument("--restart", action="store_true",
                     help="--stop, then --start (e.g. after updating the files)")
+    ap.add_argument("--set-port", type=_set_port_number, default=None, metavar="N",
+                    help="remember port N (1..65535) in settings.json in the data "
+                         "directory for every later start, move a running watchdog "
+                         "to it, print one line, then exit; not combinable with "
+                         "other commands or --port")
     ap.add_argument("--version", action="version", version=__version__,
                     help="print the release (%s) and exit" % __version__)
     return ap
@@ -3680,21 +4046,178 @@ def _manage(args):
                   % (aiwatch_home() / "install.json", state))
         else:
             code = EXIT_FAILED
-    # Stopping is destructive: with AIWATCH_HOME pointing elsewhere (tests,
-    # a second copy) and no --port, it must not fall back to whatever
-    # happens to answer on 8787.
-    if args.port is not None:
-        probe_port = args.port
-    else:
-        probe_port = None if os.environ.get(ENV_HOME) else DEFAULT_PORT
+    # Explicit --port, then settings.json; without either, no 8787 fallback
+    # when AIWATCH_HOME points elsewhere (see probe_port()).
+    look = probe_port(args.port)
     if args.stop:
-        code = max(code, stop_running_watchdog(probe_port))
+        code = max(code, stop_running_watchdog(look))
     if args.start and code == 0:
         if embedded_mode():
-            code = start_embedded_watchdog(probe_port)
+            # Only an explicit --port is passed on: a copy started without one
+            # reads settings.json itself.
+            code = start_embedded_watchdog(args.port, probe=look)
         else:
-            code = start_registered_watchdog(probe_port)
+            code = start_registered_watchdog(look)
     return code
+
+
+def _record_restart_failure(port, line, since):
+    """Exit 10 leaves its reason where a windowed host looks too: one line in
+    aiwatch.log, and last_error.json unless the failed restart already wrote a
+    more specific one after `since` (the relaunch's own code, or the 3-7 of a
+    new process that could not start).  Never raises."""
+    try:
+        _append_log_line("--set-port: " + line)
+        try:
+            data = json.loads((aiwatch_home() / LAST_ERROR_NAME).read_text(encoding="utf-8"))
+        except (OSError, ValueError, RecursionError):
+            data = None
+        at = data.get("at") if isinstance(data, dict) else None
+        fresh = (isinstance(at, (int, float)) and not isinstance(at, bool)
+                 and at >= since - 0.5)
+        if not fresh:
+            write_last_error(EXIT_RESTART_FAILED, line, port)
+    except Exception:
+        pass                    # the exit code and the printed line still say it
+
+
+def set_port(port):
+    """--set-port N: (exit code, the one line to print).  Prints nothing itself.
+
+    Saves N in settings.json and moves a running watchdog to it, in the order
+    that never leaves the user worse off: nothing is saved while N cannot be
+    bound or while the registered copy is too old to use it, and a running
+    watchdog is only stopped once it is known that it can be started again in
+    the same mode (installed: install.json; embedded: AIWATCH_SELF_LAUNCH).
+
+    Every code means one thing on its own (a windowed host may lose the line):
+    0 the watchdog is on N, or none runs; 1 N saved, a watchdog still runs on
+    another port; 3 N in use, nothing changed; 5 settings.json cannot be read or
+    written, nothing changed; 6 N saved, the embedded watchdog was not stopped;
+    8 the registered copy is too old, nothing changed; 9 settings.json is newer,
+    nothing changed; 10 N saved and the watchdog stopped, but none could be
+    started: nothing runs.  main() adds 2 (usage) and 7 (unexpected error).
+    """
+    # 1. The running watchdog, found the way --stop finds it, with the port in
+    #    force BEFORE settings.json changes.  Mode: True, False or None (unknown).
+    look = probe_port(None)
+    url = running_watchdog_url(look)
+    old = _url_port(url) if url is not None else None
+    embedded = running_watchdog_embedded(url) if url is not None else False
+    # 7b. A registered copy older than 1.4.0 ignores settings.json and would come
+    #     back on 8787 at its next start.  It matters when it is what runs (or may
+    #     be: mode unknown), or what the apps will start.  Checked on disk: a copy
+    #     updated on disk but still running old code is fine, the restart loads
+    #     the new code.  Never worked around with --port in a launch list (the
+    #     next start loses it).  An unusable install.json is step 7's business.
+    data = read_install_file()
+    usable = install_file_problem(data) is None
+    if usable and ((url is not None and embedded is not True)
+                   or (url is None and data.get("autostart") is True)):
+        too_old = installed_too_old(data)
+        if too_old is not None:
+            return EXIT_INSTALLED_TOO_OLD, (
+                "port %d not saved: the installed watchdog is %s, which cannot "
+                "remember a port; update it to 1.4.0 or later first" % (port, too_old))
+    # 2. Already there: only remember it.
+    if url is not None and old == port:
+        failed = write_settings_port(port)
+        if failed is not None:
+            return failed[0], "port %d not saved: %s" % (port, failed[1])
+        return EXIT_OK, "port %d saved; the watchdog is already on %d" % (port, port)
+    # 3. Preflight: the new port must be bindable the way the server binds it.
+    if port_bind_problem(port) is not None:
+        return EXIT_PORT_UNAVAILABLE, ("port %d not saved: 127.0.0.1:%d is in use by "
+                                       "another program" % (port, port))
+    # 4-5. Save: never over a newer schema (9), never over a file that cannot be
+    #      read right now, nor into a data directory that cannot be written (5).
+    failed = write_settings_port(port)
+    if failed is not None:
+        return failed[0], "port %d not saved: %s" % (port, failed[1])
+    # 6. Nothing to move.
+    if url is None:
+        return EXIT_OK, ("port %d saved; no watchdog is running, the next start "
+                         "uses it" % port)
+    # 7. Only stop what is known to be startable again in the same mode.
+    if embedded is None:
+        return EXIT_FAILED, ("port %d saved; the watchdog stays on %d: its mode "
+                             "(installed or embedded) could not be determined"
+                             % (port, old))
+    if embedded:
+        _launch, problem = self_launch_command()
+        if problem:
+            return EXIT_SELF_LAUNCH, ("port %d saved; the embedded watchdog stays on "
+                                      "%d until its host restarts it" % (port, old))
+    else:
+        problem = install_file_problem(read_install_file())
+        if problem:
+            return EXIT_FAILED, ("port %d saved; the watchdog stays on %d: %s %s"
+                                 % (port, old, aiwatch_home() / "install.json", problem))
+    # 8. Stop it as --stop does.  A watchdog that went away by itself meanwhile
+    #    (idle exit) counts as stopped.
+    if stop_running_watchdog(look, quiet=True, url=url) != 0 and watchdog_alive(url):
+        return EXIT_FAILED, "port %d saved; could not stop the watchdog on %d" % (port, old)
+    # 9. Start it again in the same mode, without an explicit port: the new
+    #    process reads settings.json.  `port` is only where to look for it.
+    notes = []
+    since = time.time()
+    if embedded:
+        code = start_embedded_watchdog(None, quiet=True, probe=port, notes=notes)
+    else:
+        code = start_registered_watchdog(port, quiet=True, notes=notes)
+    # 10. What answers now decides the code, whatever the start returned (a host
+    #     may have restarted it meanwhile, with or without an explicit --port).
+    now = running_watchdog_url(port)
+    if now is None:
+        line = ("port %d saved; stopped the watchdog on %d but could not start it on "
+                "%d, so none is running" % (port, old, port))
+        if code != 0 and notes:
+            line += ": " + notes[-1]
+        elif code == 0:
+            line += ": it started but no longer answers"
+        _record_restart_failure(port, line, since)
+        return EXIT_RESTART_FAILED, line
+    landed = _url_port(now)
+    if landed != port:
+        return EXIT_FAILED, ("port %d saved, but a watchdog is running on %s again"
+                             % (port, landed))
+    # 11.
+    return EXIT_OK, "port %d saved; the watchdog moved from %d to %d" % (port, old, port)
+
+
+def _ascii_line(text):
+    """One ASCII line: --set-port's output must print under any code page (a
+    frozen host's pipe, no -X utf8), so paths and localized OS messages are
+    escaped (backslashreplace) instead of raising UnicodeEncodeError."""
+    text = " ".join(str(text).splitlines())
+    return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
+def _print_one_line(line, ok):
+    """--set-port's single line: stdout on success, stderr otherwise; nowhere
+    when that stream is missing (a windowed host) or broken."""
+    stream = sys.stdout if ok else sys.stderr
+    if stream is None:
+        return
+    try:
+        print(_ascii_line(line), file=stream)
+    except (OSError, ValueError):
+        pass
+
+
+def _set_port_command(port):
+    """set_port() behind the catch-all: any unexpected exception is exit 7 with
+    one line, no traceback on the console (it goes to aiwatch.log)."""
+    try:
+        return set_port(port)
+    except Exception as exc:
+        line = ("port %d: unexpected error, state unknown (%s: %s); check "
+                "settings.json and endpoint.json" % (port, type(exc).__name__, exc))
+        try:
+            _append_log_line("--set-port: %s\n%s" % (line, traceback.format_exc().rstrip()))
+        except Exception:
+            pass
+        return EXIT_STARTUP_ERROR, line
 
 
 def main(argv=None):
@@ -3708,14 +4231,26 @@ def main(argv=None):
     global _background_log
     if argv is not None:
         argv = [str(a) for a in argv]
-    args = _build_parser().parse_args(argv)
     shown = sys.argv[1:] if argv is None else argv
+    parser = _build_parser()
+    parser.one_line_errors = _mentions_set_port(shown)
+    args = parser.parse_args(argv)
+    if args.set_port is not None:
+        # `is`, not `in (None, False)`: --port 0 is given, and 0 == False.
+        given = [flag for name, flag in _SET_PORT_CONFLICTS
+                 if getattr(args, name) is not None and getattr(args, name) is not False]
+        if given:
+            parser.error("--set-port cannot be combined with %s" % ", ".join(given))
+        code, line = _set_port_command(args.set_port)
+        # Exactly one line: stdout when it worked, stderr otherwise.
+        _print_one_line(line, code == EXIT_OK)
+        raise SystemExit(code)
     if args.restart:
         args.stop = args.start = True
     if args.register or args.autostart or args.stop or args.start:
         raise SystemExit(_manage(args))
-    if args.port is None:
-        args.port = DEFAULT_PORT
+    # Explicit --port (0 included) > settings.json > 8787.
+    args.port = effective_port(args.port)
     if args.background:
         args.serve = True
     if args.once or not args.serve:
