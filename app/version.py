@@ -1,10 +1,10 @@
 APP_NAME = "Markdown Viewer"
-VERSION = "1.39.2"
+VERSION = "1.39.3"
 
 # Shown in the About dialog; update alongside CHANGELOG.md on each release.
 RELEASE_NOTES = [
-    "「AI Agents」面板只保留星圖，連不上的電腦與連線錯誤不再顯示；面板最窄 385 像素。",
-    "電腦忙碌時匯出 Word 或 PowerPoint，Mermaid 圖表與數學式不再可能被默默改成原始碼。",
+    "檢視選單新增「只顯示 AI Agents」（Ctrl+Alt+A），讓 AI Agents 面板佔滿整個視窗。",
+    "「設定 Watchdog 位址…」改成預設以外的位址後會真的生效，自動啟動 Watchdog 也會用該連接埠。",
     "內建 Watchdog 未在沒有 Python 的乾淨 Windows 上實測，內建模式的 SSH 遠端監看也未實測。",
 ]
 
