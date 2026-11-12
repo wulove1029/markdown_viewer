@@ -120,6 +120,13 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-12 10:59（公司電腦）— 1.39.3 發布〔已發版〕
+**作者**：Claude（使用者在本 session 同意 push、推 tag 並直接發版）。
+- **內容**：新功能「只顯示 AI Agents」（Ctrl+Alt+A）；「設定 Watchdog 位址…」改成預設以外的位址後會真的生效，自動啟動也帶 `--port`。
+- **commit**：main 從 `1b43bc5` fast-forward 到 `6db3608`（含先前留在本機的 1.39.2 發布紀錄 `50bfd5f`）；tag `v1.39.3`（lightweight）→ `6db3608`。
+- **驗證**：main CI（43141774759）、tag CI（43142646550）、Release workflow（43142646605）三組全綠，這次沒有偶發失敗；fresh 子代理核對 draft 7/7：`MarkdownViewer_Setup_v1.39.3.exe` 168,319,644 bytes，SHA256 與 digest 一致（`82dd280c…7132427a`），ProductVersion 1.39.3、FileVersion 1.39.3.0，發布說明與 `tools/write_release_notes.py` 輸出一致、無禁用字樣與個人資訊，安裝檔收進 9 個內建 Watchdog 檔。轉正式並設為 Latest，GitHub 發布時間 02:59 UTC。
+- **未做**：「只顯示 AI Agents」沒有在打包版、也沒有接真的星圖頁面實測；其餘同 1.39.0 的已知限制。本筆紀錄只在本機，等下次有改動時一起推。
+
 ### 2026-11-12（公司電腦）— 新功能「只顯示 AI Agents」〔已實作＋已驗證，分支 `feat/agents-only-view`，未 push〕
 **作者**：Claude（實作派一個子代理；驗收派三個 fresh 子代理，前兩輪各找到問題、修正後第三輪全過）。
 - **需求**：使用者想把 Viewer 當監看畫面，只看 AI Agents。三種做法中使用者選「視窗內全版面」（不是獨立視窗、不是單獨啟動）。
