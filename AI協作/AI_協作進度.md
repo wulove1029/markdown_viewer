@@ -120,6 +120,25 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-12 13:34（公司電腦）— 1.40.0 發布〔已發版〕
+**作者**：Claude。使用者在本 session 同意把 Watchdog 1.4.0 放進 repo，並指示「直接打包 推上github 再發新版通知」；本機打包實測依使用者指示略過。
+- **內容**：
+  - 「變更 Watchdog 連接埠…」可以真的換 port，透過內建 Watchdog 的 `--set-port`，執行中的 Watchdog 會搬過去，重開機也不會變回來。
+  - AI Agents 面板會提示目前實際連到哪一個 Watchdog。
+  - 自動啟動不再帶 `--port`。
+  - 內建的 Agent Watchdog 升級為 1.4.0：9 個檔與交付清單的 SHA256 逐一比對一致，只有 `aiwatch.py` 有變動。
+- **commit**：main 從 `6db3608` fast-forward 到 `be7fba0`，共 9 個 commit，包含先前留在本機的 1.39.3 發布紀錄；tag `v1.40.0`（lightweight）指向 `be7fba0`。
+- **驗證**：
+  - main CI（43159788846）、tag CI（43159793472）、Release workflow（43159793751）三組都全綠。
+  - fresh 子代理核對 draft，7 項全過：
+    - 安裝檔 `MarkdownViewer_Setup_v1.40.0.exe`，168,336,717 bytes。
+    - SHA256 與 digest 一致（`2570fa1a…b37699b`）。
+    - ProductVersion 1.40.0、FileVersion 1.40.0.0。
+    - 發布說明無禁用字樣。
+    - 安裝檔收進 9 個 Watchdog 檔，`aiwatch.py` 是 1.4.0。
+  - 轉為正式版並設為 Latest，GitHub 發布時間 05:34 UTC。
+- **未做**：打包版的「變更 Watchdog 連接埠」沒有在本機實際執行過，使用者決定略過；Watchdog 那邊已用它自己的打包副本實測過 `--set-port`。本筆紀錄只存在本機，等下次有改動時一起推。
+
 ### 2026-11-12 下午（公司電腦）— Watchdog 連接埠可以真的更改（Viewer 端）〔已實作＋已驗證，分支 `feat/watchdog-set-port`，未 push；等 Watchdog 1.4.0〕
 **作者**：Claude（實作派子代理；驗收派兩個 fresh 子代理）。
 - **問題**：使用者裝了 1.39.3 後把位址設成 6868，但自己的 Watchdog 原本就在 8787 執行。Viewer 先試 6868 連不上，退回 8787，看起來像被固定在 8787。根源在 Watchdog 不記 port，誰啟動它就用誰傳的 port（預設 8787），而且一台電腦只跑一個 Watchdog。使用者要求「port 能被更改」。
