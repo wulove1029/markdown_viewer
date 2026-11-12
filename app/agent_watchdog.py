@@ -117,6 +117,25 @@ def save_setting(key: str, value: object) -> None:
     store.sync()
 
 
+def host_port(url: str) -> str:
+    """host:port of a URL without the scheme (plain text for display)."""
+    try:
+        parts = urlparse(url)
+        host, port = parts.hostname or "", parts.port
+    except ValueError:
+        return url
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{host}:{port}" if port else host
+
+
+def connection_text(watcher: AgentWatcher | None) -> str:
+    """Where the Viewer is connected right now (for the settings dialog)."""
+    if watcher is None or not watcher.available:
+        return "目前沒有連上 Watchdog"
+    return f"目前連線：{host_port(watcher.base_url)}"
+
+
 class AgentWatcher(QObject):
     """Polls the Watchdog; owns the state, the timers and the tray icon."""
 
@@ -202,6 +221,20 @@ class AgentWatcher(QObject):
         return not self.state.unavailable
 
     @property
+    def fallback_from(self) -> str | None:
+        """The configured custom URL when another base is in use, else None.
+
+        Only meaningful while connected: an unavailable Watchdog has no base
+        in use (the help page covers that).
+        """
+        if self.state.unavailable or self._custom_port() is None:
+            return None
+        configured = self.config.base_url.rstrip("/")
+        if self.base_url.rstrip("/") == configured:
+            return None
+        return configured
+
+    @property
     def panel_path(self) -> str | None:
         """Panel page declared by /api/events; None means the plain "/"."""
         if self.state.unavailable or self.state.legacy:
@@ -242,6 +275,7 @@ class AgentWatcher(QObject):
         self._events_timer.start(0)
         self._status_timer.start()
         self._toast_timer.start()
+        self.changed.emit()  # the configured / active base may have changed
 
     def pause(self) -> None:
         """Window closing: no timers, no in-flight replies (tray stays)."""
@@ -486,6 +520,7 @@ class AgentWatcher(QObject):
         self.state.set_legacy(False)
         self.state.clear_panel()  # the other base may be a different service
         self._events_timer.start(0)
+        self.changed.emit()  # the base in use changed
 
     def _failed(self, http_status: int = 0) -> None:
         """One failed events (or legacy status) request.

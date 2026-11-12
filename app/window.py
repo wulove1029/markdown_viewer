@@ -7292,13 +7292,19 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
     def _edit_watchdog_url(self) -> None:
         from PySide6.QtWidgets import QInputDialog
 
-        from .agent_watchdog import KEY_BASE_URL, WatchdogConfig, save_setting
+        from .agent_watchdog import (
+            KEY_BASE_URL,
+            WatchdogConfig,
+            connection_text,
+            save_setting,
+        )
         from .agent_watchdog_state import is_loopback_url
 
         current = WatchdogConfig.load().base_url
         text, ok = QInputDialog.getText(
             self, "設定 Watchdog 位址",
-            "Watchdog 位址（僅接受 127.0.0.1 或 ::1）：",
+            "Watchdog 位址（僅接受 127.0.0.1 或 ::1）：\n"
+            + connection_text(self._agent_watcher),
             text=current)
         if not ok:
             return

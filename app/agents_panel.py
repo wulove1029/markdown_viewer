@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher
+from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher, host_port
 from .agent_watchdog_state import is_loopback_url, panel_url
 from .theme import CONTROL_RADIUS, HIT_TARGET, LIGHT, Theme
 
@@ -289,7 +290,27 @@ class AgentsDock(QDockWidget):
         # The stack's minimum follows its widest page, so it holds for the
         # help page too.
         self._view.setMinimumWidth(PANEL_MIN_PAGE_WIDTH)
-        self.setWidget(self._stack)
+        # Slim notice bar above the page; a button can join its layout later.
+        self._notice = QFrame()
+        self._notice.setObjectName("agentAddressNotice")
+        self._notice_layout = QHBoxLayout(self._notice)
+        self._notice_layout.setContentsMargins(10, 6, 10, 6)
+        self._notice_label = QLabel()
+        self._notice_label.setObjectName("agentAddressNoticeText")
+        self._notice_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._notice_label.setWordWrap(True)
+        self._notice_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._notice_layout.addWidget(self._notice_label, 1)
+        self._notice.setVisible(False)
+        self._restyle_notice()
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._notice)
+        body_layout.addWidget(self._stack, 1)
+        self.setWidget(body)
         # Freezing is deferred: see _on_visibility().
         self._freeze_timer = QTimer(self)
         self._freeze_timer.setSingleShot(True)
@@ -301,12 +322,35 @@ class AgentsDock(QDockWidget):
         self._watcher = watcher
         if watcher is not None:
             watcher.changed.connect(self.refresh)
+            watcher.changed.connect(self._update_notice)
+        self._update_notice()
         if self.isVisible():
             self.refresh()
+
+    def _update_notice(self) -> None:
+        """Show the bar only when a custom address fell back to another base."""
+        watcher = self._watcher
+        configured = getattr(watcher, "fallback_from", None) if watcher else None
+        if not configured:
+            self._notice.setVisible(False)
+            return
+        self._notice_label.setText(
+            f"你設定的 {host_port(configured)} 沒有回應，"
+            f"目前顯示的是 {host_port(watcher.base_url)} 的 Watchdog。")
+        self._notice.setVisible(True)
+
+    def _restyle_notice(self) -> None:
+        t = self._theme
+        self._notice.setStyleSheet(
+            f"QFrame#agentAddressNotice {{ background: {t.accent_soft};"
+            f" border: none; border-bottom: 1px solid {t.border}; }}"
+            f" QLabel#agentAddressNoticeText {{ color: {t.text};"
+            f" background: transparent; border: none; }}")
 
     def apply_theme(self, theme: Theme) -> None:
         """Reload a declared panel page with the new scheme; "/" never reloads."""
         self._theme = theme
+        self._restyle_notice()
         # While hidden the page is frozen and refresh() skips a scheme-only
         # change; the next show loads the page with the current scheme.
         if self._loaded_declared and self._shown:

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- 你設定的 Watchdog 位址沒有回應、改連到 endpoint.json 記錄的位址時，AI Agents 面板上方會顯示提示列，說明「你設定的 127.0.0.1:6868 沒有回應，目前顯示的是 127.0.0.1:8787 的 Watchdog」；連上設定的位址、位址為預設值或 Watchdog 未啟動時不顯示。「設定 Watchdog 位址…」對話框也會顯示目前實際連線的位址。
+
 ## [1.39.3] - 2026-11-12
 
 ### Added
