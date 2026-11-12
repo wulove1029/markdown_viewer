@@ -312,7 +312,7 @@ EXIT_TABLE = [
     (0, "已改成連接埠 6868。Watchdog 現在在 6868 上執行，其他程式也會跟著換過去。",
      True, False),
     (1, "連接埠 6868 已記住，但目前的 Watchdog 仍在其他連接埠執行，沒能搬過去。", True, True),
-    (2, "無法變更連接埠。", False, True),
+    (2, ap.USAGE_FAILURE, False, True),
     (3, "連接埠 6868 已被其他程式使用，沒有做任何變更。", False, True),
     (4, "無法變更連接埠。無法確定是否已變更（結束碼 4）。", False, True),  # never returned
     (5, "無法寫入 Watchdog 的設定檔，沒有做任何變更。", False, True),
@@ -408,8 +408,8 @@ def test_exit_2_from_a_bundle_too_old_for_set_port():
     assert _outcome(2, "", version="1.3.0").text == ap.TOO_OLD_BUNDLE
     argparse_line = "aiwatch.py: error: unrecognized arguments: --set-port 6868"
     assert _outcome(2, argparse_line, version=None).text == ap.TOO_OLD_BUNDLE
-    assert _outcome(2, "usage error", version="1.4.0").text == ap.GENERIC_FAILURE
-    assert _outcome(2, "", version=None).text == ap.GENERIC_FAILURE
+    assert _outcome(2, "usage error", version="1.4.0").text == ap.USAGE_FAILURE
+    assert _outcome(2, "", version=None).text == ap.USAGE_FAILURE
 
 
 @pytest.mark.parametrize("failure, words", [

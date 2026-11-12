@@ -53,6 +53,7 @@ MIN_SET_PORT_VERSION = (1, 4, 0)
 
 TOO_OLD_BUNDLE = "這個 Viewer 內建的 Watchdog 版本太舊，還不能變更連接埠。"
 GENERIC_FAILURE = "無法變更連接埠。"
+USAGE_FAILURE = "無法變更連接埠，沒有做任何變更。"
 
 # --set-port exit codes (Watchdog 1.4.0).  Each has exactly one meaning; the
 # printed line is never needed to tell them apart (a windowed host may not
@@ -267,7 +268,9 @@ def _outcome(
             detail, saved=True)
     if code == EXIT_USAGE:
         too_old = bundle_too_old(bundled_version) or "unrecognized arguments" in detail
-        return SetPortOutcome(TOO_OLD_BUNDLE if too_old else GENERIC_FAILURE, detail)
+        if too_old:
+            return SetPortOutcome(TOO_OLD_BUNDLE, detail)
+        return SetPortOutcome(USAGE_FAILURE, detail)
     if code == EXIT_PORT_IN_USE:
         return SetPortOutcome(f"連接埠 {port} 已被其他程式使用，沒有做任何變更。", detail)
     if code == EXIT_SETTINGS_UNWRITABLE:
