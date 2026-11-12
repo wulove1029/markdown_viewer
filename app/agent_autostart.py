@@ -192,7 +192,7 @@ class LaunchPlan:
     reason: str = ""
 
 
-def resolve_launch(home: Path) -> LaunchPlan:
+def resolve_launch(home: Path, port: int | None = None) -> LaunchPlan:
     """The user's registered copy first, else the bundled one.
 
     1. A valid install.json wins: the copy the user registered.
@@ -201,14 +201,22 @@ def resolve_launch(home: Path) -> LaunchPlan:
        contract, files that are gone) starts the bundled copy when there is one.
     4. No bundled copy: nothing is started and the registration's problem is
        the reason, exactly as without this fallback.
+
+    *port* (a user-configured non-default port) is appended as ``--port N``;
+    None leaves the argv exactly as before.
     """
     check = load_install(home)
     if check.ok:
-        return LaunchPlan(list(check.launch), check.cwd)
+        launch = list(check.launch)
+        if port is not None:
+            launch += ["--port", str(port)]
+        return LaunchPlan(launch, check.cwd)
     bundled = None if check.opted_out else agent_bundle.bundled_launch()
     if bundled is None:
         return LaunchPlan(reason=check.reason)
     launch, cwd = bundled
+    if port is not None:
+        launch = [*launch, *agent_bundle.DEFAULT_ARGS, "--port", str(port)]
     return LaunchPlan(launch, cwd, bundled=True)
 
 

@@ -344,6 +344,7 @@ def test_endpoint_json_discovery_and_stale_fallback(qapp, mock_dog, watchers, tm
         "machine": MACHINE, "url": "http://127.0.0.1:9"}))  # nothing listens
     mock_dog.attention = [att("a")]
     w = watchers(mock_dog.url)
+    w._custom_port = lambda: None  # the legacy (default-URL) discovery order
     w._endpoint_path = endpoint
     assert w._discover_bases() == ["http://127.0.0.1:9", mock_dog.url]
     assert w.endpoint_boot_id() == "stale"

@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 from PySide6.QtGui import QIcon
@@ -268,14 +269,29 @@ class AgentWatcher(QObject):
 
     # --- discovery --------------------------------------------------------
 
+    def _custom_port(self) -> int | None:
+        """The configured port when the user changed the URL, else None."""
+        if self.config.base_url.rstrip("/") == DEFAULT_BASE_URL:
+            return None
+        try:
+            return urlparse(self.config.base_url).port
+        except ValueError:
+            return None
+
     def _discover_bases(self) -> list[str]:
-        """endpoint.json url first (it may be stale), then the configured URL."""
+        """endpoint.json url first (it may be stale), then the configured URL.
+
+        A user-changed URL goes first instead: the setting must take effect.
+        """
         bases: list[str] = []
+        if self._custom_port() is not None:
+            bases.append(self.config.base_url)
         try:
             data = json.loads(self._endpoint_path.read_text(encoding="utf-8"))
             url = data.get("url") if isinstance(data, dict) else None
             if isinstance(url, str) and is_loopback_url(url):
-                bases.append(url.rstrip("/"))
+                if url.rstrip("/") not in bases:
+                    bases.append(url.rstrip("/"))
         except (OSError, ValueError):
             pass
         if self.config.base_url not in bases:
@@ -555,7 +571,7 @@ class AgentWatcher(QObject):
             return False
         if verdict == "cooldown":
             return False
-        plan = agent_autostart.resolve_launch(self._home)
+        plan = agent_autostart.resolve_launch(self._home, self._custom_port())
         if not plan.launch:
             self.uses_bundled = False
             self._set_autostart_message("不自動啟動：" + plan.reason)

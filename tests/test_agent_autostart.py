@@ -73,7 +73,7 @@ def make(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(au, "FAST_PROBE_INTERVAL_MS", 40)
     created = []
 
-    def build(base_url, home, autostart=True):
+    def build(base_url, home, autostart=True, custom=False):
         store = settings_store.settings()
         store.setValue("watchdog/base_url", base_url)
         store.setValue("watchdog/autostart", autostart)
@@ -87,6 +87,9 @@ def make(qapp, tmp_path, monkeypatch):
 
         w = AgentWatcher(endpoint_path=home / "endpoint.json", use_tray=False,
                          launcher=launcher, autostart_clock=clock)
+        if not custom:
+            # random test ports must not count as a user-chosen port
+            w._custom_port = lambda: None
         w._backoff = Backoff((0.03, 0.06))
         w.calls = calls
         w.clock = clock
@@ -483,6 +486,7 @@ def test_watcher_reads_install_json_from_aiwatch_home(qapp, layout, make, monkey
                      autostart_clock=Clock())
     try:
         w.config.base_url = dead_url()
+        w._custom_port = lambda: None
         two_failures(w)
         assert seen == [(install["launch"], install["cwd"])]
     finally:
@@ -526,3 +530,79 @@ def test_200_non_contract_occupant_is_port_busy(qapp, layout, make, mock_dog):  
     w.start()
     assert wait_until(qapp, lambda: "port 被佔用" in w.autostart_message)
     assert w.calls == [] and not w.available
+
+
+# --- 3. user-configured (non-default) Watchdog URL -----------------------------
+
+
+def _write_endpoint(home, url):
+    (home / "endpoint.json").write_text(
+        json.dumps({"schema": 1, "url": url}), encoding="utf-8")
+
+
+def test_default_url_keeps_endpoint_first_and_no_port(qapp, layout, make):
+    home, install = layout
+    _write_endpoint(home, "http://127.0.0.1:9")
+    w = make(agent_watchdog.DEFAULT_BASE_URL, home)
+    assert w._discover_bases() == ["http://127.0.0.1:9", agent_watchdog.DEFAULT_BASE_URL]
+    assert w._custom_port() is None
+    assert au.resolve_launch(home, w._custom_port()).launch == install["launch"]
+
+
+def test_custom_url_is_discovered_first(qapp, layout, make):
+    home, _ = layout
+    _write_endpoint(home, "http://127.0.0.1:8787")
+    w = make("http://127.0.0.1:9000", home, custom=True)
+    assert w._custom_port() == 9000
+    assert w._discover_bases() == ["http://127.0.0.1:9000", "http://127.0.0.1:8787"]
+    _write_endpoint(home, "http://127.0.0.1:9000")
+    assert w._discover_bases() == ["http://127.0.0.1:9000"]  # deduplicated
+
+
+def test_custom_port_is_passed_to_registered_copy(layout):
+    home, install = layout
+    plan = au.resolve_launch(home, 9000)
+    assert plan.launch == [*install["launch"], "--port", "9000"]
+    assert not plan.bundled
+    assert au.resolve_launch(home).launch == install["launch"]
+
+
+def test_custom_port_is_passed_to_bundled_copy(layout, monkeypatch):
+    from tests.test_agent_bundle import make_bundle
+    home, _ = layout
+    (home / "install.json").unlink()
+    folder = make_bundle(home.parent / "b" / "agent_watchdog")
+    monkeypatch.setenv(au.agent_bundle.ENV_OVERRIDE, str(folder))
+    plain = au.resolve_launch(home)
+    assert plain.bundled and "--port" not in plain.launch
+    custom = au.resolve_launch(home, 9000)
+    assert custom.launch == [*plain.launch, "--serve", "--background", "--port", "9000"]
+    assert au.agent_bundle.arguments_allowed(custom.launch[len(plain.launch):])
+    # frozen self-launch: "<exe> --agent-watchdog" takes the same arguments
+    monkeypatch.setattr(au.agent_bundle, "is_frozen", lambda: True)
+    monkeypatch.setattr(au.agent_bundle, "bundled_script", lambda: folder / "aiwatch.py")
+    frozen = au.resolve_launch(home, 9000)
+    assert frozen.launch[1:] == ["--agent-watchdog", "--serve", "--background",
+                                 "--port", "9000"]
+
+
+def test_watcher_launches_with_configured_port(qapp, layout, make):
+    home, install = layout
+    w = make("http://127.0.0.1:9000", home, custom=True)
+    two_failures(w)
+    assert w.calls[0][0] == [*install["launch"], "--port", "9000"]
+    w2 = make(agent_watchdog.DEFAULT_BASE_URL, home)
+    two_failures(w2)
+    assert w2.calls[0][0] == install["launch"]
+
+
+def test_custom_url_down_falls_back_to_endpoint_without_launch(
+        qapp, layout, make, mock_dog):  # noqa: F811
+    home, _ = layout
+    _write_endpoint(home, mock_dog.url)
+    w = make(dead_url(), home, custom=True)
+    w.start()
+    assert wait_until(qapp, lambda: w.available and w.state.boot_id is not None)
+    qapp.processEvents()
+    assert w.base_url == mock_dog.url
+    assert w.calls == []
