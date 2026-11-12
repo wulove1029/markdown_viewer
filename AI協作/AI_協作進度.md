@@ -120,6 +120,18 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-12 下午（公司電腦）— Watchdog 連接埠可以真的更改（Viewer 端）〔已實作＋已驗證，分支 `feat/watchdog-set-port`，未 push；等 Watchdog 1.4.0〕
+**作者**：Claude（實作派子代理；驗收派兩個 fresh 子代理）。
+- **問題**：使用者裝了 1.39.3 後把位址設成 6868，但自己的 Watchdog 原本就在 8787 執行。Viewer 先試 6868 連不上，退回 8787，看起來像被固定在 8787。根源在 Watchdog 不記 port，誰啟動它就用誰傳的 port（預設 8787），而且一台電腦只跑一個 Watchdog。使用者要求「port 能被更改」。
+- **三方分工**：Watchdog 1.4.0 新增 `settings.json` 記住連接埠，另加 `--set-port N`：存檔、停掉執行中的 Watchdog、在 N 重新啟動。結束碼 0–10 各只有一種意思。另一個桌面程式的維護方也會改成以記住的連接埠為退路。Viewer 端的改動：
+  - commit `eaa0783`：面板上方提示「設定的位址沒有回應，目前顯示的是哪一個」。
+  - commit `0f0517c`：選單改成「變更 Watchdog 連接埠…」，透過內建副本執行 `--agent-watchdog --set-port N`（白名單只多收這一種獨立形式）。找 Watchdog 的順序改為 endpoint.json → settings.json → 8787；自動啟動不再帶 `--port`；「連接埠被佔用」只看實際會用的連接埠。
+  - commit `e9d3376`：結果只看結束碼就能顯示正確訊息，每次執行後重讀 settings.json 與 endpoint.json 附上一行現況；結束碼 8 由 Viewer 自己讀已安裝副本的版本。打包版若沒有標準輸出，先嘗試接上繼承的 handle 再退回 devnull。
+  - commit `e1f5eb6`：結束碼 2 的訊息補上「沒有做任何變更」。
+- **驗證**：fresh 子代理兩輪。第一輪 9/10，找到打包版會丟掉 Watchdog 的輸出，已修。第二輪 9 項通過、1 項無法判定：內建 1.3.0 在前景 `--serve` 本來就不印東西，要等 1.4.0 才能實測。另做了一個丟棄式的視窗版 PyInstaller 小程式，確認新做法在串流為 None 時能把那一行送到 QProcess。全套 3597 passed／179 skipped／0 failed；使用者的 8787 Watchdog 前後 boot_id 不變。
+- **事故**：實作子代理曾執行 `taskkill /IM python.exe`，會殺掉整台電腦的 python.exe。使用者的 Watchdog 用 pythonw.exe 執行所以沒事；已通知同機其他 session，並在派工規範加上只准殺自己的 PID。
+- **未做**：內建的 Watchdog 仍是 1.3.0，目前按「變更連接埠」只會顯示「內建 Watchdog 版本太舊」。要等 Watchdog 1.4.0 發布、使用者同意放進 `agent_watchdog/` 後才能實際使用，到時要用打包版實測 `--set-port`。
+
 ### 2026-11-12 10:59（公司電腦）— 1.39.3 發布〔已發版〕
 **作者**：Claude（使用者在本 session 同意 push、推 tag 並直接發版）。
 - **內容**：新功能「只顯示 AI Agents」（Ctrl+Alt+A）；「設定 Watchdog 位址…」改成預設以外的位址後會真的生效，自動啟動也帶 `--port`。
