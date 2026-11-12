@@ -304,49 +304,112 @@ def test_bundle_too_old_only_when_known():
 LINE = "watchdog said something"
 
 
-def _outcome(code, line=LINE, version="1.4.0"):
-    return ap.outcome_for(ap.SetPortResult(code, line), 6868, version)
+def _outcome(code, line=LINE, version="1.4.0", installed=None, status=None):
+    return ap.outcome_for(ap.SetPortResult(code, line), 6868, version, installed, status)
 
 
-@pytest.mark.parametrize("code, text, saved, warning", [
+EXIT_TABLE = [
     (0, "已改成連接埠 6868。Watchdog 現在在 6868 上執行，其他程式也會跟著換過去。",
      True, False),
-    (1, "連接埠 6868 已記住，但 Watchdog 沒能搬過去。", True, True),
+    (1, "連接埠 6868 已記住，但目前的 Watchdog 仍在其他連接埠執行，沒能搬過去。", True, True),
     (2, "無法變更連接埠。", False, True),
     (3, "連接埠 6868 已被其他程式使用，沒有做任何變更。", False, True),
-    (4, "Watchdog 停下後無法在連接埠 6868 重新啟動。", False, True),
+    (4, "無法變更連接埠。無法確定是否已變更（結束碼 4）。", False, True),  # never returned
     (5, "無法寫入 Watchdog 的設定檔，沒有做任何變更。", False, True),
     (6, "連接埠 6868 已記住。目前的 Watchdog 是由其他程式啟動的，"
         "會在它下次重新啟動時換過去。", True, False),
-    (7, "Watchdog 停下後無法在連接埠 6868 重新啟動。", False, True),
+    (7, "發生未預期的錯誤，無法確定是否已變更。", False, True),
     (8, "電腦上安裝的 Watchdog 版本太舊（1.4.0 以前的版本），無法記住連接埠。"
         "請先把它更新到 1.4.0 以上，再設定一次。沒有做任何變更。", False, True),
-    (42, "無法變更連接埠。（結束碼 42）", False, True),
-])
-def test_every_exit_code_has_its_message(code, text, saved, warning):
-    outcome = _outcome(code)
+    (9, "Watchdog 的設定檔是較新版本寫的，沒有做任何變更。", False, True),
+    (10, "連接埠 6868 已記住，但 Watchdog 停下後無法在 6868 重新啟動，"
+         "目前沒有 Watchdog 在執行。", True, True),
+    (42, "無法變更連接埠。無法確定是否已變更（結束碼 42）。", False, True),
+    (-1, "無法變更連接埠。無法確定是否已變更（結束碼 -1）。", False, True),
+]
+
+
+@pytest.mark.parametrize("line", [LINE, ""], ids=["with-line", "empty-line"])
+@pytest.mark.parametrize("code, text, saved, warning", EXIT_TABLE,
+                         ids=[str(row[0]) for row in EXIT_TABLE])
+def test_every_exit_code_has_its_message_with_or_without_the_line(
+        code, text, saved, warning, line):
+    """The code alone decides: a windowed host may receive no line at all."""
+    outcome = _outcome(code, line)
     assert (outcome.text, outcome.saved, outcome.warning) == (text, saved, warning)
-    assert outcome.detail == LINE
+    assert outcome.detail == line
 
 
-def test_exit_8_names_the_installed_version():
+def test_saved_codes_constant_matches_the_table():
+    assert ap.SAVED_CODES == {0, 1, 6, 10}
+    assert {code for code, _, saved, _ in EXIT_TABLE if saved} == ap.SAVED_CODES
+
+
+def test_newer_schema_is_its_own_code():
+    assert ap.EXIT_NEWER_SCHEMA == 9
+    outcome = _outcome(ap.EXIT_NEWER_SCHEMA, "")
+    assert outcome.text == "Watchdog 的設定檔是較新版本寫的，沒有做任何變更。"
+    assert not outcome.saved
+    # exit 1 means one thing only, whatever the line says
+    newer_words = _outcome(1, "settings.json was written by a newer watchdog (schema 2)")
+    assert newer_words.saved and "沒能搬過去" in newer_words.text
+
+
+def test_exit_8_version_from_the_installed_copy_then_the_line():
     line = ("port 6868 not saved: the installed watchdog is 1.3.0, which cannot "
             "remember a port; update it to 1.4.0 or later first")
-    assert _outcome(8, line).text.startswith("電腦上安裝的 Watchdog 版本太舊（1.3.0），")
+    assert "（1.2.5）" in _outcome(8, line, installed="1.2.5").text  # the file wins
+    assert "（1.2.5）" in _outcome(8, "", installed="1.2.5").text
+    assert "（1.3.0）" in _outcome(8, line).text                      # then the line
     older = "port 6868 not saved: the installed watchdog is older than 1.4.0, which ..."
     assert "（1.4.0 以前的版本）" in _outcome(8, older).text
+    assert "（1.4.0 以前的版本）" in _outcome(8, "").text
+
+
+def _install(home, script_source, launch=None):
+    wd = home.parent / (home.name + "-wd")
+    wd.mkdir(parents=True, exist_ok=True)
+    script = wd / "aiwatch.py"
+    script.write_text(script_source, encoding="utf-8")
+    python = wd / "pythonw.exe"
+    python.write_text("", encoding="utf-8")
+    if launch is None:
+        launch = [str(python), "-X", "utf8", str(script), "--serve", "--background"]
+    (home / "install.json").write_text(json.dumps(
+        {"schema": 1, "launch": launch, "cwd": str(wd), "autostart": True}),
+        encoding="utf-8")
+    return script
+
+
+def test_installed_version_is_read_from_install_json_launch():
+    home = _home()
+    script = _install(home, '"""x"""\n__version__ = "1.3.0"\nraise SystemExit(9)\n')
+    assert au.installed_version(home) == "1.3.0"  # read, never imported or run
+    script.write_text("print('no version')\n", encoding="utf-8")
+    assert au.installed_version(home) is None
+    _install(home, '__version__ = "1.3.0"\n', launch=["aiwatch.py"])  # not absolute
+    assert au.installed_version(home) is None
+    (home / "install.json").write_text("{broken", encoding="utf-8")
+    assert au.installed_version(home) is None
+    (home / "install.json").unlink()
+    assert au.installed_version(home) is None
+
+
+def test_exit_8_end_to_end_names_the_installed_version(ini):
+    _install(_home(), '__version__ = "1.3.0"\n')
+    _legacy("http://127.0.0.1:9000")
+    outcome = ap.finish_set_port(ap.SetPortResult(8, ""), 6868, "1.4.0", None)
+    assert outcome.text.startswith("電腦上安裝的 Watchdog 版本太舊（1.3.0），")
+    assert _legacy_value() == "http://127.0.0.1:9000"
 
 
 def test_exit_2_from_a_bundle_too_old_for_set_port():
     assert _outcome(2, version="1.3.0").text == ap.TOO_OLD_BUNDLE
+    assert _outcome(2, "", version="1.3.0").text == ap.TOO_OLD_BUNDLE
     argparse_line = "aiwatch.py: error: unrecognized arguments: --set-port 6868"
     assert _outcome(2, argparse_line, version=None).text == ap.TOO_OLD_BUNDLE
     assert _outcome(2, "usage error", version="1.4.0").text == ap.GENERIC_FAILURE
-
-
-def test_exit_1_from_a_newer_settings_schema_changed_nothing():
-    outcome = _outcome(1, "settings.json was written by a newer watchdog (schema 2)")
-    assert not outcome.saved and "沒有做任何變更" in outcome.text
+    assert _outcome(2, "", version=None).text == ap.GENERIC_FAILURE
 
 
 @pytest.mark.parametrize("failure, words", [
@@ -360,17 +423,104 @@ def test_runs_that_did_not_end_normally(failure, words):
     assert outcome.detail == "why"
 
 
+# --- the status line: settings.json and endpoint.json after the run ----------------------
+
+
+class FakeProcesses:
+    def __init__(self, alive=(), started=None):
+        self._alive = set(alive)
+        self._started = started
+
+    def alive(self, pid):
+        return pid in self._alive
+
+    def started_at(self, pid):
+        return self._started
+
+
+def test_status_text():
+    assert ap.status_text(ap.PortStatus(6868, "127.0.0.1:6868")) == (
+        "記住的連接埠：6868；目前 Watchdog：127.0.0.1:6868")
+    assert ap.status_text(ap.PortStatus(None, None)) == (
+        "記住的連接埠：尚未設定（預設 8787）；目前沒有 Watchdog 在執行")
+
+
+def test_status_line_is_added_after_every_run():
+    status = ap.PortStatus(6868, "127.0.0.1:8787")
+    for code, _, _, _ in EXIT_TABLE:
+        assert _outcome(code, "", status=status).text.endswith(
+            "\n\n記住的連接埠：6868；目前 Watchdog：127.0.0.1:8787")
+    unexpected = _outcome(7, "", status=status).text
+    assert unexpected.startswith("發生未預期的錯誤，無法確定是否已變更。")
+    timeout = ap.outcome_for(ap.SetPortResult(None, "", ap.TIMEOUT), 6868, status=status)
+    assert timeout.text.endswith("目前 Watchdog：127.0.0.1:8787")
+    nothing_ran = ap.outcome_for(ap.SetPortResult(None, "", ap.NO_BUNDLE), 6868,
+                                 status=status)
+    assert "記住的連接埠" not in nothing_ran.text
+
+
+def test_exit_0_with_no_watchdog_running_says_the_next_start_uses_it():
+    outcome = _outcome(0, "", status=ap.PortStatus(6868, None))
+    assert outcome.text.startswith(
+        "已改成連接埠 6868。目前沒有 Watchdog 在執行，下次啟動時會使用 6868")
+    assert outcome.saved
+
+
+def _endpoint_record(home, **record):
+    (home / "endpoint.json").write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_read_status_from_settings_and_a_live_endpoint():
+    home = _home()
+    _write_settings(home, {"schema": 1, "port": 6868})
+    _endpoint_record(home, url="http://127.0.0.1:6868", pid=4242, started_at=1000.0)
+    assert ap.read_status(home, FakeProcesses(alive={4242}, started=1001.0)) == (
+        ap.PortStatus(6868, "127.0.0.1:6868"))
+
+
+@pytest.mark.parametrize("record, processes", [
+    ({"url": "http://127.0.0.1:6868", "pid": 4242}, FakeProcesses()),          # dead
+    ({"url": "http://127.0.0.1:6868", "pid": 4242, "started_at": 1000.0},
+     FakeProcesses(alive={4242}, started=2000.0)),                            # pid reused
+    ({"url": "http://example.com:6868", "pid": 4242}, FakeProcesses(alive={4242})),
+    ({"url": "http://127.0.0.1:6868"}, FakeProcesses(alive={4242})),           # no pid
+    ({"url": "http://127.0.0.1:6868", "pid": True}, FakeProcesses(alive={1})),
+], ids=["dead", "reused", "not-loopback", "no-pid", "bool-pid"])
+def test_read_status_ignores_a_stale_or_odd_endpoint(record, processes):
+    home = _home()
+    _endpoint_record(home, **record)
+    assert ap.read_status(home, processes) == ap.PortStatus(None, None)
+
+
+def test_read_status_without_files_or_with_garbage_never_raises():
+    home = _home()
+    assert ap.read_status(home, FakeProcesses()) == ap.PortStatus(None, None)
+    (home / "endpoint.json").write_bytes(b"\xff{garbage")
+    _write_settings(home, None, b"[[[")
+    assert ap.read_status(home, FakeProcesses()) == ap.PortStatus(None, None)
+
+    class Boom(FakeProcesses):
+        def alive(self, pid):
+            raise OSError("no access")
+
+    _endpoint_record(home, url="http://127.0.0.1:6868", pid=4242)
+    assert ap.read_status(home, Boom()) == ap.PortStatus(None, None)
+
+
 def test_pick_line():
     assert ap.pick_line(0, "first\nport 6868 saved\n\n", "noise") == "port 6868 saved"
     usage = "usage: aiwatch.py [-h]\n   [--serve]\naiwatch.py: error: unrecognized arguments\n"
     assert ap.pick_line(2, "", usage) == "aiwatch.py: error: unrecognized arguments"
     assert ap.pick_line(3, "only stdout\n", "") == "only stdout"
-    assert ap.pick_line(1, "", "a\x1b[31m‮b\n") == "a[31mb"
+    assert ap.pick_line(1, "", "a\x1b[31m\u202eb\n") == "a[31mb"
     assert ap.pick_line(0, "", "") == ""
 
 
-def test_decode_output_falls_back_to_the_locale():
+def test_decode_output_falls_back_to_the_ansi_code_page(monkeypatch):
     assert ap.decode_output("連接埠".encode()) == "連接埠"
+    # a windowed build's own pipe stream: ANSI code page, even in UTF-8 mode
+    monkeypatch.setattr(ap.locale, "getencoding", lambda: "cp950")
+    assert ap.decode_output("已記住".encode("cp950")) == "已記住"
     assert isinstance(ap.decode_output(b"\xff\xfe\xfa"), str)
 
 
@@ -400,13 +550,14 @@ class FakeWatcher:
 
 
 @pytest.mark.parametrize("code, deleted", [
-    (0, True), (1, True), (6, True),
+    (0, True), (1, True), (6, True), (10, True),
     (2, False), (3, False), (4, False), (5, False), (7, False), (8, False),
+    (9, False), (11, False),
 ])
-def test_legacy_key_deleted_only_after_exit_0_1_6(ini, code, deleted):
+def test_legacy_key_deleted_only_after_the_saved_codes(ini, code, deleted):
     _legacy("http://127.0.0.1:9000")
     w = FakeWatcher()
-    ap.finish_set_port(ap.SetPortResult(code, LINE), 6868, "1.4.0", w)
+    ap.finish_set_port(ap.SetPortResult(code, ""), 6868, "1.4.0", w)
     assert (_legacy_value() is None) == deleted
     assert w.log == ["start"]  # rediscovered either way
 
@@ -691,3 +842,87 @@ def test_no_notice_when_the_endpoint_is_the_remembered_port(watcher):
 def test_notice_text_for_fake_watchers():
     assert address_notice_text(None) == ""
     assert address_notice_text(object()) == ""
+
+
+# --- 9. standard streams of a windowed build ---------------------------------------------
+#
+# The real proof (a throwaway windowed PyInstaller exe run through SetPortRun)
+# is outside the test suite; here the Windows handle branch is substituted.
+
+
+def test_existing_streams_are_left_alone(monkeypatch):
+    import io
+    out, err, inp = io.StringIO(), io.StringIO(), io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", err)
+    monkeypatch.setattr(sys, "stdin", inp)
+    monkeypatch.setattr(ab, "_std_handle", lambda name: pytest.fail("not asked"))
+    ab._ensure_std_streams()
+    assert (sys.stdout, sys.stderr, sys.stdin) == (out, err, inp)
+
+
+def _missing_streams(monkeypatch):
+    for name in ("stdout", "stderr", "stdin"):
+        monkeypatch.setattr(sys, name, None)
+
+
+def _close_new_streams():
+    for name in ("stdout", "stderr", "stdin"):
+        stream = getattr(sys, name)
+        if stream is not None and not getattr(stream, "closed", True):
+            stream.close()
+
+
+@pytest.mark.parametrize("handle", [lambda name: None,
+                                    lambda name: (_ for _ in ()).throw(OSError("x"))],
+                         ids=["no-handle", "handle-lookup-raises"])
+def test_without_a_usable_handle_devnull_is_used(monkeypatch, handle):
+    _missing_streams(monkeypatch)
+    monkeypatch.setattr(ab, "_std_handle", handle)
+    try:
+        ab._ensure_std_streams()  # never raises
+        assert sys.stdout.name == os.devnull and sys.stderr.name == os.devnull
+        assert sys.stdin.name == os.devnull
+        print("goes nowhere")
+    finally:
+        _close_new_streams()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows handles")
+def test_an_inherited_handle_is_attached_utf8_and_line_buffered(monkeypatch, tmp_path):
+    import _winapi
+    import msvcrt
+
+    target = tmp_path / "pipe-stand-in.txt"
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_BINARY)
+    me = _winapi.GetCurrentProcess()
+    # A handle of its own (like an inherited one): the descriptor the helper
+    # opens on it owns it, and closing that never touches *fd*.
+    handle = _winapi.DuplicateHandle(me, msvcrt.get_osfhandle(fd), me, 0, False,
+                                     _winapi.DUPLICATE_SAME_ACCESS)
+    _missing_streams(monkeypatch)
+    monkeypatch.setattr(ab, "_std_handle", lambda name: handle if name == "stdout" else None)
+    attached_fd = None
+    try:
+        ab._ensure_std_streams()
+        attached = sys.stdout
+        attached_fd = attached.fileno()
+        assert attached_fd != fd
+        assert attached.encoding == "utf-8" and attached.line_buffering
+        print("port 6868 saved（已記住）")  # no flush: the newline sends it
+        assert target.read_bytes().decode("utf-8").rstrip() == "port 6868 saved（已記住）"
+        assert sys.stderr.name == os.devnull  # no handle for that one
+    finally:
+        _close_new_streams()  # closefd=False: the descriptor stays open ...
+        if attached_fd is not None:
+            os.close(attached_fd)  # ... and owns the duplicate handle
+        else:
+            _winapi.CloseHandle(handle)
+        os.close(fd)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows handles")
+def test_std_handle_lookup_itself_never_raises():
+    for name in ("stdin", "stdout", "stderr"):
+        value = ab._std_handle(name)
+        assert value is None or (isinstance(value, int) and value > 0)

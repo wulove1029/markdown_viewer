@@ -17,8 +17,10 @@ from __future__ import annotations
 import locale
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -31,14 +33,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import agent_autostart, agent_bundle
+from . import agent_autostart, agent_bundle, agent_stop
 from .agent_watchdog import (
     DEFAULT_PORT,
     AgentWatcher,
     connection_text,
     forget_legacy_base_url,
+    host_port,
     url_port,
 )
+from .agent_watchdog_state import is_loopback_url
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +53,23 @@ MIN_SET_PORT_VERSION = (1, 4, 0)
 
 TOO_OLD_BUNDLE = "這個 Viewer 內建的 Watchdog 版本太舊，還不能變更連接埠。"
 GENERIC_FAILURE = "無法變更連接埠。"
+
+# --set-port exit codes (Watchdog 1.4.0).  Each has exactly one meaning; the
+# printed line is never needed to tell them apart (a windowed host may not
+# even receive it).
+EXIT_DONE = 0              # on N, or none running (the next start uses N)
+EXIT_STILL_ELSEWHERE = 1   # saved, a Watchdog still runs on another port
+EXIT_USAGE = 2
+EXIT_PORT_IN_USE = 3       # N belongs to another program: nothing changed
+EXIT_SETTINGS_UNWRITABLE = 5
+EXIT_EMBEDDED_ELSEWHERE = 6  # saved, moves when its host restarts it
+EXIT_UNEXPECTED = 7        # state unknown
+EXIT_INSTALLED_TOO_OLD = 8
+EXIT_NEWER_SCHEMA = 9      # settings.json written by a newer Watchdog
+EXIT_RESTART_FAILED = 10   # saved and stopped, but not started on N
+#: The codes after which settings.json holds N: the 1.39.3 address can go.
+SAVED_CODES = frozenset({EXIT_DONE, EXIT_STILL_ELSEWHERE, EXIT_EMBEDDED_ELSEWHERE,
+                         EXIT_RESTART_FAILED})
 
 # SetPortResult.failure: why the command did not run to its end.
 NO_BUNDLE = "no_bundle"
@@ -67,6 +88,15 @@ class SetPortResult:
     code: int | None        # None: it did not run to its end (see failure)
     line: str = ""
     failure: str = ""
+
+
+@dataclass(frozen=True)
+class PortStatus:
+    """What the files say after the run: the remembered port (settings.json)
+    and where a Watchdog runs (endpoint.json whose process is alive)."""
+
+    remembered: int | None = None
+    running: str | None = None  # "127.0.0.1:6868"; None: none running
 
 
 @dataclass(frozen=True)
@@ -96,17 +126,21 @@ def bundle_too_old(version: str | None) -> bool:
     return parsed is not None and parsed < MIN_SET_PORT_VERSION
 
 
-def installed_version(line: str) -> str | None:
+def version_from_line(line: str) -> str | None:
     """The version in "... the installed watchdog is 1.3.0, which ..."."""
     match = _INSTALLED_VERSION.search(line)
     return match.group(1) if match else None
 
 
 def decode_output(data: bytes) -> str:
+    """UTF-8 (a stream the helper attached), else the ANSI code page that a
+    windowed build's own pipe streams use (even while this process runs in
+    UTF-8 mode, so not getpreferredencoding())."""
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
-        return data.decode(locale.getpreferredencoding(False) or "utf-8", errors="replace")
+        encoding = locale.getencoding() or "utf-8"
+        return data.decode(encoding, errors="replace")
 
 
 def pick_line(code: int | None, stdout: str, stderr: str) -> str:
@@ -126,10 +160,13 @@ def set_port_command(port: int) -> tuple[list[str], str] | None:
     return agent_bundle.set_port_launch(port)
 
 
+def remembered_text(remembered: int | None) -> str:
+    return (f"記住的連接埠：{remembered}" if remembered is not None
+            else f"記住的連接埠：尚未設定（預設 {DEFAULT_PORT}）")
+
+
 def dialog_label(connection: str, remembered: int | None) -> str:
-    memory = (f"記住的連接埠：{remembered}" if remembered is not None
-              else f"記住的連接埠：尚未設定（預設 {DEFAULT_PORT}）")
-    return (f"{connection}\n{memory}\n\n"
+    return (f"{connection}\n{remembered_text(remembered)}\n\n"
             "Watchdog 會記住新的連接埠並馬上換過去，其他程式也會跟著換。\n"
             "新的連接埠（1–65535）：")
 
@@ -141,15 +178,66 @@ def dialog_default(remembered: int | None, connected: int | None) -> int:
     return DEFAULT_PORT
 
 
-def _newer_schema(line: str) -> bool:
-    lowered = line.lower()
-    return "newer" in lowered and "schema" in lowered
+def status_text(status: PortStatus) -> str:
+    """「記住的連接埠：6868；目前 Watchdog：127.0.0.1:6868」 and the like."""
+    running = (f"目前 Watchdog：{status.running}" if status.running
+               else "目前沒有 Watchdog 在執行")
+    return f"{remembered_text(status.remembered)}；{running}"
+
+
+def read_status(home: Path, processes: agent_stop.Processes | None = None) -> PortStatus:
+    """Re-read settings.json and endpoint.json (read-only, never raises).
+
+    endpoint.json counts only while the process it names is alive and is not
+    a younger process that got the same pid (cheap: no network request).
+    """
+    remembered = agent_autostart.load_port_setting(home)
+    running = None
+    try:
+        record = agent_stop.read_endpoint(home)
+        url = record.get("url") if record else None
+        pid = agent_stop._valid_pid(record.get("pid")) if record else None
+        if record and pid is not None and isinstance(url, str) and is_loopback_url(url):
+            processes = processes or agent_stop.default_processes()
+            if processes.alive(pid):
+                started = agent_stop._usable_start(record.get("started_at"), time.time())
+                created = processes.started_at(pid)
+                reused = (started is not None and created is not None
+                          and created > started + agent_stop.START_SLACK_S)
+                if not reused:
+                    running = host_port(url)
+    except Exception:  # a status line must never break the dialog
+        log.exception("could not read the Watchdog status")
+    return PortStatus(remembered, running)
 
 
 def outcome_for(
-    result: SetPortResult, port: int, bundled_version: str | None = None,
+    result: SetPortResult,
+    port: int,
+    bundled_version: str | None = None,
+    installed_version: str | None = None,
+    status: PortStatus | None = None,
 ) -> SetPortOutcome:
-    """The message for how ``--set-port N`` ended (plain Traditional Chinese)."""
+    """The message for how ``--set-port N`` ended (plain Traditional Chinese).
+
+    Decided by the exit code alone; the Watchdog's line is only the detail
+    text (and a second source for the version in exit 8).  *status*, when
+    given, adds what the files say now.
+    """
+    outcome = _outcome(result, port, bundled_version, installed_version, status)
+    if status is None or result.failure in (NO_BUNDLE, TOO_OLD):
+        return outcome  # nothing ran: the dialog already showed the state
+    return SetPortOutcome(f"{outcome.text}\n\n{status_text(status)}", outcome.detail,
+                          outcome.saved, outcome.warning)
+
+
+def _outcome(
+    result: SetPortResult,
+    port: int,
+    bundled_version: str | None,
+    installed_version: str | None,
+    status: PortStatus | None,
+) -> SetPortOutcome:
     detail = result.line
     if result.failure == NO_BUNDLE:
         return SetPortOutcome("這個 Viewer 沒有內建 Watchdog，無法變更連接埠。", detail)
@@ -163,37 +251,46 @@ def outcome_for(
             f"變更連接埠沒有在 {seconds} 秒內完成，已停止等待，結果不明。"
             "請稍後在 AI Agents 面板確認 Watchdog 的狀態。", detail)
     if result.failure == CRASHED or result.code is None:
-        return SetPortOutcome("內建的 Watchdog 意外結束，連接埠可能沒有變更。", detail)
+        return SetPortOutcome("內建的 Watchdog 意外結束，無法確定是否已變更。", detail)
     code = result.code
-    if code == 0:
+    if code == EXIT_DONE:
+        if status is not None and status.running is None:
+            text = (f"已改成連接埠 {port}。目前沒有 Watchdog 在執行，"
+                    f"下次啟動時會使用 {port}，其他程式也會跟著換過去。")
+        else:
+            text = (f"已改成連接埠 {port}。Watchdog 現在在 {port} 上執行，"
+                    "其他程式也會跟著換過去。")
+        return SetPortOutcome(text, detail, saved=True, warning=False)
+    if code == EXIT_STILL_ELSEWHERE:
         return SetPortOutcome(
-            f"已改成連接埠 {port}。Watchdog 現在在 {port} 上執行，其他程式也會跟著換過去。",
-            detail, saved=True, warning=False)
-    if code == 1:
-        if _newer_schema(detail):  # settings.json from a newer Watchdog: untouched
-            return SetPortOutcome(
-                "Watchdog 的設定檔是較新版本寫入的，沒有做任何變更。", detail)
-        return SetPortOutcome(f"連接埠 {port} 已記住，但 Watchdog 沒能搬過去。",
-                              detail, saved=True)
-    if code == 2:
+            f"連接埠 {port} 已記住，但目前的 Watchdog 仍在其他連接埠執行，沒能搬過去。",
+            detail, saved=True)
+    if code == EXIT_USAGE:
         too_old = bundle_too_old(bundled_version) or "unrecognized arguments" in detail
         return SetPortOutcome(TOO_OLD_BUNDLE if too_old else GENERIC_FAILURE, detail)
-    if code == 3:
+    if code == EXIT_PORT_IN_USE:
         return SetPortOutcome(f"連接埠 {port} 已被其他程式使用，沒有做任何變更。", detail)
-    if code in (4, 7):
-        return SetPortOutcome(f"Watchdog 停下後無法在連接埠 {port} 重新啟動。", detail)
-    if code == 5:
+    if code == EXIT_SETTINGS_UNWRITABLE:
         return SetPortOutcome("無法寫入 Watchdog 的設定檔，沒有做任何變更。", detail)
-    if code == 6:
+    if code == EXIT_EMBEDDED_ELSEWHERE:
         return SetPortOutcome(
             f"連接埠 {port} 已記住。目前的 Watchdog 是由其他程式啟動的，"
             "會在它下次重新啟動時換過去。", detail, saved=True, warning=False)
-    if code == 8:
-        version = installed_version(detail) or "1.4.0 以前的版本"
+    if code == EXIT_UNEXPECTED:
+        return SetPortOutcome("發生未預期的錯誤，無法確定是否已變更。", detail)
+    if code == EXIT_INSTALLED_TOO_OLD:
+        version = installed_version or version_from_line(detail) or "1.4.0 以前的版本"
         return SetPortOutcome(
             f"電腦上安裝的 Watchdog 版本太舊（{version}），無法記住連接埠。"
             "請先把它更新到 1.4.0 以上，再設定一次。沒有做任何變更。", detail)
-    return SetPortOutcome(f"{GENERIC_FAILURE}（結束碼 {code}）", detail)
+    if code == EXIT_NEWER_SCHEMA:
+        return SetPortOutcome("Watchdog 的設定檔是較新版本寫的，沒有做任何變更。", detail)
+    if code == EXIT_RESTART_FAILED:
+        return SetPortOutcome(
+            f"連接埠 {port} 已記住，但 Watchdog 停下後無法在 {port} 重新啟動，"
+            "目前沒有 Watchdog 在執行。", detail, saved=True)
+    # 4 and anything else: not in the table, so nothing is assumed.
+    return SetPortOutcome(f"{GENERIC_FAILURE}無法確定是否已變更（結束碼 {code}）。", detail)
 
 
 # --- the process ----------------------------------------------------------------
@@ -336,8 +433,12 @@ def finish_set_port(
     watcher: AgentWatcher | None,
 ) -> SetPortOutcome:
     """Map the result; drop the 1.39.3 address once the Watchdog remembers the
-    port (exit 0, 1 or 6); restart the watcher so it discovers the bases again."""
-    outcome = outcome_for(result, port, bundled_version)
+    port (exit 0, 1, 6 or 10); restart the watcher so it discovers the bases
+    again.  settings.json and endpoint.json are re-read whatever the code."""
+    home = agent_autostart.aiwatch_home()
+    installed = (agent_autostart.installed_version(home)
+                 if result.code == EXIT_INSTALLED_TOO_OLD else None)
+    outcome = outcome_for(result, port, bundled_version, installed, read_status(home))
     if outcome.saved:
         forget_legacy_base_url()
     if watcher is not None:

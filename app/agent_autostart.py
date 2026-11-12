@@ -75,6 +75,26 @@ def load_port_setting(home: Path) -> int | None:
     return port
 
 
+def installed_version(home: Path) -> str | None:
+    """``__version__`` of the aiwatch.py that ``home/install.json`` launches
+    (the copy the user installed), read from its source; never imported or
+    run.  None when install.json or the script cannot be read."""
+    path = home / "install.json"
+    try:
+        if path.stat().st_size > SETTINGS_MAX_BYTES:
+            return None
+        data: Any = json.loads(path.read_bytes().decode("utf-8-sig"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    launch = data.get("launch") if isinstance(data, dict) else None
+    if not isinstance(launch, list):
+        return None
+    for item in launch:
+        if isinstance(item, str) and _is_abs(item) and _name(item) == "aiwatch.py":
+            return agent_bundle.script_version(item)
+    return None
+
+
 @dataclass
 class InstallCheck:
     ok: bool

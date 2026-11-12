@@ -153,29 +153,87 @@ def set_port_launch(port: int) -> tuple[list[str], str] | None:
     return [*argv, SET_PORT_ARG, str(int(port))], cwd
 
 
-def bundled_version() -> str | None:
-    """The bundled copy's ``__version__``, read from its source (never imported)."""
-    script = bundled_script()
-    if script is None:
-        return None
+def script_version(script: Path | str) -> str | None:
+    """The ``__version__ = "x.y.z"`` line of an aiwatch.py, read from its
+    source: the file is never imported or run.  None when unreadable."""
     try:
         with open(script, encoding="utf-8-sig", errors="replace") as fh:
             head = fh.read(64 * 1024)
-    except OSError:
+    except (OSError, ValueError):
         return None
     match = _VERSION_LINE.search(head)
     return match.group(1).strip() if match else None
 
 
+def bundled_version() -> str | None:
+    """The bundled copy's ``__version__`` (see :func:`script_version`)."""
+    script = bundled_script()
+    return None if script is None else script_version(script)
+
+
+#: GetStdHandle's STD_INPUT_HANDLE / STD_OUTPUT_HANDLE / STD_ERROR_HANDLE.
+_STD_HANDLE_IDS = {"stdin": -10, "stdout": -11, "stderr": -12}
+
+
+def _std_handle(name: str) -> int | None:
+    """The Windows standard handle this process inherited for *name*, when it
+    is a usable file, pipe or console; None otherwise (also off Windows)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_std_handle = kernel32.GetStdHandle
+    get_std_handle.argtypes = [wintypes.DWORD]
+    get_std_handle.restype = wintypes.HANDLE
+    get_file_type = kernel32.GetFileType
+    get_file_type.argtypes = [wintypes.HANDLE]
+    get_file_type.restype = wintypes.DWORD
+    handle = get_std_handle(_STD_HANDLE_IDS[name] & 0xFFFFFFFF)
+    if not handle or handle == ctypes.c_void_p(-1).value:
+        return None  # none at all (started from Explorer), or INVALID_HANDLE_VALUE
+    if get_file_type(handle) == 0:  # FILE_TYPE_UNKNOWN: not something to write to
+        return None
+    return int(handle)
+
+
+def _attach_std_stream(name: str, mode: str):
+    """A UTF-8, line-buffered text stream on the inherited handle, or None."""
+    try:
+        handle = _std_handle(name)
+        if handle is None:
+            return None
+        import msvcrt
+
+        flags = (os.O_RDONLY if mode == "r" else os.O_WRONLY) | getattr(os, "O_BINARY", 0)
+        fd = msvcrt.open_osfhandle(handle, flags)
+        # closefd=False: the standard handle stays open for the process itself.
+        return open(fd, mode, encoding="utf-8", errors="backslashreplace",
+                    buffering=1, closefd=False)
+    except Exception:
+        return None
+
+
 def _ensure_std_streams() -> None:
     """A windowed packaged build has no console: sys.stdout / sys.stderr /
-    sys.stdin are None there and the first print() would raise."""
+    sys.stdin are None there and the first print() would raise.
+
+    A host that started this process with pipes (QProcess does) still gets
+    the output: the inherited Windows handles are used when there are any,
+    os.devnull only when there are none.  Streams that already exist (a run
+    from source) are left alone.  Never raises.
+    """
     for name, mode in (("stdin", "r"), ("stdout", "w"), ("stderr", "w")):
-        if getattr(sys, name, None) is None:
+        if getattr(sys, name, None) is not None:
+            continue
+        stream = _attach_std_stream(name, mode)
+        if stream is None:
             try:
-                setattr(sys, name, open(os.devnull, mode, encoding="utf-8"))
+                stream = open(os.devnull, mode, encoding="utf-8")
             except OSError:
-                pass
+                continue
+        setattr(sys, name, stream)
 
 
 def _data_home() -> Path:
