@@ -120,6 +120,16 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-12（公司電腦）— 新功能「只顯示 AI Agents」〔已實作＋已驗證，分支 `feat/agents-only-view`，未 push〕
+**作者**：Claude（實作派一個子代理；驗收派三個 fresh 子代理，前兩輪各找到問題、修正後第三輪全過）。
+- **需求**：使用者想把 Viewer 當監看畫面，只看 AI Agents。三種做法中使用者選「視窗內全版面」（不是獨立視窗、不是單獨啟動）。
+- **做法**（commit `97be8da`）：檢視 →「只顯示 AI Agents」（Ctrl+Alt+A，可在命令搜尋找到）。開啟時面板停靠並佔滿視窗，其他區塊（文件區、側邊欄、其他面板、工具列、狀態列）都藏起來，只留選單列；關閉時用 `saveState`／`restoreState` 加上逐一記下的顯示狀態還原原本版面。關掉面板、把面板拉成浮動、開文件、開專注模式、關視窗時會自動恢復；不會記住，下次啟動一律是一般版面。
+- **Esc 刻意不綁**：星圖網頁自己用 Esc 取消選取節點（`agent_watchdog/starmap.html` 的 keydown），Viewer 若攔 Esc，使用者想關詳細卡會被踢出模式。第一版在面板上掛了一個一直有效的 Esc 快捷鍵，一般版面也會吃掉 Esc，驗收抓到後拿掉。
+- **浮動判斷**：面板被拉成浮動時 Qt 的訊號順序是 visibilityChanged(False) → (True) → topLevelChanged(True)，第一個訊號當下還分不出是「關掉」還是「浮動」。第二版靠 Qt 事後把面板顯示回來才剛好正確，驗收指出是時序巧合；現在改成 0 毫秒延後判斷（`_settle_agents_only`）。
+- **驗證**：最後一輪 fresh 子代理在 offscreen 與真實 Windows 平台各跑 11 項情境探針（進入、從浮動進入、關閉、面板切換、浮動、一般版面浮動、快速連按、開文件、專注模式雙向、計時器待命時關視窗）全過；新測試檔 11 passed（兩種平台）；全套 3424 passed／179 skipped／0 failed（約 4 分 42 秒）；ruff 通過。
+- **候選（不擋發版）**：進入模式時才替閱讀工具面板設 objectName（給 `saveState` 用），可移到面板建立處；`_agents_only_state`／`_agents_only_busy` 用 `getattr` 取用，可改在 `__init__` 初始化。Ctrl+Alt+A 可能被常駐的截圖工具搶走，選單仍可用。
+- **未做**：沒有在打包版、也沒有接真的星圖頁面做實機測試（測試時面板顯示的是說明頁）；未 push、未發版。
+
 ### 2026-11-12（公司電腦）—「設定 Watchdog 位址」改了沒作用〔已修正＋已驗證，分支 `fix/watchdog-url-setting`，未 push〕
 **作者**：Claude（實作與驗收各派一個子代理）。
 - **問題**：使用者在 檢視 →「設定 Watchdog 位址…」改了位址，Viewer 仍固定連 8787。
