@@ -120,6 +120,16 @@ Windows 11 + PowerShell 5.1；Python 3.14（`py -3`）；PySide6。
 
 ## 進度紀錄
 
+### 2026-11-12（公司電腦）—「設定 Watchdog 位址」改了沒作用〔已修正＋已驗證，分支 `fix/watchdog-url-setting`，未 push〕
+**作者**：Claude（實作與驗收各派一個子代理）。
+- **問題**：使用者在 檢視 →「設定 Watchdog 位址…」改了位址，Viewer 仍固定連 8787。
+- **原因**：(1) `AgentWatcher._discover_bases`（`app/agent_watchdog.py`）一律先試 `endpoint.json` 的位址，設定值只當備用；Watchdog 一跑就會寫 `endpoint.json`，所以設定永遠輪不到。(2) 自動啟動只帶 `--serve --background`，沒傳 port，Viewer 開起來的 Watchdog 一律在 8787。
+- **修正**（commit `f689b6d`）：只有存的位址不是預設值時才改變行為：先試設定位址，連不上再退回 `endpoint.json`；自動啟動（使用者登記的副本、內建副本、打包版自我啟動）加上 `--port N`（`app/agent_autostart.py` 的 `resolve_launch` 多一個 `port` 參數）。預設值的探測順序與 argv 完全不變。Watchdog 一台電腦只跑一個：已有 Watchdog 在別的 port 時，Viewer 不會再開第二個，而是退回連那一個（有測試確認不會啟動任何程式）。
+- **驗證**：fresh 子代理 12 項核對全過：相關 5 個測試檔 808 passed；全套 3413 passed／179 skipped／0 failed；ruff 通過；在隔離的 `AIWATCH_HOME` 用真的 `resolve_launch` 以 `--port 9123` 啟動內建副本，`/api/events` 回 schema 1、`endpoint.json` 記 9123，結束後清掉；使用者自己的 Watchdog 前後 `boot_id` 不變。
+- **注意**：不帶 port 的位址（如 `http://127.0.0.1`）會被當成預設值；對話框不接受 `localhost`。
+- **候選**：驗收者用 `main.py --agent-watchdog --stop --port 9123` 沒停掉暫存的 Watchdog（改為直接結束程序），可能只是呼叫方式不對（Viewer 自己用的是 `--agent-watchdog-stop`），與這次改動無關，未確認。
+- **未做**：沒有在打包版實機測試；未 push、未發版。
+
 ### 2026-11-11 13:27（公司電腦）— 1.39.2 發布〔已發版〕
 **作者**：Claude（markdown-viewer-03 收尾；push、tag、發布由分出的 session 執行，使用者在那個 session 同意）。
 - **內容**：AI Agents 面板只保留星圖、只顯示在線上的電腦、沒有連線錯誤，面板最窄 385 像素（只限 Viewer，瀏覽器直開 Watchdog 照舊）；內建 Watchdog 更新為 1.3.0；電腦忙碌時匯出 Word／PowerPoint 不再默默少圖；安裝檔的檔案版本不再是 0.0.0.0。
