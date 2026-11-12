@@ -147,6 +147,9 @@ def watchers(qapp, tmp_path, monkeypatch):
         w = AgentWatcher(
             endpoint_path=tmp_path / "no-endpoint.json", use_tray=False, **kwargs
         )
+        if w.config.base_url != agent_watchdog.DEFAULT_BASE_URL:
+            # The mock stands in for 8787 (the saved address dedupes into it).
+            w.fallback_port = agent_watchdog.url_port(w.config.base_url)
         w._backoff = Backoff((0.03, 0.06, 0.09, 0.12))
         created.append(w)
         return w
@@ -332,7 +335,8 @@ def test_non_loopback_base_url_is_rejected(qapp, mock_dog, watchers, tmp_path):
     endpoint = tmp_path / "ep.json"
     endpoint.write_text(json.dumps({"url": "http://10.0.0.5:8787"}))
     w._endpoint_path = endpoint
-    assert w._discover_bases() == ["http://127.0.0.1:8787"]
+    # neither is used: only the fallback (8787, a closed port under test) is left
+    assert w._discover_bases() == [agent_watchdog.loopback_base(w.fallback_port)]
     w2 = watchers("http://localhost:8787")
     assert w2.config.base_url == "http://127.0.0.1:8787"
 
@@ -344,7 +348,6 @@ def test_endpoint_json_discovery_and_stale_fallback(qapp, mock_dog, watchers, tm
         "machine": MACHINE, "url": "http://127.0.0.1:9"}))  # nothing listens
     mock_dog.attention = [att("a")]
     w = watchers(mock_dog.url)
-    w._custom_port = lambda: None  # the legacy (default-URL) discovery order
     w._endpoint_path = endpoint
     assert w._discover_bases() == ["http://127.0.0.1:9", mock_dog.url]
     assert w.endpoint_boot_id() == "stale"

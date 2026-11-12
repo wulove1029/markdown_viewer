@@ -73,7 +73,7 @@ def make(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(au, "FAST_PROBE_INTERVAL_MS", 40)
     created = []
 
-    def build(base_url, home, autostart=True, custom=False):
+    def build(base_url, home, autostart=True):
         store = settings_store.settings()
         store.setValue("watchdog/base_url", base_url)
         store.setValue("watchdog/autostart", autostart)
@@ -87,9 +87,10 @@ def make(qapp, tmp_path, monkeypatch):
 
         w = AgentWatcher(endpoint_path=home / "endpoint.json", use_tray=False,
                          launcher=launcher, autostart_clock=clock)
-        if not custom:
-            # random test ports must not count as a user-chosen port
-            w._custom_port = lambda: None
+        if base_url != agent_watchdog.DEFAULT_BASE_URL:
+            # The test's address stands in for 8787: the last candidate and
+            # the effective port (the saved address dedupes into it).
+            w.fallback_port = agent_watchdog.url_port(base_url)
         w._backoff = Backoff((0.03, 0.06))
         w.calls = calls
         w.clock = clock
@@ -486,7 +487,6 @@ def test_watcher_reads_install_json_from_aiwatch_home(qapp, layout, make, monkey
                      autostart_clock=Clock())
     try:
         w.config.base_url = dead_url()
-        w._custom_port = lambda: None
         two_failures(w)
         assert seen == [(install["launch"], install["cwd"])]
     finally:
@@ -532,7 +532,12 @@ def test_200_non_contract_occupant_is_port_busy(qapp, layout, make, mock_dog):  
     assert w.calls == [] and not w.available
 
 
-# --- 3. user-configured (non-default) Watchdog URL -----------------------------
+
+
+# --- 8. the port the Watchdog remembers (settings.json) ---------------------------
+#
+# Auto-start never chooses a port: the Watchdog takes the one it remembered,
+# else 8787.  The tests' "8787" is w.fallback_port (never the real one).
 
 
 def _write_endpoint(home, url):
@@ -540,67 +545,95 @@ def _write_endpoint(home, url):
         json.dumps({"schema": 1, "url": url}), encoding="utf-8")
 
 
-def test_default_url_keeps_endpoint_first_and_no_port(qapp, layout, make):
+def _write_port(home, port):
+    (home / "settings.json").write_text(json.dumps(
+        {"schema": 1, "port": port, "updated_at": "2026-11-12T10:00:00+08:00"}),
+        encoding="utf-8")
+
+
+def test_resolve_launch_takes_no_port():
+    import inspect
+    assert list(inspect.signature(au.resolve_launch).parameters) == ["home"]
+
+
+def test_watcher_never_passes_a_port_to_the_registered_copy(qapp, layout, make):
     home, install = layout
-    _write_endpoint(home, "http://127.0.0.1:9")
-    w = make(agent_watchdog.DEFAULT_BASE_URL, home)
-    assert w._discover_bases() == ["http://127.0.0.1:9", agent_watchdog.DEFAULT_BASE_URL]
-    assert w._custom_port() is None
-    assert au.resolve_launch(home, w._custom_port()).launch == install["launch"]
+    _write_port(home, 6868)
+    w = make("http://127.0.0.1:9000", home)  # a 1.39.3 address as well
+    two_failures(w)
+    assert w.calls == [(install["launch"], install["cwd"])]
+    assert "--port" not in w.calls[0][0]
 
 
-def test_custom_url_is_discovered_first(qapp, layout, make):
-    home, _ = layout
-    _write_endpoint(home, "http://127.0.0.1:8787")
-    w = make("http://127.0.0.1:9000", home, custom=True)
-    assert w._custom_port() == 9000
-    assert w._discover_bases() == ["http://127.0.0.1:9000", "http://127.0.0.1:8787"]
-    _write_endpoint(home, "http://127.0.0.1:9000")
-    assert w._discover_bases() == ["http://127.0.0.1:9000"]  # deduplicated
-
-
-def test_custom_port_is_passed_to_registered_copy(layout):
-    home, install = layout
-    plan = au.resolve_launch(home, 9000)
-    assert plan.launch == [*install["launch"], "--port", "9000"]
-    assert not plan.bundled
-    assert au.resolve_launch(home).launch == install["launch"]
-
-
-def test_custom_port_is_passed_to_bundled_copy(layout, monkeypatch):
+def test_bundled_autostart_command_has_no_port(layout, monkeypatch):
     from tests.test_agent_bundle import make_bundle
     home, _ = layout
     (home / "install.json").unlink()
+    _write_port(home, 6868)
     folder = make_bundle(home.parent / "b" / "agent_watchdog")
     monkeypatch.setenv(au.agent_bundle.ENV_OVERRIDE, str(folder))
-    plain = au.resolve_launch(home)
-    assert plain.bundled and "--port" not in plain.launch
-    custom = au.resolve_launch(home, 9000)
-    assert custom.launch == [*plain.launch, "--serve", "--background", "--port", "9000"]
-    assert au.agent_bundle.arguments_allowed(custom.launch[len(plain.launch):])
-    # frozen self-launch: "<exe> --agent-watchdog" takes the same arguments
+    plan = au.resolve_launch(home)
+    main_py = str(au.agent_bundle._REPO_ROOT / "main.py")
+    assert plan.bundled
+    assert plan.launch == [sys.executable, "-X", "utf8", main_py, "--agent-watchdog"]
+    # frozen: "<exe> --agent-watchdog" and nothing else
     monkeypatch.setattr(au.agent_bundle, "is_frozen", lambda: True)
     monkeypatch.setattr(au.agent_bundle, "bundled_script", lambda: folder / "aiwatch.py")
-    frozen = au.resolve_launch(home, 9000)
-    assert frozen.launch[1:] == ["--agent-watchdog", "--serve", "--background",
-                                 "--port", "9000"]
+    assert au.resolve_launch(home).launch == [sys.executable, "--agent-watchdog"]
 
 
-def test_watcher_launches_with_configured_port(qapp, layout, make):
+def test_stranger_on_8787_does_not_block_a_start_on_the_remembered_port(
+        qapp, layout, make, mock_dog):  # noqa: F811
     home, install = layout
-    w = make("http://127.0.0.1:9000", home, custom=True)
-    two_failures(w)
-    assert w.calls[0][0] == [*install["launch"], "--port", "9000"]
-    w2 = make(agent_watchdog.DEFAULT_BASE_URL, home)
-    two_failures(w2)
-    assert w2.calls[0][0] == install["launch"]
+    mock_dog.events_override = {"hello": "world"}  # 200, not the contract
+    _write_port(home, agent_watchdog.url_port(dead_url()))  # "6868": refused
+    w = make(agent_watchdog.DEFAULT_BASE_URL, home)
+    w.fallback_port = agent_watchdog.url_port(mock_dog.url)  # "8787": a stranger
+    w.start()
+    assert wait_until(qapp, lambda: len(w.calls) == 1)
+    assert w.calls[0][0] == install["launch"]
+    assert "port 被佔用" not in w.autostart_message
+    assert any(path == "/api/events" for path, _, _ in mock_dog.log)  # it was asked
 
 
-def test_custom_url_down_falls_back_to_endpoint_without_launch(
+def test_stranger_on_the_remembered_port_blocks_the_start(
+        qapp, layout, make, mock_dog):  # noqa: F811
+    home, _ = layout
+    mock_dog.events_override = {"hello": "world"}
+    port = agent_watchdog.url_port(mock_dog.url)
+    _write_port(home, port)                                 # "6868": a stranger
+    w = make(agent_watchdog.DEFAULT_BASE_URL, home)
+    w.fallback_port = agent_watchdog.url_port(dead_url())   # "8787": refused
+    w.start()
+    assert wait_until(qapp, lambda: "port 被佔用" in w.autostart_message)
+    assert f"127.0.0.1:{port}" in w.autostart_message
+    assert w.calls == [] and not w.available
+
+
+@pytest.mark.parametrize("where", ["endpoint", "legacy"])
+def test_stranger_on_a_non_effective_candidate_does_not_block(
+        qapp, layout, make, mock_dog, where):  # noqa: F811
+    """A stale endpoint.json or a 1.39.3 address answered by another program:
+    the Watchdog would not start there, so it is still started."""
+    home, _ = layout
+    mock_dog.status_status = 404
+    mock_dog.events_status = 500
+    if where == "endpoint":
+        _write_endpoint(home, mock_dog.url)
+        w = make(agent_watchdog.DEFAULT_BASE_URL, home)
+    else:
+        w = make(mock_dog.url, home)
+        w.fallback_port = agent_watchdog.url_port(dead_url())
+    w.start()
+    assert wait_until(qapp, lambda: len(w.calls) == 1)
+    assert "port 被佔用" not in w.autostart_message
+
+
+def test_legacy_address_down_falls_back_to_endpoint_without_launch(
         qapp, layout, make, mock_dog):  # noqa: F811
     home, _ = layout
     _write_endpoint(home, mock_dog.url)
-    w = make(dead_url(), home, custom=True)
+    w = make(dead_url(), home)
     w.start()
     assert wait_until(qapp, lambda: w.available and w.state.boot_id is not None)
     qapp.processEvents()

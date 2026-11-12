@@ -67,10 +67,27 @@ def isolated_relocation_journals(tmp_path, monkeypatch):
                         lambda: tmp_path.parent / (tmp_path.name + "-journals"))
 
 
+@pytest.fixture(scope="session")
+def closed_loopback_port():
+    """A loopback port that refuses every connection for the whole session
+    (bound, never listening, so nothing else can take it)."""
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    yield sock.getsockname()[1]
+    sock.close()
+
+
 @pytest.fixture(autouse=True)
-def isolated_aiwatch_home(tmp_path, monkeypatch):
+def isolated_aiwatch_home(tmp_path, monkeypatch, closed_loopback_port):
     """Never read the real ~/.aiwatch (no test may find a real install.json)."""
     monkeypatch.setenv("AIWATCH_HOME", str(tmp_path.parent / (tmp_path.name + "-aiwatch")))
+    # ... nor poll a Watchdog really running on 8787: the watcher's last
+    # discovery candidate points at a closed port instead.
+    from app import agent_watchdog
+
+    monkeypatch.setattr(agent_watchdog, "FALLBACK_PORT", closed_loopback_port)
     # ... nor a Watchdog copy: neither one a developer pointed the application
     # at nor the one tracked in the repository.  Tests that need a bundled copy
     # point MDV_AGENT_WATCHDOG_DIR (or the repository root) at their own.

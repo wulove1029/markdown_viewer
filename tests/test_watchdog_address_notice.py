@@ -1,4 +1,5 @@
-"""Notice bar for a custom Watchdog address that fell back to another base.
+"""Notice bar for an address saved by Viewer 1.39.3 that fell back to another
+base (the port remembered in settings.json: tests/test_watchdog_set_port.py).
 
 No network: the watcher state is set by hand and settings live in a temp ini.
 """

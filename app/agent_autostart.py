@@ -3,7 +3,8 @@
 Implements the client side of the Watchdog's auto-start contract.  Pure
 logic, no Qt: the watcher (:mod:`app.agent_watchdog`) decides *when*, this
 module decides *whether* (install.json validation, attempt budget) and *how*
-(detached spawn).  install.json is only ever read, never written.  The
+(detached spawn).  install.json and settings.json are only ever read, never
+written (the port is changed through the Watchdog, see :mod:`app.agent_port`).  The
 spawned process is never tracked, killed or asked to shut down.
 
 When the registration cannot be used and the application ships its own copy
@@ -48,6 +49,30 @@ def aiwatch_home() -> Path:
     """AIWATCH_HOME if set, else ~/.aiwatch (endpoint.json and install.json)."""
     override = os.environ.get("AIWATCH_HOME", "").strip()
     return Path(override) if override else Path.home() / ".aiwatch"
+
+
+SETTINGS_NAME = "settings.json"
+SETTINGS_MAX_BYTES = 64 * 1024
+
+
+def load_port_setting(home: Path) -> int | None:
+    """The port remembered in ``home/settings.json`` (Watchdog 1.4.0+), or None.
+
+    Read-only and never raises: a missing, oversized, corrupt or oddly typed
+    file means "not set".  ``port`` counts when it is an integer 1..65535,
+    whatever the ``schema``; unknown fields are ignored.
+    """
+    path = home / SETTINGS_NAME
+    try:
+        if path.stat().st_size > SETTINGS_MAX_BYTES:
+            return None
+        data: Any = json.loads(path.read_bytes().decode("utf-8-sig"))
+    except (OSError, ValueError, RecursionError):  # ValueError: bad UTF-8 too
+        return None
+    port = data.get("port") if isinstance(data, dict) else None
+    if type(port) is not int or not 1 <= port <= 65535:
+        return None  # True / 6868.0 / "6868" do not count
+    return port
 
 
 @dataclass
@@ -192,7 +217,7 @@ class LaunchPlan:
     reason: str = ""
 
 
-def resolve_launch(home: Path, port: int | None = None) -> LaunchPlan:
+def resolve_launch(home: Path) -> LaunchPlan:
     """The user's registered copy first, else the bundled one.
 
     1. A valid install.json wins: the copy the user registered.
@@ -202,21 +227,16 @@ def resolve_launch(home: Path, port: int | None = None) -> LaunchPlan:
     4. No bundled copy: nothing is started and the registration's problem is
        the reason, exactly as without this fallback.
 
-    *port* (a user-configured non-default port) is appended as ``--port N``;
-    None leaves the argv exactly as before.
+    No ``--port`` is ever added: the Watchdog picks its port itself (the one
+    remembered in settings.json, else its default).
     """
     check = load_install(home)
     if check.ok:
-        launch = list(check.launch)
-        if port is not None:
-            launch += ["--port", str(port)]
-        return LaunchPlan(launch, check.cwd)
+        return LaunchPlan(list(check.launch), check.cwd)
     bundled = None if check.opted_out else agent_bundle.bundled_launch()
     if bundled is None:
         return LaunchPlan(reason=check.reason)
     launch, cwd = bundled
-    if port is not None:
-        launch = [*launch, *agent_bundle.DEFAULT_ARGS, "--port", str(port)]
     return LaunchPlan(launch, cwd, bundled=True)
 
 

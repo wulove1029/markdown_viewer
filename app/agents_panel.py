@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher, host_port
+from .agent_watchdog import DEFAULT_START_BAT, AgentWatcher, address_notice_text
 from .agent_watchdog_state import is_loopback_url, panel_url
 from .theme import CONTROL_RADIUS, HIT_TARGET, LIGHT, Theme
 
@@ -328,15 +328,13 @@ class AgentsDock(QDockWidget):
             self.refresh()
 
     def _update_notice(self) -> None:
-        """Show the bar only when a custom address fell back to another base."""
-        watcher = self._watcher
-        configured = getattr(watcher, "fallback_from", None) if watcher else None
-        if not configured:
+        """Show the bar only while connected to a base other than the configured
+        one (the remembered port, else a 1.39.3 address)."""
+        text = address_notice_text(self._watcher)
+        if not text:
             self._notice.setVisible(False)
             return
-        self._notice_label.setText(
-            f"你設定的 {host_port(configured)} 沒有回應，"
-            f"目前顯示的是 {host_port(watcher.base_url)} 的 Watchdog。")
+        self._notice_label.setText(text)
         self._notice.setVisible(True)
 
     def _restyle_notice(self) -> None:

@@ -7110,7 +7110,7 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             KEY_TOAST_STUCK, config.toast_stuck))
         menu.addAction(toggle(
             "連不到時自動啟動 Watchdog", KEY_AUTOSTART, config.autostart))
-        menu.addAction(act("設定 Watchdog 位址…", self._edit_watchdog_url))
+        menu.addAction(act("變更 Watchdog 連接埠…", self._change_watchdog_port))
 
     def start_agent_watchdog(self) -> None:
         """Primary instance only (called by main.py after the IPC server is up)."""
@@ -7289,34 +7289,12 @@ QWidget#editorSearchBar QLabel {{ color: {t.text_muted}; font-size: 12px; paddin
             watcher.state.toast_waiting = watcher.config.toast_waiting
             watcher.state.toast_stuck = watcher.config.toast_stuck
 
-    def _edit_watchdog_url(self) -> None:
-        from PySide6.QtWidgets import QInputDialog
+    def _change_watchdog_port(self) -> None:
+        """The port lives in the Watchdog (settings.json): run the bundled copy
+        with --set-port N, then rediscover (see app.agent_port)."""
+        from .agent_port import change_watchdog_port
 
-        from .agent_watchdog import (
-            KEY_BASE_URL,
-            WatchdogConfig,
-            connection_text,
-            save_setting,
-        )
-        from .agent_watchdog_state import is_loopback_url
-
-        current = WatchdogConfig.load().base_url
-        text, ok = QInputDialog.getText(
-            self, "設定 Watchdog 位址",
-            "Watchdog 位址（僅接受 127.0.0.1 或 ::1）：\n"
-            + connection_text(self._agent_watcher),
-            text=current)
-        if not ok:
-            return
-        text = text.strip().rstrip("/")
-        if not is_loopback_url(text):
-            QMessageBox.warning(
-                self, "位址無效",
-                "只接受本機位址，例如 http://127.0.0.1:8787。")
-            return
-        save_setting(KEY_BASE_URL, text)
-        if self._agent_watcher is not None:
-            self._agent_watcher.start()
+        change_watchdog_port(self, self._agent_watcher)
 
     def _agent_watch_pause(self) -> None:
         watcher = getattr(self, "_agent_watcher", None)

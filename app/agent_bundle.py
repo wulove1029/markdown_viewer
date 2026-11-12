@@ -19,7 +19,9 @@ Embedding interface (the Watchdog side may be older and ignore all of it):
   arguments in ``sys.argv``.
 * only the arguments in :func:`arguments_allowed` are passed on; anything else
   (stopping, registering, switching auto-start, log paths ...) is refused, so
-  this entry point can serve and nothing more.
+  this entry point can serve, or remember a new port with ``--set-port N``
+  (alone; the Watchdog then moves a running copy there itself), and nothing
+  more.
 * when the Watchdog cannot start it may leave ``last_error.json`` in its data
   directory; :func:`read_last_error` reads it for the panel's diagnostics.
 """
@@ -63,6 +65,10 @@ EXIT_BAD_ARGUMENTS = 2
 _FLAG_ARGS = ("--serve", "--background")
 _PORT_ARG = "--port"            # integer 0..65535
 _IDLE_EXIT_ARG = "--idle-exit"  # seconds, a non-negative number
+#: Only ever on its own: ``--set-port N`` or ``--set-port=N``, N in 1..65535.
+SET_PORT_ARG = "--set-port"
+#: ``__version__ = "1.3.0"`` near the top of the bundled aiwatch.py.
+_VERSION_LINE = re.compile(r"""^__version__\s*=\s*["']([^"'\r\n]{1,40})["']""", re.MULTILINE)
 #: Written here (not by the Watchdog) when the bundled code raised.
 ERROR_LOG_NAME = "agent-watchdog-launch-error.log"
 #: Written by the Watchdog when it could not start; removed once it does.
@@ -133,6 +139,34 @@ def bundled_launch() -> tuple[list[str], str] | None:
     return launch, str(script.parent)
 
 
+def set_port_launch(port: int) -> tuple[list[str], str] | None:
+    """(argv, cwd) that asks the bundled copy to remember *port*, or None.
+
+    The same command as :func:`bundled_launch` followed by ``--set-port N``:
+    ``<exe> --agent-watchdog --set-port N`` packaged, ``python -X utf8 main.py
+    --agent-watchdog --set-port N`` from source.
+    """
+    launch = bundled_launch()
+    if launch is None:
+        return None
+    argv, cwd = launch
+    return [*argv, SET_PORT_ARG, str(int(port))], cwd
+
+
+def bundled_version() -> str | None:
+    """The bundled copy's ``__version__``, read from its source (never imported)."""
+    script = bundled_script()
+    if script is None:
+        return None
+    try:
+        with open(script, encoding="utf-8-sig", errors="replace") as fh:
+            head = fh.read(64 * 1024)
+    except OSError:
+        return None
+    match = _VERSION_LINE.search(head)
+    return match.group(1).strip() if match else None
+
+
 def _ensure_std_streams() -> None:
     """A windowed packaged build has no console: sys.stdout / sys.stderr /
     sys.stdin are None there and the first print() would raise."""
@@ -193,10 +227,26 @@ def _is_seconds(text: str) -> bool:
     return 0 <= value < float("inf") and text.strip() == text and len(text) <= 16
 
 
+def _is_set_port(items: Sequence[object]) -> bool:
+    """Exactly ``["--set-port", N]`` or ``["--set-port=N"]``, N in 1..65535."""
+    if len(items) == 2 and items[0] == SET_PORT_ARG:
+        value = items[1]
+    elif len(items) == 1 and isinstance(items[0], str):
+        name, equals, value = items[0].partition("=")
+        if name != SET_PORT_ARG or not equals:
+            return False
+    else:
+        return False
+    return isinstance(value, str) and _is_port(value) and int(value) >= 1
+
+
 def arguments_allowed(args: Sequence[str]) -> bool:
-    """True when *args* only serve: --serve, --background, --port N, --idle-exit S."""
+    """True when *args* only serve (--serve, --background, --port N,
+    --idle-exit S) or are exactly ``--set-port N`` with nothing else."""
     values = {_PORT_ARG: _is_port, _IDLE_EXIT_ARG: _is_seconds}
     items = list(args)
+    if _is_set_port(items):
+        return True
     index = 0
     while index < len(items):
         item = items[index]

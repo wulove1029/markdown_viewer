@@ -45,7 +45,12 @@ from .agent_watchdog_state import (
 
 log = logging.getLogger(__name__)
 
+DEFAULT_PORT = 8787               # the Watchdog's own default port
 DEFAULT_BASE_URL = "http://127.0.0.1:8787"
+#: The last discovery candidate, and the effective port while settings.json
+#: remembers none.  Always DEFAULT_PORT; the test suite points it at a closed
+#: port so that no test can reach a Watchdog really running on the machine.
+FALLBACK_PORT = DEFAULT_PORT
 DEFAULT_START_BAT = ""  # unset: user points to their own start.bat
 EVENTS_INTERVAL_MS = 5000
 STATUS_INTERVAL_MS = 60000
@@ -56,6 +61,8 @@ RETRY_AFTER_FAILURE_MS = 1000     # quick retry after a single failure
 LEGACY_REPROBE_S = 300.0          # legacy mode re-checks /api/events this often
 
 KEY_ENABLED = "watchdog/enabled"
+#: Written only by Viewer 1.39.3 ("設定 Watchdog 位址…"): read, never written
+#: again, and removed once the Watchdog itself remembers a port (--set-port).
 KEY_BASE_URL = "watchdog/base_url"
 KEY_START_BAT = "watchdog/start_bat"
 KEY_AUTOSTART = "watchdog/autostart"
@@ -117,6 +124,24 @@ def save_setting(key: str, value: object) -> None:
     store.sync()
 
 
+def forget_legacy_base_url() -> None:
+    """Drop the address Viewer 1.39.3 saved (the Watchdog remembers the port now)."""
+    store = settings_store.settings()
+    store.remove(KEY_BASE_URL)
+    store.sync()
+
+
+def loopback_base(port: int) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
+def url_port(url: str) -> int | None:
+    try:
+        return urlparse(url).port
+    except ValueError:
+        return None
+
+
 def host_port(url: str) -> str:
     """host:port of a URL without the scheme (plain text for display)."""
     try:
@@ -134,6 +159,22 @@ def connection_text(watcher: AgentWatcher | None) -> str:
     if watcher is None or not watcher.available:
         return "目前沒有連上 Watchdog"
     return f"目前連線：{host_port(watcher.base_url)}"
+
+
+def address_notice_text(watcher: object) -> str:
+    """The AI Agents notice bar's text; "" hides the bar.
+
+    Shown while connected to a base other than the configured one: the port
+    remembered in settings.json, else a non-default address saved by 1.39.3.
+    """
+    configured = getattr(watcher, "fallback_from", None) if watcher is not None else None
+    if not configured:
+        return ""
+    active = host_port(str(getattr(watcher, "base_url", "")))
+    port = getattr(watcher, "remembered_port", None)
+    if isinstance(port, int):
+        return f"記住的連接埠 {port} 沒有回應，目前顯示的是 {active} 的 Watchdog。"
+    return f"你設定的 {host_port(configured)} 沒有回應，目前顯示的是 {active} 的 Watchdog。"
 
 
 class AgentWatcher(QObject):
@@ -165,6 +206,9 @@ class AgentWatcher(QObject):
         self._last_launch: list[str] = []  # what the last auto-start executed
         self._last_cwd = ""
         self._use_tray = use_tray
+        # Last candidate / effective port when settings.json remembers none.
+        self.fallback_port = FALLBACK_PORT
+        self._remembered_port: int | None = None  # settings.json, at discovery
         self.config = WatchdogConfig.load()
         self.state = self._new_state()
         self._backoff = Backoff()
@@ -209,7 +253,9 @@ class AgentWatcher(QObject):
 
     @property
     def base_url(self) -> str:
-        return self._bases[self._base_index] if self._bases else self.config.base_url
+        if self._bases:
+            return self._bases[self._base_index]
+        return loopback_base(self.fallback_port)
 
     @property
     def _home(self) -> Path:
@@ -221,17 +267,30 @@ class AgentWatcher(QObject):
         return not self.state.unavailable
 
     @property
+    def remembered_port(self) -> int | None:
+        """The port settings.json remembered when the bases were discovered."""
+        return self._remembered_port
+
+    @property
+    def configured_base(self) -> str | None:
+        """The base the user chose: the remembered port, else a non-default
+        address saved by Viewer 1.39.3; None when neither is set."""
+        if self._remembered_port is not None:
+            return loopback_base(self._remembered_port)
+        return self._legacy_base()
+
+    @property
     def fallback_from(self) -> str | None:
-        """The configured custom URL when another base is in use, else None.
+        """The configured base when another base is in use, else None.
 
         Only meaningful while connected: an unavailable Watchdog has no base
         in use (the help page covers that).
         """
-        if self.state.unavailable or self._custom_port() is None:
+        configured = self.configured_base
+        if self.state.unavailable or configured is None:
             return None
-        configured = self.config.base_url.rstrip("/")
-        if self.base_url.rstrip("/") == configured:
-            return None
+        if url_port(self.base_url) == url_port(configured):
+            return None  # loopback only: the same port is the same service
         return configured
 
     @property
@@ -303,33 +362,44 @@ class AgentWatcher(QObject):
 
     # --- discovery --------------------------------------------------------
 
-    def _custom_port(self) -> int | None:
-        """The configured port when the user changed the URL, else None."""
-        if self.config.base_url.rstrip("/") == DEFAULT_BASE_URL:
-            return None
-        try:
-            return urlparse(self.config.base_url).port
-        except ValueError:
-            return None
+    def _legacy_base(self) -> str | None:
+        """The address Viewer 1.39.3 saved, when it is not the default."""
+        base = self.config.base_url.rstrip("/")
+        return None if base == DEFAULT_BASE_URL else base
+
+    def _effective_port(self) -> int:
+        """Where a Watchdog started now would listen (it picks the port itself)."""
+        if self._remembered_port is not None:
+            return self._remembered_port
+        return self.fallback_port
 
     def _discover_bases(self) -> list[str]:
-        """endpoint.json url first (it may be stale), then the configured URL.
+        """endpoint.json url (it may be stale) -> the port remembered in
+        settings.json -> a non-default 1.39.3 address -> 8787, deduplicated.
 
-        A user-changed URL goes first instead: the setting must take effect.
+        Also records the remembered port for the notice bar and the port-busy
+        check: both follow the bases being tried.
         """
-        bases: list[str] = []
-        if self._custom_port() is not None:
-            bases.append(self.config.base_url)
+        candidates: list[str] = []
         try:
             data = json.loads(self._endpoint_path.read_text(encoding="utf-8"))
             url = data.get("url") if isinstance(data, dict) else None
             if isinstance(url, str) and is_loopback_url(url):
-                if url.rstrip("/") not in bases:
-                    bases.append(url.rstrip("/"))
-        except (OSError, ValueError):
+                candidates.append(url)
+        except (OSError, ValueError, RecursionError):
             pass
-        if self.config.base_url not in bases:
-            bases.append(self.config.base_url)
+        self._remembered_port = agent_autostart.load_port_setting(self._home)
+        if self._remembered_port is not None:
+            candidates.append(loopback_base(self._remembered_port))
+        legacy = self._legacy_base()
+        if legacy is not None:
+            candidates.append(legacy)
+        candidates.append(loopback_base(self.fallback_port))
+        bases: list[str] = []
+        for base in candidates:
+            base = base.rstrip("/")
+            if base not in bases:
+                bases.append(base)
         return bases
 
     def endpoint_boot_id(self) -> str | None:
@@ -527,9 +597,11 @@ class AgentWatcher(QObject):
 
         http_status is the HTTP status when the peer answered at all (0 for a
         refused/timed-out connection): an answer that is not the contract means
-        another program owns the port.
+        another program owns the port.  Only the effective port counts (the
+        one a Watchdog started now would take); a stranger on any other
+        candidate does not keep the Watchdog from being started.
         """
-        if http_status:
+        if http_status and url_port(self.base_url) == self._effective_port():
             self._http_seen = True
         if not self.state.unavailable:
             self._failures += 1
@@ -579,8 +651,9 @@ class AgentWatcher(QObject):
                 "稍後會自動再試，也可以按「重新偵測」立即重試。")
         if http_seen:
             self._set_autostart_message(
-                "port 被佔用：有程式在回應，但不符合 Watchdog 的 /api/events 合約，"
-                "因此不自動啟動。請關掉佔用該 port 的程式後按「重新偵測」。")
+                f"port 被佔用（127.0.0.1:{self._effective_port()}）：有程式在回應，"
+                "但不符合 Watchdog 的 /api/events 合約，因此不自動啟動。"
+                "請關掉佔用該 port 的程式後按「重新偵測」。")
         elif self._try_autostart(now):
             self._backoff.reset()
             self._fast_until = now + agent_autostart.FAST_PROBE_WINDOW_S
@@ -606,7 +679,7 @@ class AgentWatcher(QObject):
             return False
         if verdict == "cooldown":
             return False
-        plan = agent_autostart.resolve_launch(self._home, self._custom_port())
+        plan = agent_autostart.resolve_launch(self._home)
         if not plan.launch:
             self.uses_bundled = False
             self._set_autostart_message("不自動啟動：" + plan.reason)
